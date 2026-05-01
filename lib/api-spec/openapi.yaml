@@ -1,22 +1,53 @@
 openapi: 3.1.0
 info:
-  # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: Shepherd Connect - Children's Church Management Platform API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: auth
+    description: Authentication
+  - name: users
+    description: User management
+  - name: families
+    description: Family registry
+  - name: children
+    description: Children management
+  - name: classes
+    description: Class management
+  - name: classAssignments
+    description: Class assignments
+  - name: teachers
+    description: Teacher management
+  - name: teacherAllocations
+    description: Teacher allocations
+  - name: attendance
+    description: Attendance tracking
+  - name: pickupDelegates
+    description: Pickup delegate management
+  - name: notifications
+    description: Notification center
+  - name: feedback
+    description: Parent feedback
+  - name: appraisals
+    description: Child appraisals
+  - name: emergencies
+    description: Emergency management
+  - name: auditLogs
+    description: Audit trail
+  - name: dashboard
+    description: Admin dashboard analytics
+
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -24,6 +55,1334 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  # AUTH
+  /auth/login:
+    post:
+      operationId: login
+      tags: [auth]
+      summary: Login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginBody"
+      responses:
+        "200":
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "401":
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /auth/register:
+    post:
+      operationId: register
+      tags: [auth]
+      summary: Register new user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterBody"
+      responses:
+        "201":
+          description: Registration successful
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+
+  /auth/me:
+    get:
+      operationId: getCurrentUser
+      tags: [auth]
+      summary: Get current authenticated user
+      responses:
+        "200":
+          description: Current user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+
+  /auth/logout:
+    post:
+      operationId: logout
+      tags: [auth]
+      summary: Logout
+      responses:
+        "200":
+          description: Logged out
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  # USERS
+  /users:
+    get:
+      operationId: listUsers
+      tags: [users]
+      summary: List all users
+      parameters:
+        - name: role
+          in: query
+          schema:
+            type: string
+        - name: search
+          in: query
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        "200":
+          description: List of users
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaginatedUsers"
+    post:
+      operationId: createUser
+      tags: [users]
+      summary: Create user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateUserBody"
+      responses:
+        "201":
+          description: User created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+
+  /users/{id}:
+    get:
+      operationId: getUser
+      tags: [users]
+      summary: Get user by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: User
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+    put:
+      operationId: updateUser
+      tags: [users]
+      summary: Update user
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateUserBody"
+      responses:
+        "200":
+          description: Updated user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+    delete:
+      operationId: deleteUser
+      tags: [users]
+      summary: Delete user
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  # FAMILIES
+  /families:
+    get:
+      operationId: listFamilies
+      tags: [families]
+      summary: List families
+      parameters:
+        - name: search
+          in: query
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        "200":
+          description: Families list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaginatedFamilies"
+    post:
+      operationId: createFamily
+      tags: [families]
+      summary: Create family
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateFamilyBody"
+      responses:
+        "201":
+          description: Family created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Family"
+
+  /families/{id}:
+    get:
+      operationId: getFamily
+      tags: [families]
+      summary: Get family by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Family
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Family"
+    put:
+      operationId: updateFamily
+      tags: [families]
+      summary: Update family
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateFamilyBody"
+      responses:
+        "200":
+          description: Updated family
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Family"
+
+  /families/{id}/tree:
+    get:
+      operationId: getFamilyTree
+      tags: [families]
+      summary: Get family tree with children and class info
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Family tree
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FamilyTree"
+
+  /families/my:
+    get:
+      operationId: getMyFamily
+      tags: [families]
+      summary: Get current parent's family
+      responses:
+        "200":
+          description: My family
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Family"
+
+  # CHILDREN
+  /children:
+    get:
+      operationId: listChildren
+      tags: [children]
+      summary: List children
+      parameters:
+        - name: classId
+          in: query
+          schema:
+            type: integer
+        - name: familyId
+          in: query
+          schema:
+            type: integer
+        - name: unassigned
+          in: query
+          schema:
+            type: boolean
+        - name: search
+          in: query
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+      responses:
+        "200":
+          description: Children list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaginatedChildren"
+    post:
+      operationId: createChild
+      tags: [children]
+      summary: Create child
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateChildBody"
+      responses:
+        "201":
+          description: Child created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Child"
+
+  /children/{id}:
+    get:
+      operationId: getChild
+      tags: [children]
+      summary: Get child by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Child
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Child"
+    put:
+      operationId: updateChild
+      tags: [children]
+      summary: Update child
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateChildBody"
+      responses:
+        "200":
+          description: Updated child
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Child"
+
+  /children/{id}/qr-code:
+    get:
+      operationId: getChildQrCode
+      tags: [children]
+      summary: Get QR code for child
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: QR code data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QrCodeData"
+
+  # CLASSES
+  /classes:
+    get:
+      operationId: listClasses
+      tags: [classes]
+      summary: List classes
+      parameters:
+        - name: serviceSlot
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Classes list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Class"
+    post:
+      operationId: createClass
+      tags: [classes]
+      summary: Create class
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateClassBody"
+      responses:
+        "201":
+          description: Class created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Class"
+
+  /classes/{id}:
+    get:
+      operationId: getClass
+      tags: [classes]
+      summary: Get class by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Class
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Class"
+    put:
+      operationId: updateClass
+      tags: [classes]
+      summary: Update class
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateClassBody"
+      responses:
+        "200":
+          description: Updated class
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Class"
+    delete:
+      operationId: deleteClass
+      tags: [classes]
+      summary: Delete class
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  # CLASS ASSIGNMENTS
+  /class-assignments:
+    get:
+      operationId: listClassAssignments
+      tags: [classAssignments]
+      summary: List class assignments
+      parameters:
+        - name: classId
+          in: query
+          schema:
+            type: integer
+        - name: childId
+          in: query
+          schema:
+            type: integer
+        - name: status
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Assignments list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ClassAssignment"
+    post:
+      operationId: createClassAssignment
+      tags: [classAssignments]
+      summary: Assign child to class
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateClassAssignmentBody"
+      responses:
+        "201":
+          description: Assignment created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClassAssignment"
+
+  /class-assignments/{id}:
+    put:
+      operationId: updateClassAssignment
+      tags: [classAssignments]
+      summary: Update class assignment
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateClassAssignmentBody"
+      responses:
+        "200":
+          description: Updated assignment
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClassAssignment"
+
+  # TEACHERS
+  /teachers:
+    get:
+      operationId: listTeachers
+      tags: [teachers]
+      summary: List teachers
+      responses:
+        "200":
+          description: Teachers list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Teacher"
+    post:
+      operationId: createTeacher
+      tags: [teachers]
+      summary: Create teacher profile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTeacherBody"
+      responses:
+        "201":
+          description: Teacher created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Teacher"
+
+  /teachers/{id}:
+    get:
+      operationId: getTeacher
+      tags: [teachers]
+      summary: Get teacher by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Teacher
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Teacher"
+    put:
+      operationId: updateTeacher
+      tags: [teachers]
+      summary: Update teacher
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTeacherBody"
+      responses:
+        "200":
+          description: Updated teacher
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Teacher"
+
+  # TEACHER ALLOCATIONS
+  /teacher-allocations:
+    get:
+      operationId: listTeacherAllocations
+      tags: [teacherAllocations]
+      summary: List teacher allocations
+      parameters:
+        - name: serviceDate
+          in: query
+          schema:
+            type: string
+        - name: classId
+          in: query
+          schema:
+            type: integer
+        - name: teacherId
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Allocations list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TeacherAllocation"
+    post:
+      operationId: createTeacherAllocation
+      tags: [teacherAllocations]
+      summary: Allocate teacher to class
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTeacherAllocationBody"
+      responses:
+        "201":
+          description: Allocation created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TeacherAllocation"
+
+  /teacher-allocations/{id}:
+    put:
+      operationId: updateTeacherAllocation
+      tags: [teacherAllocations]
+      summary: Update teacher allocation
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateTeacherAllocationBody"
+      responses:
+        "200":
+          description: Updated allocation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TeacherAllocation"
+
+  # ATTENDANCE
+  /attendance:
+    get:
+      operationId: listAttendance
+      tags: [attendance]
+      summary: List attendance records
+      parameters:
+        - name: classId
+          in: query
+          schema:
+            type: integer
+        - name: childId
+          in: query
+          schema:
+            type: integer
+        - name: serviceDate
+          in: query
+          schema:
+            type: string
+        - name: serviceSlot
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Attendance list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Attendance"
+    post:
+      operationId: checkIn
+      tags: [attendance]
+      summary: Check in a child (drop-off)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CheckInBody"
+      responses:
+        "201":
+          description: Checked in
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Attendance"
+
+  /attendance/{id}/arrive:
+    put:
+      operationId: markArrived
+      tags: [attendance]
+      summary: Teacher marks child as arrived in class
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Marked arrived
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Attendance"
+
+  /attendance/{id}/checkout:
+    put:
+      operationId: checkOut
+      tags: [attendance]
+      summary: Check out a child (pick-up)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CheckOutBody"
+      responses:
+        "200":
+          description: Checked out
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Attendance"
+
+  /attendance/scan-qr:
+    post:
+      operationId: scanQrCode
+      tags: [attendance]
+      summary: Scan QR code and get family/child info for check-in
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScanQrBody"
+      responses:
+        "200":
+          description: Family and children info
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QrScanResult"
+
+  # PICKUP DELEGATES
+  /pickup-delegates:
+    get:
+      operationId: listPickupDelegates
+      tags: [pickupDelegates]
+      summary: List pickup delegates
+      parameters:
+        - name: childId
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Delegates list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PickupDelegate"
+    post:
+      operationId: createPickupDelegate
+      tags: [pickupDelegates]
+      summary: Create pickup delegate and generate OTP
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePickupDelegateBody"
+      responses:
+        "201":
+          description: Delegate created with OTP
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PickupDelegate"
+
+  /pickup-delegates/verify-otp:
+    post:
+      operationId: verifyDelegateOtp
+      tags: [pickupDelegates]
+      summary: Verify delegate OTP for pickup
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VerifyOtpBody"
+      responses:
+        "200":
+          description: OTP verified
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OtpVerifyResult"
+
+  /pickup-delegates/{id}/approve:
+    put:
+      operationId: approvePickupDelegate
+      tags: [pickupDelegates]
+      summary: Parent approves delegate pickup
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Approved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PickupDelegate"
+
+  # NOTIFICATIONS
+  /notifications:
+    get:
+      operationId: listNotifications
+      tags: [notifications]
+      summary: List notifications for current user
+      parameters:
+        - name: unreadOnly
+          in: query
+          schema:
+            type: boolean
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        "200":
+          description: Notifications
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaginatedNotifications"
+
+  /notifications/{id}/read:
+    put:
+      operationId: markNotificationRead
+      tags: [notifications]
+      summary: Mark notification as read
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Marked as read
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Notification"
+
+  /notifications/read-all:
+    put:
+      operationId: markAllNotificationsRead
+      tags: [notifications]
+      summary: Mark all notifications as read
+      responses:
+        "200":
+          description: All marked as read
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  # FEEDBACK
+  /feedback:
+    get:
+      operationId: listFeedback
+      tags: [feedback]
+      summary: List feedback
+      parameters:
+        - name: serviceDate
+          in: query
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        "200":
+          description: Feedback list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaginatedFeedback"
+    post:
+      operationId: submitFeedback
+      tags: [feedback]
+      summary: Submit parent feedback
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateFeedbackBody"
+      responses:
+        "201":
+          description: Feedback submitted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Feedback"
+
+  # APPRAISALS
+  /appraisals:
+    get:
+      operationId: listAppraisals
+      tags: [appraisals]
+      summary: List child appraisals
+      parameters:
+        - name: childId
+          in: query
+          schema:
+            type: integer
+        - name: teacherId
+          in: query
+          schema:
+            type: integer
+        - name: serviceDate
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Appraisals list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Appraisal"
+    post:
+      operationId: createAppraisal
+      tags: [appraisals]
+      summary: Create child appraisal
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAppraisalBody"
+      responses:
+        "201":
+          description: Appraisal created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Appraisal"
+
+  # EMERGENCIES
+  /emergencies:
+    get:
+      operationId: listEmergencies
+      tags: [emergencies]
+      summary: List emergencies
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: level
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Emergencies list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Emergency"
+    post:
+      operationId: triggerEmergency
+      tags: [emergencies]
+      summary: Trigger an emergency
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateEmergencyBody"
+      responses:
+        "201":
+          description: Emergency triggered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Emergency"
+
+  /emergencies/{id}:
+    get:
+      operationId: getEmergency
+      tags: [emergencies]
+      summary: Get emergency by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Emergency
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Emergency"
+    put:
+      operationId: updateEmergency
+      tags: [emergencies]
+      summary: Update emergency (escalate, resolve, add note)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateEmergencyBody"
+      responses:
+        "200":
+          description: Updated emergency
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Emergency"
+
+  # AUDIT LOGS
+  /audit-logs:
+    get:
+      operationId: listAuditLogs
+      tags: [auditLogs]
+      summary: List audit logs
+      parameters:
+        - name: userId
+          in: query
+          schema:
+            type: integer
+        - name: action
+          in: query
+          schema:
+            type: string
+        - name: startDate
+          in: query
+          schema:
+            type: string
+        - name: endDate
+          in: query
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+      responses:
+        "200":
+          description: Audit logs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaginatedAuditLogs"
+
+  # DASHBOARD
+  /dashboard/stats:
+    get:
+      operationId: getDashboardStats
+      tags: [dashboard]
+      summary: Get KPI dashboard statistics
+      parameters:
+        - name: serviceDate
+          in: query
+          schema:
+            type: string
+        - name: serviceSlot
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Dashboard statistics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardStats"
+
+  /dashboard/live-view:
+    get:
+      operationId: getLiveView
+      tags: [dashboard]
+      summary: Get live class occupancy and children status
+      parameters:
+        - name: serviceDate
+          in: query
+          schema:
+            type: string
+        - name: serviceSlot
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Live view data
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/LiveClassView"
+
+  /dashboard/attendance-trends:
+    get:
+      operationId: getAttendanceTrends
+      tags: [dashboard]
+      summary: Get weekly/monthly attendance trends
+      parameters:
+        - name: period
+          in: query
+          schema:
+            type: string
+            enum: [weekly, monthly]
+            default: weekly
+        - name: classId
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Attendance trend data
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AttendanceTrend"
+
+  /dashboard/class-utilization:
+    get:
+      operationId: getClassUtilization
+      tags: [dashboard]
+      summary: Get class capacity vs actual enrollment
+      responses:
+        "200":
+          description: Class utilization data
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ClassUtilization"
+
+  /dashboard/feedback-analytics:
+    get:
+      operationId: getFeedbackAnalytics
+      tags: [dashboard]
+      summary: Get aggregated feedback ratings and sentiment
+      responses:
+        "200":
+          description: Feedback analytics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeedbackAnalytics"
+
+  /dashboard/exceptions:
+    get:
+      operationId: getExceptions
+      tags: [dashboard]
+      summary: Get exception reports (unpicked children, capacity overflows)
+      parameters:
+        - name: serviceDate
+          in: query
+          schema:
+            type: string
+        - name: serviceSlot
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Exception data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExceptionReport"
+
 components:
   schemas:
     HealthStatus:
@@ -34,3 +1393,1283 @@ components:
       required:
         - status
 
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+        message:
+          type: string
+      required:
+        - error
+        - message
+
+    SuccessResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+      required:
+        - success
+
+    # AUTH
+    LoginBody:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+      required:
+        - email
+        - password
+
+    RegisterBody:
+      type: object
+      properties:
+        firstName:
+          type: string
+        lastName:
+          type: string
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+        password:
+          type: string
+        role:
+          type: string
+          enum: [super_admin, admin, teacher, attendant, parent]
+      required:
+        - firstName
+        - lastName
+        - email
+        - password
+        - role
+
+    AuthResponse:
+      type: object
+      properties:
+        token:
+          type: string
+        user:
+          $ref: "#/components/schemas/User"
+      required:
+        - token
+        - user
+
+    # USER
+    User:
+      type: object
+      properties:
+        id:
+          type: integer
+        email:
+          type: string
+        phone:
+          type: string
+          nullable: true
+        role:
+          type: string
+          enum: [super_admin, admin, teacher, attendant, parent]
+        firstName:
+          type: string
+        lastName:
+          type: string
+        isActive:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - email
+        - role
+        - firstName
+        - lastName
+        - isActive
+        - createdAt
+
+    CreateUserBody:
+      type: object
+      properties:
+        firstName:
+          type: string
+        lastName:
+          type: string
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+        password:
+          type: string
+        role:
+          type: string
+      required:
+        - firstName
+        - lastName
+        - email
+        - password
+        - role
+
+    UpdateUserBody:
+      type: object
+      properties:
+        firstName:
+          type: string
+        lastName:
+          type: string
+        phone:
+          type: string
+        isActive:
+          type: boolean
+        role:
+          type: string
+
+    PaginatedUsers:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/User"
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+      required:
+        - data
+        - total
+        - page
+        - limit
+
+    # FAMILY
+    Family:
+      type: object
+      properties:
+        id:
+          type: integer
+        familyCode:
+          type: string
+        parent1Id:
+          type: integer
+          nullable: true
+        parent2Id:
+          type: integer
+          nullable: true
+        parent1:
+          $ref: "#/components/schemas/User"
+          nullable: true
+        parent2:
+          $ref: "#/components/schemas/User"
+          nullable: true
+        address:
+          type: string
+          nullable: true
+        emergencyContactName:
+          type: string
+          nullable: true
+        emergencyContactPhone:
+          type: string
+          nullable: true
+        children:
+          type: array
+          items:
+            $ref: "#/components/schemas/Child"
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - familyCode
+        - createdAt
+
+    CreateFamilyBody:
+      type: object
+      properties:
+        parent1Id:
+          type: integer
+        parent2Id:
+          type: integer
+          nullable: true
+        address:
+          type: string
+        emergencyContactName:
+          type: string
+        emergencyContactPhone:
+          type: string
+      required:
+        - parent1Id
+
+    PaginatedFamilies:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Family"
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+      required:
+        - data
+        - total
+        - page
+        - limit
+
+    FamilyTree:
+      type: object
+      properties:
+        family:
+          $ref: "#/components/schemas/Family"
+        parents:
+          type: array
+          items:
+            $ref: "#/components/schemas/User"
+        children:
+          type: array
+          items:
+            $ref: "#/components/schemas/ChildWithDetails"
+      required:
+        - family
+        - parents
+        - children
+
+    ChildWithDetails:
+      type: object
+      properties:
+        id:
+          type: integer
+        firstName:
+          type: string
+        lastName:
+          type: string
+        dob:
+          type: string
+          format: date
+        age:
+          type: integer
+        gender:
+          type: string
+        photoUrl:
+          type: string
+          nullable: true
+        currentClass:
+          $ref: "#/components/schemas/Class"
+          nullable: true
+        teacher:
+          $ref: "#/components/schemas/User"
+          nullable: true
+        lastAttendance:
+          type: string
+          nullable: true
+        attendanceHistory:
+          type: array
+          items:
+            $ref: "#/components/schemas/Attendance"
+      required:
+        - id
+        - firstName
+        - lastName
+        - dob
+        - age
+        - gender
+
+    # CHILD
+    Child:
+      type: object
+      properties:
+        id:
+          type: integer
+        familyId:
+          type: integer
+        firstName:
+          type: string
+        lastName:
+          type: string
+        dob:
+          type: string
+          format: date
+        age:
+          type: integer
+        gender:
+          type: string
+        allergies:
+          type: string
+          nullable: true
+        medicalNotes:
+          type: string
+          nullable: true
+        photoUrl:
+          type: string
+          nullable: true
+        currentClassId:
+          type: integer
+          nullable: true
+        currentClass:
+          $ref: "#/components/schemas/Class"
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - familyId
+        - firstName
+        - lastName
+        - dob
+        - age
+        - gender
+        - createdAt
+
+    CreateChildBody:
+      type: object
+      properties:
+        familyId:
+          type: integer
+        firstName:
+          type: string
+        lastName:
+          type: string
+        dob:
+          type: string
+          format: date
+        gender:
+          type: string
+          enum: [male, female]
+        allergies:
+          type: string
+          nullable: true
+        medicalNotes:
+          type: string
+          nullable: true
+        photoUrl:
+          type: string
+          nullable: true
+        faceDescriptorJson:
+          type: string
+          nullable: true
+      required:
+        - familyId
+        - firstName
+        - lastName
+        - dob
+        - gender
+
+    PaginatedChildren:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Child"
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+      required:
+        - data
+        - total
+        - page
+        - limit
+
+    QrCodeData:
+      type: object
+      properties:
+        qrCode:
+          type: string
+        familyCode:
+          type: string
+        childId:
+          type: integer
+      required:
+        - qrCode
+        - familyCode
+        - childId
+
+    # CLASS
+    Class:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        ageMin:
+          type: integer
+        ageMax:
+          type: integer
+        capacity:
+          type: integer
+        roomLocation:
+          type: string
+        serviceSlot:
+          type: string
+          enum: ["7am", "9am", "11am", "1pm"]
+        description:
+          type: string
+          nullable: true
+        enrollmentCount:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - name
+        - ageMin
+        - ageMax
+        - capacity
+        - roomLocation
+        - serviceSlot
+        - enrollmentCount
+        - createdAt
+
+    CreateClassBody:
+      type: object
+      properties:
+        name:
+          type: string
+        ageMin:
+          type: integer
+        ageMax:
+          type: integer
+        capacity:
+          type: integer
+        roomLocation:
+          type: string
+        serviceSlot:
+          type: string
+          enum: ["7am", "9am", "11am", "1pm"]
+        description:
+          type: string
+          nullable: true
+      required:
+        - name
+        - ageMin
+        - ageMax
+        - capacity
+        - roomLocation
+        - serviceSlot
+
+    # CLASS ASSIGNMENT
+    ClassAssignment:
+      type: object
+      properties:
+        id:
+          type: integer
+        childId:
+          type: integer
+        classId:
+          type: integer
+        assignedBy:
+          type: integer
+          nullable: true
+        assignedAt:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [active, pending, inactive]
+        child:
+          $ref: "#/components/schemas/Child"
+          nullable: true
+        class:
+          $ref: "#/components/schemas/Class"
+          nullable: true
+      required:
+        - id
+        - childId
+        - classId
+        - assignedAt
+        - status
+
+    CreateClassAssignmentBody:
+      type: object
+      properties:
+        childId:
+          type: integer
+        classId:
+          type: integer
+      required:
+        - childId
+        - classId
+
+    UpdateClassAssignmentBody:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [active, pending, inactive]
+        classId:
+          type: integer
+
+    # TEACHER
+    Teacher:
+      type: object
+      properties:
+        id:
+          type: integer
+        userId:
+          type: integer
+        user:
+          $ref: "#/components/schemas/User"
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - userId
+        - createdAt
+
+    CreateTeacherBody:
+      type: object
+      properties:
+        userId:
+          type: integer
+      required:
+        - userId
+
+    # TEACHER ALLOCATION
+    TeacherAllocation:
+      type: object
+      properties:
+        id:
+          type: integer
+        teacherId:
+          type: integer
+        classId:
+          type: integer
+        serviceDate:
+          type: string
+          format: date
+        serviceSlot:
+          type: string
+        status:
+          type: string
+          enum: [scheduled, confirmed, completed, cancelled]
+        teacher:
+          $ref: "#/components/schemas/Teacher"
+          nullable: true
+        class:
+          $ref: "#/components/schemas/Class"
+          nullable: true
+      required:
+        - id
+        - teacherId
+        - classId
+        - serviceDate
+        - serviceSlot
+        - status
+
+    CreateTeacherAllocationBody:
+      type: object
+      properties:
+        teacherId:
+          type: integer
+        classId:
+          type: integer
+        serviceDate:
+          type: string
+          format: date
+        serviceSlot:
+          type: string
+      required:
+        - teacherId
+        - classId
+        - serviceDate
+        - serviceSlot
+
+    UpdateTeacherAllocationBody:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [scheduled, confirmed, completed, cancelled]
+
+    # ATTENDANCE
+    Attendance:
+      type: object
+      properties:
+        id:
+          type: integer
+        childId:
+          type: integer
+        classId:
+          type: integer
+        serviceDate:
+          type: string
+          format: date
+        serviceSlot:
+          type: string
+        checkInTime:
+          type: string
+          format: date-time
+          nullable: true
+        checkOutTime:
+          type: string
+          format: date-time
+          nullable: true
+        checkedInBy:
+          type: integer
+          nullable: true
+        checkedOutBy:
+          type: integer
+          nullable: true
+        status:
+          type: string
+          enum: [dropped_off, in_class, picked_up]
+        child:
+          $ref: "#/components/schemas/Child"
+          nullable: true
+        class:
+          $ref: "#/components/schemas/Class"
+          nullable: true
+      required:
+        - id
+        - childId
+        - classId
+        - serviceDate
+        - serviceSlot
+        - status
+
+    CheckInBody:
+      type: object
+      properties:
+        childId:
+          type: integer
+        classId:
+          type: integer
+        serviceDate:
+          type: string
+          format: date
+        serviceSlot:
+          type: string
+      required:
+        - childId
+        - classId
+        - serviceDate
+        - serviceSlot
+
+    CheckOutBody:
+      type: object
+      properties:
+        notes:
+          type: string
+          nullable: true
+
+    ScanQrBody:
+      type: object
+      properties:
+        qrCode:
+          type: string
+        serviceDate:
+          type: string
+          format: date
+        serviceSlot:
+          type: string
+      required:
+        - qrCode
+        - serviceDate
+        - serviceSlot
+
+    QrScanResult:
+      type: object
+      properties:
+        family:
+          $ref: "#/components/schemas/Family"
+        children:
+          type: array
+          items:
+            $ref: "#/components/schemas/ChildWithDetails"
+        hasAlerts:
+          type: boolean
+        alerts:
+          type: array
+          items:
+            type: string
+      required:
+        - family
+        - children
+        - hasAlerts
+        - alerts
+
+    # PICKUP DELEGATES
+    PickupDelegate:
+      type: object
+      properties:
+        id:
+          type: integer
+        childId:
+          type: integer
+        name:
+          type: string
+        phone:
+          type: string
+        photoUrl:
+          type: string
+          nullable: true
+        otpCode:
+          type: string
+          nullable: true
+        otpExpiresAt:
+          type: string
+          format: date-time
+          nullable: true
+        parentApproved:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - childId
+        - name
+        - phone
+        - parentApproved
+        - createdAt
+
+    CreatePickupDelegateBody:
+      type: object
+      properties:
+        childId:
+          type: integer
+        name:
+          type: string
+        phone:
+          type: string
+        photoUrl:
+          type: string
+          nullable: true
+      required:
+        - childId
+        - name
+        - phone
+
+    VerifyOtpBody:
+      type: object
+      properties:
+        childId:
+          type: integer
+        otpCode:
+          type: string
+      required:
+        - childId
+        - otpCode
+
+    OtpVerifyResult:
+      type: object
+      properties:
+        valid:
+          type: boolean
+        delegate:
+          $ref: "#/components/schemas/PickupDelegate"
+          nullable: true
+        message:
+          type: string
+      required:
+        - valid
+        - message
+
+    # NOTIFICATIONS
+    Notification:
+      type: object
+      properties:
+        id:
+          type: integer
+        userId:
+          type: integer
+        type:
+          type: string
+        title:
+          type: string
+        message:
+          type: string
+        channel:
+          type: string
+          enum: [in_app, whatsapp, sms, email]
+        readStatus:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - userId
+        - type
+        - title
+        - message
+        - channel
+        - readStatus
+        - createdAt
+
+    PaginatedNotifications:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Notification"
+        total:
+          type: integer
+        unreadCount:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+      required:
+        - data
+        - total
+        - unreadCount
+        - page
+        - limit
+
+    # FEEDBACK
+    Feedback:
+      type: object
+      properties:
+        id:
+          type: integer
+        parentId:
+          type: integer
+        serviceDate:
+          type: string
+          format: date
+        rating:
+          type: number
+        classExperience:
+          type: number
+        teacherEngagement:
+          type: number
+        safetyRating:
+          type: number
+        improvementNote:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - parentId
+        - serviceDate
+        - rating
+        - classExperience
+        - teacherEngagement
+        - safetyRating
+        - createdAt
+
+    CreateFeedbackBody:
+      type: object
+      properties:
+        serviceDate:
+          type: string
+          format: date
+        rating:
+          type: number
+          minimum: 1
+          maximum: 5
+        classExperience:
+          type: number
+          minimum: 1
+          maximum: 5
+        teacherEngagement:
+          type: number
+          minimum: 1
+          maximum: 5
+        safetyRating:
+          type: number
+          minimum: 1
+          maximum: 5
+        improvementNote:
+          type: string
+          nullable: true
+      required:
+        - serviceDate
+        - rating
+        - classExperience
+        - teacherEngagement
+        - safetyRating
+
+    PaginatedFeedback:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Feedback"
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+      required:
+        - data
+        - total
+        - page
+        - limit
+
+    # APPRAISALS
+    Appraisal:
+      type: object
+      properties:
+        id:
+          type: integer
+        childId:
+          type: integer
+        teacherId:
+          type: integer
+        serviceDate:
+          type: string
+          format: date
+        participationLevel:
+          type: string
+          enum: [excellent, good, fair, needs_encouragement]
+        scriptureEngagement:
+          type: string
+          enum: [excellent, good, fair, needs_encouragement]
+        socialInteraction:
+          type: string
+          enum: [excellent, good, fair, needs_encouragement]
+        milestoneNote:
+          type: string
+          nullable: true
+        personalNoteToParent:
+          type: string
+          nullable: true
+        child:
+          $ref: "#/components/schemas/Child"
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - childId
+        - teacherId
+        - serviceDate
+        - participationLevel
+        - scriptureEngagement
+        - socialInteraction
+        - createdAt
+
+    CreateAppraisalBody:
+      type: object
+      properties:
+        childId:
+          type: integer
+        serviceDate:
+          type: string
+          format: date
+        participationLevel:
+          type: string
+          enum: [excellent, good, fair, needs_encouragement]
+        scriptureEngagement:
+          type: string
+          enum: [excellent, good, fair, needs_encouragement]
+        socialInteraction:
+          type: string
+          enum: [excellent, good, fair, needs_encouragement]
+        milestoneNote:
+          type: string
+          nullable: true
+        personalNoteToParent:
+          type: string
+          nullable: true
+      required:
+        - childId
+        - serviceDate
+        - participationLevel
+        - scriptureEngagement
+        - socialInteraction
+
+    # EMERGENCIES
+    Emergency:
+      type: object
+      properties:
+        id:
+          type: integer
+        type:
+          type: string
+          enum: [medical, missing_child, fire_evacuation, security, general]
+        level:
+          type: string
+          enum: [L1, L2, L3, L4]
+        childId:
+          type: integer
+          nullable: true
+        triggeredBy:
+          type: integer
+        status:
+          type: string
+          enum: [active, monitoring, resolved]
+        description:
+          type: string
+        resolutionNotes:
+          type: string
+          nullable: true
+        child:
+          $ref: "#/components/schemas/Child"
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        resolvedAt:
+          type: string
+          format: date-time
+          nullable: true
+      required:
+        - id
+        - type
+        - level
+        - triggeredBy
+        - status
+        - description
+        - createdAt
+
+    CreateEmergencyBody:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [medical, missing_child, fire_evacuation, security, general]
+        level:
+          type: string
+          enum: [L1, L2, L3, L4]
+        childId:
+          type: integer
+          nullable: true
+        description:
+          type: string
+      required:
+        - type
+        - level
+        - description
+
+    UpdateEmergencyBody:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [active, monitoring, resolved]
+        level:
+          type: string
+          enum: [L1, L2, L3, L4]
+        resolutionNotes:
+          type: string
+
+    # AUDIT LOGS
+    AuditLog:
+      type: object
+      properties:
+        id:
+          type: integer
+        userId:
+          type: integer
+          nullable: true
+        action:
+          type: string
+        entityType:
+          type: string
+          nullable: true
+        entityId:
+          type: integer
+          nullable: true
+        ipAddress:
+          type: string
+          nullable: true
+        userAgent:
+          type: string
+          nullable: true
+        timestamp:
+          type: string
+          format: date-time
+        user:
+          $ref: "#/components/schemas/User"
+          nullable: true
+      required:
+        - id
+        - action
+        - timestamp
+
+    PaginatedAuditLogs:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/AuditLog"
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+      required:
+        - data
+        - total
+        - page
+        - limit
+
+    # DASHBOARD
+    DashboardStats:
+      type: object
+      properties:
+        totalCheckedIn:
+          type: integer
+        totalPending:
+          type: integer
+        totalPickedUp:
+          type: integer
+        teacherAttendanceRate:
+          type: number
+        averageDropOffMinutes:
+          type: number
+        classesInSession:
+          type: integer
+        activeEmergencies:
+          type: integer
+        unassignedChildren:
+          type: integer
+      required:
+        - totalCheckedIn
+        - totalPending
+        - totalPickedUp
+        - teacherAttendanceRate
+        - averageDropOffMinutes
+        - classesInSession
+        - activeEmergencies
+        - unassignedChildren
+
+    LiveClassView:
+      type: object
+      properties:
+        classId:
+          type: integer
+        className:
+          type: string
+        roomLocation:
+          type: string
+        serviceSlot:
+          type: string
+        capacity:
+          type: integer
+        inClass:
+          type: integer
+        dropped:
+          type: integer
+        pickedUp:
+          type: integer
+        teacherName:
+          type: string
+          nullable: true
+        children:
+          type: array
+          items:
+            $ref: "#/components/schemas/Attendance"
+      required:
+        - classId
+        - className
+        - roomLocation
+        - serviceSlot
+        - capacity
+        - inClass
+        - dropped
+        - pickedUp
+
+    AttendanceTrend:
+      type: object
+      properties:
+        date:
+          type: string
+        total:
+          type: integer
+        checkedIn:
+          type: integer
+        pickedUp:
+          type: integer
+      required:
+        - date
+        - total
+        - checkedIn
+        - pickedUp
+
+    ClassUtilization:
+      type: object
+      properties:
+        classId:
+          type: integer
+        className:
+          type: string
+        capacity:
+          type: integer
+        enrolled:
+          type: integer
+        utilizationPercent:
+          type: number
+      required:
+        - classId
+        - className
+        - capacity
+        - enrolled
+        - utilizationPercent
+
+    FeedbackAnalytics:
+      type: object
+      properties:
+        averageRating:
+          type: number
+        averageClassExperience:
+          type: number
+        averageTeacherEngagement:
+          type: number
+        averageSafetyRating:
+          type: number
+        totalResponses:
+          type: integer
+        recentFeedback:
+          type: array
+          items:
+            $ref: "#/components/schemas/Feedback"
+      required:
+        - averageRating
+        - averageClassExperience
+        - averageTeacherEngagement
+        - averageSafetyRating
+        - totalResponses
+        - recentFeedback
+
+    ExceptionReport:
+      type: object
+      properties:
+        unpickedChildren:
+          type: array
+          items:
+            $ref: "#/components/schemas/Attendance"
+        capacityOverflows:
+          type: array
+          items:
+            $ref: "#/components/schemas/Class"
+        pendingDelegateApprovals:
+          type: array
+          items:
+            $ref: "#/components/schemas/PickupDelegate"
+      required:
+        - unpickedChildren
+        - capacityOverflows
+        - pendingDelegateApprovals

@@ -1,8 +1,40 @@
 import { Router, type IRouter } from "express";
 import healthRouter from "./health";
+import authRouter from "./auth";
+import usersRouter from "./users";
+import familiesRouter from "./families";
+import childrenRouter from "./children";
+import classesRouter from "./classes";
+import classAssignmentsRouter from "./classAssignments";
+import teachersRouter from "./teachers";
+import teacherAllocationsRouter from "./teacherAllocations";
+import attendanceRouter from "./attendance";
+import pickupDelegatesRouter from "./pickupDelegates";
+import notificationsRouter from "./notifications";
+import feedbackRouter from "./feedback";
+import appraisalsRouter from "./appraisals";
+import emergenciesRouter from "./emergencies";
+import auditLogsRouter from "./auditLogs";
+import dashboardRouter from "./dashboard";
 
 const router: IRouter = Router();
 
 router.use(healthRouter);
+router.use(authRouter);
+router.use(usersRouter);
+router.use(familiesRouter);
+router.use(childrenRouter);
+router.use(classesRouter);
+router.use(classAssignmentsRouter);
+router.use(teachersRouter);
+router.use(teacherAllocationsRouter);
+router.use(attendanceRouter);
+router.use(pickupDelegatesRouter);
+router.use(notificationsRouter);
+router.use(feedbackRouter);
+router.use(appraisalsRouter);
+router.use(emergenciesRouter);
+router.use(auditLogsRouter);
+router.use(dashboardRouter);
 
 export default router;

@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "Shepherd Connect"
+version = "1.0.0"
+id = "artifacts/shepherd-connect"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 21734
+
+[services.development]
+run = "pnpm --filter @workspace/shepherd-connect run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/shepherd-connect", "run", "build" ]
+publicDir = "artifacts/shepherd-connect/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "21734"
+BASE_PATH = "/"

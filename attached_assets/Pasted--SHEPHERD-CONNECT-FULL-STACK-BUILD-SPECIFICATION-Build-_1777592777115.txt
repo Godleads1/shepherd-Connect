@@ -1,0 +1,294 @@
+# SHEPHERD CONNECT - FULL STACK BUILD SPECIFICATION
+
+Build "Shepherd Connect," a mobile-first, intelligent Children's Church Management Platform. This is a production-ready full-stack application deployable on Replit. The app serves Parents, Teachers, Check-in Attendants, and Admins.
+
+## BRAND IDENTITY
+- Name: Shepherd Connect
+- Tagline: "Safe. Known. Celebrated."
+- Primary Color: Deep Royal Blue (#1e3a8a)
+- Accent: Warm Gold (#f59e0b)
+- Success: Emerald Green (#10b981)
+- Danger: Rose Red (#f43f5e)
+- Font: Inter (Google Fonts)
+- Tone: Professional, warm, pastoral, trustworthy
+
+## TECH STACK (REPLIT-OPTIMIZED)
+- **Frontend:** React 18 + Vite + TypeScript + Tailwind CSS + shadcn/ui components + Lucide React icons
+- **Backend:** Express.js + TypeScript + Node.js
+- **Database:** SQLite with better-sqlite3 (or Prisma + SQLite)
+- **Real-time:** Socket.io for live dashboards and notifications
+- **Auth:** JWT (jsonwebtoken) + bcryptjs, Role-Based Access Control (RBAC)
+- **QR/Barcode:** `qrcode` (generation) + `html5-qrcode` (scanning)
+- **Facial Recognition:** `face-api.js` (client-side face detection and recognition)
+- **Charts:** `recharts` for admin analytics
+- **State Management:** Zustand
+- **Routing:** React Router v6
+- **Notifications:** In-app notification center + mock WhatsApp/SMS architecture (create service layer ready for Twilio/Termii integration)
+- **PWA:** Include manifest.json and service worker setup for installability
+
+## PROJECT STRUCTURE
+/
+├── client/                 # Vite React frontend
+│   ├── src/
+│   │   ├── components/     # Reusable UI (shadcn-based)
+│   │   ├── pages/          # Route-level pages
+│   │   ├── hooks/          # Custom React hooks
+│   │   ├── lib/            # Utils, constants, types
+│   │   ├── store/          # Zustand stores
+│   │   └── services/       # API clients, face-api setup
+│   └── public/
+├── server/                 # Express backend
+│   ├── src/
+│   │   ├── routes/         # API routes
+│   │   ├── controllers/    # Business logic
+│   │   ├── middleware/     # Auth, RBAC, validation
+│   │   ├── models/         # Database models/queries
+│   │   ├── services/       # Notification, QR, Face vector logic
+│   │   └── types/          # Shared TypeScript interfaces
+│   └── database.sqlite
+├── shared/                 # Shared types between client/server
+└── package.json            # Concurrent dev script
+
+## USER ROLES & AUTHENTICATION
+Implement 6 roles with RBAC:
+1. **Super Admin:** Full system access, user management, platform config
+2. **Children Church Admin:** Manage classes, allocate teachers/children, view all reports
+3. **Class Teacher:** View class roster, mark arrivals, complete appraisals, send notes
+4. **Check-in Attendant:** Scan QR codes, verify identity, process drop-off/pick-up only
+5. **Parent:** Manage family profile, view children classes, receive notifications, give feedback
+6. **Delegate (Pickup Person):** One-time OTP verification only (no login required)
+
+Auth Requirements:
+- JWT with 24h expiry, httpOnly cookies
+- MFA for Admin/Super Admin (TOTP simulation using speakeasy or simple email OTP)
+- Automatic session timeout after 30 minutes inactivity
+- All actions audit-logged with userId, timestamp, action, IP address
+
+## DATABASE SCHEMA (SQLite)
+Create tables with proper relations and indexes:
+
+1. **users** (id, email, phone, password_hash, role, first_name, last_name, face_descriptor_json, is_active, created_at)
+2. **families** (id, family_code, parent_1_id, parent_2_id, address, emergency_contact_name, emergency_contact_phone, created_at)
+3. **children** (id, family_id, first_name, last_name, dob, gender, allergies_encrypted, medical_notes_encrypted, photo_url, face_descriptor_json, current_class_id, created_at)
+4. **classes** (id, name, age_min, age_max, capacity, room_location, service_slot, description, created_at)
+5. **class_assignments** (id, child_id, class_id, assigned_by, assigned_at, status)
+6. **teachers** (id, user_id, availability_json, service_history_json, created_at)
+7. **teacher_allocations** (id, teacher_id, class_id, service_date, service_slot, status)
+8. **attendance** (id, child_id, class_id, service_date, service_slot, check_in_time, check_out_time, checked_in_by, checked_out_by, status: dropped_off | in_class | picked_up)
+9. **pickup_delegates** (id, child_id, name, phone, photo_url, otp_code, otp_expires_at, parent_approved, created_at)
+10. **notifications** (id, user_id, type, title, message, channel, read_status, metadata_json, created_at)
+11. **parent_feedback** (id, parent_id, service_date, rating, class_experience, teacher_engagement, safety_rating, improvement_note, created_at)
+12. **child_appraisals** (id, child_id, teacher_id, service_date, participation_level, scripture_engagement, social_interaction, milestone_note, personal_note_to_parent, created_at)
+13. **emergencies** (id, type, level, child_id, triggered_by, status, description, resolution_notes, created_at, resolved_at)
+14. **audit_logs** (id, user_id, action, entity_type, entity_id, ip_address, user_agent, timestamp)
+
+Seed the database with:
+- 1 Super Admin (admin@shepherdconnect.ng / password)
+- 2 Church Admins
+- 8 Teachers across different classes
+- 25 Sample families with 1-3 children each
+- 6 Classes: Creche (0-1), Toddlers (2-3), Nursery (4-5), Primaries 1-3 (6-8), Primaries 4-6 (9-11), Teenagers (12-14)
+
+## MODULE 1: FAMILY REGISTRY (M1)
+Progressive Registration Flow:
+- **Stage 1 (Identity):** Full name, DOB, gender, phone (with Nigeria +234 formatting), email, facial photo capture using device camera (store face descriptor using face-api.js)
+- **Stage 2 (Family):** Spouse/partner toggle (including single-parent option), residential address, children details form (repeater)
+- **Stage 3 (Optional):** Place of work, emergency contact, special needs/medical notes (encrypt in DB), communication preferences (WhatsApp/SMS/Email/In-App)
+
+Children Registration per child:
+- Full name, DOB (auto-calculate age), gender, facial photo capture, allergies, medical notes, class assignment (admin assigns later)
+
+Family Tree UI:
+- Interactive tree visualization showing parents and children nodes
+- Each child node displays: photo, age, current class, teacher name, last attendance
+- Click child node → detailed profile with attendance calendar and appraisal history
+- Timeline of class progression
+
+## MODULE 2: CLASS ENGINE (M2)
+Class Management:
+- Admin creates classes with: name, age range, capacity, room/location, service slot (7am, 9am, 11am, 1pm), description
+- Visual class cards showing current enrollment vs capacity with color-coded capacity bars (green &lt;80%, orange 80-99%, red 100%)
+
+Teacher Management:
+- Teacher profiles with availability calendar
+- Drag-and-drop or form-based teacher allocation by date/class/service slot
+- Rotation engine: auto-assign teachers across multiple Sunday services based on availability groups
+- Teacher-to-child ratio monitoring (alert if &gt;1:15)
+- Substitute nomination workflow with notification
+
+Child Allocation:
+- Admin dashboard to review unallocated children and batch-assign to classes
+- Auto-suggest based on age and capacity
+- Parent receives in-app notification on allocation
+- Parent can request class change (pending admin approval)
+
+## MODULE 3: CHECK-IN GATEWAY (M3)
+Drop-Off Workflow (must complete in &lt;30 seconds):
+1. Parent arrives → Check-in interface (kiosk mode or attendant tablet)
+2. Parent presents QR code (generated in their profile) OR uses facial recognition
+3. Scanning interface using html5-qrcode with beep sound on success
+4. System displays: Parent photo, child(ren) photos, class assignments, allergies alerts (red banner if medical notes exist)
+5. Facial recognition: capture face, match against stored face descriptor using face-api.js Euclidean distance &lt;0.6
+6. Multi-child support: single QR can cover all children or individual codes
+7. Timestamp recorded with: date, time, service slot, attendant ID
+8. Real-time Socket.io event: class teacher receives in-app notification "Child Name dropped off, arriving at Class Name"
+9. Child status updated to "In Transit"
+10. Teacher marks child as arrived in class → second timestamp, status "In Class"
+11. Parent receives confirmation notification: "[Child] is safely in [Class] with [Teacher]"
+
+Offline Mode:
+- If network drops, store check-in in IndexedDB, sync when connection returns
+- QR codes should be scannable even offline (validate against cached data)
+
+## MODULE 4: CHECK-OUT VAULT (M4)
+Standard Pick-Up:
+- System sends notification 10 mins before service ends: "Class dismissing soon"
+- Parent presents QR or face scan at pick-up point
+- System validates identity, displays child photo and class
+- Teacher releases child, marks pick-up timestamp
+- Status updated to "Picked Up"
+- WhatsApp-style confirmation sent to parent
+
+Delegate Pick-Up:
+- Parent logs in → "Manage Pick-Up" → "Designate Someone Else"
+- Enter delegate name, phone, optional photo
+- System generates 6-digit OTP, displays to parent (mock SMS/WhatsApp send)
+- Delegate arrives, enters OTP at pick-up station
+- System verifies OTP, sends approval request to parent in-app
+- Parent approves → child released
+- Full audit trail recorded
+
+Exception Handling:
+- "Child Not Picked Up" alert 30 mins after service ends
+- Admin dashboard shows list of children still in class with parent contact buttons
+
+## MODULE 5: CONNECT HUB (M5)
+Notification Center:
+- Bell icon with unread badge
+- Notification types: Registration, Class Allocation, Drop-off Confirm, Child Arrived, Service Ending, OTP, Pick-up Confirm, Emergency, Feedback Request, Teacher Appraisal
+- Rich notifications with action buttons (Approve, View, Respond)
+- Real-time delivery via Socket.io
+
+WhatsApp Integration Architecture:
+- Create a `WhatsAppService` class with methods: sendTemplateMessage, sendOTP, sendEmergencyBroadcast
+- Mock the actual sending (console.log or in-app simulation) but structure it for easy Twilio/360dialog integration
+- Template messages for:
+  - Welcome: "Hi [Parent], welcome to Shepherd Connect..."
+  - Drop-off: "Hi [Parent], [Child] has been safely dropped off at [Class]..."
+  - OTP: "Hi [Parent], your authorization code for [Child] pickup is [OTP]..."
+  - Emergency: "⚠️ URGENT — Children Church Alert: [Type] reported..."
+
+## MODULE 6: SHEPHERD FEEDBACK (M6)
+Parent Feedback (Post-Service):
+- Auto-prompt parent 30 mins after pick-up
+- 5-star rating system for: Overall Service, Class Experience, Teacher Engagement, Safety/Facilities
+- Optional open text: "One thing we could improve"
+- Quick emoji-based responses for mobile ease
+
+Teacher Child Appraisal:
+- Teacher dashboard post-service: list of children in class
+- Per child form: Participation (Excellent/Good/Fair/Needs Encouragement), Scripture Engagement, Social Interaction, Milestone Note, Personal Note to Parent
+- Bulk appraisal option for quick submission
+- "Shepherd's Report" generated and sent to parent as in-app message (and mock WhatsApp)
+
+## MODULE 7: COMMAND CENTRE (M7)
+Admin Dashboard:
+- **KPI Cards:** Total children checked in today, Average drop-off time, Teacher attendance rate, Pending pick-ups
+- **Live Service View:** Real-time grid showing children currently in classes, filterable by class/service slot
+- **Attendance Trends:** Line chart (weekly/monthly) using Recharts
+- **Class Utilization:** Bar chart showing capacity vs actual per class
+- **Teacher Schedule:** Calendar view with drag-and-drop
+- **Family Registry:** Searchable, filterable table with export to CSV
+- **Feedback Analytics:** Average ratings, sentiment indicators (color-coded)
+- **Audit Trail:** Immutable log viewer with search and date filters
+- **Exception Reports:** Children not picked up, unauthorized access attempts, capacity overflows
+
+## MODULE 8: SHIELD PROTOCOL (M8)
+Emergency Management:
+- **Emergency Types:** Medical, Missing Child, Fire/Evacuation, Security, General
+- **Levels:**
+  - L1 (Class): Minor incident → Teacher + Coordinator notified
+  - L2 (Department): Moderate → Admin + Parent notified
+  - L3 (Building): Major → All staff + All parents in church
+  - L4 (Community): Critical → All parents + Emergency services
+
+Emergency Workflow:
+- Big red emergency button in teacher/admin app with 4 quick-select options
+- One-tap escalation levels
+- Real-time incident thread (Socket.io room) for updates
+- Broadcast system: push to relevant users based on level
+- Auto-generated post-incident report with full timeline
+
+Missing Child Protocol:
+- Trigger from Check-Out Vault if child unaccounted for
+- Display last known location (last class confirmed)
+- Church-wide search mode: all devices show missing child photo and details
+- Incident auto-documented for safeguarding
+
+## FACIAL RECOGNITION IMPLEMENTATION
+Using face-api.js:
+- Load models from public/models (ssdMobilenetv1, faceLandmark68Net, faceRecognitionNet)
+- During registration: detect face, extract descriptor (128-float array), store as JSON in DB
+- During check-in: capture video frame, detect face, extract descriptor, compare against stored descriptors
+- Match threshold: Euclidean distance &lt; 0.6
+- Privacy: Show "Opt-in" toggle. If disabled, QR-only. Allow deletion of biometric data.
+- Fallback: If face unclear or no match, immediately fallback to QR without error state
+
+## UI/UX REQUIREMENTS
+- **Mobile-First:** All interfaces must be thumb-friendly, touch-optimized
+- **Kiosk Mode:** Check-in/check-out interfaces should work fullscreen on tablet view
+- **Dark Mode Toggle:** System-wide theme switching
+- **Loading States:** Skeleton screens, never blank pages
+- **Empty States:** Illustrative messages when no data
+- **Accessibility:** ARIA labels, keyboard navigation, focus management
+- **Nigerian Context:** Naira currency fields (if events), local date format, +234 phone validation
+- **Performance:** Page load &lt;2s, check-in action &lt;3s
+
+## CRITICAL USER FLOWS TO IMPLEMENT
+1. **New Family Onboarding:** Landing → Register → Add Children → Wait for Admin Allocation → Receive Notification → Generate QR
+2. **Sunday Drop-Off:** Parent opens QR → Attendant scans → Teacher confirms arrival → Parent gets confirmation
+3. **Sunday Pick-Up:** System alerts → Parent scans → Teacher releases → Confirmation sent
+4. **Delegate Pick-Up:** Parent creates delegate → OTP generated → Delegate enters OTP → Parent approves → Child released
+5. **Emergency:** Teacher triggers alert → Level selected → Notifications broadcast → Updates posted → Resolved → All-clear sent
+
+## SECURITY & PRIVACY
+- Passwords hashed with bcrypt (salt rounds: 12)
+- JWT secret from environment variable
+- CORS configured properly
+- Rate limiting on auth endpoints (express-rate-limit)
+- Input sanitization (zod validation)
+- Medical/allergy data encrypted at application level before SQLite storage
+- Facial descriptors stored separately from personal data
+- No external sharing of child photos
+- Annual consent renewal reminder simulation
+
+## MOCK DATA REQUIREMENTS
+Populate with realistic Nigerian names and context:
+- Families: Adeyemi, Okafor, Ibrahim, Nwosu, etc.
+- Children with ages spanning all classes
+- 4 Sundays of historical attendance data
+- Sample feedback and appraisals
+- One sample emergency incident (resolved, L2)
+
+## DEPLOYMENT & DEVEX
+- Single `npm run dev` command using concurrently to start Vite + Express
+- `npm run build` builds client and prepares server for production
+- `npm run seed` resets and seeds database
+- Environment variables in `.env` file: JWT_SECRET, PORT, NODE_ENV
+- Include a comprehensive README with setup instructions, feature list, and screenshots description
+- Health check endpoint: GET /api/health
+
+## DELIVERABLE CHECKLIST
+Before finishing, verify:
+- [ ] All 6 user roles can log in and see role-appropriate dashboards
+- [ ] Parent can register, add children, view family tree
+- [ ] Admin can create classes, allocate teachers and children
+- [ ] QR code generation and scanning works across devices
+- [ ] Facial recognition enrollment and matching works
+- [ ] Check-in/check-out timestamps recorded accurately
+- [ ] Delegate OTP flow works end-to-end
+- [ ] Real-time notifications appear without refresh
+- [ ] Emergency alert system broadcasts correctly
+- [ ] Admin reports and charts render with data
+- [ ] Mobile responsive on 375px width
+- [ ] Application is deployable on Replit with zero external dependencies except npm packages
