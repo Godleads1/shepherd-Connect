@@ -1,12 +1,8 @@
 import { useState } from "react";
 import { useScanQrCode, useCheckIn } from "@workspace/api-client-react";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { QrCode, AlertTriangle, CheckCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle, QrCode } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { format } from "date-fns";
 
 export default function CheckIn() {
@@ -71,77 +67,107 @@ export default function CheckIn() {
   };
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-[80vh] space-y-8 p-4">
-      <div className="text-center space-y-2">
-        <h1 className="text-4xl font-bold text-primary">Welcome to Shepherd Connect</h1>
-        <p className="text-xl text-muted-foreground">Please scan your family QR code to check in</p>
+    <div className="flex flex-col items-center min-h-[80vh] max-w-4xl mx-auto py-8">
+      <div 
+        className="w-full rounded-3xl p-8 sm:p-12 text-white relative overflow-hidden text-center mb-8 shadow-xl"
+        style={{ background: "linear-gradient(135deg, #172554 0%, #1e3a8a 60%, #1d4ed8 100%)" }}
+      >
+        <div className="absolute top-0 left-0 w-full h-full opacity-10" style={{ backgroundImage: "radial-gradient(circle at 2px 2px, white 1px, transparent 0)", backgroundSize: "32px 32px" }} />
+        <div className="relative z-10">
+          <div className="w-20 h-20 rounded-full bg-white p-1 mx-auto mb-6 shadow-lg">
+            <img src="/rccg-logo.png" alt="RCCG" className="w-full h-full rounded-full object-cover" />
+          </div>
+          <h1 className="text-4xl sm:text-5xl font-bold mb-3" style={{ fontFamily: "'Playfair Display', serif" }}>Shepherd Connect</h1>
+          <p className="text-lg sm:text-xl text-blue-100 font-medium tracking-wide">Scan Family QR Code to Check In</p>
+        </div>
       </div>
 
-      <Card className="w-full max-w-xl shadow-lg border-primary/20">
-        <CardContent className="pt-6">
-          <form onSubmit={handleScan} className="flex gap-4">
-            <div className="relative flex-1">
-              <QrCode className="absolute left-3 top-3 h-6 w-6 text-muted-foreground" />
-              <Input 
-                autoFocus
-                className="pl-12 h-12 text-lg"
-                placeholder="Scan QR Code or Enter Family Code..." 
-                value={qrCode}
-                onChange={(e) => setQrCode(e.target.value)}
-                data-testid="input-qr-scan"
-              />
-            </div>
-            <Button type="submit" size="lg" className="h-12 px-8" disabled={scanMutation.isPending} data-testid="button-scan">
-              Scan
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
+      <div className="w-full bg-white rounded-3xl p-6 shadow-card border border-gray-100 mb-8">
+        <form onSubmit={handleScan} className="flex flex-col sm:flex-row gap-4">
+          <div className="relative flex-1">
+            <QrCode className="absolute left-4 top-1/2 -translate-y-1/2 h-6 w-6 text-gray-400" />
+            <Input 
+              autoFocus
+              className="pl-14 h-16 text-lg rounded-2xl border-gray-200 focus-visible:ring-amber-400 focus-visible:border-amber-400 bg-gray-50/50"
+              placeholder="Scan QR Code or Enter Family Code..." 
+              value={qrCode}
+              onChange={(e) => setQrCode(e.target.value)}
+              data-testid="input-qr-scan"
+            />
+          </div>
+          <button 
+            type="submit" 
+            disabled={scanMutation.isPending} 
+            data-testid="button-scan"
+            className="h-16 px-10 rounded-2xl font-bold text-lg transition-all active:scale-95 disabled:opacity-70"
+            style={{ background: "linear-gradient(135deg, #f59e0b, #fbbf24)", color: "#172554", boxShadow: "0 4px 15px rgba(245,158,11,0.3)" }}
+          >
+            {scanMutation.isPending ? "Scanning..." : "Scan"}
+          </button>
+        </form>
+      </div>
 
       {scanMutation.data && (
-        <div className="w-full max-w-4xl space-y-6 animate-in fade-in slide-in-from-bottom-4">
-          <div className="flex items-center gap-4 bg-card p-4 rounded-lg border">
-            <Avatar className="h-16 w-16 border-2 border-primary">
-              <AvatarFallback className="bg-primary/10 text-primary text-xl font-bold">
-                {scanMutation.data.family.familyCode.substring(0, 2)}
-              </AvatarFallback>
-            </Avatar>
+        <div className="w-full space-y-6 animate-in fade-in slide-in-from-bottom-8 duration-500">
+          <div className="bg-blue-50 border border-blue-100 p-5 rounded-2xl flex items-center gap-5">
+            <div className="h-16 w-16 rounded-full bg-blue-800 text-white flex items-center justify-center text-2xl font-bold shadow-md">
+              {scanMutation.data.family.familyCode.substring(0, 2)}
+            </div>
             <div>
-              <h2 className="text-2xl font-bold">Family {scanMutation.data.family.familyCode}</h2>
-              <p className="text-muted-foreground">
+              <p className="text-sm font-semibold uppercase tracking-wider text-blue-600 mb-1">Family Matched</p>
+              <h2 className="text-2xl font-bold text-gray-900">
                 {scanMutation.data.family.parent1?.firstName} {scanMutation.data.family.parent1?.lastName}
-              </p>
+              </h2>
+              <p className="text-gray-500 text-sm">Code: <span className="font-mono font-medium">{scanMutation.data.family.familyCode}</span></p>
             </div>
           </div>
 
-          <div className="grid gap-4 md:grid-cols-2">
-            {scanMutation.data.children.map(child => (
-              <Card key={child.id} className="overflow-hidden border-2">
+          <div className="grid gap-5 md:grid-cols-2">
+            {scanMutation.data.children.map((child: any) => (
+              <div key={child.id} className="bg-white rounded-2xl overflow-hidden border border-gray-100 shadow-card flex flex-col">
                 {child.allergies && (
-                  <div className="bg-destructive text-destructive-foreground px-4 py-2 flex items-center gap-2 font-bold text-sm">
-                    <AlertTriangle className="h-4 w-4" /> ALLERGY ALERT
+                  <div className="bg-red-600 text-white px-4 py-2.5 flex items-center justify-center gap-2 font-bold text-sm tracking-wide">
+                    <AlertTriangle className="h-4 w-4" /> ALLERGY / MEDICAL ALERT
                   </div>
                 )}
-                <CardHeader>
-                  <CardTitle>{child.firstName} {child.lastName}</CardTitle>
-                  <CardDescription>
-                    {child.currentClass ? child.currentClass.name : "Unassigned"}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {child.allergies && (
-                    <p className="text-sm font-medium text-destructive">{child.allergies}</p>
-                  )}
-                  <Button 
-                    className="w-full h-12 text-lg" 
+                <div className="p-6 flex-1 flex flex-col">
+                  <div className="flex justify-between items-start mb-4">
+                    <div>
+                      <h3 className="text-xl font-bold text-gray-900">{child.firstName} {child.lastName}</h3>
+                      <p className="text-gray-500 mt-1 text-sm">Age {child.age}</p>
+                    </div>
+                    <div className="w-12 h-12 rounded-full bg-blue-50 text-blue-800 flex items-center justify-center font-bold text-lg">
+                      {child.firstName[0]}
+                    </div>
+                  </div>
+                  
+                  <div className="mb-6 flex-1">
+                    <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold bg-gray-50 border border-gray-200 text-gray-700">
+                      {child.currentClass ? (
+                        <><CheckCircle className="w-4 h-4 text-green-600" /> {child.currentClass.name}</>
+                      ) : (
+                        <><AlertTriangle className="w-4 h-4 text-amber-500" /> Unassigned</>
+                      )}
+                    </div>
+                    
+                    {child.allergies && (
+                      <p className="mt-3 text-sm font-medium text-red-600 bg-red-50 p-3 rounded-lg border border-red-100">
+                        {child.allergies}
+                      </p>
+                    )}
+                  </div>
+                  
+                  <button 
                     onClick={() => handleCheckIn(child.id, child.currentClass?.id)}
                     disabled={!child.currentClass || checkInMutation.isPending}
                     data-testid={`button-checkin-${child.id}`}
+                    className="w-full h-14 rounded-xl font-bold text-lg transition-all active:scale-95 disabled:opacity-50 disabled:active:scale-100"
+                    style={{ background: "#1e3a8a", color: "white" }}
                   >
-                    Check In
-                  </Button>
-                </CardContent>
-              </Card>
+                    Check In Child
+                  </button>
+                </div>
+              </div>
             ))}
           </div>
         </div>
