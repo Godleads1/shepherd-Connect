@@ -10,10 +10,10 @@ export default function ChildProfile() {
   const { id } = useParams();
   const childId = parseInt(id || "0", 10);
 
-  const { data: child, isLoading: childLoading } = useGetChild(childId, { query: { enabled: !!childId } });
-  const { data: qrData, isLoading: qrLoading } = useGetChildQrCode(childId, { query: { enabled: !!childId } });
-  const { data: attendance, isLoading: attLoading } = useListAttendance({ childId }, { query: { enabled: !!childId } });
-  const { data: appraisals, isLoading: appLoading } = useListAppraisals({ childId }, { query: { enabled: !!childId } });
+  const { data: child, isLoading: childLoading } = useGetChild(childId, { query: { enabled: !!childId, queryKey: ['getChild', childId] } });
+  const { data: qrData, isLoading: qrLoading } = useGetChildQrCode(childId, { query: { enabled: !!childId, queryKey: ['getChildQrCode', childId] } });
+  const { data: attendance, isLoading: attLoading } = useListAttendance({ childId }, { query: { enabled: !!childId, queryKey: ['listAttendance', childId] } });
+  const { data: appraisals, isLoading: appLoading } = useListAppraisals({ childId }, { query: { enabled: !!childId, queryKey: ['listAppraisals', childId] } });
 
   if (childLoading) return <div className="p-8 space-y-4"><Skeleton className="h-32 w-full" /><Skeleton className="h-64 w-full" /></div>;
   if (!child) return <div>Child not found</div>;
@@ -78,7 +78,7 @@ export default function ChildProfile() {
           <CardContent>
             {attLoading ? <Skeleton className="h-32 w-full" /> : (
               <div className="space-y-4">
-                {attendance?.data?.slice(0, 5).map(record => (
+                {(attendance || []).slice(0, 5).map((record: any) => (
                   <div key={record.id} className="flex justify-between items-center p-3 border-b last:border-0">
                     <div>
                       <div className="font-medium">{format(new Date(record.serviceDate), 'MMM dd, yyyy')}</div>
@@ -89,7 +89,7 @@ export default function ChildProfile() {
                     <Badge variant={record.status === 'picked_up' ? 'outline' : 'default'}>{record.status.replace('_', ' ')}</Badge>
                   </div>
                 ))}
-                {attendance?.data?.length === 0 && <p className="text-muted-foreground">No attendance records.</p>}
+                {!attendance?.length && <p className="text-muted-foreground">No attendance records.</p>}
               </div>
             )}
           </CardContent>
@@ -102,7 +102,7 @@ export default function ChildProfile() {
           <CardContent>
             {appLoading ? <Skeleton className="h-32 w-full" /> : (
               <div className="space-y-4">
-                {appraisals?.data?.map(appraisal => (
+                {(appraisals || []).map((appraisal: any) => (
                   <div key={appraisal.id} className="p-3 border rounded-lg space-y-2 bg-muted/10">
                     <div className="font-medium">{format(new Date(appraisal.serviceDate), 'MMM dd, yyyy')}</div>
                     <div className="grid grid-cols-2 gap-2 text-sm">
@@ -121,7 +121,7 @@ export default function ChildProfile() {
                     )}
                   </div>
                 ))}
-                {appraisals?.data?.length === 0 && <p className="text-muted-foreground">No appraisals yet.</p>}
+                {!appraisals?.length && <p className="text-muted-foreground">No appraisals yet.</p>}
               </div>
             )}
           </CardContent>

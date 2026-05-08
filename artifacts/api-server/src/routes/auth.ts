@@ -15,8 +15,20 @@ router.post("/auth/login", async (req, res): Promise<void> => {
   }
   const { email, password } = parsed.data;
   const [user] = await db.select().from(usersTable).where(eq(usersTable.email, email));
-  if (!user || !user.isActive) {
+  if (!user) {
     res.status(401).json({ error: "Unauthorized", message: "Invalid credentials" });
+    return;
+  }
+  if (user.status === "pending_approval") {
+    res.status(403).json({ error: "Forbidden", message: "Your account is pending admin approval. You will be notified once approved." });
+    return;
+  }
+  if (user.status === "suspended") {
+    res.status(403).json({ error: "Forbidden", message: "Your account has been suspended. Please contact the church administrator." });
+    return;
+  }
+  if (!user.isActive) {
+    res.status(401).json({ error: "Unauthorized", message: "Account is inactive" });
     return;
   }
   const valid = await bcrypt.compare(password, user.passwordHash);
@@ -41,6 +53,12 @@ router.post("/auth/login", async (req, res): Promise<void> => {
       firstName: user.firstName,
       lastName: user.lastName,
       isActive: user.isActive,
+      status: user.status,
+      photoUrl: user.photoUrl,
+      dob: user.dob,
+      gender: user.gender,
+      placeOfWork: user.placeOfWork,
+      communicationPrefs: user.communicationPrefs,
       createdAt: user.createdAt,
     },
   });
@@ -59,10 +77,41 @@ router.post("/auth/register", async (req, res): Promise<void> => {
     return;
   }
   const passwordHash = await bcrypt.hash(password, 12);
+
+  const requiresApproval = role === "admin" || role === "teacher";
+  const userStatus = requiresApproval ? "pending_approval" : "active";
+  const isActive = !requiresApproval;
+
   const [user] = await db
     .insert(usersTable)
-    .values({ email, passwordHash, firstName, lastName, phone, role })
+    .values({
+      email,
+      passwordHash,
+      firstName,
+      lastName,
+      phone,
+      role: role as "super_admin" | "admin" | "teacher" | "attendant" | "parent",
+      status: userStatus,
+      isActive,
+    })
     .returning();
+
+  if (requiresApproval) {
+    res.status(201).json({
+      pending: true,
+      message: "Registration successful. Your account is pending admin approval. You will be notified once approved.",
+      user: {
+        id: user.id,
+        email: user.email,
+        role: user.role,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        status: user.status,
+      },
+    });
+    return;
+  }
+
   const token = generateToken({
     userId: user.id,
     email: user.email,
@@ -80,6 +129,8 @@ router.post("/auth/register", async (req, res): Promise<void> => {
       firstName: user.firstName,
       lastName: user.lastName,
       isActive: user.isActive,
+      status: user.status,
+      photoUrl: user.photoUrl,
       createdAt: user.createdAt,
     },
   });
@@ -102,6 +153,12 @@ router.get("/auth/me", authMiddleware, async (req, res): Promise<void> => {
     firstName: user.firstName,
     lastName: user.lastName,
     isActive: user.isActive,
+    status: user.status,
+    photoUrl: user.photoUrl,
+    dob: user.dob,
+    gender: user.gender,
+    placeOfWork: user.placeOfWork,
+    communicationPrefs: user.communicationPrefs,
     createdAt: user.createdAt,
   });
 });

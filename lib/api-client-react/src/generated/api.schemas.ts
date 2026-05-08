@@ -54,6 +54,14 @@ export const UserRole = {
   parent: "parent",
 } as const;
 
+export type UserStatus = (typeof UserStatus)[keyof typeof UserStatus];
+
+export const UserStatus = {
+  active: "active",
+  pending_approval: "pending_approval",
+  suspended: "suspended",
+} as const;
+
 export interface User {
   id: number;
   email: string;
@@ -62,6 +70,12 @@ export interface User {
   firstName: string;
   lastName: string;
   isActive: boolean;
+  status: UserStatus;
+  photoUrl?: string | null;
+  dob?: string | null;
+  gender?: string | null;
+  placeOfWork?: string | null;
+  communicationPrefs?: string | null;
   createdAt: string;
 }
 
@@ -731,6 +745,63 @@ export interface ExceptionReport {
   pendingDelegateApprovals: PickupDelegate[];
 }
 
+export type BroadcastNotificationBodyTargetRolesItem =
+  (typeof BroadcastNotificationBodyTargetRolesItem)[keyof typeof BroadcastNotificationBodyTargetRolesItem];
+
+export const BroadcastNotificationBodyTargetRolesItem = {
+  super_admin: "super_admin",
+  admin: "admin",
+  teacher: "teacher",
+  attendant: "attendant",
+  parent: "parent",
+} as const;
+
+export interface BroadcastNotificationBody {
+  title: string;
+  message: string;
+  targetRoles?: BroadcastNotificationBodyTargetRolesItem[];
+  targetUserIds?: number[] | null;
+}
+
+export interface PreDismissalBody {
+  serviceDate: string;
+  serviceSlot?: string | null;
+  minutesBefore?: number;
+}
+
+export type ClassChangeRequestStatus =
+  (typeof ClassChangeRequestStatus)[keyof typeof ClassChangeRequestStatus];
+
+export const ClassChangeRequestStatus = {
+  pending: "pending",
+  approved: "approved",
+  rejected: "rejected",
+} as const;
+
+export interface ClassChangeRequest {
+  id: number;
+  childId: number;
+  currentClassId?: number | null;
+  requestedClassId: number;
+  reason?: string | null;
+  status: ClassChangeRequestStatus;
+  requestedBy: number;
+  reviewedBy?: number | null;
+  adminNotes?: string | null;
+  child?: Child | null;
+  currentClass?: Class | null;
+  requestedClass?: Class | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateClassChangeRequestBody {
+  childId: number;
+  requestedClassId: number;
+  currentClassId?: number | null;
+  reason?: string | null;
+}
+
 export type ListUsersParams = {
   role?: string;
   search?: string;
@@ -839,4 +910,95 @@ export const GetAttendanceTrendsPeriod = {
 export type GetExceptionsParams = {
   serviceDate?: string;
   serviceSlot?: string;
+};
+
+export type GetNotPickedUpReportParams = {
+  serviceDate?: string;
+  serviceSlot?: string;
+};
+
+export type GetNotPickedUpReport200ChildrenItem = { [key: string]: unknown };
+
+export type GetNotPickedUpReport200 = {
+  date: string;
+  total: number;
+  children: GetNotPickedUpReport200ChildrenItem[];
+};
+
+export type ExportAttendanceParams = {
+  from?: string;
+  to?: string;
+  serviceSlot?: string;
+  format?: ExportAttendanceFormat;
+};
+
+export type ExportAttendanceFormat =
+  (typeof ExportAttendanceFormat)[keyof typeof ExportAttendanceFormat];
+
+export const ExportAttendanceFormat = {
+  json: "json",
+  csv: "csv",
+} as const;
+
+export type ExportEmergencyLogParams = {
+  format?: ExportEmergencyLogFormat;
+};
+
+export type ExportEmergencyLogFormat =
+  (typeof ExportEmergencyLogFormat)[keyof typeof ExportEmergencyLogFormat];
+
+export const ExportEmergencyLogFormat = {
+  json: "json",
+  csv: "csv",
+} as const;
+
+export type GetTeacherRatiosParams = {
+  serviceDate?: string;
+  serviceSlot?: string;
+};
+
+export type GetTeacherRatios200ClassesItem = { [key: string]: unknown };
+
+export type GetTeacherRatios200 = {
+  date: string;
+  classes: GetTeacherRatios200ClassesItem[];
+};
+
+export type GetReportSummaryParams = {
+  serviceDate?: string;
+};
+
+export type GetReportSummary200 = {
+  date: string;
+  totalCheckedIn: number;
+  stillPresent: number;
+  pickedUp: number;
+  pendingDelegateApprovals?: number;
+  pendingUserApprovals?: number;
+};
+
+export type ListClassChangeRequestsParams = {
+  status?: ListClassChangeRequestsStatus;
+};
+
+export type ListClassChangeRequestsStatus =
+  (typeof ListClassChangeRequestsStatus)[keyof typeof ListClassChangeRequestsStatus];
+
+export const ListClassChangeRequestsStatus = {
+  pending: "pending",
+  approved: "approved",
+  rejected: "rejected",
+} as const;
+
+export type ListClassChangeRequests200 = {
+  data: ClassChangeRequest[];
+  total: number;
+};
+
+export type ApproveClassChangeRequestBody = {
+  adminNotes?: string;
+};
+
+export type RejectClassChangeRequestBody = {
+  adminNotes?: string;
 };

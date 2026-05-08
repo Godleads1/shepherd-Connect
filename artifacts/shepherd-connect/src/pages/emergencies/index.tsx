@@ -116,13 +116,13 @@ export default function Emergencies() {
       <div className="bg-white rounded-3xl p-6 sm:p-8 shadow-card border border-gray-100 mt-8">
         <h2 className="text-2xl font-bold flex items-center gap-3 mb-6 border-b border-gray-100 pb-4">
           <span className="relative flex h-4 w-4 mr-1">
-            {emergencies?.data?.length ? <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span> : null}
-            <span className={`relative inline-flex rounded-full h-4 w-4 ${emergencies?.data?.length ? 'bg-red-500' : 'bg-gray-300'}`}></span>
+            {emergencies?.length ? <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span> : null}
+            <span className={`relative inline-flex rounded-full h-4 w-4 ${emergencies?.length ? 'bg-red-500' : 'bg-gray-300'}`}></span>
           </span>
           Active Emergencies
         </h2>
         
-        {emergencies?.data?.length === 0 || !emergencies?.data ? (
+        {!emergencies?.length ? (
           <div className="py-12 flex flex-col items-center justify-center text-center">
             <div className="w-20 h-20 bg-green-50 rounded-full flex items-center justify-center mb-4">
               <Shield className="h-10 w-10 text-green-500" />
@@ -132,7 +132,7 @@ export default function Emergencies() {
           </div>
         ) : (
           <div className="grid gap-4">
-            {emergencies.data.map((em) => (
+            {(emergencies || []).map((em: any) => (
               <div key={em.id} className="bg-red-50 rounded-2xl border-2 border-red-200 overflow-hidden flex flex-col sm:flex-row">
                 <div className={`w-full sm:w-24 flex items-center justify-center p-4 bg-gradient-to-br ${getEmergencyColor(em.type)} text-white`}>
                   {getEmergencyIcon(em.type)}

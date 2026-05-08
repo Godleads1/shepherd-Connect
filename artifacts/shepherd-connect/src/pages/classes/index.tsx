@@ -208,11 +208,12 @@ export default function Classes() {
                     <span>Capacity Status</span>
                     <span>{cls.enrollmentCount} / {cls.capacity}</span>
                   </div>
-                  <Progress 
-                    value={percent} 
-                    className="h-2.5 bg-gray-100 rounded-full overflow-hidden"
-                    indicatorClassName={getCapacityColor(cls.enrollmentCount, cls.capacity)}
-                  />
+                  <div className="relative h-2.5 bg-gray-100 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all ${getCapacityColor(cls.enrollmentCount, cls.capacity)}`}
+                      style={{ width: `${percent}%` }}
+                    />
+                  </div>
                 </div>
                 
                 <div className="flex gap-2 mt-5 pt-4 border-t border-gray-50">

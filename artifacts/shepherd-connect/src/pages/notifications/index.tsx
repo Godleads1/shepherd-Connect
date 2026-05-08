@@ -11,7 +11,7 @@ export default function Notifications() {
 
   const handleMarkRead = async (id: number) => {
     try {
-      await markReadMutation.mutateAsync({ id, data: {} });
+      await markReadMutation.mutateAsync({ id });
       refetch();
     } catch (e) {
       toast({ variant: "destructive", title: "Action failed" });
@@ -20,7 +20,7 @@ export default function Notifications() {
 
   const handleMarkAllRead = async () => {
     try {
-      await markAllReadMutation.mutateAsync({ data: {} });
+      await markAllReadMutation.mutateAsync();
       refetch();
     } catch (e) {
       toast({ variant: "destructive", title: "Action failed" });

@@ -1,8 +1,8 @@
 import { Router } from "express";
 import { eq, and, sql } from "drizzle-orm";
-import { db, notificationsTable } from "@workspace/db";
+import { db, notificationsTable, usersTable } from "@workspace/db";
 import { ListNotificationsQueryParams } from "@workspace/api-zod";
-import { authMiddleware } from "../middlewares/auth";
+import { authMiddleware, requireRoles } from "../middlewares/auth";
 
 const router = Router();
 
@@ -38,6 +38,69 @@ router.put("/notifications/read-all", authMiddleware, async (req, res): Promise<
   await db.update(notificationsTable).set({ readStatus: true })
     .where(eq(notificationsTable.userId, req.user!.userId));
   res.json({ success: true, message: "All notifications marked as read" });
+});
+
+router.post("/notifications/broadcast", authMiddleware, requireRoles("super_admin", "admin"), async (req, res): Promise<void> => {
+  const { title, message, targetRole, type, channel } = req.body as {
+    title: string;
+    message: string;
+    targetRole?: string;
+    type?: string;
+    channel?: "in_app" | "whatsapp" | "sms" | "email";
+  };
+  if (!title || !message) {
+    res.status(400).json({ error: "Bad request", message: "title and message are required" });
+    return;
+  }
+  const roleFilter = targetRole ? eq(usersTable.role, targetRole as "super_admin" | "admin" | "teacher" | "attendant" | "parent") : undefined;
+  const recipients = await db.select({ id: usersTable.id }).from(usersTable)
+    .where(and(eq(usersTable.isActive, true), roleFilter));
+
+  if (recipients.length === 0) {
+    res.json({ success: true, sent: 0, message: "No recipients found" });
+    return;
+  }
+
+  const notifs = recipients.map(r => ({
+    userId: r.id,
+    type: type || "broadcast",
+    title,
+    message,
+    channel: channel || "in_app" as const,
+    readStatus: false,
+  }));
+
+  await db.insert(notificationsTable).values(notifs);
+  res.json({ success: true, sent: recipients.length, message: `Notification sent to ${recipients.length} user(s)` });
+});
+
+router.post("/notifications/pre-dismissal", authMiddleware, requireRoles("super_admin", "admin"), async (req, res): Promise<void> => {
+  const { serviceSlot, minutesBefore = 15 } = req.body as { serviceSlot?: string; minutesBefore?: number };
+  const title = "Pre-Dismissal Alert";
+  const message = serviceSlot
+    ? `Children in the ${serviceSlot} service will be dismissed in approximately ${minutesBefore} minutes. Please proceed to the collection area.`
+    : `Children will be dismissed in approximately ${minutesBefore} minutes. Please proceed to the collection area.`;
+
+  const parents = await db.select({ id: usersTable.id }).from(usersTable)
+    .where(and(eq(usersTable.isActive, true), eq(usersTable.role, "parent")));
+
+  if (parents.length === 0) {
+    res.json({ success: true, sent: 0 });
+    return;
+  }
+
+  const notifs = parents.map(p => ({
+    userId: p.id,
+    type: "pre_dismissal",
+    title,
+    message,
+    channel: "in_app" as const,
+    readStatus: false,
+    metadataJson: JSON.stringify({ serviceSlot, minutesBefore }),
+  }));
+
+  await db.insert(notificationsTable).values(notifs);
+  res.json({ success: true, sent: parents.length, message: `Pre-dismissal alert sent to ${parents.length} parent(s)` });
 });
 
 export default router;

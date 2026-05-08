@@ -236,6 +236,76 @@ paths:
               schema:
                 $ref: "#/components/schemas/SuccessResponse"
 
+  /users/pending:
+    get:
+      operationId: listPendingUsers
+      tags: [users]
+      summary: List users pending approval
+      responses:
+        "200":
+          description: Pending users
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaginatedUsers"
+
+  /users/{id}/approve:
+    put:
+      operationId: approveUser
+      tags: [users]
+      summary: Approve a pending user
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: User approved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /users/{id}/reject:
+    put:
+      operationId: rejectUser
+      tags: [users]
+      summary: Reject a pending user
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: User rejected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /users/{id}/suspend:
+    put:
+      operationId: suspendUser
+      tags: [users]
+      summary: Suspend a user
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: User suspended
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
   # FAMILIES
   /families:
     get:
@@ -1043,6 +1113,44 @@ paths:
               schema:
                 $ref: "#/components/schemas/SuccessResponse"
 
+  /notifications/broadcast:
+    post:
+      operationId: broadcastNotification
+      tags: [notifications]
+      summary: Broadcast notification to multiple users/roles
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BroadcastNotificationBody"
+      responses:
+        "200":
+          description: Broadcast sent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /notifications/pre-dismissal:
+    post:
+      operationId: sendPreDismissalNotification
+      tags: [notifications]
+      summary: Send pre-dismissal notification to parents of checked-in children
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PreDismissalBody"
+      responses:
+        "200":
+          description: Pre-dismissal sent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
   # FEEDBACK
   /feedback:
     get:
@@ -1383,6 +1491,263 @@ paths:
               schema:
                 $ref: "#/components/schemas/ExceptionReport"
 
+  # REPORTS
+  /reports/not-picked-up:
+    get:
+      operationId: getNotPickedUpReport
+      tags: [reports]
+      summary: Get children not yet picked up for a given service date
+      parameters:
+        - name: serviceDate
+          in: query
+          schema:
+            type: string
+        - name: serviceSlot
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Not picked up report
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  date:
+                    type: string
+                  total:
+                    type: integer
+                  children:
+                    type: array
+                    items:
+                      type: object
+                required: [date, total, children]
+
+  /reports/attendance-export:
+    get:
+      operationId: exportAttendance
+      tags: [reports]
+      summary: Export attendance records (JSON or CSV)
+      parameters:
+        - name: from
+          in: query
+          schema:
+            type: string
+        - name: to
+          in: query
+          schema:
+            type: string
+        - name: serviceSlot
+          in: query
+          schema:
+            type: string
+        - name: format
+          in: query
+          schema:
+            type: string
+            enum: [json, csv]
+            default: json
+      responses:
+        "200":
+          description: Attendance export
+
+  /reports/emergency-log:
+    get:
+      operationId: exportEmergencyLog
+      tags: [reports]
+      summary: Export emergency incident log
+      parameters:
+        - name: format
+          in: query
+          schema:
+            type: string
+            enum: [json, csv]
+            default: json
+      responses:
+        "200":
+          description: Emergency log
+
+  /reports/teacher-ratios:
+    get:
+      operationId: getTeacherRatios
+      tags: [reports]
+      summary: Get teacher-to-child ratios per class
+      parameters:
+        - name: serviceDate
+          in: query
+          schema:
+            type: string
+        - name: serviceSlot
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Teacher ratio data
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  date:
+                    type: string
+                  classes:
+                    type: array
+                    items:
+                      type: object
+                required: [date, classes]
+
+  /reports/summary:
+    get:
+      operationId: getReportSummary
+      tags: [reports]
+      summary: Get daily summary report
+      parameters:
+        - name: serviceDate
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Summary report
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  date:
+                    type: string
+                  totalCheckedIn:
+                    type: integer
+                  stillPresent:
+                    type: integer
+                  pickedUp:
+                    type: integer
+                  pendingDelegateApprovals:
+                    type: integer
+                  pendingUserApprovals:
+                    type: integer
+                required: [date, totalCheckedIn, stillPresent, pickedUp]
+
+  # CLASS CHANGE REQUESTS
+  /class-change-requests:
+    get:
+      operationId: listClassChangeRequests
+      tags: [classChangeRequests]
+      summary: List class change requests
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending, approved, rejected]
+      responses:
+        "200":
+          description: Class change requests
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ClassChangeRequest"
+                  total:
+                    type: integer
+                required: [data, total]
+    post:
+      operationId: createClassChangeRequest
+      tags: [classChangeRequests]
+      summary: Submit a class change request
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateClassChangeRequestBody"
+      responses:
+        "201":
+          description: Request created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClassChangeRequest"
+
+  /class-change-requests/{id}/approve:
+    put:
+      operationId: approveClassChangeRequest
+      tags: [classChangeRequests]
+      summary: Approve a class change request (moves child to new class)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                adminNotes:
+                  type: string
+      responses:
+        "200":
+          description: Approved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /class-change-requests/{id}/reject:
+    put:
+      operationId: rejectClassChangeRequest
+      tags: [classChangeRequests]
+      summary: Reject a class change request
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                adminNotes:
+                  type: string
+      responses:
+        "200":
+          description: Rejected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /class-change-requests/{id}:
+    delete:
+      operationId: cancelClassChangeRequest
+      tags: [classChangeRequests]
+      summary: Cancel a class change request
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Cancelled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
 components:
   schemas:
     HealthStatus:
@@ -1482,6 +1847,25 @@ components:
           type: string
         isActive:
           type: boolean
+        status:
+          type: string
+          enum: [active, pending_approval, suspended]
+        photoUrl:
+          type: string
+          nullable: true
+        dob:
+          type: string
+          format: date
+          nullable: true
+        gender:
+          type: string
+          nullable: true
+        placeOfWork:
+          type: string
+          nullable: true
+        communicationPrefs:
+          type: string
+          nullable: true
         createdAt:
           type: string
           format: date-time
@@ -1492,6 +1876,7 @@ components:
         - firstName
         - lastName
         - isActive
+        - status
         - createdAt
 
     CreateUserBody:
@@ -2673,3 +3058,107 @@ components:
         - unpickedChildren
         - capacityOverflows
         - pendingDelegateApprovals
+
+    # BROADCAST NOTIFICATION
+    BroadcastNotificationBody:
+      type: object
+      properties:
+        title:
+          type: string
+        message:
+          type: string
+        targetRoles:
+          type: array
+          items:
+            type: string
+            enum: [super_admin, admin, teacher, attendant, parent]
+        targetUserIds:
+          type: array
+          items:
+            type: integer
+          nullable: true
+      required:
+        - title
+        - message
+
+    PreDismissalBody:
+      type: object
+      properties:
+        serviceDate:
+          type: string
+        serviceSlot:
+          type: string
+          nullable: true
+        minutesBefore:
+          type: integer
+          default: 15
+      required:
+        - serviceDate
+
+    # CLASS CHANGE REQUEST
+    ClassChangeRequest:
+      type: object
+      properties:
+        id:
+          type: integer
+        childId:
+          type: integer
+        currentClassId:
+          type: integer
+          nullable: true
+        requestedClassId:
+          type: integer
+        reason:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [pending, approved, rejected]
+        requestedBy:
+          type: integer
+        reviewedBy:
+          type: integer
+          nullable: true
+        adminNotes:
+          type: string
+          nullable: true
+        child:
+          $ref: "#/components/schemas/Child"
+          nullable: true
+        currentClass:
+          $ref: "#/components/schemas/Class"
+          nullable: true
+        requestedClass:
+          $ref: "#/components/schemas/Class"
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - childId
+        - requestedClassId
+        - status
+        - requestedBy
+        - createdAt
+        - updatedAt
+
+    CreateClassChangeRequestBody:
+      type: object
+      properties:
+        childId:
+          type: integer
+        requestedClassId:
+          type: integer
+        currentClassId:
+          type: integer
+          nullable: true
+        reason:
+          type: string
+          nullable: true
+      required:
+        - childId
+        - requestedClassId

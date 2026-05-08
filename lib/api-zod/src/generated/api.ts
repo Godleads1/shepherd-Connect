@@ -32,7 +32,13 @@ export const LoginResponse = zod.object({
     firstName: zod.string(),
     lastName: zod.string(),
     isActive: zod.boolean(),
-    createdAt: zod.coerce.date(),
+    status: zod.enum(["active", "pending_approval", "suspended"]),
+    photoUrl: zod.string().nullish(),
+    dob: zod.string().date().nullish(),
+    gender: zod.string().nullish(),
+    placeOfWork: zod.string().nullish(),
+    communicationPrefs: zod.string().nullish(),
+    createdAt: zod.string().datetime({}),
   }),
 });
 
@@ -59,7 +65,13 @@ export const GetCurrentUserResponse = zod.object({
   firstName: zod.string(),
   lastName: zod.string(),
   isActive: zod.boolean(),
-  createdAt: zod.coerce.date(),
+  status: zod.enum(["active", "pending_approval", "suspended"]),
+  photoUrl: zod.string().nullish(),
+  dob: zod.string().date().nullish(),
+  gender: zod.string().nullish(),
+  placeOfWork: zod.string().nullish(),
+  communicationPrefs: zod.string().nullish(),
+  createdAt: zod.string().datetime({}),
 });
 
 /**
@@ -99,7 +111,13 @@ export const ListUsersResponse = zod.object({
       firstName: zod.string(),
       lastName: zod.string(),
       isActive: zod.boolean(),
-      createdAt: zod.coerce.date(),
+      status: zod.enum(["active", "pending_approval", "suspended"]),
+      photoUrl: zod.string().nullish(),
+      dob: zod.string().date().nullish(),
+      gender: zod.string().nullish(),
+      placeOfWork: zod.string().nullish(),
+      communicationPrefs: zod.string().nullish(),
+      createdAt: zod.string().datetime({}),
     }),
   ),
   total: zod.number(),
@@ -134,7 +152,13 @@ export const GetUserResponse = zod.object({
   firstName: zod.string(),
   lastName: zod.string(),
   isActive: zod.boolean(),
-  createdAt: zod.coerce.date(),
+  status: zod.enum(["active", "pending_approval", "suspended"]),
+  photoUrl: zod.string().nullish(),
+  dob: zod.string().date().nullish(),
+  gender: zod.string().nullish(),
+  placeOfWork: zod.string().nullish(),
+  communicationPrefs: zod.string().nullish(),
+  createdAt: zod.string().datetime({}),
 });
 
 /**
@@ -160,7 +184,13 @@ export const UpdateUserResponse = zod.object({
   firstName: zod.string(),
   lastName: zod.string(),
   isActive: zod.boolean(),
-  createdAt: zod.coerce.date(),
+  status: zod.enum(["active", "pending_approval", "suspended"]),
+  photoUrl: zod.string().nullish(),
+  dob: zod.string().date().nullish(),
+  gender: zod.string().nullish(),
+  placeOfWork: zod.string().nullish(),
+  communicationPrefs: zod.string().nullish(),
+  createdAt: zod.string().datetime({}),
 });
 
 /**
@@ -171,6 +201,75 @@ export const DeleteUserParams = zod.object({
 });
 
 export const DeleteUserResponse = zod.object({
+  success: zod.boolean(),
+  message: zod.string().optional(),
+});
+
+/**
+ * @summary List users pending approval
+ */
+export const ListPendingUsersResponse = zod.object({
+  data: zod.array(
+    zod.object({
+      id: zod.number(),
+      email: zod.string(),
+      phone: zod.string().nullish(),
+      role: zod.enum([
+        "super_admin",
+        "admin",
+        "teacher",
+        "attendant",
+        "parent",
+      ]),
+      firstName: zod.string(),
+      lastName: zod.string(),
+      isActive: zod.boolean(),
+      status: zod.enum(["active", "pending_approval", "suspended"]),
+      photoUrl: zod.string().nullish(),
+      dob: zod.string().date().nullish(),
+      gender: zod.string().nullish(),
+      placeOfWork: zod.string().nullish(),
+      communicationPrefs: zod.string().nullish(),
+      createdAt: zod.string().datetime({}),
+    }),
+  ),
+  total: zod.number(),
+  page: zod.number(),
+  limit: zod.number(),
+});
+
+/**
+ * @summary Approve a pending user
+ */
+export const ApproveUserParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const ApproveUserResponse = zod.object({
+  success: zod.boolean(),
+  message: zod.string().optional(),
+});
+
+/**
+ * @summary Reject a pending user
+ */
+export const RejectUserParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const RejectUserResponse = zod.object({
+  success: zod.boolean(),
+  message: zod.string().optional(),
+});
+
+/**
+ * @summary Suspend a user
+ */
+export const SuspendUserParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const SuspendUserResponse = zod.object({
   success: zod.boolean(),
   message: zod.string().optional(),
 });
@@ -209,7 +308,13 @@ export const ListFamiliesResponse = zod.object({
           firstName: zod.string(),
           lastName: zod.string(),
           isActive: zod.boolean(),
-          createdAt: zod.coerce.date(),
+          status: zod.enum(["active", "pending_approval", "suspended"]),
+          photoUrl: zod.string().nullish(),
+          dob: zod.string().date().nullish(),
+          gender: zod.string().nullish(),
+          placeOfWork: zod.string().nullish(),
+          communicationPrefs: zod.string().nullish(),
+          createdAt: zod.string().datetime({}),
         })
         .nullish(),
       parent2: zod
@@ -227,7 +332,13 @@ export const ListFamiliesResponse = zod.object({
           firstName: zod.string(),
           lastName: zod.string(),
           isActive: zod.boolean(),
-          createdAt: zod.coerce.date(),
+          status: zod.enum(["active", "pending_approval", "suspended"]),
+          photoUrl: zod.string().nullish(),
+          dob: zod.string().date().nullish(),
+          gender: zod.string().nullish(),
+          placeOfWork: zod.string().nullish(),
+          communicationPrefs: zod.string().nullish(),
+          createdAt: zod.string().datetime({}),
         })
         .nullish(),
       address: zod.string().nullish(),
@@ -240,7 +351,7 @@ export const ListFamiliesResponse = zod.object({
             familyId: zod.number(),
             firstName: zod.string(),
             lastName: zod.string(),
-            dob: zod.coerce.date(),
+            dob: zod.string().date(),
             age: zod.number(),
             gender: zod.string(),
             allergies: zod.string().nullish(),
@@ -258,14 +369,14 @@ export const ListFamiliesResponse = zod.object({
                 serviceSlot: zod.enum(["7am", "9am", "11am", "1pm"]),
                 description: zod.string().nullish(),
                 enrollmentCount: zod.number(),
-                createdAt: zod.coerce.date(),
+                createdAt: zod.string().datetime({}),
               })
               .nullish(),
-            createdAt: zod.coerce.date(),
+            createdAt: zod.string().datetime({}),
           }),
         )
         .optional(),
-      createdAt: zod.coerce.date(),
+      createdAt: zod.string().datetime({}),
     }),
   ),
   total: zod.number(),
@@ -311,7 +422,13 @@ export const GetFamilyResponse = zod.object({
       firstName: zod.string(),
       lastName: zod.string(),
       isActive: zod.boolean(),
-      createdAt: zod.coerce.date(),
+      status: zod.enum(["active", "pending_approval", "suspended"]),
+      photoUrl: zod.string().nullish(),
+      dob: zod.string().date().nullish(),
+      gender: zod.string().nullish(),
+      placeOfWork: zod.string().nullish(),
+      communicationPrefs: zod.string().nullish(),
+      createdAt: zod.string().datetime({}),
     })
     .nullish(),
   parent2: zod
@@ -329,7 +446,13 @@ export const GetFamilyResponse = zod.object({
       firstName: zod.string(),
       lastName: zod.string(),
       isActive: zod.boolean(),
-      createdAt: zod.coerce.date(),
+      status: zod.enum(["active", "pending_approval", "suspended"]),
+      photoUrl: zod.string().nullish(),
+      dob: zod.string().date().nullish(),
+      gender: zod.string().nullish(),
+      placeOfWork: zod.string().nullish(),
+      communicationPrefs: zod.string().nullish(),
+      createdAt: zod.string().datetime({}),
     })
     .nullish(),
   address: zod.string().nullish(),
@@ -342,7 +465,7 @@ export const GetFamilyResponse = zod.object({
         familyId: zod.number(),
         firstName: zod.string(),
         lastName: zod.string(),
-        dob: zod.coerce.date(),
+        dob: zod.string().date(),
         age: zod.number(),
         gender: zod.string(),
         allergies: zod.string().nullish(),
@@ -360,14 +483,14 @@ export const GetFamilyResponse = zod.object({
             serviceSlot: zod.enum(["7am", "9am", "11am", "1pm"]),
             description: zod.string().nullish(),
             enrollmentCount: zod.number(),
-            createdAt: zod.coerce.date(),
+            createdAt: zod.string().datetime({}),
           })
           .nullish(),
-        createdAt: zod.coerce.date(),
+        createdAt: zod.string().datetime({}),
       }),
     )
     .optional(),
-  createdAt: zod.coerce.date(),
+  createdAt: zod.string().datetime({}),
 });
 
 /**
@@ -405,7 +528,13 @@ export const UpdateFamilyResponse = zod.object({
       firstName: zod.string(),
       lastName: zod.string(),
       isActive: zod.boolean(),
-      createdAt: zod.coerce.date(),
+      status: zod.enum(["active", "pending_approval", "suspended"]),
+      photoUrl: zod.string().nullish(),
+      dob: zod.string().date().nullish(),
+      gender: zod.string().nullish(),
+      placeOfWork: zod.string().nullish(),
+      communicationPrefs: zod.string().nullish(),
+      createdAt: zod.string().datetime({}),
     })
     .nullish(),
   parent2: zod
@@ -423,7 +552,13 @@ export const UpdateFamilyResponse = zod.object({
       firstName: zod.string(),
       lastName: zod.string(),
       isActive: zod.boolean(),
-      createdAt: zod.coerce.date(),
+      status: zod.enum(["active", "pending_approval", "suspended"]),
+      photoUrl: zod.string().nullish(),
+      dob: zod.string().date().nullish(),
+      gender: zod.string().nullish(),
+      placeOfWork: zod.string().nullish(),
+      communicationPrefs: zod.string().nullish(),
+      createdAt: zod.string().datetime({}),
     })
     .nullish(),
   address: zod.string().nullish(),
@@ -436,7 +571,7 @@ export const UpdateFamilyResponse = zod.object({
         familyId: zod.number(),
         firstName: zod.string(),
         lastName: zod.string(),
-        dob: zod.coerce.date(),
+        dob: zod.string().date(),
         age: zod.number(),
         gender: zod.string(),
         allergies: zod.string().nullish(),
@@ -454,14 +589,14 @@ export const UpdateFamilyResponse = zod.object({
             serviceSlot: zod.enum(["7am", "9am", "11am", "1pm"]),
             description: zod.string().nullish(),
             enrollmentCount: zod.number(),
-            createdAt: zod.coerce.date(),
+            createdAt: zod.string().datetime({}),
           })
           .nullish(),
-        createdAt: zod.coerce.date(),
+        createdAt: zod.string().datetime({}),
       }),
     )
     .optional(),
-  createdAt: zod.coerce.date(),
+  createdAt: zod.string().datetime({}),
 });
 
 /**
@@ -492,7 +627,13 @@ export const GetFamilyTreeResponse = zod.object({
         firstName: zod.string(),
         lastName: zod.string(),
         isActive: zod.boolean(),
-        createdAt: zod.coerce.date(),
+        status: zod.enum(["active", "pending_approval", "suspended"]),
+        photoUrl: zod.string().nullish(),
+        dob: zod.string().date().nullish(),
+        gender: zod.string().nullish(),
+        placeOfWork: zod.string().nullish(),
+        communicationPrefs: zod.string().nullish(),
+        createdAt: zod.string().datetime({}),
       })
       .nullish(),
     parent2: zod
@@ -510,7 +651,13 @@ export const GetFamilyTreeResponse = zod.object({
         firstName: zod.string(),
         lastName: zod.string(),
         isActive: zod.boolean(),
-        createdAt: zod.coerce.date(),
+        status: zod.enum(["active", "pending_approval", "suspended"]),
+        photoUrl: zod.string().nullish(),
+        dob: zod.string().date().nullish(),
+        gender: zod.string().nullish(),
+        placeOfWork: zod.string().nullish(),
+        communicationPrefs: zod.string().nullish(),
+        createdAt: zod.string().datetime({}),
       })
       .nullish(),
     address: zod.string().nullish(),
@@ -523,7 +670,7 @@ export const GetFamilyTreeResponse = zod.object({
           familyId: zod.number(),
           firstName: zod.string(),
           lastName: zod.string(),
-          dob: zod.coerce.date(),
+          dob: zod.string().date(),
           age: zod.number(),
           gender: zod.string(),
           allergies: zod.string().nullish(),
@@ -541,14 +688,14 @@ export const GetFamilyTreeResponse = zod.object({
               serviceSlot: zod.enum(["7am", "9am", "11am", "1pm"]),
               description: zod.string().nullish(),
               enrollmentCount: zod.number(),
-              createdAt: zod.coerce.date(),
+              createdAt: zod.string().datetime({}),
             })
             .nullish(),
-          createdAt: zod.coerce.date(),
+          createdAt: zod.string().datetime({}),
         }),
       )
       .optional(),
-    createdAt: zod.coerce.date(),
+    createdAt: zod.string().datetime({}),
   }),
   parents: zod.array(
     zod.object({
@@ -565,7 +712,13 @@ export const GetFamilyTreeResponse = zod.object({
       firstName: zod.string(),
       lastName: zod.string(),
       isActive: zod.boolean(),
-      createdAt: zod.coerce.date(),
+      status: zod.enum(["active", "pending_approval", "suspended"]),
+      photoUrl: zod.string().nullish(),
+      dob: zod.string().date().nullish(),
+      gender: zod.string().nullish(),
+      placeOfWork: zod.string().nullish(),
+      communicationPrefs: zod.string().nullish(),
+      createdAt: zod.string().datetime({}),
     }),
   ),
   children: zod.array(
@@ -573,7 +726,7 @@ export const GetFamilyTreeResponse = zod.object({
       id: zod.number(),
       firstName: zod.string(),
       lastName: zod.string(),
-      dob: zod.coerce.date(),
+      dob: zod.string().date(),
       age: zod.number(),
       gender: zod.string(),
       photoUrl: zod.string().nullish(),
@@ -588,7 +741,7 @@ export const GetFamilyTreeResponse = zod.object({
           serviceSlot: zod.enum(["7am", "9am", "11am", "1pm"]),
           description: zod.string().nullish(),
           enrollmentCount: zod.number(),
-          createdAt: zod.coerce.date(),
+          createdAt: zod.string().datetime({}),
         })
         .nullish(),
       teacher: zod
@@ -606,7 +759,13 @@ export const GetFamilyTreeResponse = zod.object({
           firstName: zod.string(),
           lastName: zod.string(),
           isActive: zod.boolean(),
-          createdAt: zod.coerce.date(),
+          status: zod.enum(["active", "pending_approval", "suspended"]),
+          photoUrl: zod.string().nullish(),
+          dob: zod.string().date().nullish(),
+          gender: zod.string().nullish(),
+          placeOfWork: zod.string().nullish(),
+          communicationPrefs: zod.string().nullish(),
+          createdAt: zod.string().datetime({}),
         })
         .nullish(),
       lastAttendance: zod.string().nullish(),
@@ -616,10 +775,10 @@ export const GetFamilyTreeResponse = zod.object({
             id: zod.number(),
             childId: zod.number(),
             classId: zod.number(),
-            serviceDate: zod.coerce.date(),
+            serviceDate: zod.string().date(),
             serviceSlot: zod.string(),
-            checkInTime: zod.coerce.date().nullish(),
-            checkOutTime: zod.coerce.date().nullish(),
+            checkInTime: zod.string().datetime({}).nullish(),
+            checkOutTime: zod.string().datetime({}).nullish(),
             checkedInBy: zod.number().nullish(),
             checkedOutBy: zod.number().nullish(),
             status: zod.enum(["dropped_off", "in_class", "picked_up"]),
@@ -629,7 +788,7 @@ export const GetFamilyTreeResponse = zod.object({
                 familyId: zod.number(),
                 firstName: zod.string(),
                 lastName: zod.string(),
-                dob: zod.coerce.date(),
+                dob: zod.string().date(),
                 age: zod.number(),
                 gender: zod.string(),
                 allergies: zod.string().nullish(),
@@ -647,10 +806,10 @@ export const GetFamilyTreeResponse = zod.object({
                     serviceSlot: zod.enum(["7am", "9am", "11am", "1pm"]),
                     description: zod.string().nullish(),
                     enrollmentCount: zod.number(),
-                    createdAt: zod.coerce.date(),
+                    createdAt: zod.string().datetime({}),
                   })
                   .nullish(),
-                createdAt: zod.coerce.date(),
+                createdAt: zod.string().datetime({}),
               })
               .nullish(),
             class: zod
@@ -664,7 +823,7 @@ export const GetFamilyTreeResponse = zod.object({
                 serviceSlot: zod.enum(["7am", "9am", "11am", "1pm"]),
                 description: zod.string().nullish(),
                 enrollmentCount: zod.number(),
-                createdAt: zod.coerce.date(),
+                createdAt: zod.string().datetime({}),
               })
               .nullish(),
           }),
@@ -697,7 +856,13 @@ export const GetMyFamilyResponse = zod.object({
       firstName: zod.string(),
       lastName: zod.string(),
       isActive: zod.boolean(),
-      createdAt: zod.coerce.date(),
+      status: zod.enum(["active", "pending_approval", "suspended"]),
+      photoUrl: zod.string().nullish(),
+      dob: zod.string().date().nullish(),
+      gender: zod.string().nullish(),
+      placeOfWork: zod.string().nullish(),
+      communicationPrefs: zod.string().nullish(),
+      createdAt: zod.string().datetime({}),
     })
     .nullish(),
   parent2: zod
@@ -715,7 +880,13 @@ export const GetMyFamilyResponse = zod.object({
       firstName: zod.string(),
       lastName: zod.string(),
       isActive: zod.boolean(),
-      createdAt: zod.coerce.date(),
+      status: zod.enum(["active", "pending_approval", "suspended"]),
+      photoUrl: zod.string().nullish(),
+      dob: zod.string().date().nullish(),
+      gender: zod.string().nullish(),
+      placeOfWork: zod.string().nullish(),
+      communicationPrefs: zod.string().nullish(),
+      createdAt: zod.string().datetime({}),
     })
     .nullish(),
   address: zod.string().nullish(),
@@ -728,7 +899,7 @@ export const GetMyFamilyResponse = zod.object({
         familyId: zod.number(),
         firstName: zod.string(),
         lastName: zod.string(),
-        dob: zod.coerce.date(),
+        dob: zod.string().date(),
         age: zod.number(),
         gender: zod.string(),
         allergies: zod.string().nullish(),
@@ -746,14 +917,14 @@ export const GetMyFamilyResponse = zod.object({
             serviceSlot: zod.enum(["7am", "9am", "11am", "1pm"]),
             description: zod.string().nullish(),
             enrollmentCount: zod.number(),
-            createdAt: zod.coerce.date(),
+            createdAt: zod.string().datetime({}),
           })
           .nullish(),
-        createdAt: zod.coerce.date(),
+        createdAt: zod.string().datetime({}),
       }),
     )
     .optional(),
-  createdAt: zod.coerce.date(),
+  createdAt: zod.string().datetime({}),
 });
 
 /**
@@ -778,7 +949,7 @@ export const ListChildrenResponse = zod.object({
       familyId: zod.number(),
       firstName: zod.string(),
       lastName: zod.string(),
-      dob: zod.coerce.date(),
+      dob: zod.string().date(),
       age: zod.number(),
       gender: zod.string(),
       allergies: zod.string().nullish(),
@@ -796,10 +967,10 @@ export const ListChildrenResponse = zod.object({
           serviceSlot: zod.enum(["7am", "9am", "11am", "1pm"]),
           description: zod.string().nullish(),
           enrollmentCount: zod.number(),
-          createdAt: zod.coerce.date(),
+          createdAt: zod.string().datetime({}),
         })
         .nullish(),
-      createdAt: zod.coerce.date(),
+      createdAt: zod.string().datetime({}),
     }),
   ),
   total: zod.number(),
@@ -814,7 +985,7 @@ export const CreateChildBody = zod.object({
   familyId: zod.number(),
   firstName: zod.string(),
   lastName: zod.string(),
-  dob: zod.coerce.date(),
+  dob: zod.string().date(),
   gender: zod.enum(["male", "female"]),
   allergies: zod.string().nullish(),
   medicalNotes: zod.string().nullish(),
@@ -834,7 +1005,7 @@ export const GetChildResponse = zod.object({
   familyId: zod.number(),
   firstName: zod.string(),
   lastName: zod.string(),
-  dob: zod.coerce.date(),
+  dob: zod.string().date(),
   age: zod.number(),
   gender: zod.string(),
   allergies: zod.string().nullish(),
@@ -852,10 +1023,10 @@ export const GetChildResponse = zod.object({
       serviceSlot: zod.enum(["7am", "9am", "11am", "1pm"]),
       description: zod.string().nullish(),
       enrollmentCount: zod.number(),
-      createdAt: zod.coerce.date(),
+      createdAt: zod.string().datetime({}),
     })
     .nullish(),
-  createdAt: zod.coerce.date(),
+  createdAt: zod.string().datetime({}),
 });
 
 /**
@@ -869,7 +1040,7 @@ export const UpdateChildBody = zod.object({
   familyId: zod.number(),
   firstName: zod.string(),
   lastName: zod.string(),
-  dob: zod.coerce.date(),
+  dob: zod.string().date(),
   gender: zod.enum(["male", "female"]),
   allergies: zod.string().nullish(),
   medicalNotes: zod.string().nullish(),
@@ -882,7 +1053,7 @@ export const UpdateChildResponse = zod.object({
   familyId: zod.number(),
   firstName: zod.string(),
   lastName: zod.string(),
-  dob: zod.coerce.date(),
+  dob: zod.string().date(),
   age: zod.number(),
   gender: zod.string(),
   allergies: zod.string().nullish(),
@@ -900,10 +1071,10 @@ export const UpdateChildResponse = zod.object({
       serviceSlot: zod.enum(["7am", "9am", "11am", "1pm"]),
       description: zod.string().nullish(),
       enrollmentCount: zod.number(),
-      createdAt: zod.coerce.date(),
+      createdAt: zod.string().datetime({}),
     })
     .nullish(),
-  createdAt: zod.coerce.date(),
+  createdAt: zod.string().datetime({}),
 });
 
 /**
@@ -936,7 +1107,7 @@ export const ListClassesResponseItem = zod.object({
   serviceSlot: zod.enum(["7am", "9am", "11am", "1pm"]),
   description: zod.string().nullish(),
   enrollmentCount: zod.number(),
-  createdAt: zod.coerce.date(),
+  createdAt: zod.string().datetime({}),
 });
 export const ListClassesResponse = zod.array(ListClassesResponseItem);
 
@@ -970,7 +1141,7 @@ export const GetClassResponse = zod.object({
   serviceSlot: zod.enum(["7am", "9am", "11am", "1pm"]),
   description: zod.string().nullish(),
   enrollmentCount: zod.number(),
-  createdAt: zod.coerce.date(),
+  createdAt: zod.string().datetime({}),
 });
 
 /**
@@ -1000,7 +1171,7 @@ export const UpdateClassResponse = zod.object({
   serviceSlot: zod.enum(["7am", "9am", "11am", "1pm"]),
   description: zod.string().nullish(),
   enrollmentCount: zod.number(),
-  createdAt: zod.coerce.date(),
+  createdAt: zod.string().datetime({}),
 });
 
 /**
@@ -1029,7 +1200,7 @@ export const ListClassAssignmentsResponseItem = zod.object({
   childId: zod.number(),
   classId: zod.number(),
   assignedBy: zod.number().nullish(),
-  assignedAt: zod.coerce.date(),
+  assignedAt: zod.string().datetime({}),
   status: zod.enum(["active", "pending", "inactive"]),
   child: zod
     .object({
@@ -1037,7 +1208,7 @@ export const ListClassAssignmentsResponseItem = zod.object({
       familyId: zod.number(),
       firstName: zod.string(),
       lastName: zod.string(),
-      dob: zod.coerce.date(),
+      dob: zod.string().date(),
       age: zod.number(),
       gender: zod.string(),
       allergies: zod.string().nullish(),
@@ -1055,10 +1226,10 @@ export const ListClassAssignmentsResponseItem = zod.object({
           serviceSlot: zod.enum(["7am", "9am", "11am", "1pm"]),
           description: zod.string().nullish(),
           enrollmentCount: zod.number(),
-          createdAt: zod.coerce.date(),
+          createdAt: zod.string().datetime({}),
         })
         .nullish(),
-      createdAt: zod.coerce.date(),
+      createdAt: zod.string().datetime({}),
     })
     .nullish(),
   class: zod
@@ -1072,7 +1243,7 @@ export const ListClassAssignmentsResponseItem = zod.object({
       serviceSlot: zod.enum(["7am", "9am", "11am", "1pm"]),
       description: zod.string().nullish(),
       enrollmentCount: zod.number(),
-      createdAt: zod.coerce.date(),
+      createdAt: zod.string().datetime({}),
     })
     .nullish(),
 });
@@ -1105,7 +1276,7 @@ export const UpdateClassAssignmentResponse = zod.object({
   childId: zod.number(),
   classId: zod.number(),
   assignedBy: zod.number().nullish(),
-  assignedAt: zod.coerce.date(),
+  assignedAt: zod.string().datetime({}),
   status: zod.enum(["active", "pending", "inactive"]),
   child: zod
     .object({
@@ -1113,7 +1284,7 @@ export const UpdateClassAssignmentResponse = zod.object({
       familyId: zod.number(),
       firstName: zod.string(),
       lastName: zod.string(),
-      dob: zod.coerce.date(),
+      dob: zod.string().date(),
       age: zod.number(),
       gender: zod.string(),
       allergies: zod.string().nullish(),
@@ -1131,10 +1302,10 @@ export const UpdateClassAssignmentResponse = zod.object({
           serviceSlot: zod.enum(["7am", "9am", "11am", "1pm"]),
           description: zod.string().nullish(),
           enrollmentCount: zod.number(),
-          createdAt: zod.coerce.date(),
+          createdAt: zod.string().datetime({}),
         })
         .nullish(),
-      createdAt: zod.coerce.date(),
+      createdAt: zod.string().datetime({}),
     })
     .nullish(),
   class: zod
@@ -1148,7 +1319,7 @@ export const UpdateClassAssignmentResponse = zod.object({
       serviceSlot: zod.enum(["7am", "9am", "11am", "1pm"]),
       description: zod.string().nullish(),
       enrollmentCount: zod.number(),
-      createdAt: zod.coerce.date(),
+      createdAt: zod.string().datetime({}),
     })
     .nullish(),
 });
@@ -1174,10 +1345,16 @@ export const ListTeachersResponseItem = zod.object({
       firstName: zod.string(),
       lastName: zod.string(),
       isActive: zod.boolean(),
-      createdAt: zod.coerce.date(),
+      status: zod.enum(["active", "pending_approval", "suspended"]),
+      photoUrl: zod.string().nullish(),
+      dob: zod.string().date().nullish(),
+      gender: zod.string().nullish(),
+      placeOfWork: zod.string().nullish(),
+      communicationPrefs: zod.string().nullish(),
+      createdAt: zod.string().datetime({}),
     })
     .nullish(),
-  createdAt: zod.coerce.date(),
+  createdAt: zod.string().datetime({}),
 });
 export const ListTeachersResponse = zod.array(ListTeachersResponseItem);
 
@@ -1213,10 +1390,16 @@ export const GetTeacherResponse = zod.object({
       firstName: zod.string(),
       lastName: zod.string(),
       isActive: zod.boolean(),
-      createdAt: zod.coerce.date(),
+      status: zod.enum(["active", "pending_approval", "suspended"]),
+      photoUrl: zod.string().nullish(),
+      dob: zod.string().date().nullish(),
+      gender: zod.string().nullish(),
+      placeOfWork: zod.string().nullish(),
+      communicationPrefs: zod.string().nullish(),
+      createdAt: zod.string().datetime({}),
     })
     .nullish(),
-  createdAt: zod.coerce.date(),
+  createdAt: zod.string().datetime({}),
 });
 
 /**
@@ -1248,10 +1431,16 @@ export const UpdateTeacherResponse = zod.object({
       firstName: zod.string(),
       lastName: zod.string(),
       isActive: zod.boolean(),
-      createdAt: zod.coerce.date(),
+      status: zod.enum(["active", "pending_approval", "suspended"]),
+      photoUrl: zod.string().nullish(),
+      dob: zod.string().date().nullish(),
+      gender: zod.string().nullish(),
+      placeOfWork: zod.string().nullish(),
+      communicationPrefs: zod.string().nullish(),
+      createdAt: zod.string().datetime({}),
     })
     .nullish(),
-  createdAt: zod.coerce.date(),
+  createdAt: zod.string().datetime({}),
 });
 
 /**
@@ -1267,7 +1456,7 @@ export const ListTeacherAllocationsResponseItem = zod.object({
   id: zod.number(),
   teacherId: zod.number(),
   classId: zod.number(),
-  serviceDate: zod.coerce.date(),
+  serviceDate: zod.string().date(),
   serviceSlot: zod.string(),
   status: zod.enum(["scheduled", "confirmed", "completed", "cancelled"]),
   teacher: zod
@@ -1289,10 +1478,16 @@ export const ListTeacherAllocationsResponseItem = zod.object({
           firstName: zod.string(),
           lastName: zod.string(),
           isActive: zod.boolean(),
-          createdAt: zod.coerce.date(),
+          status: zod.enum(["active", "pending_approval", "suspended"]),
+          photoUrl: zod.string().nullish(),
+          dob: zod.string().date().nullish(),
+          gender: zod.string().nullish(),
+          placeOfWork: zod.string().nullish(),
+          communicationPrefs: zod.string().nullish(),
+          createdAt: zod.string().datetime({}),
         })
         .nullish(),
-      createdAt: zod.coerce.date(),
+      createdAt: zod.string().datetime({}),
     })
     .nullish(),
   class: zod
@@ -1306,7 +1501,7 @@ export const ListTeacherAllocationsResponseItem = zod.object({
       serviceSlot: zod.enum(["7am", "9am", "11am", "1pm"]),
       description: zod.string().nullish(),
       enrollmentCount: zod.number(),
-      createdAt: zod.coerce.date(),
+      createdAt: zod.string().datetime({}),
     })
     .nullish(),
 });
@@ -1320,7 +1515,7 @@ export const ListTeacherAllocationsResponse = zod.array(
 export const CreateTeacherAllocationBody = zod.object({
   teacherId: zod.number(),
   classId: zod.number(),
-  serviceDate: zod.coerce.date(),
+  serviceDate: zod.string().date(),
   serviceSlot: zod.string(),
 });
 
@@ -1341,7 +1536,7 @@ export const UpdateTeacherAllocationResponse = zod.object({
   id: zod.number(),
   teacherId: zod.number(),
   classId: zod.number(),
-  serviceDate: zod.coerce.date(),
+  serviceDate: zod.string().date(),
   serviceSlot: zod.string(),
   status: zod.enum(["scheduled", "confirmed", "completed", "cancelled"]),
   teacher: zod
@@ -1363,10 +1558,16 @@ export const UpdateTeacherAllocationResponse = zod.object({
           firstName: zod.string(),
           lastName: zod.string(),
           isActive: zod.boolean(),
-          createdAt: zod.coerce.date(),
+          status: zod.enum(["active", "pending_approval", "suspended"]),
+          photoUrl: zod.string().nullish(),
+          dob: zod.string().date().nullish(),
+          gender: zod.string().nullish(),
+          placeOfWork: zod.string().nullish(),
+          communicationPrefs: zod.string().nullish(),
+          createdAt: zod.string().datetime({}),
         })
         .nullish(),
-      createdAt: zod.coerce.date(),
+      createdAt: zod.string().datetime({}),
     })
     .nullish(),
   class: zod
@@ -1380,7 +1581,7 @@ export const UpdateTeacherAllocationResponse = zod.object({
       serviceSlot: zod.enum(["7am", "9am", "11am", "1pm"]),
       description: zod.string().nullish(),
       enrollmentCount: zod.number(),
-      createdAt: zod.coerce.date(),
+      createdAt: zod.string().datetime({}),
     })
     .nullish(),
 });
@@ -1400,10 +1601,10 @@ export const ListAttendanceResponseItem = zod.object({
   id: zod.number(),
   childId: zod.number(),
   classId: zod.number(),
-  serviceDate: zod.coerce.date(),
+  serviceDate: zod.string().date(),
   serviceSlot: zod.string(),
-  checkInTime: zod.coerce.date().nullish(),
-  checkOutTime: zod.coerce.date().nullish(),
+  checkInTime: zod.string().datetime({}).nullish(),
+  checkOutTime: zod.string().datetime({}).nullish(),
   checkedInBy: zod.number().nullish(),
   checkedOutBy: zod.number().nullish(),
   status: zod.enum(["dropped_off", "in_class", "picked_up"]),
@@ -1413,7 +1614,7 @@ export const ListAttendanceResponseItem = zod.object({
       familyId: zod.number(),
       firstName: zod.string(),
       lastName: zod.string(),
-      dob: zod.coerce.date(),
+      dob: zod.string().date(),
       age: zod.number(),
       gender: zod.string(),
       allergies: zod.string().nullish(),
@@ -1431,10 +1632,10 @@ export const ListAttendanceResponseItem = zod.object({
           serviceSlot: zod.enum(["7am", "9am", "11am", "1pm"]),
           description: zod.string().nullish(),
           enrollmentCount: zod.number(),
-          createdAt: zod.coerce.date(),
+          createdAt: zod.string().datetime({}),
         })
         .nullish(),
-      createdAt: zod.coerce.date(),
+      createdAt: zod.string().datetime({}),
     })
     .nullish(),
   class: zod
@@ -1448,7 +1649,7 @@ export const ListAttendanceResponseItem = zod.object({
       serviceSlot: zod.enum(["7am", "9am", "11am", "1pm"]),
       description: zod.string().nullish(),
       enrollmentCount: zod.number(),
-      createdAt: zod.coerce.date(),
+      createdAt: zod.string().datetime({}),
     })
     .nullish(),
 });
@@ -1460,7 +1661,7 @@ export const ListAttendanceResponse = zod.array(ListAttendanceResponseItem);
 export const CheckInBody = zod.object({
   childId: zod.number(),
   classId: zod.number(),
-  serviceDate: zod.coerce.date(),
+  serviceDate: zod.string().date(),
   serviceSlot: zod.string(),
 });
 
@@ -1475,10 +1676,10 @@ export const MarkArrivedResponse = zod.object({
   id: zod.number(),
   childId: zod.number(),
   classId: zod.number(),
-  serviceDate: zod.coerce.date(),
+  serviceDate: zod.string().date(),
   serviceSlot: zod.string(),
-  checkInTime: zod.coerce.date().nullish(),
-  checkOutTime: zod.coerce.date().nullish(),
+  checkInTime: zod.string().datetime({}).nullish(),
+  checkOutTime: zod.string().datetime({}).nullish(),
   checkedInBy: zod.number().nullish(),
   checkedOutBy: zod.number().nullish(),
   status: zod.enum(["dropped_off", "in_class", "picked_up"]),
@@ -1488,7 +1689,7 @@ export const MarkArrivedResponse = zod.object({
       familyId: zod.number(),
       firstName: zod.string(),
       lastName: zod.string(),
-      dob: zod.coerce.date(),
+      dob: zod.string().date(),
       age: zod.number(),
       gender: zod.string(),
       allergies: zod.string().nullish(),
@@ -1506,10 +1707,10 @@ export const MarkArrivedResponse = zod.object({
           serviceSlot: zod.enum(["7am", "9am", "11am", "1pm"]),
           description: zod.string().nullish(),
           enrollmentCount: zod.number(),
-          createdAt: zod.coerce.date(),
+          createdAt: zod.string().datetime({}),
         })
         .nullish(),
-      createdAt: zod.coerce.date(),
+      createdAt: zod.string().datetime({}),
     })
     .nullish(),
   class: zod
@@ -1523,7 +1724,7 @@ export const MarkArrivedResponse = zod.object({
       serviceSlot: zod.enum(["7am", "9am", "11am", "1pm"]),
       description: zod.string().nullish(),
       enrollmentCount: zod.number(),
-      createdAt: zod.coerce.date(),
+      createdAt: zod.string().datetime({}),
     })
     .nullish(),
 });
@@ -1543,10 +1744,10 @@ export const CheckOutResponse = zod.object({
   id: zod.number(),
   childId: zod.number(),
   classId: zod.number(),
-  serviceDate: zod.coerce.date(),
+  serviceDate: zod.string().date(),
   serviceSlot: zod.string(),
-  checkInTime: zod.coerce.date().nullish(),
-  checkOutTime: zod.coerce.date().nullish(),
+  checkInTime: zod.string().datetime({}).nullish(),
+  checkOutTime: zod.string().datetime({}).nullish(),
   checkedInBy: zod.number().nullish(),
   checkedOutBy: zod.number().nullish(),
   status: zod.enum(["dropped_off", "in_class", "picked_up"]),
@@ -1556,7 +1757,7 @@ export const CheckOutResponse = zod.object({
       familyId: zod.number(),
       firstName: zod.string(),
       lastName: zod.string(),
-      dob: zod.coerce.date(),
+      dob: zod.string().date(),
       age: zod.number(),
       gender: zod.string(),
       allergies: zod.string().nullish(),
@@ -1574,10 +1775,10 @@ export const CheckOutResponse = zod.object({
           serviceSlot: zod.enum(["7am", "9am", "11am", "1pm"]),
           description: zod.string().nullish(),
           enrollmentCount: zod.number(),
-          createdAt: zod.coerce.date(),
+          createdAt: zod.string().datetime({}),
         })
         .nullish(),
-      createdAt: zod.coerce.date(),
+      createdAt: zod.string().datetime({}),
     })
     .nullish(),
   class: zod
@@ -1591,7 +1792,7 @@ export const CheckOutResponse = zod.object({
       serviceSlot: zod.enum(["7am", "9am", "11am", "1pm"]),
       description: zod.string().nullish(),
       enrollmentCount: zod.number(),
-      createdAt: zod.coerce.date(),
+      createdAt: zod.string().datetime({}),
     })
     .nullish(),
 });
@@ -1601,7 +1802,7 @@ export const CheckOutResponse = zod.object({
  */
 export const ScanQrCodeBody = zod.object({
   qrCode: zod.string(),
-  serviceDate: zod.coerce.date(),
+  serviceDate: zod.string().date(),
   serviceSlot: zod.string(),
 });
 
@@ -1626,7 +1827,13 @@ export const ScanQrCodeResponse = zod.object({
         firstName: zod.string(),
         lastName: zod.string(),
         isActive: zod.boolean(),
-        createdAt: zod.coerce.date(),
+        status: zod.enum(["active", "pending_approval", "suspended"]),
+        photoUrl: zod.string().nullish(),
+        dob: zod.string().date().nullish(),
+        gender: zod.string().nullish(),
+        placeOfWork: zod.string().nullish(),
+        communicationPrefs: zod.string().nullish(),
+        createdAt: zod.string().datetime({}),
       })
       .nullish(),
     parent2: zod
@@ -1644,7 +1851,13 @@ export const ScanQrCodeResponse = zod.object({
         firstName: zod.string(),
         lastName: zod.string(),
         isActive: zod.boolean(),
-        createdAt: zod.coerce.date(),
+        status: zod.enum(["active", "pending_approval", "suspended"]),
+        photoUrl: zod.string().nullish(),
+        dob: zod.string().date().nullish(),
+        gender: zod.string().nullish(),
+        placeOfWork: zod.string().nullish(),
+        communicationPrefs: zod.string().nullish(),
+        createdAt: zod.string().datetime({}),
       })
       .nullish(),
     address: zod.string().nullish(),
@@ -1657,7 +1870,7 @@ export const ScanQrCodeResponse = zod.object({
           familyId: zod.number(),
           firstName: zod.string(),
           lastName: zod.string(),
-          dob: zod.coerce.date(),
+          dob: zod.string().date(),
           age: zod.number(),
           gender: zod.string(),
           allergies: zod.string().nullish(),
@@ -1675,21 +1888,21 @@ export const ScanQrCodeResponse = zod.object({
               serviceSlot: zod.enum(["7am", "9am", "11am", "1pm"]),
               description: zod.string().nullish(),
               enrollmentCount: zod.number(),
-              createdAt: zod.coerce.date(),
+              createdAt: zod.string().datetime({}),
             })
             .nullish(),
-          createdAt: zod.coerce.date(),
+          createdAt: zod.string().datetime({}),
         }),
       )
       .optional(),
-    createdAt: zod.coerce.date(),
+    createdAt: zod.string().datetime({}),
   }),
   children: zod.array(
     zod.object({
       id: zod.number(),
       firstName: zod.string(),
       lastName: zod.string(),
-      dob: zod.coerce.date(),
+      dob: zod.string().date(),
       age: zod.number(),
       gender: zod.string(),
       photoUrl: zod.string().nullish(),
@@ -1704,7 +1917,7 @@ export const ScanQrCodeResponse = zod.object({
           serviceSlot: zod.enum(["7am", "9am", "11am", "1pm"]),
           description: zod.string().nullish(),
           enrollmentCount: zod.number(),
-          createdAt: zod.coerce.date(),
+          createdAt: zod.string().datetime({}),
         })
         .nullish(),
       teacher: zod
@@ -1722,7 +1935,13 @@ export const ScanQrCodeResponse = zod.object({
           firstName: zod.string(),
           lastName: zod.string(),
           isActive: zod.boolean(),
-          createdAt: zod.coerce.date(),
+          status: zod.enum(["active", "pending_approval", "suspended"]),
+          photoUrl: zod.string().nullish(),
+          dob: zod.string().date().nullish(),
+          gender: zod.string().nullish(),
+          placeOfWork: zod.string().nullish(),
+          communicationPrefs: zod.string().nullish(),
+          createdAt: zod.string().datetime({}),
         })
         .nullish(),
       lastAttendance: zod.string().nullish(),
@@ -1732,10 +1951,10 @@ export const ScanQrCodeResponse = zod.object({
             id: zod.number(),
             childId: zod.number(),
             classId: zod.number(),
-            serviceDate: zod.coerce.date(),
+            serviceDate: zod.string().date(),
             serviceSlot: zod.string(),
-            checkInTime: zod.coerce.date().nullish(),
-            checkOutTime: zod.coerce.date().nullish(),
+            checkInTime: zod.string().datetime({}).nullish(),
+            checkOutTime: zod.string().datetime({}).nullish(),
             checkedInBy: zod.number().nullish(),
             checkedOutBy: zod.number().nullish(),
             status: zod.enum(["dropped_off", "in_class", "picked_up"]),
@@ -1745,7 +1964,7 @@ export const ScanQrCodeResponse = zod.object({
                 familyId: zod.number(),
                 firstName: zod.string(),
                 lastName: zod.string(),
-                dob: zod.coerce.date(),
+                dob: zod.string().date(),
                 age: zod.number(),
                 gender: zod.string(),
                 allergies: zod.string().nullish(),
@@ -1763,10 +1982,10 @@ export const ScanQrCodeResponse = zod.object({
                     serviceSlot: zod.enum(["7am", "9am", "11am", "1pm"]),
                     description: zod.string().nullish(),
                     enrollmentCount: zod.number(),
-                    createdAt: zod.coerce.date(),
+                    createdAt: zod.string().datetime({}),
                   })
                   .nullish(),
-                createdAt: zod.coerce.date(),
+                createdAt: zod.string().datetime({}),
               })
               .nullish(),
             class: zod
@@ -1780,7 +1999,7 @@ export const ScanQrCodeResponse = zod.object({
                 serviceSlot: zod.enum(["7am", "9am", "11am", "1pm"]),
                 description: zod.string().nullish(),
                 enrollmentCount: zod.number(),
-                createdAt: zod.coerce.date(),
+                createdAt: zod.string().datetime({}),
               })
               .nullish(),
           }),
@@ -1806,9 +2025,9 @@ export const ListPickupDelegatesResponseItem = zod.object({
   phone: zod.string(),
   photoUrl: zod.string().nullish(),
   otpCode: zod.string().nullish(),
-  otpExpiresAt: zod.coerce.date().nullish(),
+  otpExpiresAt: zod.string().datetime({}).nullish(),
   parentApproved: zod.boolean(),
-  createdAt: zod.coerce.date(),
+  createdAt: zod.string().datetime({}),
 });
 export const ListPickupDelegatesResponse = zod.array(
   ListPickupDelegatesResponseItem,
@@ -1842,9 +2061,9 @@ export const VerifyDelegateOtpResponse = zod.object({
       phone: zod.string(),
       photoUrl: zod.string().nullish(),
       otpCode: zod.string().nullish(),
-      otpExpiresAt: zod.coerce.date().nullish(),
+      otpExpiresAt: zod.string().datetime({}).nullish(),
       parentApproved: zod.boolean(),
-      createdAt: zod.coerce.date(),
+      createdAt: zod.string().datetime({}),
     })
     .nullish(),
   message: zod.string(),
@@ -1864,9 +2083,9 @@ export const ApprovePickupDelegateResponse = zod.object({
   phone: zod.string(),
   photoUrl: zod.string().nullish(),
   otpCode: zod.string().nullish(),
-  otpExpiresAt: zod.coerce.date().nullish(),
+  otpExpiresAt: zod.string().datetime({}).nullish(),
   parentApproved: zod.boolean(),
-  createdAt: zod.coerce.date(),
+  createdAt: zod.string().datetime({}),
 });
 
 /**
@@ -1891,7 +2110,7 @@ export const ListNotificationsResponse = zod.object({
       message: zod.string(),
       channel: zod.enum(["in_app", "whatsapp", "sms", "email"]),
       readStatus: zod.boolean(),
-      createdAt: zod.coerce.date(),
+      createdAt: zod.string().datetime({}),
     }),
   ),
   total: zod.number(),
@@ -1915,13 +2134,48 @@ export const MarkNotificationReadResponse = zod.object({
   message: zod.string(),
   channel: zod.enum(["in_app", "whatsapp", "sms", "email"]),
   readStatus: zod.boolean(),
-  createdAt: zod.coerce.date(),
+  createdAt: zod.string().datetime({}),
 });
 
 /**
  * @summary Mark all notifications as read
  */
 export const MarkAllNotificationsReadResponse = zod.object({
+  success: zod.boolean(),
+  message: zod.string().optional(),
+});
+
+/**
+ * @summary Broadcast notification to multiple users/roles
+ */
+export const BroadcastNotificationBody = zod.object({
+  title: zod.string(),
+  message: zod.string(),
+  targetRoles: zod
+    .array(zod.enum(["super_admin", "admin", "teacher", "attendant", "parent"]))
+    .optional(),
+  targetUserIds: zod.array(zod.number()).nullish(),
+});
+
+export const BroadcastNotificationResponse = zod.object({
+  success: zod.boolean(),
+  message: zod.string().optional(),
+});
+
+/**
+ * @summary Send pre-dismissal notification to parents of checked-in children
+ */
+export const sendPreDismissalNotificationBodyMinutesBeforeDefault = 15;
+
+export const SendPreDismissalNotificationBody = zod.object({
+  serviceDate: zod.string(),
+  serviceSlot: zod.string().nullish(),
+  minutesBefore: zod
+    .number()
+    .default(sendPreDismissalNotificationBodyMinutesBeforeDefault),
+});
+
+export const SendPreDismissalNotificationResponse = zod.object({
   success: zod.boolean(),
   message: zod.string().optional(),
 });
@@ -1943,13 +2197,13 @@ export const ListFeedbackResponse = zod.object({
     zod.object({
       id: zod.number(),
       parentId: zod.number(),
-      serviceDate: zod.coerce.date(),
+      serviceDate: zod.string().date(),
       rating: zod.number(),
       classExperience: zod.number(),
       teacherEngagement: zod.number(),
       safetyRating: zod.number(),
       improvementNote: zod.string().nullish(),
-      createdAt: zod.coerce.date(),
+      createdAt: zod.string().datetime({}),
     }),
   ),
   total: zod.number(),
@@ -1969,7 +2223,7 @@ export const submitFeedbackBodyTeacherEngagementMax = 5;
 export const submitFeedbackBodySafetyRatingMax = 5;
 
 export const SubmitFeedbackBody = zod.object({
-  serviceDate: zod.coerce.date(),
+  serviceDate: zod.string().date(),
   rating: zod.number().min(1).max(submitFeedbackBodyRatingMax),
   classExperience: zod
     .number()
@@ -1996,7 +2250,7 @@ export const ListAppraisalsResponseItem = zod.object({
   id: zod.number(),
   childId: zod.number(),
   teacherId: zod.number(),
-  serviceDate: zod.coerce.date(),
+  serviceDate: zod.string().date(),
   participationLevel: zod.enum([
     "excellent",
     "good",
@@ -2023,7 +2277,7 @@ export const ListAppraisalsResponseItem = zod.object({
       familyId: zod.number(),
       firstName: zod.string(),
       lastName: zod.string(),
-      dob: zod.coerce.date(),
+      dob: zod.string().date(),
       age: zod.number(),
       gender: zod.string(),
       allergies: zod.string().nullish(),
@@ -2041,13 +2295,13 @@ export const ListAppraisalsResponseItem = zod.object({
           serviceSlot: zod.enum(["7am", "9am", "11am", "1pm"]),
           description: zod.string().nullish(),
           enrollmentCount: zod.number(),
-          createdAt: zod.coerce.date(),
+          createdAt: zod.string().datetime({}),
         })
         .nullish(),
-      createdAt: zod.coerce.date(),
+      createdAt: zod.string().datetime({}),
     })
     .nullish(),
-  createdAt: zod.coerce.date(),
+  createdAt: zod.string().datetime({}),
 });
 export const ListAppraisalsResponse = zod.array(ListAppraisalsResponseItem);
 
@@ -2056,7 +2310,7 @@ export const ListAppraisalsResponse = zod.array(ListAppraisalsResponseItem);
  */
 export const CreateAppraisalBody = zod.object({
   childId: zod.number(),
-  serviceDate: zod.coerce.date(),
+  serviceDate: zod.string().date(),
   participationLevel: zod.enum([
     "excellent",
     "good",
@@ -2108,7 +2362,7 @@ export const ListEmergenciesResponseItem = zod.object({
       familyId: zod.number(),
       firstName: zod.string(),
       lastName: zod.string(),
-      dob: zod.coerce.date(),
+      dob: zod.string().date(),
       age: zod.number(),
       gender: zod.string(),
       allergies: zod.string().nullish(),
@@ -2126,14 +2380,14 @@ export const ListEmergenciesResponseItem = zod.object({
           serviceSlot: zod.enum(["7am", "9am", "11am", "1pm"]),
           description: zod.string().nullish(),
           enrollmentCount: zod.number(),
-          createdAt: zod.coerce.date(),
+          createdAt: zod.string().datetime({}),
         })
         .nullish(),
-      createdAt: zod.coerce.date(),
+      createdAt: zod.string().datetime({}),
     })
     .nullish(),
-  createdAt: zod.coerce.date(),
-  resolvedAt: zod.coerce.date().nullish(),
+  createdAt: zod.string().datetime({}),
+  resolvedAt: zod.string().datetime({}).nullish(),
 });
 export const ListEmergenciesResponse = zod.array(ListEmergenciesResponseItem);
 
@@ -2181,7 +2435,7 @@ export const GetEmergencyResponse = zod.object({
       familyId: zod.number(),
       firstName: zod.string(),
       lastName: zod.string(),
-      dob: zod.coerce.date(),
+      dob: zod.string().date(),
       age: zod.number(),
       gender: zod.string(),
       allergies: zod.string().nullish(),
@@ -2199,14 +2453,14 @@ export const GetEmergencyResponse = zod.object({
           serviceSlot: zod.enum(["7am", "9am", "11am", "1pm"]),
           description: zod.string().nullish(),
           enrollmentCount: zod.number(),
-          createdAt: zod.coerce.date(),
+          createdAt: zod.string().datetime({}),
         })
         .nullish(),
-      createdAt: zod.coerce.date(),
+      createdAt: zod.string().datetime({}),
     })
     .nullish(),
-  createdAt: zod.coerce.date(),
-  resolvedAt: zod.coerce.date().nullish(),
+  createdAt: zod.string().datetime({}),
+  resolvedAt: zod.string().datetime({}).nullish(),
 });
 
 /**
@@ -2243,7 +2497,7 @@ export const UpdateEmergencyResponse = zod.object({
       familyId: zod.number(),
       firstName: zod.string(),
       lastName: zod.string(),
-      dob: zod.coerce.date(),
+      dob: zod.string().date(),
       age: zod.number(),
       gender: zod.string(),
       allergies: zod.string().nullish(),
@@ -2261,14 +2515,14 @@ export const UpdateEmergencyResponse = zod.object({
           serviceSlot: zod.enum(["7am", "9am", "11am", "1pm"]),
           description: zod.string().nullish(),
           enrollmentCount: zod.number(),
-          createdAt: zod.coerce.date(),
+          createdAt: zod.string().datetime({}),
         })
         .nullish(),
-      createdAt: zod.coerce.date(),
+      createdAt: zod.string().datetime({}),
     })
     .nullish(),
-  createdAt: zod.coerce.date(),
-  resolvedAt: zod.coerce.date().nullish(),
+  createdAt: zod.string().datetime({}),
+  resolvedAt: zod.string().datetime({}).nullish(),
 });
 
 /**
@@ -2296,7 +2550,7 @@ export const ListAuditLogsResponse = zod.object({
       entityId: zod.number().nullish(),
       ipAddress: zod.string().nullish(),
       userAgent: zod.string().nullish(),
-      timestamp: zod.coerce.date(),
+      timestamp: zod.string().datetime({}),
       user: zod
         .object({
           id: zod.number(),
@@ -2312,7 +2566,13 @@ export const ListAuditLogsResponse = zod.object({
           firstName: zod.string(),
           lastName: zod.string(),
           isActive: zod.boolean(),
-          createdAt: zod.coerce.date(),
+          status: zod.enum(["active", "pending_approval", "suspended"]),
+          photoUrl: zod.string().nullish(),
+          dob: zod.string().date().nullish(),
+          gender: zod.string().nullish(),
+          placeOfWork: zod.string().nullish(),
+          communicationPrefs: zod.string().nullish(),
+          createdAt: zod.string().datetime({}),
         })
         .nullish(),
     }),
@@ -2365,10 +2625,10 @@ export const GetLiveViewResponseItem = zod.object({
         id: zod.number(),
         childId: zod.number(),
         classId: zod.number(),
-        serviceDate: zod.coerce.date(),
+        serviceDate: zod.string().date(),
         serviceSlot: zod.string(),
-        checkInTime: zod.coerce.date().nullish(),
-        checkOutTime: zod.coerce.date().nullish(),
+        checkInTime: zod.string().datetime({}).nullish(),
+        checkOutTime: zod.string().datetime({}).nullish(),
         checkedInBy: zod.number().nullish(),
         checkedOutBy: zod.number().nullish(),
         status: zod.enum(["dropped_off", "in_class", "picked_up"]),
@@ -2378,7 +2638,7 @@ export const GetLiveViewResponseItem = zod.object({
             familyId: zod.number(),
             firstName: zod.string(),
             lastName: zod.string(),
-            dob: zod.coerce.date(),
+            dob: zod.string().date(),
             age: zod.number(),
             gender: zod.string(),
             allergies: zod.string().nullish(),
@@ -2396,10 +2656,10 @@ export const GetLiveViewResponseItem = zod.object({
                 serviceSlot: zod.enum(["7am", "9am", "11am", "1pm"]),
                 description: zod.string().nullish(),
                 enrollmentCount: zod.number(),
-                createdAt: zod.coerce.date(),
+                createdAt: zod.string().datetime({}),
               })
               .nullish(),
-            createdAt: zod.coerce.date(),
+            createdAt: zod.string().datetime({}),
           })
           .nullish(),
         class: zod
@@ -2413,7 +2673,7 @@ export const GetLiveViewResponseItem = zod.object({
             serviceSlot: zod.enum(["7am", "9am", "11am", "1pm"]),
             description: zod.string().nullish(),
             enrollmentCount: zod.number(),
-            createdAt: zod.coerce.date(),
+            createdAt: zod.string().datetime({}),
           })
           .nullish(),
       }),
@@ -2471,13 +2731,13 @@ export const GetFeedbackAnalyticsResponse = zod.object({
     zod.object({
       id: zod.number(),
       parentId: zod.number(),
-      serviceDate: zod.coerce.date(),
+      serviceDate: zod.string().date(),
       rating: zod.number(),
       classExperience: zod.number(),
       teacherEngagement: zod.number(),
       safetyRating: zod.number(),
       improvementNote: zod.string().nullish(),
-      createdAt: zod.coerce.date(),
+      createdAt: zod.string().datetime({}),
     }),
   ),
 });
@@ -2496,10 +2756,10 @@ export const GetExceptionsResponse = zod.object({
       id: zod.number(),
       childId: zod.number(),
       classId: zod.number(),
-      serviceDate: zod.coerce.date(),
+      serviceDate: zod.string().date(),
       serviceSlot: zod.string(),
-      checkInTime: zod.coerce.date().nullish(),
-      checkOutTime: zod.coerce.date().nullish(),
+      checkInTime: zod.string().datetime({}).nullish(),
+      checkOutTime: zod.string().datetime({}).nullish(),
       checkedInBy: zod.number().nullish(),
       checkedOutBy: zod.number().nullish(),
       status: zod.enum(["dropped_off", "in_class", "picked_up"]),
@@ -2509,7 +2769,7 @@ export const GetExceptionsResponse = zod.object({
           familyId: zod.number(),
           firstName: zod.string(),
           lastName: zod.string(),
-          dob: zod.coerce.date(),
+          dob: zod.string().date(),
           age: zod.number(),
           gender: zod.string(),
           allergies: zod.string().nullish(),
@@ -2527,10 +2787,10 @@ export const GetExceptionsResponse = zod.object({
               serviceSlot: zod.enum(["7am", "9am", "11am", "1pm"]),
               description: zod.string().nullish(),
               enrollmentCount: zod.number(),
-              createdAt: zod.coerce.date(),
+              createdAt: zod.string().datetime({}),
             })
             .nullish(),
-          createdAt: zod.coerce.date(),
+          createdAt: zod.string().datetime({}),
         })
         .nullish(),
       class: zod
@@ -2544,7 +2804,7 @@ export const GetExceptionsResponse = zod.object({
           serviceSlot: zod.enum(["7am", "9am", "11am", "1pm"]),
           description: zod.string().nullish(),
           enrollmentCount: zod.number(),
-          createdAt: zod.coerce.date(),
+          createdAt: zod.string().datetime({}),
         })
         .nullish(),
     }),
@@ -2560,7 +2820,7 @@ export const GetExceptionsResponse = zod.object({
       serviceSlot: zod.enum(["7am", "9am", "11am", "1pm"]),
       description: zod.string().nullish(),
       enrollmentCount: zod.number(),
-      createdAt: zod.coerce.date(),
+      createdAt: zod.string().datetime({}),
     }),
   ),
   pendingDelegateApprovals: zod.array(
@@ -2571,9 +2831,213 @@ export const GetExceptionsResponse = zod.object({
       phone: zod.string(),
       photoUrl: zod.string().nullish(),
       otpCode: zod.string().nullish(),
-      otpExpiresAt: zod.coerce.date().nullish(),
+      otpExpiresAt: zod.string().datetime({}).nullish(),
       parentApproved: zod.boolean(),
-      createdAt: zod.coerce.date(),
+      createdAt: zod.string().datetime({}),
     }),
   ),
+});
+
+/**
+ * @summary Get children not yet picked up for a given service date
+ */
+export const GetNotPickedUpReportQueryParams = zod.object({
+  serviceDate: zod.coerce.string().optional(),
+  serviceSlot: zod.coerce.string().optional(),
+});
+
+export const GetNotPickedUpReportResponse = zod.object({
+  date: zod.string(),
+  total: zod.number(),
+  children: zod.array(zod.object({}).passthrough()),
+});
+
+/**
+ * @summary Export attendance records (JSON or CSV)
+ */
+export const exportAttendanceQueryFormatDefault = `json`;
+
+export const ExportAttendanceQueryParams = zod.object({
+  from: zod.coerce.string().optional(),
+  to: zod.coerce.string().optional(),
+  serviceSlot: zod.coerce.string().optional(),
+  format: zod.enum(["json", "csv"]).default(exportAttendanceQueryFormatDefault),
+});
+
+/**
+ * @summary Export emergency incident log
+ */
+export const exportEmergencyLogQueryFormatDefault = `json`;
+
+export const ExportEmergencyLogQueryParams = zod.object({
+  format: zod
+    .enum(["json", "csv"])
+    .default(exportEmergencyLogQueryFormatDefault),
+});
+
+/**
+ * @summary Get teacher-to-child ratios per class
+ */
+export const GetTeacherRatiosQueryParams = zod.object({
+  serviceDate: zod.coerce.string().optional(),
+  serviceSlot: zod.coerce.string().optional(),
+});
+
+export const GetTeacherRatiosResponse = zod.object({
+  date: zod.string(),
+  classes: zod.array(zod.object({}).passthrough()),
+});
+
+/**
+ * @summary Get daily summary report
+ */
+export const GetReportSummaryQueryParams = zod.object({
+  serviceDate: zod.coerce.string().optional(),
+});
+
+export const GetReportSummaryResponse = zod.object({
+  date: zod.string(),
+  totalCheckedIn: zod.number(),
+  stillPresent: zod.number(),
+  pickedUp: zod.number(),
+  pendingDelegateApprovals: zod.number().optional(),
+  pendingUserApprovals: zod.number().optional(),
+});
+
+/**
+ * @summary List class change requests
+ */
+export const ListClassChangeRequestsQueryParams = zod.object({
+  status: zod.enum(["pending", "approved", "rejected"]).optional(),
+});
+
+export const ListClassChangeRequestsResponse = zod.object({
+  data: zod.array(
+    zod.object({
+      id: zod.number(),
+      childId: zod.number(),
+      currentClassId: zod.number().nullish(),
+      requestedClassId: zod.number(),
+      reason: zod.string().nullish(),
+      status: zod.enum(["pending", "approved", "rejected"]),
+      requestedBy: zod.number(),
+      reviewedBy: zod.number().nullish(),
+      adminNotes: zod.string().nullish(),
+      child: zod
+        .object({
+          id: zod.number(),
+          familyId: zod.number(),
+          firstName: zod.string(),
+          lastName: zod.string(),
+          dob: zod.string().date(),
+          age: zod.number(),
+          gender: zod.string(),
+          allergies: zod.string().nullish(),
+          medicalNotes: zod.string().nullish(),
+          photoUrl: zod.string().nullish(),
+          currentClassId: zod.number().nullish(),
+          currentClass: zod
+            .object({
+              id: zod.number(),
+              name: zod.string(),
+              ageMin: zod.number(),
+              ageMax: zod.number(),
+              capacity: zod.number(),
+              roomLocation: zod.string(),
+              serviceSlot: zod.enum(["7am", "9am", "11am", "1pm"]),
+              description: zod.string().nullish(),
+              enrollmentCount: zod.number(),
+              createdAt: zod.string().datetime({}),
+            })
+            .nullish(),
+          createdAt: zod.string().datetime({}),
+        })
+        .nullish(),
+      currentClass: zod
+        .object({
+          id: zod.number(),
+          name: zod.string(),
+          ageMin: zod.number(),
+          ageMax: zod.number(),
+          capacity: zod.number(),
+          roomLocation: zod.string(),
+          serviceSlot: zod.enum(["7am", "9am", "11am", "1pm"]),
+          description: zod.string().nullish(),
+          enrollmentCount: zod.number(),
+          createdAt: zod.string().datetime({}),
+        })
+        .nullish(),
+      requestedClass: zod
+        .object({
+          id: zod.number(),
+          name: zod.string(),
+          ageMin: zod.number(),
+          ageMax: zod.number(),
+          capacity: zod.number(),
+          roomLocation: zod.string(),
+          serviceSlot: zod.enum(["7am", "9am", "11am", "1pm"]),
+          description: zod.string().nullish(),
+          enrollmentCount: zod.number(),
+          createdAt: zod.string().datetime({}),
+        })
+        .nullish(),
+      createdAt: zod.string().datetime({}),
+      updatedAt: zod.string().datetime({}),
+    }),
+  ),
+  total: zod.number(),
+});
+
+/**
+ * @summary Submit a class change request
+ */
+export const CreateClassChangeRequestBody = zod.object({
+  childId: zod.number(),
+  requestedClassId: zod.number(),
+  currentClassId: zod.number().nullish(),
+  reason: zod.string().nullish(),
+});
+
+/**
+ * @summary Approve a class change request (moves child to new class)
+ */
+export const ApproveClassChangeRequestParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const ApproveClassChangeRequestBody = zod.object({
+  adminNotes: zod.string().optional(),
+});
+
+export const ApproveClassChangeRequestResponse = zod.object({
+  success: zod.boolean(),
+  message: zod.string().optional(),
+});
+
+/**
+ * @summary Reject a class change request
+ */
+export const RejectClassChangeRequestParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const RejectClassChangeRequestBody = zod.object({
+  adminNotes: zod.string().optional(),
+});
+
+export const RejectClassChangeRequestResponse = zod.object({
+  success: zod.boolean(),
+  message: zod.string().optional(),
+});
+
+/**
+ * @summary Cancel a class change request
+ */
+export const CancelClassChangeRequestParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const CancelClassChangeRequestResponse = zod.object({
+  success: zod.boolean(),
+  message: zod.string().optional(),
 });

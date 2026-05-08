@@ -16,6 +16,8 @@ import appraisalsRouter from "./appraisals";
 import emergenciesRouter from "./emergencies";
 import auditLogsRouter from "./auditLogs";
 import dashboardRouter from "./dashboard";
+import reportsRouter from "./reports";
+import classChangeRequestsRouter from "./classChangeRequests";
 
 const router: IRouter = Router();
 
@@ -36,5 +38,7 @@ router.use(appraisalsRouter);
 router.use(emergenciesRouter);
 router.use(auditLogsRouter);
 router.use(dashboardRouter);
+router.use(reportsRouter);
+router.use(classChangeRequestsRouter);
 
 export default router;

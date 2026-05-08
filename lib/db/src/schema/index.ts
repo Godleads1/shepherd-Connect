@@ -12,3 +12,4 @@ export * from "./feedback";
 export * from "./appraisals";
 export * from "./emergencies";
 export * from "./auditLogs";
+export * from "./classChangeRequests";

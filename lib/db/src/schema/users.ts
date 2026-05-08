@@ -1,4 +1,4 @@
-import { pgTable, serial, text, boolean, timestamp, pgEnum } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, boolean, timestamp, pgEnum, date } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -8,6 +8,12 @@ export const userRoleEnum = pgEnum("user_role", [
   "teacher",
   "attendant",
   "parent",
+]);
+
+export const userStatusEnum = pgEnum("user_status", [
+  "active",
+  "pending_approval",
+  "suspended",
 ]);
 
 export const usersTable = pgTable("users", {
@@ -20,6 +26,12 @@ export const usersTable = pgTable("users", {
   lastName: text("last_name").notNull(),
   faceDescriptorJson: text("face_descriptor_json"),
   isActive: boolean("is_active").notNull().default(true),
+  status: userStatusEnum("status").notNull().default("active"),
+  photoUrl: text("photo_url"),
+  dob: date("dob"),
+  gender: text("gender"),
+  placeOfWork: text("place_of_work"),
+  communicationPrefs: text("communication_prefs"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

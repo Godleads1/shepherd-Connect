@@ -10,7 +10,7 @@ export default function FamilyProfile() {
   const { id } = useParams();
   const familyId = parseInt(id || "0", 10);
   
-  const { data: tree, isLoading } = useGetFamilyTree(familyId, { query: { enabled: !!familyId } });
+  const { data: tree, isLoading } = useGetFamilyTree(familyId, { query: { enabled: !!familyId, queryKey: ['getFamilyTree', familyId] } });
 
   if (isLoading) return <div className="space-y-4 p-8"><Skeleton className="h-64 w-full" /><Skeleton className="h-64 w-full" /></div>;
   if (!tree) return <div>Family not found</div>;

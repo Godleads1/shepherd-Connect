@@ -32,10 +32,13 @@ import Notifications from "@/pages/notifications/index";
 import Feedback from "@/pages/feedback/index";
 import Appraisals from "@/pages/appraisals/index";
 import AuditLogs from "@/pages/audit/index";
-import Users from "@/pages/users/index";
+import UsersPage from "@/pages/users/index";
 import MyFamily from "@/pages/my-family/index";
 import MyChildren from "@/pages/my-children/index";
 import MyClass from "@/pages/my-class/index";
+import Reports from "@/pages/reports/index";
+import ClassChangeRequests from "@/pages/class-change-requests/index";
+import Profile from "@/pages/profile/index";
 
 const queryClient = new QueryClient();
 
@@ -82,10 +85,13 @@ function Router() {
               <Route path="/feedback" component={Feedback} />
               <Route path="/appraisals" component={Appraisals} />
               <Route path="/audit" component={AuditLogs} />
-              <Route path="/users" component={Users} />
+              <Route path="/users" component={UsersPage} />
               <Route path="/my-family" component={MyFamily} />
               <Route path="/my-children" component={MyChildren} />
               <Route path="/my-class" component={MyClass} />
+              <Route path="/reports" component={Reports} />
+              <Route path="/class-change-requests" component={ClassChangeRequests} />
+              <Route path="/profile" component={Profile} />
 
               {/* Fallback inside Layout */}
               <Route component={NotFound} />

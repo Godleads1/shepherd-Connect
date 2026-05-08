@@ -27,7 +27,7 @@ export default function Attendance() {
           <TableBody>
             {isLoading ? (
               <TableRow><TableCell colSpan={6}><Skeleton className="h-10 w-full" /></TableCell></TableRow>
-            ) : data?.data?.map((record) => (
+            ) : (data || []).map((record: any) => (
               <TableRow key={record.id}>
                 <TableCell>{format(new Date(record.serviceDate), 'MMM dd, yyyy')}</TableCell>
                 <TableCell className="font-medium">{record.child?.firstName} {record.child?.lastName}</TableCell>
@@ -41,7 +41,7 @@ export default function Attendance() {
                 </TableCell>
               </TableRow>
             ))}
-            {data?.data?.length === 0 && (
+            {!data?.length && (
               <TableRow>
                 <TableCell colSpan={6} className="text-center py-6 text-muted-foreground">
                   No attendance records found.

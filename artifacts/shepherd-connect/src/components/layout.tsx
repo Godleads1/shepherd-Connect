@@ -7,6 +7,7 @@ import {
   LayoutDashboard, Users, Baby, School, ClipboardCheck, CheckSquare,
   LogOut, Menu, Bell, MessageSquare, AlertTriangle, UserCog, FileText,
   Clock, ShieldCheck, QrCode, Home, Grid3x3, X, ChevronRight, Globe,
+  BarChart3, ArrowLeftRight, UserCircle,
 } from "lucide-react";
 
 function SidebarLangSwitcher() {
@@ -86,21 +87,26 @@ export function Layout({ children }: { children: ReactNode }) {
       items.push({ href: "/attendance",         label: t.nav.attendance,   icon: CheckSquare });
       items.push({ href: "/emergencies",        label: t.nav.emergencies,  icon: AlertTriangle });
       items.push({ href: "/audit",              label: t.nav.auditLogs,    icon: FileText });
+      items.push({ href: "/reports",            label: "Reports",          icon: BarChart3 });
+      items.push({ href: "/class-change-requests", label: "Class Changes", icon: ArrowLeftRight });
       if (role === "super_admin") items.push({ href: "/users", label: t.nav.users, icon: ShieldCheck });
     } else if (role === "parent") {
       items.push({ href: "/my-family",       label: t.nav.myFamily,   icon: Home });
       items.push({ href: "/my-children",     label: t.nav.myChildren, icon: Baby });
       items.push({ href: "/pickup-delegates",label: t.nav.delegates,  icon: UserCog });
+      items.push({ href: "/class-change-requests", label: "Class Changes", icon: ArrowLeftRight });
       items.push({ href: "/feedback",        label: t.nav.feedback,   icon: MessageSquare });
     } else if (role === "teacher") {
       items.push({ href: "/my-class",   label: t.nav.myClass,    icon: School });
       items.push({ href: "/attendance", label: t.nav.attendance, icon: CheckSquare });
       items.push({ href: "/appraisals", label: t.nav.appraisals, icon: FileText });
+      items.push({ href: "/class-change-requests", label: "Class Changes", icon: ArrowLeftRight });
     } else if (role === "attendant") {
       items.push({ href: "/checkin",  label: t.nav.checkin,  icon: ClipboardCheck });
       items.push({ href: "/checkout", label: t.nav.checkout, icon: CheckSquare });
     }
     items.push({ href: "/notifications", label: t.nav.notifications, icon: Bell });
+    items.push({ href: "/profile", label: "My Profile", icon: UserCircle });
     return items;
   };
 
@@ -291,9 +297,11 @@ export function Layout({ children }: { children: ReactNode }) {
                 )}
               </button>
             </Link>
-            <div className="w-9 h-9 rounded-full bg-white flex items-center justify-center font-bold text-[#1a237e] text-xs shadow-md">
-              {user?.firstName?.[0]}{user?.lastName?.[0]}
-            </div>
+            <Link href="/profile">
+              <div className="w-9 h-9 rounded-full bg-white flex items-center justify-center font-bold text-[#1a237e] text-xs shadow-md cursor-pointer hover:opacity-80 transition-opacity" title="My Profile">
+                {user?.firstName?.[0]}{user?.lastName?.[0]}
+              </div>
+            </Link>
           </div>
         </header>
 

@@ -31,11 +31,11 @@ Full-stack, mobile-first church children's ministry platform with 6 user roles a
 
 ## User Roles
 
-- **super_admin** — Full access including user management
-- **admin** — Command centre, families, classes, teachers, emergencies
-- **teacher** — My class, attendance, appraisals
-- **attendant** — Check-in and check-out kiosks
-- **parent** — My family, my children, delegates, feedback, notifications
+- **super_admin** — Full access including user management + approvals
+- **admin** — Command centre, families, classes, teachers, emergencies, reports
+- **teacher** — My class, attendance, appraisals, class change requests
+- **attendant** — Check-in and check-out kiosks (incl. OTP delegate checkout)
+- **parent** — My family, my children, delegates (OTP), feedback, notifications, profile
 
 ## Demo Accounts (seeded)
 
@@ -70,27 +70,27 @@ pnpm run typecheck
 
 ```
 artifacts/
-  api-server/         Express 5 API (JWT auth, all 17 route domains)
-  shepherd-connect/   React + Vite frontend (21 pages)
+  api-server/         Express 5 API (JWT auth, all 19 route domains)
+  shepherd-connect/   React + Vite frontend (24 pages)
   mockup-sandbox/     Design canvas server
 
 lib/
-  api-spec/           OpenAPI 3.1 spec (2600+ lines, 50+ endpoints)
+  api-spec/           OpenAPI 3.1 spec (3100+ lines, 60+ endpoints)
   api-zod/            Generated Zod validators from OpenAPI
   api-client-react/   Generated TanStack Query hooks + custom-fetch
-  db/                 Drizzle ORM schema (14 tables) + drizzle-kit config
+  db/                 Drizzle ORM schema (15 tables) + drizzle-kit config
 
 scripts/
   src/seed.ts         Database seed script
 ```
 
-## Database Tables (14)
+## Database Tables (15)
 
-`users`, `families`, `children`, `classes`, `class_assignments`, `teachers`, `teacher_allocations`, `attendance`, `pickup_delegates`, `notifications`, `parent_feedback`, `child_appraisals`, `emergencies`, `audit_logs`
+`users`, `families`, `children`, `classes`, `class_assignments`, `teachers`, `teacher_allocations`, `attendance`, `pickup_delegates`, `notifications`, `parent_feedback`, `child_appraisals`, `emergencies`, `audit_logs`, `class_change_requests`
 
-## Frontend Pages (21)
+## Frontend Pages (24)
 
-`/login`, `/register`, `/dashboard`, `/families`, `/families/:id`, `/children`, `/children/:id`, `/classes`, `/class-assignments`, `/checkin`, `/checkout`, `/teachers`, `/teacher-allocations`, `/attendance`, `/pickup-delegates`, `/notifications`, `/feedback`, `/appraisals`, `/emergencies`, `/audit`, `/users`
+`/login`, `/register`, `/dashboard`, `/families`, `/families/:id`, `/children`, `/children/:id`, `/classes`, `/class-assignments`, `/checkin`, `/checkout`, `/teachers`, `/teacher-allocations`, `/attendance`, `/pickup-delegates`, `/notifications`, `/feedback`, `/appraisals`, `/emergencies`, `/audit`, `/users`, `/my-family`, `/reports`, `/class-change-requests`, `/profile`
 
 ## API Conventions
 
@@ -105,3 +105,42 @@ scripts/
 ## Orval Codegen Fix
 
 The orval codegen had a duplicate export bug. Fix: in `lib/api-spec/orval.config.ts`, the zod output config has no `schemas` key. The codegen script in `lib/api-spec/package.json` appends `export * from "./generated/api";` to override stale barrel exports in `lib/api-zod/src/index.ts`.
+
+## Key Features Implemented
+
+### Admin Approval Workflow
+- Admin/teacher self-signup → `status=pending_approval`, blocked from login until approved
+- Super admin sees "Pending Approval" tab on Users page with approve/reject buttons
+- Approved users get `status=active`, `isActive=true`
+
+### OTP Delegate Pickup
+- Parent adds delegate → backend generates 6-digit OTP (valid 24h)
+- OTP shown once to parent (with copy button)
+- Attendant uses "Delegate OTP Checkout" tab on Check Out page to verify OTP and release child
+
+### Reports & Export
+- Not-picked-up report (live, with parent phone numbers)
+- Teacher-to-child ratio monitoring (alerts if under-staffed)
+- Attendance CSV export (date range filterable)
+- Emergency log CSV export
+- Daily summary card (checked in, still present, picked up)
+
+### Class Change Requests
+- Parents/teachers submit requests with reason
+- Admins review and approve (auto-moves child to new class) or reject
+- Pending/resolved tabs, admin notes support
+
+### User Profiles
+- Profile completeness progress bar
+- Edit name, DOB, gender, phone, place of work, photo URL
+- Communication preferences (in-app, WhatsApp, SMS toggle)
+- Profile accessible from header avatar
+
+### Add Child Flow (Parents)
+- "Add Child" button on My Family page
+- Modal with name, DOB, gender, class selection, allergies, medical notes
+- Allergy alerts displayed on child cards
+
+### Broadcast Notifications
+- Admin can broadcast to specific roles
+- Pre-dismissal notification to all parents of currently checked-in children
