@@ -6,7 +6,7 @@ import { Link, useLocation } from "wouter";
 import { useAuth } from "@/contexts/auth";
 import { useLogin } from "@workspace/api-client-react";
 import { useLang, LANGUAGES, LangCode } from "@/contexts/language";
-import { Mail, Lock, Loader2, Globe, ChevronDown } from "lucide-react";
+import { Mail, Lock, Loader2, Globe, ChevronDown, Eye, EyeOff } from "lucide-react";
 
 // ── Brand palette derived from RCCG logo ──
 const LOGO_NAVY  = "#1a237e"; // deep indigo — badge centre
@@ -85,6 +85,7 @@ export default function Login() {
   const loginMutation = useLogin();
   const { t } = useLang();
   const [selectedRole, setSelectedRole] = useState("parent");
+  const [showPw, setShowPw] = useState(false);
 
   const form = useForm<LoginFormValues>({
     resolver: zodResolver(loginSchema),
@@ -196,15 +197,19 @@ export default function Login() {
             <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4" style={{ color: "#94a3b8" }} />
             <input
               {...form.register("password")}
-              type="password"
+              type={showPw ? "text" : "password"}
               placeholder={t.passwordPlaceholder}
               autoComplete="current-password"
               data-testid="input-password"
-              className="w-full rounded-xl pl-10 pr-4 py-3 text-sm focus:outline-none transition-all"
+              className="w-full rounded-xl pl-10 pr-10 py-3 text-sm focus:outline-none transition-all"
               style={{ background: "rgba(255,255,255,0.90)", border: `1.5px solid rgba(26,35,126,0.14)`, color: "#0f172a" }}
               onFocus={e => { e.currentTarget.style.borderColor = LOGO_NAVY; e.currentTarget.style.boxShadow = `0 0 0 3px rgba(26,35,126,0.10)`; }}
               onBlur={e => { e.currentTarget.style.borderColor = "rgba(26,35,126,0.14)"; e.currentTarget.style.boxShadow = "none"; }}
             />
+            <button type="button" onClick={() => setShowPw(v => !v)}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors">
+              {showPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+            </button>
             {form.formState.errors.password && <p className="text-xs mt-1" style={{ color: "#b91c1c" }}>{form.formState.errors.password.message}</p>}
           </div>
 
