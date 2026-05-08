@@ -188,7 +188,7 @@ export function Layout({ children }: { children: ReactNode }) {
   const SidebarHeader = () => (
     <div className="flex items-center gap-3 px-5 py-5 border-b border-white/10">
       <div className="rccg-logo-wrap" style={{ width: 50, height: 50 }}>
-        <img src="/rccg-logo.png" alt="RCCG" style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }} />
+        <img src="/rccg-logo-new.png" alt="RCCG" style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }} />
       </div>
       <div>
         <p className="text-white font-semibold text-sm leading-tight">Shepherd Connect</p>
@@ -233,7 +233,7 @@ export function Layout({ children }: { children: ReactNode }) {
             <div className="flex items-center justify-between px-5 py-5 border-b border-white/10">
               <div className="flex items-center gap-3">
                 <div className="rccg-logo-wrap" style={{ width: 50, height: 50 }}>
-                  <img src="/rccg-logo.png" alt="RCCG" style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }} />
+                  <img src="/rccg-logo-new.png" alt="RCCG" style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }} />
                 </div>
                 <p className="text-white font-semibold text-sm">Shepherd Connect</p>
               </div>
@@ -262,7 +262,7 @@ export function Layout({ children }: { children: ReactNode }) {
           {/* Logo (mobile) */}
           <div className="md:hidden flex items-center gap-2 flex-1">
             <div className="rccg-logo-wrap" style={{ width: 34, height: 34 }}>
-              <img src="/rccg-logo.png" alt="RCCG" style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }} />
+              <img src="/rccg-logo-new.png" alt="RCCG" style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }} />
             </div>
             <span className="text-white font-semibold text-sm">Shepherd Connect</span>
           </div>
