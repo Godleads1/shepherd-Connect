@@ -129,7 +129,7 @@ export default function Login() {
         <img
           src="/rccg-logo.png"
           alt="RCCG Logo"
-          style={{ width: 200, height: 200, objectFit: "contain", display: "block", marginBottom: -28 }}
+          style={{ width: 200, height: 200, objectFit: "contain", display: "block", marginBottom: -48 }}
         />
         <p className="text-[10px] font-semibold tracking-[0.2em] uppercase text-center max-w-xs" style={{ color: LOGO_GREEN }}>
           {t.rccgFull}
