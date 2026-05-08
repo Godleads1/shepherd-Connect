@@ -188,7 +188,7 @@ export default function Register() {
 
       {/* Logo */}
       <div className="logo-enter flex flex-col items-center mb-0 z-10">
-        <div className="rccg-logo-wrap" style={{ width: 240, height: 240, marginBottom: -44 }}>
+        <div className="rccg-logo-wrap" style={{ width: 140, height: 140, marginBottom: 16 }}>
           <img src="/rccg-logo-new.png" alt="RCCG Logo" style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }} />
         </div>
       </div>
