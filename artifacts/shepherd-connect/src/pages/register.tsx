@@ -187,11 +187,11 @@ export default function Register() {
       <Particles />
 
       {/* Logo */}
-      <div className="logo-enter flex flex-col items-center mb-6 z-10">
+      <div className="logo-enter flex flex-col items-center mb-0 z-10">
         <img
           src="/rccg-logo.png"
           alt="RCCG Logo"
-          style={{ width: 200, height: 200, objectFit: "contain", display: "block", marginBottom: -8 }}
+          style={{ width: 240, height: 240, objectFit: "contain", display: "block", marginBottom: -44 }}
         />
       </div>
 
