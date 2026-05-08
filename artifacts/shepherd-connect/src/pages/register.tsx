@@ -188,7 +188,7 @@ export default function Register() {
 
       {/* Logo */}
       <div className="logo-enter flex flex-col items-center mb-0 z-10">
-        <div style={{ background: "white", borderRadius: 20, padding: 12, marginBottom: -44, display: "inline-flex" }}>
+        <div style={{ width: 268, height: 268, borderRadius: "50%", background: "white", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: -44, boxShadow: "0 4px 20px rgba(0,0,0,0.10)" }}>
           <img
             src="/rccg-logo.png"
             alt="RCCG Logo"

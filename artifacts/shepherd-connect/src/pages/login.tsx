@@ -126,7 +126,7 @@ export default function Login() {
 
       {/* Logo — scale(1.18) zooms past the built-in padding so the seal fills edge-to-edge */}
       <div className="logo-enter flex flex-col items-center mb-2 z-10">
-        <div style={{ background: "white", borderRadius: 20, padding: 12, marginBottom: -48, display: "inline-flex" }}>
+        <div style={{ width: 224, height: 224, borderRadius: "50%", background: "white", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: -48, boxShadow: "0 4px 20px rgba(0,0,0,0.10)" }}>
           <img
             src="/rccg-logo.png"
             alt="RCCG Logo"

@@ -187,8 +187,8 @@ export function Layout({ children }: { children: ReactNode }) {
 
   const SidebarHeader = () => (
     <div className="flex items-center gap-3 px-5 py-5 border-b border-white/10">
-      <div className="flex-shrink-0 flex items-center justify-center" style={{ background: "white", borderRadius: 10, padding: 5 }}>
-        <img src="/rccg-logo.png" alt="RCCG" style={{ width: 40, height: 40, objectFit: "contain", display: "block" }} />
+      <div className="flex-shrink-0" style={{ width: 50, height: 50, borderRadius: "50%", background: "white", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 2px 8px rgba(0,0,0,0.12)" }}>
+        <img src="/rccg-logo.png" alt="RCCG" style={{ width: 42, height: 42, objectFit: "contain", display: "block" }} />
       </div>
       <div>
         <p className="text-white font-semibold text-sm leading-tight">Shepherd Connect</p>
@@ -232,8 +232,8 @@ export function Layout({ children }: { children: ReactNode }) {
           >
             <div className="flex items-center justify-between px-5 py-5 border-b border-white/10">
               <div className="flex items-center gap-3">
-                <div className="flex items-center justify-center" style={{ background: "white", borderRadius: 10, padding: 5 }}>
-                  <img src="/rccg-logo.png" alt="RCCG" style={{ width: 40, height: 40, objectFit: "contain", display: "block" }} />
+                <div style={{ width: 50, height: 50, borderRadius: "50%", background: "white", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 2px 8px rgba(0,0,0,0.12)" }}>
+                  <img src="/rccg-logo.png" alt="RCCG" style={{ width: 42, height: 42, objectFit: "contain", display: "block" }} />
                 </div>
                 <p className="text-white font-semibold text-sm">Shepherd Connect</p>
               </div>
@@ -261,8 +261,8 @@ export function Layout({ children }: { children: ReactNode }) {
 
           {/* Logo (mobile) */}
           <div className="md:hidden flex items-center gap-2 flex-1">
-            <div className="flex items-center justify-center" style={{ background: "white", borderRadius: 7, padding: 3 }}>
-              <img src="/rccg-logo.png" alt="RCCG" style={{ width: 26, height: 26, objectFit: "contain", display: "block" }} />
+            <div style={{ width: 34, height: 34, borderRadius: "50%", background: "white", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 1px 4px rgba(0,0,0,0.12)" }}>
+              <img src="/rccg-logo.png" alt="RCCG" style={{ width: 28, height: 28, objectFit: "contain", display: "block" }} />
             </div>
             <span className="text-white font-semibold text-sm">Shepherd Connect</span>
           </div>
