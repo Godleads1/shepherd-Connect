@@ -79,13 +79,12 @@ export default function Families() {
                 <Users className="w-4 h-4 text-blue-800" />
                 <span className="font-medium">{family.children?.length || 0}</span> Children
               </div>
-              <Link href={`/families/${family.id}`}>
-                <button 
-                  className="text-sm font-semibold text-[#1a237e] hover:text-[#283593] flex items-center gap-1 transition-colors"
-                  data-testid={`link-family-${family.id}`}
-                >
-                  <Eye className="w-4 h-4" /> View Profile
-                </button>
+              <Link
+                href={`/families/${family.id}`}
+                className="text-sm font-semibold text-[#1a237e] hover:text-[#283593] flex items-center gap-1 transition-colors"
+                data-testid={`link-family-${family.id}`}
+              >
+                <Eye className="w-4 h-4" /> View Profile
               </Link>
             </div>
           </div>

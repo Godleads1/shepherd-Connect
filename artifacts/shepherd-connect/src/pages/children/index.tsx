@@ -98,13 +98,12 @@ export default function Children() {
                 </div>
               )}
               
-              <Link href={`/children/${child.id}`}>
-                <button 
-                  className="text-sm font-semibold text-blue-800 hover:text-blue-900 flex items-center gap-1 transition-colors"
-                  data-testid={`link-child-${child.id}`}
-                >
-                  <Eye className="w-4 h-4" /> View
-                </button>
+              <Link
+                href={`/children/${child.id}`}
+                className="text-sm font-semibold text-blue-800 hover:text-blue-900 flex items-center gap-1 transition-colors"
+                data-testid={`link-child-${child.id}`}
+              >
+                <Eye className="w-4 h-4" /> View
               </Link>
             </div>
           </div>

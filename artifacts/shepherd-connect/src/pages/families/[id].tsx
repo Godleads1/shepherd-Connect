@@ -3,8 +3,7 @@ import { useParams, Link } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Phone, Mail, MapPin, AlertCircle, Eye, Shield } from "lucide-react";
+import { Phone, Mail, MapPin, Eye, Shield } from "lucide-react";
 
 export default function FamilyProfile() {
   const { id } = useParams();
@@ -77,10 +76,11 @@ export default function FamilyProfile() {
                 </div>
                 
                 <div className="flex justify-end">
-                  <Link href={`/children/${child.id}`}>
-                    <Button variant="ghost" size="sm" data-testid={`link-child-${child.id}`}>
-                      <Eye className="w-4 h-4 mr-2" /> View Profile
-                    </Button>
+                  <Link href={`/children/${child.id}`}
+                    className="inline-flex items-center gap-2 text-sm font-medium text-primary hover:text-primary/80 px-3 py-1.5 rounded-md hover:bg-muted transition-colors"
+                    data-testid={`link-child-${child.id}`}
+                  >
+                    <Eye className="w-4 h-4" /> View Profile
                   </Link>
                 </div>
               </div>
