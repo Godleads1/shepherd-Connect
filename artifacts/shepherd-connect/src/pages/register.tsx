@@ -191,7 +191,7 @@ export default function Register() {
         <img
           src="/rccg-logo.png"
           alt="RCCG Logo"
-          style={{ width: 160, height: 160, objectFit: "contain", display: "block" }}
+          style={{ width: 200, height: 200, objectFit: "contain", display: "block", marginBottom: -8 }}
         />
       </div>
 
