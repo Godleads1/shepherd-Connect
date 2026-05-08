@@ -188,16 +188,11 @@ export default function Register() {
 
       {/* Logo */}
       <div className="logo-enter flex flex-col items-center mb-6 z-10">
-        <div
-          className="rounded-full overflow-hidden shadow-xl"
-          style={{ width: 88, height: 88, border: "3px solid rgba(255,255,255,0.95)", boxShadow: "0 6px 24px rgba(26,35,126,0.15)" }}
-        >
-          <img
-            src="/rccg-logo.png"
-            alt="RCCG Logo"
-            style={{ display: "block", width: "100%", height: "100%", objectFit: "cover", transform: "scale(1.18)", transformOrigin: "center" }}
-          />
-        </div>
+        <img
+          src="/rccg-logo.png"
+          alt="RCCG Logo"
+          style={{ width: 120, height: 120, objectFit: "contain", display: "block" }}
+        />
       </div>
 
       {/* Title */}

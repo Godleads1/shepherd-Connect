@@ -126,16 +126,11 @@ export default function Login() {
 
       {/* Logo — scale(1.18) zooms past the built-in padding so the seal fills edge-to-edge */}
       <div className="logo-enter flex flex-col items-center mb-6 z-10">
-        <div
-          className="rounded-full overflow-hidden shadow-xl"
-          style={{ width: 112, height: 112, border: "3px solid rgba(255,255,255,0.95)", boxShadow: "0 8px 32px rgba(26,35,126,0.18)" }}
-        >
-          <img
-            src="/rccg-logo.png"
-            alt="RCCG Logo"
-            style={{ display: "block", width: "100%", height: "100%", objectFit: "cover", transform: "scale(1.18)", transformOrigin: "center" }}
-          />
-        </div>
+        <img
+          src="/rccg-logo.png"
+          alt="RCCG Logo"
+          style={{ width: 148, height: 148, objectFit: "contain", display: "block" }}
+        />
         <p className="mt-3 text-[10px] font-semibold tracking-[0.2em] uppercase text-center max-w-xs" style={{ color: LOGO_GREEN }}>
           {t.rccgFull}
         </p>
