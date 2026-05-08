@@ -188,11 +188,13 @@ export default function Register() {
 
       {/* Logo */}
       <div className="logo-enter flex flex-col items-center mb-0 z-10">
-        <img
-          src="/rccg-logo.png"
-          alt="RCCG Logo"
-          style={{ width: 240, height: 240, objectFit: "contain", display: "block", marginBottom: -44 }}
-        />
+        <div style={{ background: "white", borderRadius: 20, padding: 12, marginBottom: -44, display: "inline-flex" }}>
+          <img
+            src="/rccg-logo.png"
+            alt="RCCG Logo"
+            style={{ width: 240, height: 240, objectFit: "contain", display: "block" }}
+          />
+        </div>
       </div>
 
       {/* Title */}

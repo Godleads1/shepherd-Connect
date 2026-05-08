@@ -187,7 +187,7 @@ export function Layout({ children }: { children: ReactNode }) {
 
   const SidebarHeader = () => (
     <div className="flex items-center gap-3 px-5 py-5 border-b border-white/10">
-      <div className="w-10 h-10 flex-shrink-0 flex items-center justify-center">
+      <div className="flex-shrink-0 flex items-center justify-center" style={{ background: "white", borderRadius: 10, padding: 5 }}>
         <img src="/rccg-logo.png" alt="RCCG" style={{ width: 40, height: 40, objectFit: "contain", display: "block" }} />
       </div>
       <div>
@@ -232,7 +232,7 @@ export function Layout({ children }: { children: ReactNode }) {
           >
             <div className="flex items-center justify-between px-5 py-5 border-b border-white/10">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 flex items-center justify-center">
+                <div className="flex items-center justify-center" style={{ background: "white", borderRadius: 10, padding: 5 }}>
                   <img src="/rccg-logo.png" alt="RCCG" style={{ width: 40, height: 40, objectFit: "contain", display: "block" }} />
                 </div>
                 <p className="text-white font-semibold text-sm">Shepherd Connect</p>
@@ -261,8 +261,8 @@ export function Layout({ children }: { children: ReactNode }) {
 
           {/* Logo (mobile) */}
           <div className="md:hidden flex items-center gap-2 flex-1">
-            <div className="w-7 h-7 flex items-center justify-center">
-              <img src="/rccg-logo.png" alt="RCCG" style={{ width: 28, height: 28, objectFit: "contain", display: "block" }} />
+            <div className="flex items-center justify-center" style={{ background: "white", borderRadius: 7, padding: 3 }}>
+              <img src="/rccg-logo.png" alt="RCCG" style={{ width: 26, height: 26, objectFit: "contain", display: "block" }} />
             </div>
             <span className="text-white font-semibold text-sm">Shepherd Connect</span>
           </div>

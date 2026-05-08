@@ -74,7 +74,7 @@ export default function CheckIn() {
       >
         <div className="absolute top-0 left-0 w-full h-full opacity-10" style={{ backgroundImage: "radial-gradient(circle at 2px 2px, white 1px, transparent 0)", backgroundSize: "32px 32px" }} />
         <div className="relative z-10">
-          <div className="mx-auto mb-6 flex items-center justify-center">
+          <div className="mx-auto mb-6 inline-flex items-center justify-center" style={{ background: "white", borderRadius: 16, padding: 10 }}>
             <img src="/rccg-logo.png" alt="RCCG" style={{ width: 100, height: 100, objectFit: "contain", display: "block" }} />
           </div>
           <h1 className="text-4xl sm:text-5xl font-bold mb-3" style={{ fontFamily: "'Playfair Display', serif" }}>Shepherd Connect</h1>
