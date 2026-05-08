@@ -399,7 +399,7 @@ export default function Register() {
       </div>
 
       <p className="mt-8 text-xs z-10 text-center" style={{ color: "#94a3b8" }}>
-        © 2026 Children Church, City of David · Victoria Island
+        © 2026 Junior Church, City of David · Victoria Island
       </p>
     </div>
   );

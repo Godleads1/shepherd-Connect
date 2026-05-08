@@ -68,7 +68,7 @@ const T: Record<LangCode, Translations> = {
     invalidLogin: "Invalid email or password. Try again.",
     newFamily: "New family?",
     registerHere: "Register here",
-    footer: "© 2026 Children Church, City of David · Victoria Island",
+    footer: "© 2026 Junior Church, City of David · Victoria Island",
     rolePills: { parent: "Parent", teacher: "Teacher", admin: "Admin", attendant: "Attendant" },
     nav: {
       dashboard: "Dashboard",
@@ -252,7 +252,7 @@ const T: Record<LangCode, Translations> = {
     invalidLogin: "Email or password no correct. Try again abeg.",
     newFamily: "New family?",
     registerHere: "Register here",
-    footer: "© 2026 Children Church, City of David · Victoria Island",
+    footer: "© 2026 Junior Church, City of David · Victoria Island",
     rolePills: { parent: "Papa/Mama", teacher: "Teacher", admin: "Admin", attendant: "Attendant" },
     nav: {
       dashboard: "Dashboard",
