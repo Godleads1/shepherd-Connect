@@ -232,13 +232,10 @@
 /* Bottom nav safe area */
 .pb-safe { padding-bottom: max(env(safe-area-inset-bottom), 1rem); }
 
-/* Shared RCCG logo container — circular white disc with 10% padding ring */
+/* Shared RCCG logo container */
 .rccg-logo-wrap {
-  background-color: white;
-  border-radius: 50%;
-  overflow: hidden;
+  background-color: transparent;
   box-sizing: border-box;
-  padding: 5%;
   display: flex;
   align-items: center;
   justify-content: center;
