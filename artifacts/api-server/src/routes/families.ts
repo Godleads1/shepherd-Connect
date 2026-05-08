@@ -166,4 +166,12 @@ router.get("/families/:id/tree", authMiddleware, async (req, res): Promise<void>
   res.json({ family, parents, children: childrenWithDetails });
 });
 
+router.get("/families/:id/qr-code", authMiddleware, async (req, res): Promise<void> => {
+  const id = parseInt(req.params.id as string, 10);
+  if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
+  const [family] = await db.select().from(familiesTable).where(eq(familiesTable.id, id));
+  if (!family) { res.status(404).json({ error: "Not found", message: "Family not found" }); return; }
+  res.json({ qrCode: `QR:${family.id}`, familyCode: family.familyCode, familyId: family.id });
+});
+
 export default router;

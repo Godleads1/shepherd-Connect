@@ -73,5 +73,9 @@
     "vite": "catalog:",
     "wouter": "^3.3.5",
     "zod": "catalog:"
+  },
+  "dependencies": {
+    "face-api.js": "^0.22.2",
+    "qrcode.react": "^4.2.0"
   }
 }

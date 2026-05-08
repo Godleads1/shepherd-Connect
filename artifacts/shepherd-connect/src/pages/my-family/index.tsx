@@ -7,8 +7,90 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { QrCode, FileText, Users, MapPin, ShieldCheck, Star, PlusCircle, AlertCircle } from "lucide-react";
+import { QrCode, FileText, Users, MapPin, ShieldCheck, Star, PlusCircle, AlertCircle, Download, X } from "lucide-react";
 import { useAuth } from "@/contexts/auth";
+import { QRCodeSVG } from "qrcode.react";
+
+function FamilyQRModal({ family, open, onClose }: { family: any; open: boolean; onClose: () => void }) {
+  const qrValue = `QR:${family?.id}`;
+  const handleDownload = () => {
+    const svg = document.getElementById("family-qr-svg");
+    if (!svg) return;
+    const svgData = new XMLSerializer().serializeToString(svg);
+    const canvas = document.createElement("canvas");
+    canvas.width = 400; canvas.height = 440;
+    const ctx = canvas.getContext("2d")!;
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, 400, 440);
+    const img = new Image();
+    img.onload = () => {
+      ctx.drawImage(img, 50, 50, 300, 300);
+      ctx.fillStyle = "#1e3a8a";
+      ctx.font = "bold 18px Inter, sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText(family.familyCode, 200, 390);
+      ctx.font = "14px Inter, sans-serif";
+      ctx.fillStyle = "#6b7280";
+      ctx.fillText("Shepherd Connect · Scan to Check In", 200, 415);
+      const a = document.createElement("a");
+      a.download = `${family.familyCode}-qr.png`;
+      a.href = canvas.toDataURL("image/png");
+      a.click();
+    };
+    img.src = "data:image/svg+xml;base64," + btoa(svgData);
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={v => !v && onClose()}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <QrCode className="w-5 h-5 text-[#1e3a8a]" /> Family Check-In QR
+          </DialogTitle>
+        </DialogHeader>
+        <div className="flex flex-col items-center gap-5 py-2">
+          <div className="p-5 bg-white rounded-2xl border-2 border-[#1e3a8a]/10 shadow-inner">
+            <QRCodeSVG
+              id="family-qr-svg"
+              value={qrValue}
+              size={240}
+              level="H"
+              includeMargin
+              imageSettings={{
+                src: "/rccg-logo-new.png",
+                x: undefined,
+                y: undefined,
+                height: 40,
+                width: 40,
+                excavate: true,
+              }}
+            />
+          </div>
+          <div className="text-center">
+            <p className="text-2xl font-bold font-mono tracking-widest" style={{ color: "#1e3a8a" }}>
+              {family?.familyCode}
+            </p>
+            <p className="text-gray-500 text-sm mt-1">
+              Show this at the check-in desk to drop off all your children at once
+            </p>
+          </div>
+          <div className="flex gap-3 w-full">
+            <Button
+              onClick={handleDownload}
+              className="flex-1 gap-2"
+              style={{ background: "linear-gradient(135deg, #1e3a8a, #1d4ed8)" }}
+            >
+              <Download className="w-4 h-4" /> Save QR Code
+            </Button>
+            <Button variant="outline" onClick={onClose} className="px-4">
+              <X className="w-4 h-4" />
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
 
 function ChildCard({ child }: { child: any }) {
   const statusColor = child.currentClass ? "#16a34a" : "#1a237e";
@@ -72,7 +154,7 @@ function ChildCard({ child }: { child: any }) {
             <Link href={`/children/${child.id}`} className="flex-1">
               <button className="w-full py-2.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-all hover:opacity-90"
                 style={{ background: "#1e3a8a", color: "white" }}>
-                <QrCode className="w-3.5 h-3.5" /> Show QR
+                <QrCode className="w-3.5 h-3.5" /> View Profile
               </button>
             </Link>
             <Link href={`/class-change-requests`} className="flex-1">
@@ -96,6 +178,7 @@ export default function MyFamily() {
   const { toast } = useToast();
 
   const [addChildOpen, setAddChildOpen] = useState(false);
+  const [qrModalOpen, setQrModalOpen] = useState(false);
   const [childForm, setChildForm] = useState({
     firstName: "", lastName: "", dob: "", gender: "male" as "male" | "female",
     allergies: "", medicalNotes: "", currentClassId: "",
@@ -172,6 +255,38 @@ export default function MyFamily() {
         </div>
       </div>
 
+      {/* Family QR Card */}
+      {family?.id && (
+        <div
+          className="bg-white rounded-2xl p-5 border cursor-pointer transition-all hover:shadow-md active:scale-[0.99]"
+          style={{ borderColor: "#1e3a8a20", boxShadow: "0 2px 12px rgba(30,58,138,.08)" }}
+          onClick={() => setQrModalOpen(true)}
+        >
+          <div className="flex items-center gap-5">
+            <div className="p-3 rounded-xl" style={{ background: "#eff6ff" }}>
+              <QRCodeSVG
+                value={`QR:${family.id}`}
+                size={72}
+                level="M"
+                includeMargin={false}
+              />
+            </div>
+            <div className="flex-1">
+              <div className="flex items-center gap-2 mb-1">
+                <QrCode className="w-4 h-4 text-[#1e3a8a]" />
+                <p className="font-bold text-gray-900">Family Check-In QR</p>
+              </div>
+              <p className="text-sm text-gray-500">Show this at the kiosk to check in all your children at once</p>
+              <p className="font-mono text-sm font-bold mt-2" style={{ color: "#1e3a8a" }}>{family.familyCode}</p>
+            </div>
+            <div className="text-[#1e3a8a] font-semibold text-xs flex flex-col items-center gap-1">
+              <span className="text-xl">›</span>
+              <span>Expand</span>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Quick Actions */}
       <div className="grid grid-cols-4 gap-3">
         {[
@@ -226,6 +341,9 @@ export default function MyFamily() {
           </div>
         )}
       </div>
+
+      {/* Family QR Modal */}
+      {family && <FamilyQRModal family={family} open={qrModalOpen} onClose={() => setQrModalOpen(false)} />}
 
       {/* Add Child Modal */}
       <Dialog open={addChildOpen} onOpenChange={setAddChildOpen}>

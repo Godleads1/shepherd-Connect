@@ -55,6 +55,7 @@ import type {
   GetAttendanceTrendsParams,
   GetDashboardStatsParams,
   GetExceptionsParams,
+  GetFamilyQrCode200,
   GetLiveViewParams,
   GetNotPickedUpReport200,
   GetNotPickedUpReportParams,
@@ -94,12 +95,14 @@ import type {
   QrScanResult,
   RegisterBody,
   RejectClassChangeRequestBody,
+  ScanFaceBody,
   ScanQrBody,
   SuccessResponse,
   Teacher,
   TeacherAllocation,
   UpdateClassAssignmentBody,
   UpdateEmergencyBody,
+  UpdateFaceDescriptorBody,
   UpdateTeacherAllocationBody,
   UpdateUserBody,
   User,
@@ -3982,6 +3985,351 @@ export const useScanQrCode = <
 > => {
   return useMutation(getScanQrCodeMutationOptions(options));
 };
+
+/**
+ * @summary Attendant marks child as in-transit (being escorted to class)
+ */
+export const getEscortToClassUrl = (id: number) => {
+  return `/api/attendance/${id}/escort`;
+};
+
+export const escortToClass = async (
+  id: number,
+  options?: RequestInit,
+): Promise<Attendance> => {
+  return customFetch<Attendance>(getEscortToClassUrl(id), {
+    ...options,
+    method: "PUT",
+  });
+};
+
+export const getEscortToClassMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof escortToClass>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof escortToClass>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  const mutationKey = ["escortToClass"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof escortToClass>>,
+    { id: number }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return escortToClass(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type EscortToClassMutationResult = NonNullable<
+  Awaited<ReturnType<typeof escortToClass>>
+>;
+
+export type EscortToClassMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Attendant marks child as in-transit (being escorted to class)
+ */
+export const useEscortToClass = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof escortToClass>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof escortToClass>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  return useMutation(getEscortToClassMutationOptions(options));
+};
+
+/**
+ * @summary Match a face descriptor against enrolled children for check-in
+ */
+export const getScanFaceUrl = () => {
+  return `/api/attendance/scan-face`;
+};
+
+export const scanFace = async (
+  scanFaceBody: ScanFaceBody,
+  options?: RequestInit,
+): Promise<QrScanResult> => {
+  return customFetch<QrScanResult>(getScanFaceUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(scanFaceBody),
+  });
+};
+
+export const getScanFaceMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof scanFace>>,
+    TError,
+    { data: BodyType<ScanFaceBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof scanFace>>,
+  TError,
+  { data: BodyType<ScanFaceBody> },
+  TContext
+> => {
+  const mutationKey = ["scanFace"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof scanFace>>,
+    { data: BodyType<ScanFaceBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return scanFace(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ScanFaceMutationResult = NonNullable<
+  Awaited<ReturnType<typeof scanFace>>
+>;
+export type ScanFaceMutationBody = BodyType<ScanFaceBody>;
+export type ScanFaceMutationError = ErrorType<void>;
+
+/**
+ * @summary Match a face descriptor against enrolled children for check-in
+ */
+export const useScanFace = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof scanFace>>,
+    TError,
+    { data: BodyType<ScanFaceBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof scanFace>>,
+  TError,
+  { data: BodyType<ScanFaceBody> },
+  TContext
+> => {
+  return useMutation(getScanFaceMutationOptions(options));
+};
+
+/**
+ * @summary Store or update a child face descriptor for biometric enrollment
+ */
+export const getUpdateFaceDescriptorUrl = (id: number) => {
+  return `/api/children/${id}/face-descriptor`;
+};
+
+export const updateFaceDescriptor = async (
+  id: number,
+  updateFaceDescriptorBody: UpdateFaceDescriptorBody,
+  options?: RequestInit,
+): Promise<Child> => {
+  return customFetch<Child>(getUpdateFaceDescriptorUrl(id), {
+    ...options,
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(updateFaceDescriptorBody),
+  });
+};
+
+export const getUpdateFaceDescriptorMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateFaceDescriptor>>,
+    TError,
+    { id: number; data: BodyType<UpdateFaceDescriptorBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateFaceDescriptor>>,
+  TError,
+  { id: number; data: BodyType<UpdateFaceDescriptorBody> },
+  TContext
+> => {
+  const mutationKey = ["updateFaceDescriptor"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateFaceDescriptor>>,
+    { id: number; data: BodyType<UpdateFaceDescriptorBody> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return updateFaceDescriptor(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateFaceDescriptorMutationResult = NonNullable<
+  Awaited<ReturnType<typeof updateFaceDescriptor>>
+>;
+export type UpdateFaceDescriptorMutationBody =
+  BodyType<UpdateFaceDescriptorBody>;
+export type UpdateFaceDescriptorMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Store or update a child face descriptor for biometric enrollment
+ */
+export const useUpdateFaceDescriptor = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateFaceDescriptor>>,
+    TError,
+    { id: number; data: BodyType<UpdateFaceDescriptorBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof updateFaceDescriptor>>,
+  TError,
+  { id: number; data: BodyType<UpdateFaceDescriptorBody> },
+  TContext
+> => {
+  return useMutation(getUpdateFaceDescriptorMutationOptions(options));
+};
+
+/**
+ * @summary Get family-level QR code data for bulk drop-off
+ */
+export const getGetFamilyQrCodeUrl = (id: number) => {
+  return `/api/families/${id}/qr-code`;
+};
+
+export const getFamilyQrCode = async (
+  id: number,
+  options?: RequestInit,
+): Promise<GetFamilyQrCode200> => {
+  return customFetch<GetFamilyQrCode200>(getGetFamilyQrCodeUrl(id), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetFamilyQrCodeQueryKey = (id: number) => {
+  return [`/api/families/${id}/qr-code`] as const;
+};
+
+export const getGetFamilyQrCodeQueryOptions = <
+  TData = Awaited<ReturnType<typeof getFamilyQrCode>>,
+  TError = ErrorType<unknown>,
+>(
+  id: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getFamilyQrCode>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetFamilyQrCodeQueryKey(id);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getFamilyQrCode>>> = ({
+    signal,
+  }) => getFamilyQrCode(id, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!id,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getFamilyQrCode>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetFamilyQrCodeQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getFamilyQrCode>>
+>;
+export type GetFamilyQrCodeQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Get family-level QR code data for bulk drop-off
+ */
+
+export function useGetFamilyQrCode<
+  TData = Awaited<ReturnType<typeof getFamilyQrCode>>,
+  TError = ErrorType<unknown>,
+>(
+  id: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getFamilyQrCode>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetFamilyQrCodeQueryOptions(id, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
 
 /**
  * @summary List pickup delegates

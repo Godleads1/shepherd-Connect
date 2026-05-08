@@ -7,6 +7,7 @@ import { usersTable } from "./users";
 
 export const attendanceStatusEnum = pgEnum("attendance_status", [
   "dropped_off",
+  "in_transit",
   "in_class",
   "picked_up",
 ]);
@@ -18,8 +19,10 @@ export const attendanceTable = pgTable("attendance", {
   serviceDate: date("service_date").notNull(),
   serviceSlot: text("service_slot").notNull(),
   checkInTime: timestamp("check_in_time"),
+  escortTime: timestamp("escort_time"),
   checkOutTime: timestamp("check_out_time"),
   checkedInBy: integer("checked_in_by").references(() => usersTable.id),
+  escortedBy: integer("escorted_by").references(() => usersTable.id),
   checkedOutBy: integer("checked_out_by").references(() => usersTable.id),
   status: attendanceStatusEnum("status").notNull().default("dropped_off"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -29,8 +32,10 @@ export const insertAttendanceSchema = createInsertSchema(attendanceTable).omit({
   id: true,
   createdAt: true,
   checkInTime: true,
+  escortTime: true,
   checkOutTime: true,
   checkedInBy: true,
+  escortedBy: true,
   checkedOutBy: true,
 });
 

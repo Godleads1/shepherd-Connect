@@ -3,8 +3,10 @@ import { useParams, Link } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import { AlertTriangle, Clock, Calendar, CheckSquare, Award, FileText } from "lucide-react";
+import { AlertTriangle, Clock, Calendar, CheckSquare, Award } from "lucide-react";
 import { format } from "date-fns";
+import { QRCodeSVG } from "qrcode.react";
+import FaceEnrollment from "@/components/FaceEnrollment";
 
 export default function ChildProfile() {
   const { id } = useParams();
@@ -54,18 +56,40 @@ export default function ChildProfile() {
                 <p>{child.medicalNotes}</p>
               </div>
             )}
+            <FaceEnrollment
+              childId={childId}
+              childName={`${child.firstName} ${child.lastName}`}
+              isEnrolled={!!child.faceDescriptorJson}
+              onUpdate={() => window.location.reload()}
+            />
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-center">Check-In QR Code</CardTitle>
+            <CardTitle className="text-center">Family Check-In QR</CardTitle>
           </CardHeader>
           <CardContent className="flex flex-col items-center justify-center p-6 bg-white">
-            {qrLoading ? <Skeleton className="h-48 w-48" /> : (
-              <img src={qrData?.qrCode} alt="QR Code" className="w-48 h-48 border rounded-lg p-2" />
-            )}
-            <p className="mt-4 text-center text-sm font-medium text-slate-800">Family Code: <br/><span className="text-xl tracking-widest">{qrData?.familyCode}</span></p>
+            {qrLoading ? <Skeleton className="h-48 w-48" /> : qrData?.qrCode ? (
+              <div className="p-3 border-2 border-gray-100 rounded-xl bg-white">
+                <QRCodeSVG
+                  value={qrData.qrCode}
+                  size={180}
+                  level="H"
+                  includeMargin
+                  imageSettings={{
+                    src: "/rccg-logo-new.png",
+                    x: undefined, y: undefined,
+                    height: 32, width: 32,
+                    excavate: true,
+                  }}
+                />
+              </div>
+            ) : null}
+            <p className="mt-4 text-center text-sm font-medium text-slate-800">
+              Family Code: <br/>
+              <span className="text-xl tracking-widest font-mono" style={{ color: "#1e3a8a" }}>{qrData?.familyCode}</span>
+            </p>
           </CardContent>
         </Card>
       </div>

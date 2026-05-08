@@ -142,6 +142,7 @@ export interface Child {
   allergies?: string | null;
   medicalNotes?: string | null;
   photoUrl?: string | null;
+  faceDescriptorJson?: string | null;
   currentClassId?: number | null;
   currentClass?: Class | null;
   createdAt: string;
@@ -181,6 +182,7 @@ export type AttendanceStatus =
 
 export const AttendanceStatus = {
   dropped_off: "dropped_off",
+  in_transit: "in_transit",
   in_class: "in_class",
   picked_up: "picked_up",
 } as const;
@@ -192,8 +194,10 @@ export interface Attendance {
   serviceDate: string;
   serviceSlot: string;
   checkInTime?: string | null;
+  escortTime?: string | null;
   checkOutTime?: string | null;
   checkedInBy?: number | null;
+  escortedBy?: number | null;
   checkedOutBy?: number | null;
   status: AttendanceStatus;
   child?: Child | null;
@@ -387,6 +391,17 @@ export interface QrScanResult {
   children: ChildWithDetails[];
   hasAlerts: boolean;
   alerts: string[];
+}
+
+export interface ScanFaceBody {
+  /** 128-dimension face descriptor vector from face-api.js */
+  descriptor: number[];
+}
+
+export interface UpdateFaceDescriptorBody {
+  /** JSON-encoded face descriptor vector */
+  descriptorJson: string;
+  consentGiven: boolean;
 }
 
 export interface PickupDelegate {
@@ -846,6 +861,12 @@ export type ListAttendanceParams = {
   serviceDate?: string;
   serviceSlot?: string;
   status?: string;
+};
+
+export type GetFamilyQrCode200 = {
+  qrCode: string;
+  familyCode: string;
+  familyId: number;
 };
 
 export type ListPickupDelegatesParams = {

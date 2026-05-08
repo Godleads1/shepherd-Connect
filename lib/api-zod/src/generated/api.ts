@@ -357,6 +357,7 @@ export const ListFamiliesResponse = zod.object({
             allergies: zod.string().nullish(),
             medicalNotes: zod.string().nullish(),
             photoUrl: zod.string().nullish(),
+            faceDescriptorJson: zod.string().nullish(),
             currentClassId: zod.number().nullish(),
             currentClass: zod
               .object({
@@ -471,6 +472,7 @@ export const GetFamilyResponse = zod.object({
         allergies: zod.string().nullish(),
         medicalNotes: zod.string().nullish(),
         photoUrl: zod.string().nullish(),
+        faceDescriptorJson: zod.string().nullish(),
         currentClassId: zod.number().nullish(),
         currentClass: zod
           .object({
@@ -577,6 +579,7 @@ export const UpdateFamilyResponse = zod.object({
         allergies: zod.string().nullish(),
         medicalNotes: zod.string().nullish(),
         photoUrl: zod.string().nullish(),
+        faceDescriptorJson: zod.string().nullish(),
         currentClassId: zod.number().nullish(),
         currentClass: zod
           .object({
@@ -676,6 +679,7 @@ export const GetFamilyTreeResponse = zod.object({
           allergies: zod.string().nullish(),
           medicalNotes: zod.string().nullish(),
           photoUrl: zod.string().nullish(),
+          faceDescriptorJson: zod.string().nullish(),
           currentClassId: zod.number().nullish(),
           currentClass: zod
             .object({
@@ -778,10 +782,17 @@ export const GetFamilyTreeResponse = zod.object({
             serviceDate: zod.string().date(),
             serviceSlot: zod.string(),
             checkInTime: zod.string().datetime({}).nullish(),
+            escortTime: zod.string().datetime({}).nullish(),
             checkOutTime: zod.string().datetime({}).nullish(),
             checkedInBy: zod.number().nullish(),
+            escortedBy: zod.number().nullish(),
             checkedOutBy: zod.number().nullish(),
-            status: zod.enum(["dropped_off", "in_class", "picked_up"]),
+            status: zod.enum([
+              "dropped_off",
+              "in_transit",
+              "in_class",
+              "picked_up",
+            ]),
             child: zod
               .object({
                 id: zod.number(),
@@ -794,6 +805,7 @@ export const GetFamilyTreeResponse = zod.object({
                 allergies: zod.string().nullish(),
                 medicalNotes: zod.string().nullish(),
                 photoUrl: zod.string().nullish(),
+                faceDescriptorJson: zod.string().nullish(),
                 currentClassId: zod.number().nullish(),
                 currentClass: zod
                   .object({
@@ -905,6 +917,7 @@ export const GetMyFamilyResponse = zod.object({
         allergies: zod.string().nullish(),
         medicalNotes: zod.string().nullish(),
         photoUrl: zod.string().nullish(),
+        faceDescriptorJson: zod.string().nullish(),
         currentClassId: zod.number().nullish(),
         currentClass: zod
           .object({
@@ -955,6 +968,7 @@ export const ListChildrenResponse = zod.object({
       allergies: zod.string().nullish(),
       medicalNotes: zod.string().nullish(),
       photoUrl: zod.string().nullish(),
+      faceDescriptorJson: zod.string().nullish(),
       currentClassId: zod.number().nullish(),
       currentClass: zod
         .object({
@@ -1011,6 +1025,7 @@ export const GetChildResponse = zod.object({
   allergies: zod.string().nullish(),
   medicalNotes: zod.string().nullish(),
   photoUrl: zod.string().nullish(),
+  faceDescriptorJson: zod.string().nullish(),
   currentClassId: zod.number().nullish(),
   currentClass: zod
     .object({
@@ -1059,6 +1074,7 @@ export const UpdateChildResponse = zod.object({
   allergies: zod.string().nullish(),
   medicalNotes: zod.string().nullish(),
   photoUrl: zod.string().nullish(),
+  faceDescriptorJson: zod.string().nullish(),
   currentClassId: zod.number().nullish(),
   currentClass: zod
     .object({
@@ -1214,6 +1230,7 @@ export const ListClassAssignmentsResponseItem = zod.object({
       allergies: zod.string().nullish(),
       medicalNotes: zod.string().nullish(),
       photoUrl: zod.string().nullish(),
+      faceDescriptorJson: zod.string().nullish(),
       currentClassId: zod.number().nullish(),
       currentClass: zod
         .object({
@@ -1290,6 +1307,7 @@ export const UpdateClassAssignmentResponse = zod.object({
       allergies: zod.string().nullish(),
       medicalNotes: zod.string().nullish(),
       photoUrl: zod.string().nullish(),
+      faceDescriptorJson: zod.string().nullish(),
       currentClassId: zod.number().nullish(),
       currentClass: zod
         .object({
@@ -1604,10 +1622,12 @@ export const ListAttendanceResponseItem = zod.object({
   serviceDate: zod.string().date(),
   serviceSlot: zod.string(),
   checkInTime: zod.string().datetime({}).nullish(),
+  escortTime: zod.string().datetime({}).nullish(),
   checkOutTime: zod.string().datetime({}).nullish(),
   checkedInBy: zod.number().nullish(),
+  escortedBy: zod.number().nullish(),
   checkedOutBy: zod.number().nullish(),
-  status: zod.enum(["dropped_off", "in_class", "picked_up"]),
+  status: zod.enum(["dropped_off", "in_transit", "in_class", "picked_up"]),
   child: zod
     .object({
       id: zod.number(),
@@ -1620,6 +1640,7 @@ export const ListAttendanceResponseItem = zod.object({
       allergies: zod.string().nullish(),
       medicalNotes: zod.string().nullish(),
       photoUrl: zod.string().nullish(),
+      faceDescriptorJson: zod.string().nullish(),
       currentClassId: zod.number().nullish(),
       currentClass: zod
         .object({
@@ -1679,10 +1700,12 @@ export const MarkArrivedResponse = zod.object({
   serviceDate: zod.string().date(),
   serviceSlot: zod.string(),
   checkInTime: zod.string().datetime({}).nullish(),
+  escortTime: zod.string().datetime({}).nullish(),
   checkOutTime: zod.string().datetime({}).nullish(),
   checkedInBy: zod.number().nullish(),
+  escortedBy: zod.number().nullish(),
   checkedOutBy: zod.number().nullish(),
-  status: zod.enum(["dropped_off", "in_class", "picked_up"]),
+  status: zod.enum(["dropped_off", "in_transit", "in_class", "picked_up"]),
   child: zod
     .object({
       id: zod.number(),
@@ -1695,6 +1718,7 @@ export const MarkArrivedResponse = zod.object({
       allergies: zod.string().nullish(),
       medicalNotes: zod.string().nullish(),
       photoUrl: zod.string().nullish(),
+      faceDescriptorJson: zod.string().nullish(),
       currentClassId: zod.number().nullish(),
       currentClass: zod
         .object({
@@ -1747,10 +1771,12 @@ export const CheckOutResponse = zod.object({
   serviceDate: zod.string().date(),
   serviceSlot: zod.string(),
   checkInTime: zod.string().datetime({}).nullish(),
+  escortTime: zod.string().datetime({}).nullish(),
   checkOutTime: zod.string().datetime({}).nullish(),
   checkedInBy: zod.number().nullish(),
+  escortedBy: zod.number().nullish(),
   checkedOutBy: zod.number().nullish(),
-  status: zod.enum(["dropped_off", "in_class", "picked_up"]),
+  status: zod.enum(["dropped_off", "in_transit", "in_class", "picked_up"]),
   child: zod
     .object({
       id: zod.number(),
@@ -1763,6 +1789,7 @@ export const CheckOutResponse = zod.object({
       allergies: zod.string().nullish(),
       medicalNotes: zod.string().nullish(),
       photoUrl: zod.string().nullish(),
+      faceDescriptorJson: zod.string().nullish(),
       currentClassId: zod.number().nullish(),
       currentClass: zod
         .object({
@@ -1876,6 +1903,7 @@ export const ScanQrCodeResponse = zod.object({
           allergies: zod.string().nullish(),
           medicalNotes: zod.string().nullish(),
           photoUrl: zod.string().nullish(),
+          faceDescriptorJson: zod.string().nullish(),
           currentClassId: zod.number().nullish(),
           currentClass: zod
             .object({
@@ -1954,10 +1982,17 @@ export const ScanQrCodeResponse = zod.object({
             serviceDate: zod.string().date(),
             serviceSlot: zod.string(),
             checkInTime: zod.string().datetime({}).nullish(),
+            escortTime: zod.string().datetime({}).nullish(),
             checkOutTime: zod.string().datetime({}).nullish(),
             checkedInBy: zod.number().nullish(),
+            escortedBy: zod.number().nullish(),
             checkedOutBy: zod.number().nullish(),
-            status: zod.enum(["dropped_off", "in_class", "picked_up"]),
+            status: zod.enum([
+              "dropped_off",
+              "in_transit",
+              "in_class",
+              "picked_up",
+            ]),
             child: zod
               .object({
                 id: zod.number(),
@@ -1970,6 +2005,7 @@ export const ScanQrCodeResponse = zod.object({
                 allergies: zod.string().nullish(),
                 medicalNotes: zod.string().nullish(),
                 photoUrl: zod.string().nullish(),
+                faceDescriptorJson: zod.string().nullish(),
                 currentClassId: zod.number().nullish(),
                 currentClass: zod
                   .object({
@@ -2009,6 +2045,351 @@ export const ScanQrCodeResponse = zod.object({
   ),
   hasAlerts: zod.boolean(),
   alerts: zod.array(zod.string()),
+});
+
+/**
+ * @summary Attendant marks child as in-transit (being escorted to class)
+ */
+export const EscortToClassParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const EscortToClassResponse = zod.object({
+  id: zod.number(),
+  childId: zod.number(),
+  classId: zod.number(),
+  serviceDate: zod.string().date(),
+  serviceSlot: zod.string(),
+  checkInTime: zod.string().datetime({}).nullish(),
+  escortTime: zod.string().datetime({}).nullish(),
+  checkOutTime: zod.string().datetime({}).nullish(),
+  checkedInBy: zod.number().nullish(),
+  escortedBy: zod.number().nullish(),
+  checkedOutBy: zod.number().nullish(),
+  status: zod.enum(["dropped_off", "in_transit", "in_class", "picked_up"]),
+  child: zod
+    .object({
+      id: zod.number(),
+      familyId: zod.number(),
+      firstName: zod.string(),
+      lastName: zod.string(),
+      dob: zod.string().date(),
+      age: zod.number(),
+      gender: zod.string(),
+      allergies: zod.string().nullish(),
+      medicalNotes: zod.string().nullish(),
+      photoUrl: zod.string().nullish(),
+      faceDescriptorJson: zod.string().nullish(),
+      currentClassId: zod.number().nullish(),
+      currentClass: zod
+        .object({
+          id: zod.number(),
+          name: zod.string(),
+          ageMin: zod.number(),
+          ageMax: zod.number(),
+          capacity: zod.number(),
+          roomLocation: zod.string(),
+          serviceSlot: zod.enum(["7am", "9am", "11am", "1pm"]),
+          description: zod.string().nullish(),
+          enrollmentCount: zod.number(),
+          createdAt: zod.string().datetime({}),
+        })
+        .nullish(),
+      createdAt: zod.string().datetime({}),
+    })
+    .nullish(),
+  class: zod
+    .object({
+      id: zod.number(),
+      name: zod.string(),
+      ageMin: zod.number(),
+      ageMax: zod.number(),
+      capacity: zod.number(),
+      roomLocation: zod.string(),
+      serviceSlot: zod.enum(["7am", "9am", "11am", "1pm"]),
+      description: zod.string().nullish(),
+      enrollmentCount: zod.number(),
+      createdAt: zod.string().datetime({}),
+    })
+    .nullish(),
+});
+
+/**
+ * @summary Match a face descriptor against enrolled children for check-in
+ */
+export const ScanFaceBody = zod.object({
+  descriptor: zod
+    .array(zod.number())
+    .describe("128-dimension face descriptor vector from face-api.js"),
+});
+
+export const ScanFaceResponse = zod.object({
+  family: zod.object({
+    id: zod.number(),
+    familyCode: zod.string(),
+    parent1Id: zod.number().nullish(),
+    parent2Id: zod.number().nullish(),
+    parent1: zod
+      .object({
+        id: zod.number(),
+        email: zod.string(),
+        phone: zod.string().nullish(),
+        role: zod.enum([
+          "super_admin",
+          "admin",
+          "teacher",
+          "attendant",
+          "parent",
+        ]),
+        firstName: zod.string(),
+        lastName: zod.string(),
+        isActive: zod.boolean(),
+        status: zod.enum(["active", "pending_approval", "suspended"]),
+        photoUrl: zod.string().nullish(),
+        dob: zod.string().date().nullish(),
+        gender: zod.string().nullish(),
+        placeOfWork: zod.string().nullish(),
+        communicationPrefs: zod.string().nullish(),
+        createdAt: zod.string().datetime({}),
+      })
+      .nullish(),
+    parent2: zod
+      .object({
+        id: zod.number(),
+        email: zod.string(),
+        phone: zod.string().nullish(),
+        role: zod.enum([
+          "super_admin",
+          "admin",
+          "teacher",
+          "attendant",
+          "parent",
+        ]),
+        firstName: zod.string(),
+        lastName: zod.string(),
+        isActive: zod.boolean(),
+        status: zod.enum(["active", "pending_approval", "suspended"]),
+        photoUrl: zod.string().nullish(),
+        dob: zod.string().date().nullish(),
+        gender: zod.string().nullish(),
+        placeOfWork: zod.string().nullish(),
+        communicationPrefs: zod.string().nullish(),
+        createdAt: zod.string().datetime({}),
+      })
+      .nullish(),
+    address: zod.string().nullish(),
+    emergencyContactName: zod.string().nullish(),
+    emergencyContactPhone: zod.string().nullish(),
+    children: zod
+      .array(
+        zod.object({
+          id: zod.number(),
+          familyId: zod.number(),
+          firstName: zod.string(),
+          lastName: zod.string(),
+          dob: zod.string().date(),
+          age: zod.number(),
+          gender: zod.string(),
+          allergies: zod.string().nullish(),
+          medicalNotes: zod.string().nullish(),
+          photoUrl: zod.string().nullish(),
+          faceDescriptorJson: zod.string().nullish(),
+          currentClassId: zod.number().nullish(),
+          currentClass: zod
+            .object({
+              id: zod.number(),
+              name: zod.string(),
+              ageMin: zod.number(),
+              ageMax: zod.number(),
+              capacity: zod.number(),
+              roomLocation: zod.string(),
+              serviceSlot: zod.enum(["7am", "9am", "11am", "1pm"]),
+              description: zod.string().nullish(),
+              enrollmentCount: zod.number(),
+              createdAt: zod.string().datetime({}),
+            })
+            .nullish(),
+          createdAt: zod.string().datetime({}),
+        }),
+      )
+      .optional(),
+    createdAt: zod.string().datetime({}),
+  }),
+  children: zod.array(
+    zod.object({
+      id: zod.number(),
+      firstName: zod.string(),
+      lastName: zod.string(),
+      dob: zod.string().date(),
+      age: zod.number(),
+      gender: zod.string(),
+      photoUrl: zod.string().nullish(),
+      currentClass: zod
+        .object({
+          id: zod.number(),
+          name: zod.string(),
+          ageMin: zod.number(),
+          ageMax: zod.number(),
+          capacity: zod.number(),
+          roomLocation: zod.string(),
+          serviceSlot: zod.enum(["7am", "9am", "11am", "1pm"]),
+          description: zod.string().nullish(),
+          enrollmentCount: zod.number(),
+          createdAt: zod.string().datetime({}),
+        })
+        .nullish(),
+      teacher: zod
+        .object({
+          id: zod.number(),
+          email: zod.string(),
+          phone: zod.string().nullish(),
+          role: zod.enum([
+            "super_admin",
+            "admin",
+            "teacher",
+            "attendant",
+            "parent",
+          ]),
+          firstName: zod.string(),
+          lastName: zod.string(),
+          isActive: zod.boolean(),
+          status: zod.enum(["active", "pending_approval", "suspended"]),
+          photoUrl: zod.string().nullish(),
+          dob: zod.string().date().nullish(),
+          gender: zod.string().nullish(),
+          placeOfWork: zod.string().nullish(),
+          communicationPrefs: zod.string().nullish(),
+          createdAt: zod.string().datetime({}),
+        })
+        .nullish(),
+      lastAttendance: zod.string().nullish(),
+      attendanceHistory: zod
+        .array(
+          zod.object({
+            id: zod.number(),
+            childId: zod.number(),
+            classId: zod.number(),
+            serviceDate: zod.string().date(),
+            serviceSlot: zod.string(),
+            checkInTime: zod.string().datetime({}).nullish(),
+            escortTime: zod.string().datetime({}).nullish(),
+            checkOutTime: zod.string().datetime({}).nullish(),
+            checkedInBy: zod.number().nullish(),
+            escortedBy: zod.number().nullish(),
+            checkedOutBy: zod.number().nullish(),
+            status: zod.enum([
+              "dropped_off",
+              "in_transit",
+              "in_class",
+              "picked_up",
+            ]),
+            child: zod
+              .object({
+                id: zod.number(),
+                familyId: zod.number(),
+                firstName: zod.string(),
+                lastName: zod.string(),
+                dob: zod.string().date(),
+                age: zod.number(),
+                gender: zod.string(),
+                allergies: zod.string().nullish(),
+                medicalNotes: zod.string().nullish(),
+                photoUrl: zod.string().nullish(),
+                faceDescriptorJson: zod.string().nullish(),
+                currentClassId: zod.number().nullish(),
+                currentClass: zod
+                  .object({
+                    id: zod.number(),
+                    name: zod.string(),
+                    ageMin: zod.number(),
+                    ageMax: zod.number(),
+                    capacity: zod.number(),
+                    roomLocation: zod.string(),
+                    serviceSlot: zod.enum(["7am", "9am", "11am", "1pm"]),
+                    description: zod.string().nullish(),
+                    enrollmentCount: zod.number(),
+                    createdAt: zod.string().datetime({}),
+                  })
+                  .nullish(),
+                createdAt: zod.string().datetime({}),
+              })
+              .nullish(),
+            class: zod
+              .object({
+                id: zod.number(),
+                name: zod.string(),
+                ageMin: zod.number(),
+                ageMax: zod.number(),
+                capacity: zod.number(),
+                roomLocation: zod.string(),
+                serviceSlot: zod.enum(["7am", "9am", "11am", "1pm"]),
+                description: zod.string().nullish(),
+                enrollmentCount: zod.number(),
+                createdAt: zod.string().datetime({}),
+              })
+              .nullish(),
+          }),
+        )
+        .optional(),
+    }),
+  ),
+  hasAlerts: zod.boolean(),
+  alerts: zod.array(zod.string()),
+});
+
+/**
+ * @summary Store or update a child face descriptor for biometric enrollment
+ */
+export const UpdateFaceDescriptorParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const UpdateFaceDescriptorBody = zod.object({
+  descriptorJson: zod.string().describe("JSON-encoded face descriptor vector"),
+  consentGiven: zod.boolean(),
+});
+
+export const UpdateFaceDescriptorResponse = zod.object({
+  id: zod.number(),
+  familyId: zod.number(),
+  firstName: zod.string(),
+  lastName: zod.string(),
+  dob: zod.string().date(),
+  age: zod.number(),
+  gender: zod.string(),
+  allergies: zod.string().nullish(),
+  medicalNotes: zod.string().nullish(),
+  photoUrl: zod.string().nullish(),
+  faceDescriptorJson: zod.string().nullish(),
+  currentClassId: zod.number().nullish(),
+  currentClass: zod
+    .object({
+      id: zod.number(),
+      name: zod.string(),
+      ageMin: zod.number(),
+      ageMax: zod.number(),
+      capacity: zod.number(),
+      roomLocation: zod.string(),
+      serviceSlot: zod.enum(["7am", "9am", "11am", "1pm"]),
+      description: zod.string().nullish(),
+      enrollmentCount: zod.number(),
+      createdAt: zod.string().datetime({}),
+    })
+    .nullish(),
+  createdAt: zod.string().datetime({}),
+});
+
+/**
+ * @summary Get family-level QR code data for bulk drop-off
+ */
+export const GetFamilyQrCodeParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const GetFamilyQrCodeResponse = zod.object({
+  qrCode: zod.string(),
+  familyCode: zod.string(),
+  familyId: zod.number(),
 });
 
 /**
@@ -2283,6 +2664,7 @@ export const ListAppraisalsResponseItem = zod.object({
       allergies: zod.string().nullish(),
       medicalNotes: zod.string().nullish(),
       photoUrl: zod.string().nullish(),
+      faceDescriptorJson: zod.string().nullish(),
       currentClassId: zod.number().nullish(),
       currentClass: zod
         .object({
@@ -2368,6 +2750,7 @@ export const ListEmergenciesResponseItem = zod.object({
       allergies: zod.string().nullish(),
       medicalNotes: zod.string().nullish(),
       photoUrl: zod.string().nullish(),
+      faceDescriptorJson: zod.string().nullish(),
       currentClassId: zod.number().nullish(),
       currentClass: zod
         .object({
@@ -2441,6 +2824,7 @@ export const GetEmergencyResponse = zod.object({
       allergies: zod.string().nullish(),
       medicalNotes: zod.string().nullish(),
       photoUrl: zod.string().nullish(),
+      faceDescriptorJson: zod.string().nullish(),
       currentClassId: zod.number().nullish(),
       currentClass: zod
         .object({
@@ -2503,6 +2887,7 @@ export const UpdateEmergencyResponse = zod.object({
       allergies: zod.string().nullish(),
       medicalNotes: zod.string().nullish(),
       photoUrl: zod.string().nullish(),
+      faceDescriptorJson: zod.string().nullish(),
       currentClassId: zod.number().nullish(),
       currentClass: zod
         .object({
@@ -2628,10 +3013,17 @@ export const GetLiveViewResponseItem = zod.object({
         serviceDate: zod.string().date(),
         serviceSlot: zod.string(),
         checkInTime: zod.string().datetime({}).nullish(),
+        escortTime: zod.string().datetime({}).nullish(),
         checkOutTime: zod.string().datetime({}).nullish(),
         checkedInBy: zod.number().nullish(),
+        escortedBy: zod.number().nullish(),
         checkedOutBy: zod.number().nullish(),
-        status: zod.enum(["dropped_off", "in_class", "picked_up"]),
+        status: zod.enum([
+          "dropped_off",
+          "in_transit",
+          "in_class",
+          "picked_up",
+        ]),
         child: zod
           .object({
             id: zod.number(),
@@ -2644,6 +3036,7 @@ export const GetLiveViewResponseItem = zod.object({
             allergies: zod.string().nullish(),
             medicalNotes: zod.string().nullish(),
             photoUrl: zod.string().nullish(),
+            faceDescriptorJson: zod.string().nullish(),
             currentClassId: zod.number().nullish(),
             currentClass: zod
               .object({
@@ -2759,10 +3152,12 @@ export const GetExceptionsResponse = zod.object({
       serviceDate: zod.string().date(),
       serviceSlot: zod.string(),
       checkInTime: zod.string().datetime({}).nullish(),
+      escortTime: zod.string().datetime({}).nullish(),
       checkOutTime: zod.string().datetime({}).nullish(),
       checkedInBy: zod.number().nullish(),
+      escortedBy: zod.number().nullish(),
       checkedOutBy: zod.number().nullish(),
-      status: zod.enum(["dropped_off", "in_class", "picked_up"]),
+      status: zod.enum(["dropped_off", "in_transit", "in_class", "picked_up"]),
       child: zod
         .object({
           id: zod.number(),
@@ -2775,6 +3170,7 @@ export const GetExceptionsResponse = zod.object({
           allergies: zod.string().nullish(),
           medicalNotes: zod.string().nullish(),
           photoUrl: zod.string().nullish(),
+          faceDescriptorJson: zod.string().nullish(),
           currentClassId: zod.number().nullish(),
           currentClass: zod
             .object({
@@ -2935,6 +3331,7 @@ export const ListClassChangeRequestsResponse = zod.object({
           allergies: zod.string().nullish(),
           medicalNotes: zod.string().nullish(),
           photoUrl: zod.string().nullish(),
+          faceDescriptorJson: zod.string().nullish(),
           currentClassId: zod.number().nullish(),
           currentClass: zod
             .object({

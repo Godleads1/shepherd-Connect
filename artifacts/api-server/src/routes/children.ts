@@ -80,8 +80,45 @@ router.get("/children/:id/qr-code", authMiddleware, async (req, res): Promise<vo
   if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
   const [child] = await db.select().from(childrenTable).where(eq(childrenTable.id, id));
   if (!child) { res.status(404).json({ error: "Not found", message: "Child not found" }); return; }
-  const qrData = JSON.stringify({ childId: child.id, familyId: child.familyId, familyCode: `FAM-${child.familyId}` });
   res.json({ qrCode: `QR:${child.familyId}:${child.id}`, familyCode: `FAM-${child.familyId}`, childId: child.id });
+});
+
+router.put("/children/:id/face-descriptor", authMiddleware, async (req, res): Promise<void> => {
+  const id = parseInt(req.params.id as string, 10);
+  if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
+  const { descriptorJson, consentGiven } = req.body as { descriptorJson: string; consentGiven: boolean };
+  if (!descriptorJson || typeof descriptorJson !== "string") {
+    res.status(400).json({ error: "Bad request", message: "descriptorJson is required" }); return;
+  }
+  if (!consentGiven) {
+    res.status(400).json({ error: "Bad request", message: "Biometric consent is required" }); return;
+  }
+  // Validate the descriptor JSON is a valid 128-element float array
+  try {
+    const arr = JSON.parse(descriptorJson);
+    if (!Array.isArray(arr) || arr.length !== 128) {
+      res.status(400).json({ error: "Bad request", message: "descriptor must be a 128-element float array" }); return;
+    }
+  } catch {
+    res.status(400).json({ error: "Bad request", message: "Invalid descriptor JSON" }); return;
+  }
+  const [child] = await db.update(childrenTable)
+    .set({ faceDescriptorJson: descriptorJson })
+    .where(eq(childrenTable.id, id))
+    .returning();
+  if (!child) { res.status(404).json({ error: "Not found", message: "Child not found" }); return; }
+  res.json(await formatChild(child));
+});
+
+router.delete("/children/:id/face-descriptor", authMiddleware, async (req, res): Promise<void> => {
+  const id = parseInt(req.params.id as string, 10);
+  if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
+  const [child] = await db.update(childrenTable)
+    .set({ faceDescriptorJson: null })
+    .where(eq(childrenTable.id, id))
+    .returning();
+  if (!child) { res.status(404).json({ error: "Not found", message: "Child not found" }); return; }
+  res.json({ success: true });
 });
 
 export default router;

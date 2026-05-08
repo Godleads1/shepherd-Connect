@@ -21,7 +21,7 @@ router.get("/attendance", authMiddleware, async (req, res): Promise<void> => {
   if (childId) conditions.push(eq(attendanceTable.childId, childId));
   if (serviceDate) conditions.push(eq(attendanceTable.serviceDate, serviceDate));
   if (serviceSlot) conditions.push(eq(attendanceTable.serviceSlot, serviceSlot));
-  if (status) conditions.push(eq(attendanceTable.status, status as "dropped_off" | "in_class" | "picked_up"));
+  if (status) conditions.push(eq(attendanceTable.status, status as "dropped_off" | "in_transit" | "in_class" | "picked_up"));
   const records = await db.select().from(attendanceTable)
     .where(conditions.length ? and(...conditions) : undefined);
   const formatted = await Promise.all(records.map(formatAttendance));
@@ -47,6 +47,20 @@ router.post("/attendance", authMiddleware, async (req, res): Promise<void> => {
   res.status(201).json(await formatAttendance(record));
 });
 
+// Attendant escorts child to class → in_transit
+router.put("/attendance/:id/escort", authMiddleware, async (req, res): Promise<void> => {
+  const id = parseInt(req.params.id as string, 10);
+  if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
+  const [record] = await db.update(attendanceTable).set({
+    status: "in_transit",
+    escortTime: new Date(),
+    escortedBy: req.user!.userId,
+  }).where(and(eq(attendanceTable.id, id), eq(attendanceTable.status, "dropped_off"))).returning();
+  if (!record) { res.status(404).json({ error: "Not found", message: "Attendance record not found or not in dropped_off state" }); return; }
+  res.json(await formatAttendance(record));
+});
+
+// Teacher confirms child arrived in class → in_class
 router.put("/attendance/:id/arrive", authMiddleware, async (req, res): Promise<void> => {
   const id = parseInt(req.params.id as string, 10);
   if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
@@ -73,7 +87,6 @@ router.post("/attendance/scan-qr", authMiddleware, async (req, res): Promise<voi
   const parsed = ScanQrCodeBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: "Bad request", message: parsed.error.message }); return; }
   const { qrCode, serviceDate, serviceSlot } = parsed.data;
-  // Parse QR: format is "QR:familyId:childId" or "FAM-XXXXX"
   let family = null;
   let children: typeof childrenTable.$inferSelect[] = [];
   const qrParts = qrCode.split(":");
@@ -105,6 +118,65 @@ router.post("/attendance/scan-qr", authMiddleware, async (req, res): Promise<voi
     return { ...child, age, currentClass, teacher: null, lastAttendance: null, attendanceHistory: [] };
   }));
   res.json({ family, children: childrenWithDetails, hasAlerts: alerts.length > 0, alerts });
+});
+
+// Face recognition: match descriptor against enrolled children
+router.post("/attendance/scan-face", authMiddleware, async (req, res): Promise<void> => {
+  const { descriptor } = req.body as { descriptor: number[] };
+  if (!descriptor || !Array.isArray(descriptor) || descriptor.length !== 128) {
+    res.status(400).json({ error: "Bad request", message: "descriptor must be a 128-element float array" });
+    return;
+  }
+  // Load all children who have enrolled face descriptors
+  const allChildren = await db.select().from(childrenTable);
+  const enrolled = allChildren.filter(c => c.faceDescriptorJson);
+  
+  let bestMatch: typeof childrenTable.$inferSelect | null = null;
+  let bestDist = Infinity;
+  
+  for (const child of enrolled) {
+    try {
+      const stored: number[] = JSON.parse(child.faceDescriptorJson!);
+      if (stored.length !== 128) continue;
+      // Euclidean distance between descriptors
+      const dist = Math.sqrt(stored.reduce((sum, v, i) => sum + Math.pow(v - descriptor[i], 2), 0));
+      if (dist < bestDist) {
+        bestDist = dist;
+        bestMatch = child;
+      }
+    } catch { continue; }
+  }
+  
+  // Threshold: face-api.js typically uses 0.6 as the match threshold
+  if (!bestMatch || bestDist > 0.6) {
+    res.status(404).json({ error: "Not found", message: "No matching child found" });
+    return;
+  }
+  
+  const [family] = await db.select().from(familiesTable).where(eq(familiesTable.id, bestMatch.familyId));
+  if (!family) {
+    res.status(404).json({ error: "Not found", message: "Family not found" });
+    return;
+  }
+  
+  const familyChildren = await db.select().from(childrenTable).where(eq(childrenTable.familyId, family.id));
+  const alerts: string[] = [];
+  const childrenWithDetails = await Promise.all(familyChildren.map(async (child) => {
+    const dob = new Date(child.dob);
+    const now = new Date();
+    const age = now.getFullYear() - dob.getFullYear() -
+      (now < new Date(now.getFullYear(), dob.getMonth(), dob.getDate()) ? 1 : 0);
+    if (child.allergies) alerts.push(`${child.firstName} has allergies: ${child.allergies}`);
+    if (child.medicalNotes) alerts.push(`${child.firstName} has medical notes`);
+    let currentClass = null;
+    if (child.currentClassId) {
+      const [cls] = await db.select().from(classesTable).where(eq(classesTable.id, child.currentClassId));
+      currentClass = cls || null;
+    }
+    return { ...child, age, currentClass, teacher: null, lastAttendance: null, attendanceHistory: [] };
+  }));
+  
+  res.json({ family, children: childrenWithDetails, hasAlerts: alerts.length > 0, alerts, matchedChildId: bestMatch.id, confidence: Math.max(0, Math.round((1 - bestDist / 0.6) * 100)) });
 });
 
 export default router;
