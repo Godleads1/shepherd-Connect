@@ -130,7 +130,7 @@ export default function Login() {
   return (
     <div
       className="relative flex min-h-screen flex-col items-center justify-center px-4 py-12 overflow-hidden"
-      style={{ background: "linear-gradient(135deg, #fde8d8 0%, #fdf3ec 30%, #eaf4fb 70%, #cce8f8 100%)" }}
+      style={{ background: "radial-gradient(ellipse at 20% 20%, #fde8d8 0%, transparent 55%), radial-gradient(ellipse at 80% 80%, #dbeafe 0%, transparent 55%), radial-gradient(ellipse at 50% 50%, #fefcf9 0%, #f8fafc 100%)" }}
     >
       <Particles />
 
@@ -142,13 +142,13 @@ export default function Login() {
       {/* Logo */}
       <div className="logo-enter flex flex-col items-center mb-6 z-10">
         <div
-          className="logo-pulse w-28 h-28 rounded-full overflow-hidden shadow-xl"
-          style={{ border: "3px solid rgba(255,255,255,0.9)", boxShadow: "0 8px 32px rgba(30,58,138,0.15)" }}
+          className="logo-pulse rounded-full overflow-hidden shadow-xl"
+          style={{ width: 112, height: 112, border: "3px solid rgba(255,255,255,0.95)", boxShadow: "0 8px 32px rgba(30,58,138,0.18)" }}
         >
           <img
             src="/rccg-logo.png"
             alt="RCCG Logo"
-            className="w-full h-full object-cover"
+            style={{ display: "block", width: "100%", height: "100%", objectFit: "cover", aspectRatio: "1/1" }}
           />
         </div>
         <p className="mt-3 text-[10px] font-semibold tracking-[0.2em] uppercase text-center max-w-xs"
@@ -160,7 +160,7 @@ export default function Login() {
       {/* Title */}
       <div className="slide-up-delay-1 text-center mb-6 z-10">
         <h1
-          style={{ fontFamily: "'Playfair Display', serif", color: "#172554" }}
+          style={{ fontFamily: "'Playfair Display', serif", color: "#0a0f1e" }}
           className="text-4xl font-bold leading-tight"
         >
           Shepherd Connect
@@ -218,7 +218,7 @@ export default function Login() {
                 border: "1.5px solid rgba(30,58,138,0.15)",
                 color: "#172554",
               }}
-              onFocus={e => { e.currentTarget.style.borderColor = "#f59e0b"; e.currentTarget.style.boxShadow = "0 0 0 3px rgba(245,158,11,0.15)"; }}
+              onFocus={e => { e.currentTarget.style.borderColor = "#1a44ad"; e.currentTarget.style.boxShadow = "0 0 0 3px rgba(26,68,173,0.12)"; }}
               onBlur={e => { e.currentTarget.style.borderColor = "rgba(30,58,138,0.15)"; e.currentTarget.style.boxShadow = "none"; }}
             />
             {form.formState.errors.email && (
@@ -241,7 +241,7 @@ export default function Login() {
                 border: "1.5px solid rgba(30,58,138,0.15)",
                 color: "#172554",
               }}
-              onFocus={e => { e.currentTarget.style.borderColor = "#f59e0b"; e.currentTarget.style.boxShadow = "0 0 0 3px rgba(245,158,11,0.15)"; }}
+              onFocus={e => { e.currentTarget.style.borderColor = "#1a44ad"; e.currentTarget.style.boxShadow = "0 0 0 3px rgba(26,68,173,0.12)"; }}
               onBlur={e => { e.currentTarget.style.borderColor = "rgba(30,58,138,0.15)"; e.currentTarget.style.boxShadow = "none"; }}
             />
             {form.formState.errors.password && (
@@ -258,11 +258,12 @@ export default function Login() {
             type="submit"
             data-testid="button-login"
             disabled={loginMutation.isPending}
-            className="w-full h-12 rounded-xl font-bold text-sm transition-all duration-200 flex items-center justify-center gap-2 disabled:opacity-70"
+            className="w-full h-12 rounded-full font-semibold text-sm transition-all duration-200 flex items-center justify-center gap-2 disabled:opacity-70"
             style={{
-              background: "linear-gradient(135deg, #f59e0b, #fbbf24)",
-              color: "#172554",
-              boxShadow: "0 4px 15px rgba(245,158,11,0.35)",
+              background: "#1a44ad",
+              color: "#ffffff",
+              boxShadow: "0 4px 16px rgba(26,68,173,0.30)",
+              letterSpacing: "0.02em",
             }}
             onMouseOver={e => { if (!loginMutation.isPending) (e.currentTarget as HTMLButtonElement).style.transform = "scale(1.02)"; }}
             onMouseOut={e => { (e.currentTarget as HTMLButtonElement).style.transform = "scale(1)"; }}
