@@ -74,8 +74,8 @@ export default function CheckIn() {
       >
         <div className="absolute top-0 left-0 w-full h-full opacity-10" style={{ backgroundImage: "radial-gradient(circle at 2px 2px, white 1px, transparent 0)", backgroundSize: "32px 32px" }} />
         <div className="relative z-10">
-          <div style={{ width: 120, height: 120, borderRadius: "50%", background: "white", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 24px", boxShadow: "0 4px 16px rgba(0,0,0,0.15)" }}>
-            <img src="/rccg-logo.png" alt="RCCG" style={{ width: 104, height: 104, objectFit: "contain", display: "block" }} />
+          <div className="rccg-logo-wrap" style={{ width: 120, height: 120, margin: "0 auto 24px" }}>
+            <img src="/rccg-logo.png" alt="RCCG" style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }} />
           </div>
           <h1 className="text-4xl sm:text-5xl font-bold mb-3" style={{ fontFamily: "'Playfair Display', serif" }}>Shepherd Connect</h1>
           <p className="text-lg sm:text-xl text-blue-100 font-medium tracking-wide">Scan Family QR Code to Check In</p>
