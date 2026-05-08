@@ -27,11 +27,12 @@ function Particles() {
       {particles.map(p => (
         <div
           key={p.id}
-          className="absolute text-white/10"
+          className="absolute"
           style={{
             left: p.left,
             bottom: "-10%",
             fontSize: p.size,
+            color: "rgba(30,58,138,0.08)",
             animation: `float-up ${p.duration} ${p.delay} linear infinite`,
           }}
         >
@@ -53,7 +54,7 @@ function LanguagePicker() {
         type="button"
         onClick={() => setOpen(o => !o)}
         className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all"
-        style={{ background: "rgba(255,255,255,0.15)", color: "rgba(255,255,255,0.90)" }}
+        style={{ background: "rgba(255,255,255,0.75)", color: "#1e3a8a", border: "1px solid rgba(30,58,138,0.15)", backdropFilter: "blur(8px)" }}
       >
         <Globe className="w-3.5 h-3.5" />
         <span>{current.flag} {current.nativeName}</span>
@@ -63,7 +64,7 @@ function LanguagePicker() {
       {open && (
         <div
           className="absolute right-0 top-full mt-2 w-44 rounded-xl overflow-hidden z-50 shadow-xl"
-          style={{ background: "rgba(23,37,84,0.95)", backdropFilter: "blur(16px)", border: "1px solid rgba(255,255,255,0.2)" }}
+          style={{ background: "rgba(255,255,255,0.97)", backdropFilter: "blur(16px)", border: "1px solid rgba(30,58,138,0.12)" }}
         >
           {LANGUAGES.map(l => (
             <button
@@ -73,18 +74,18 @@ function LanguagePicker() {
               className="w-full flex items-center gap-3 px-4 py-2.5 text-xs font-medium transition-all text-left"
               style={
                 lang === l.code
-                  ? { background: "rgba(245,158,11,0.25)", color: "#fbbf24" }
-                  : { color: "rgba(255,255,255,0.80)" }
+                  ? { background: "rgba(245,158,11,0.12)", color: "#b45309" }
+                  : { color: "#1e3a8a" }
               }
-              onMouseOver={e => { if (lang !== l.code) (e.currentTarget as HTMLElement).style.background = "rgba(255,255,255,0.08)"; }}
+              onMouseOver={e => { if (lang !== l.code) (e.currentTarget as HTMLElement).style.background = "rgba(30,58,138,0.05)"; }}
               onMouseOut={e => { if (lang !== l.code) (e.currentTarget as HTMLElement).style.background = ""; }}
             >
               <span className="text-base">{l.flag}</span>
               <div>
                 <p className="font-semibold">{l.nativeName}</p>
-                {l.nativeName !== l.label && <p className="text-[10px] opacity-60">{l.label}</p>}
+                {l.nativeName !== l.label && <p className="text-[10px] opacity-50">{l.label}</p>}
               </div>
-              {lang === l.code && <span className="ml-auto text-amber-400">✓</span>}
+              {lang === l.code && <span className="ml-auto text-amber-600">✓</span>}
             </button>
           ))}
         </div>
@@ -129,7 +130,7 @@ export default function Login() {
   return (
     <div
       className="relative flex min-h-screen flex-col items-center justify-center px-4 py-12 overflow-hidden"
-      style={{ background: "linear-gradient(160deg, #172554 0%, #1e3a8a 50%, #1d4ed8 100%)" }}
+      style={{ background: "linear-gradient(135deg, #fde8d8 0%, #fdf3ec 30%, #eaf4fb 70%, #cce8f8 100%)" }}
     >
       <Particles />
 
@@ -141,17 +142,17 @@ export default function Login() {
       {/* Logo */}
       <div className="logo-enter flex flex-col items-center mb-6 z-10">
         <div
-          className="logo-pulse w-28 h-28 rounded-full bg-white p-2 shadow-2xl"
-          style={{ border: "3px solid rgba(255,255,255,0.6)" }}
+          className="logo-pulse w-28 h-28 rounded-full overflow-hidden shadow-xl"
+          style={{ border: "3px solid rgba(255,255,255,0.9)", boxShadow: "0 8px 32px rgba(30,58,138,0.15)" }}
         >
           <img
             src="/rccg-logo.png"
             alt="RCCG Logo"
-            className="w-full h-full rounded-full object-contain"
-            style={{ background: "transparent" }}
+            className="w-full h-full object-cover"
           />
         </div>
-        <p className="mt-3 text-[10px] font-semibold tracking-[0.2em] uppercase text-amber-400 text-center max-w-xs">
+        <p className="mt-3 text-[10px] font-semibold tracking-[0.2em] uppercase text-center max-w-xs"
+          style={{ color: "#b45309" }}>
           {t.rccgFull}
         </p>
       </div>
@@ -159,13 +160,13 @@ export default function Login() {
       {/* Title */}
       <div className="slide-up-delay-1 text-center mb-6 z-10">
         <h1
-          style={{ fontFamily: "'Playfair Display', serif" }}
-          className="text-4xl font-bold text-white leading-tight"
+          style={{ fontFamily: "'Playfair Display', serif", color: "#172554" }}
+          className="text-4xl font-bold leading-tight"
         >
           Shepherd Connect
         </h1>
-        <p className="mt-1 text-sm text-amber-400 tracking-wide">{t.tagline}</p>
-        <p className="mt-1 text-xs text-white/60 italic">{t.motto}</p>
+        <p className="mt-1 text-sm tracking-wide font-medium" style={{ color: "#d97706" }}>{t.tagline}</p>
+        <p className="mt-1 text-xs italic" style={{ color: "#64748b" }}>{t.motto}</p>
       </div>
 
       {/* Role Pills */}
@@ -178,8 +179,8 @@ export default function Login() {
             className="px-4 py-1.5 rounded-full text-sm font-medium whitespace-nowrap transition-all duration-300"
             style={
               selectedRole === r.value
-                ? { background: "#f59e0b", color: "#172554", fontWeight: 700 }
-                : { background: "rgba(255,255,255,0.15)", color: "rgba(255,255,255,0.85)" }
+                ? { background: "#f59e0b", color: "#172554", fontWeight: 700, boxShadow: "0 2px 8px rgba(245,158,11,0.4)" }
+                : { background: "rgba(255,255,255,0.70)", color: "#1e3a8a", border: "1px solid rgba(30,58,138,0.15)" }
             }
           >
             {r.label}
@@ -187,46 +188,69 @@ export default function Login() {
         ))}
       </div>
 
-      {/* Glass Form Card */}
+      {/* Form Card */}
       <div
-        className="slide-up-delay-3 glass w-full z-10"
-        style={{ maxWidth: 420, borderRadius: 24, padding: 32 }}
+        className="slide-up-delay-3 w-full z-10"
+        style={{
+          maxWidth: 420,
+          borderRadius: 24,
+          padding: 32,
+          background: "rgba(255,255,255,0.75)",
+          backdropFilter: "blur(20px)",
+          WebkitBackdropFilter: "blur(20px)",
+          border: "1px solid rgba(255,255,255,0.9)",
+          boxShadow: "0 8px 40px rgba(30,58,138,0.12)",
+        }}
       >
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
           {/* Email */}
           <div className="relative">
-            <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-white/60" />
+            <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4" style={{ color: "#94a3b8" }} />
             <input
               {...form.register("email")}
               type="email"
               placeholder={t.emailPlaceholder}
               autoComplete="email"
               data-testid="input-email"
-              className="glass-input w-full rounded-xl pl-10 pr-4 py-3 text-sm focus:outline-none transition-all"
+              className="w-full rounded-xl pl-10 pr-4 py-3 text-sm focus:outline-none transition-all"
+              style={{
+                background: "rgba(255,255,255,0.85)",
+                border: "1.5px solid rgba(30,58,138,0.15)",
+                color: "#172554",
+              }}
+              onFocus={e => { e.currentTarget.style.borderColor = "#f59e0b"; e.currentTarget.style.boxShadow = "0 0 0 3px rgba(245,158,11,0.15)"; }}
+              onBlur={e => { e.currentTarget.style.borderColor = "rgba(30,58,138,0.15)"; e.currentTarget.style.boxShadow = "none"; }}
             />
             {form.formState.errors.email && (
-              <p className="text-amber-300 text-xs mt-1">{form.formState.errors.email.message}</p>
+              <p className="text-amber-600 text-xs mt-1">{form.formState.errors.email.message}</p>
             )}
           </div>
 
           {/* Password */}
           <div className="relative">
-            <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-white/60" />
+            <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4" style={{ color: "#94a3b8" }} />
             <input
               {...form.register("password")}
               type="password"
               placeholder={t.passwordPlaceholder}
               autoComplete="current-password"
               data-testid="input-password"
-              className="glass-input w-full rounded-xl pl-10 pr-4 py-3 text-sm focus:outline-none transition-all"
+              className="w-full rounded-xl pl-10 pr-4 py-3 text-sm focus:outline-none transition-all"
+              style={{
+                background: "rgba(255,255,255,0.85)",
+                border: "1.5px solid rgba(30,58,138,0.15)",
+                color: "#172554",
+              }}
+              onFocus={e => { e.currentTarget.style.borderColor = "#f59e0b"; e.currentTarget.style.boxShadow = "0 0 0 3px rgba(245,158,11,0.15)"; }}
+              onBlur={e => { e.currentTarget.style.borderColor = "rgba(30,58,138,0.15)"; e.currentTarget.style.boxShadow = "none"; }}
             />
             {form.formState.errors.password && (
-              <p className="text-amber-300 text-xs mt-1">{form.formState.errors.password.message}</p>
+              <p className="text-amber-600 text-xs mt-1">{form.formState.errors.password.message}</p>
             )}
           </div>
 
           {form.formState.errors.root && (
-            <p className="text-center text-sm text-red-300">{form.formState.errors.root.message}</p>
+            <p className="text-center text-sm" style={{ color: "#dc2626" }}>{form.formState.errors.root.message}</p>
           )}
 
           {/* Submit */}
@@ -238,7 +262,7 @@ export default function Login() {
             style={{
               background: "linear-gradient(135deg, #f59e0b, #fbbf24)",
               color: "#172554",
-              boxShadow: "0 4px 15px rgba(245,158,11,0.4)",
+              boxShadow: "0 4px 15px rgba(245,158,11,0.35)",
             }}
             onMouseOver={e => { if (!loginMutation.isPending) (e.currentTarget as HTMLButtonElement).style.transform = "scale(1.02)"; }}
             onMouseOut={e => { (e.currentTarget as HTMLButtonElement).style.transform = "scale(1)"; }}
@@ -251,10 +275,10 @@ export default function Login() {
           </button>
         </form>
 
-        <div className="mt-5 text-center text-sm text-white/60">
+        <div className="mt-5 text-center text-sm" style={{ color: "#64748b" }}>
           {t.newFamily}{" "}
           <Link href="/register">
-            <span className="text-amber-400 font-medium hover:text-amber-300 cursor-pointer" data-testid="link-register">
+            <span className="font-medium cursor-pointer" style={{ color: "#d97706" }} data-testid="link-register">
               {t.registerHere}
             </span>
           </Link>
@@ -262,7 +286,7 @@ export default function Login() {
       </div>
 
       {/* Footer */}
-      <p className="slide-up-delay-3 mt-8 text-xs text-white/30 z-10 text-center">
+      <p className="slide-up-delay-3 mt-8 text-xs z-10 text-center" style={{ color: "#94a3b8" }}>
         {t.footer}
       </p>
     </div>
