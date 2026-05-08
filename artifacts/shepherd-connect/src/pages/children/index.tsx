@@ -31,7 +31,7 @@ export default function Children() {
             placeholder="Search children..." 
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="pl-10 h-11 rounded-xl bg-white border-gray-200 focus-visible:ring-amber-400 shadow-sm"
+            className="pl-10 h-11 rounded-xl bg-white border-gray-200 focus-visible:ring-[#1a237e] shadow-sm"
             data-testid="input-search-children"
           />
         </div>
@@ -93,7 +93,7 @@ export default function Children() {
                   <MapPin className="w-3 h-3" /> {child.currentClass.name}
                 </div>
               ) : (
-                <div className="text-xs font-semibold text-amber-700 bg-amber-50 px-2.5 py-1 rounded-full border border-amber-100">
+                <div className="text-xs font-semibold text-[#1a237e] bg-blue-50 px-2.5 py-1 rounded-full border border-blue-100">
                   Unassigned
                 </div>
               )}

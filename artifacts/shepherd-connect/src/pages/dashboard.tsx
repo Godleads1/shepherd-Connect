@@ -48,8 +48,8 @@ export default function Dashboard() {
         <Card className="rounded-2xl border-none shadow-card hover:shadow-card-hover transition-all">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium text-gray-500">Pending Pickup</CardTitle>
-            <div className="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center">
-              <Clock className="h-4 w-4 text-amber-600" />
+            <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center">
+              <Clock className="h-4 w-4 text-blue-600" />
             </div>
           </CardHeader>
           <CardContent>
@@ -116,7 +116,7 @@ export default function Dashboard() {
                   <Tooltip 
                     contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)' }}
                   />
-                  <Bar dataKey="utilizationPercent" fill="#f59e0b" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="utilizationPercent" fill="#1a237e" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             )}

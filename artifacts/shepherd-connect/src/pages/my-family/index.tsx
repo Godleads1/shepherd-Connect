@@ -5,10 +5,10 @@ import { QrCode, FileText, Users, MapPin, ChevronRight, ShieldCheck, Star } from
 import { useAuth } from "@/contexts/auth";
 
 function ChildCard({ child }: { child: any }) {
-  const statusColor = child.currentClass ? "#16a34a" : "#f59e0b";
-  const statusBg = child.currentClass ? "#dcfce7" : "#fef3c7";
+  const statusColor = child.currentClass ? "#16a34a" : "#1a237e";
+  const statusBg = child.currentClass ? "#dcfce7" : "#eff6ff";
   const statusText = child.currentClass ? "In Class" : "Unassigned";
-  const borderColor = child.currentClass ? "#16a34a" : "#f59e0b";
+  const borderColor = child.currentClass ? "#16a34a" : "#1a237e";
   const hasAllergy = !!child.allergies;
 
   return (
@@ -94,8 +94,8 @@ function ChildCard({ child }: { child: any }) {
             </Link>
             <Link href={`/children/${child.id}`} className="flex-1">
               <button
-                className="w-full py-2.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 border transition-all hover:bg-amber-50"
-                style={{ background: "#fefce8", borderColor: "#f59e0b", color: "#172554" }}
+                className="w-full py-2.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 border transition-all hover:bg-blue-50"
+                style={{ background: "#f8faff", borderColor: "#1a237e", color: "#1a237e" }}
               >
                 <FileText className="w-3.5 h-3.5" /> Report
               </button>
@@ -150,7 +150,7 @@ export default function MyFamily() {
           <div className="flex items-center gap-3 mt-4">
             <span
               className="px-3 py-1 rounded-full text-xs font-bold"
-              style={{ background: "rgba(245,158,11,0.25)", color: "#fbbf24" }}
+              style={{ background: "rgba(255,255,255,0.20)", color: "#ffffff" }}
             >
               {children.length} {children.length === 1 ? "Child" : "Children"}
             </span>
@@ -170,7 +170,7 @@ export default function MyFamily() {
       <div className="grid grid-cols-3 gap-3">
         {[
           { href: "/pickup-delegates", label: "Delegates", icon: ShieldCheck, color: "#1e3a8a" },
-          { href: "/feedback", label: "Feedback", icon: Star, color: "#f59e0b" },
+          { href: "/feedback", label: "Feedback", icon: Star, color: "#1a237e" },
           { href: "/notifications", label: "Alerts", icon: Users, color: "#16a34a" },
         ].map(action => {
           const Icon = action.icon;

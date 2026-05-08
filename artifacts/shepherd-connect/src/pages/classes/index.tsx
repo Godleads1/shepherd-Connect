@@ -86,7 +86,7 @@ export default function Classes() {
   const getCapacityColor = (enrolled: number, capacity: number) => {
     const percent = (enrolled / capacity) * 100;
     if (percent >= 100) return "bg-red-500";
-    if (percent >= 80) return "bg-amber-400";
+    if (percent >= 80) return "bg-[#1a237e]";
     return "bg-green-500";
   };
 
@@ -185,7 +185,7 @@ export default function Classes() {
                 <div className="flex justify-between items-start mb-4">
                   <div>
                     <h3 className="font-bold text-gray-900 text-xl">{cls.name}</h3>
-                    <p className="text-xs font-semibold uppercase tracking-wider text-amber-600 mt-1">Ages {cls.ageMin}-{cls.ageMax}</p>
+                    <p className="text-xs font-semibold uppercase tracking-wider text-[#1a237e] mt-1">Ages {cls.ageMin}-{cls.ageMax}</p>
                   </div>
                   <div className="w-10 h-10 rounded-full bg-blue-50 flex items-center justify-center text-blue-800">
                     <Users className="w-5 h-5" />

@@ -69,7 +69,7 @@ export default function Notifications() {
               className={`p-5 rounded-2xl transition-all duration-300 flex gap-4 ${
                 notif.readStatus 
                   ? "bg-white border border-gray-100 opacity-70" 
-                  : "bg-white border-l-4 border-l-amber-500 border border-gray-100 shadow-sm"
+                  : "bg-white border-l-4 border-l-[#1a237e] border border-gray-100 shadow-sm"
               }`}
             >
               <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 ${bg}`}>

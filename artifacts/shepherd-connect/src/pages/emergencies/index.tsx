@@ -57,7 +57,7 @@ export default function Emergencies() {
       case 'medical': return "from-red-500 to-rose-600";
       case 'fire_evacuation': return "from-orange-500 to-red-600";
       case 'security': return "from-slate-700 to-slate-900";
-      case 'missing_child': return "from-amber-500 to-orange-600";
+      case 'missing_child': return "from-indigo-700 to-blue-900";
       default: return "from-red-600 to-red-800";
     }
   };
@@ -84,7 +84,7 @@ export default function Emergencies() {
         
         <button 
           className="h-40 rounded-2xl flex flex-col items-center justify-center gap-3 text-white font-bold transition-all hover:scale-[1.02] shadow-lg active:scale-95"
-          style={{ background: "linear-gradient(135deg, #f59e0b, #ea580c)" }}
+          style={{ background: "linear-gradient(135deg, #1a237e, #1565c0)" }}
           onClick={() => { setType("missing_child"); setIsOpen(true); }}
           data-testid="btn-trigger-missing"
         >
@@ -185,7 +185,7 @@ export default function Emergencies() {
                   <SelectValue placeholder="Select Level" />
                 </SelectTrigger>
                 <SelectContent className="rounded-xl border-red-100 shadow-xl">
-                  <SelectItem value="L1" className="font-medium text-amber-700">L1 - Local Area Only</SelectItem>
+                  <SelectItem value="L1" className="font-medium text-gray-700">L1 - Local Area Only</SelectItem>
                   <SelectItem value="L2" className="font-medium text-orange-700">L2 - Zone Level</SelectItem>
                   <SelectItem value="L3" className="font-medium text-red-700">L3 - Entire Building</SelectItem>
                   <SelectItem value="L4" className="font-medium text-red-900 font-bold">L4 - FULL EVACUATION</SelectItem>

@@ -28,7 +28,7 @@ export default function Families() {
           placeholder="Search families by name or code..." 
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="pl-10 h-11 rounded-xl bg-white border-gray-200 focus-visible:ring-amber-400 shadow-sm"
+          className="pl-10 h-11 rounded-xl bg-white border-gray-200 focus-visible:ring-[#1a237e] shadow-sm"
           data-testid="input-search-families"
         />
       </div>
@@ -81,7 +81,7 @@ export default function Families() {
               </div>
               <Link href={`/families/${family.id}`}>
                 <button 
-                  className="text-sm font-semibold text-amber-600 hover:text-amber-700 flex items-center gap-1 transition-colors"
+                  className="text-sm font-semibold text-[#1a237e] hover:text-[#283593] flex items-center gap-1 transition-colors"
                   data-testid={`link-family-${family.id}`}
                 >
                   <Eye className="w-4 h-4" /> View Profile

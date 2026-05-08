@@ -40,7 +40,7 @@ function SidebarLangSwitcher() {
               className="w-full flex items-center gap-3 px-4 py-2.5 text-xs font-medium text-left transition-all"
               style={
                 lang === l.code
-                  ? { background: "rgba(245,158,11,0.20)", color: "#fbbf24" }
+                  ? { background: "rgba(255,255,255,0.15)", color: "#ffffff" }
                   : { color: "rgba(255,255,255,0.75)" }
               }
               onMouseOver={e => { if (lang !== l.code) (e.currentTarget as HTMLElement).style.background = "rgba(255,255,255,0.07)"; }}
@@ -48,7 +48,7 @@ function SidebarLangSwitcher() {
             >
               <span className="text-sm">{l.flag}</span>
               <span className="flex-1">{l.nativeName}</span>
-              {lang === l.code && <span className="text-amber-400 text-[10px]">✓</span>}
+              {lang === l.code && <span className="text-white text-[10px]">✓</span>}
             </button>
           ))}
         </div>
@@ -144,7 +144,7 @@ export function Layout({ children }: { children: ReactNode }) {
         <span
           onClick={onClick}
           className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 cursor-pointer"
-          style={active ? { background: "rgba(245,158,11,0.20)", color: "#f59e0b" } : { color: "rgba(255,255,255,0.75)" }}
+          style={active ? { background: "rgba(255,255,255,0.18)", color: "#ffffff" } : { color: "rgba(255,255,255,0.75)" }}
           onMouseOver={e => { if (!active) (e.currentTarget as HTMLElement).style.background = "rgba(255,255,255,0.08)"; }}
           onMouseOut={e => { if (!active) (e.currentTarget as HTMLElement).style.background = ""; }}
         >
@@ -155,7 +155,7 @@ export function Layout({ children }: { children: ReactNode }) {
               {unreadCount > 9 ? "9+" : unreadCount}
             </span>
           )}
-          {active && <ChevronRight className="w-3 h-3 text-amber-400" />}
+          {active && <ChevronRight className="w-3 h-3 text-white" />}
         </span>
       </Link>
     );
@@ -192,14 +192,14 @@ export function Layout({ children }: { children: ReactNode }) {
       </div>
       <div>
         <p className="text-white font-semibold text-sm leading-tight">Shepherd Connect</p>
-        <p className="text-amber-400 text-[10px] font-medium tracking-wide">City of David</p>
+        <p className="text-white/60 text-[10px] font-medium tracking-wide">City of David</p>
       </div>
     </div>
   );
 
   const UserChip = () => (
     <div className="mx-4 mt-4 mb-2 px-3 py-2.5 rounded-xl bg-white/10 flex items-center gap-3">
-      <div className="w-8 h-8 rounded-full bg-amber-400 flex items-center justify-center font-bold text-blue-900 text-sm flex-shrink-0">
+      <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center font-bold text-[#1a237e] text-sm flex-shrink-0">
         {user?.firstName?.[0]}{user?.lastName?.[0]}
       </div>
       <div className="min-w-0">
@@ -291,7 +291,7 @@ export function Layout({ children }: { children: ReactNode }) {
                 )}
               </button>
             </Link>
-            <div className="w-9 h-9 rounded-full bg-amber-400 flex items-center justify-center font-bold text-blue-900 text-xs shadow-md">
+            <div className="w-9 h-9 rounded-full bg-white flex items-center justify-center font-bold text-[#1a237e] text-xs shadow-md">
               {user?.firstName?.[0]}{user?.lastName?.[0]}
             </div>
           </div>
@@ -334,9 +334,9 @@ export function Layout({ children }: { children: ReactNode }) {
             <Link href={role === "attendant" ? "/checkin" : role === "parent" ? "/my-family" : "/checkin"}>
               <div
                 className="w-14 h-14 rounded-full flex items-center justify-center shadow-lg transition-all active:scale-95"
-                style={{ background: "linear-gradient(135deg, #f59e0b, #fbbf24)", boxShadow: "0 4px 16px rgba(245,158,11,0.5)" }}
+                style={{ background: "linear-gradient(135deg, #1a237e, #283593)", boxShadow: "0 4px 16px rgba(26,35,126,0.5)" }}
               >
-                <QrCode className="w-6 h-6 text-blue-900" />
+                <QrCode className="w-6 h-6 text-white" />
               </div>
             </Link>
           </div>
@@ -398,7 +398,7 @@ function MobileLangMenu() {
               className="w-full flex items-center gap-2 px-3 py-2.5 text-xs font-medium text-left transition-all"
               style={
                 lang === l.code
-                  ? { background: "rgba(245,158,11,0.20)", color: "#fbbf24" }
+                  ? { background: "rgba(255,255,255,0.15)", color: "#ffffff" }
                   : { color: "rgba(255,255,255,0.75)" }
               }
               onMouseOver={e => { if (lang !== l.code) (e.currentTarget as HTMLElement).style.background = "rgba(255,255,255,0.07)"; }}
@@ -406,7 +406,7 @@ function MobileLangMenu() {
             >
               <span>{l.flag}</span>
               <span className="flex-1">{l.nativeName}</span>
-              {lang === l.code && <span className="text-amber-400">✓</span>}
+              {lang === l.code && <span className="text-white">✓</span>}
             </button>
           ))}
         </div>

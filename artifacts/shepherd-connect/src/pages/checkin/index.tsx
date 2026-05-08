@@ -88,7 +88,7 @@ export default function CheckIn() {
             <QrCode className="absolute left-4 top-1/2 -translate-y-1/2 h-6 w-6 text-gray-400" />
             <Input 
               autoFocus
-              className="pl-14 h-16 text-lg rounded-2xl border-gray-200 focus-visible:ring-amber-400 focus-visible:border-amber-400 bg-gray-50/50"
+              className="pl-14 h-16 text-lg rounded-2xl border-gray-200 focus-visible:ring-[#1a237e] focus-visible:border-[#1a237e] bg-gray-50/50"
               placeholder="Scan QR Code or Enter Family Code..." 
               value={qrCode}
               onChange={(e) => setQrCode(e.target.value)}
@@ -100,7 +100,7 @@ export default function CheckIn() {
             disabled={scanMutation.isPending} 
             data-testid="button-scan"
             className="h-16 px-10 rounded-2xl font-bold text-lg transition-all active:scale-95 disabled:opacity-70"
-            style={{ background: "linear-gradient(135deg, #f59e0b, #fbbf24)", color: "#172554", boxShadow: "0 4px 15px rgba(245,158,11,0.3)" }}
+            style={{ background: "linear-gradient(135deg, #1a237e, #283593)", color: "#ffffff", boxShadow: "0 4px 15px rgba(26,35,126,0.3)" }}
           >
             {scanMutation.isPending ? "Scanning..." : "Scan"}
           </button>

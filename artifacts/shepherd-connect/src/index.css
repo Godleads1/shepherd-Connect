@@ -61,8 +61,8 @@
   --rccg-blue: #1e3a8a;
   --rccg-blue-dark: #172554;
   --rccg-blue-light: #3b82f6;
-  --rccg-gold: #f59e0b;
-  --rccg-gold-light: #fbbf24;
+  --rccg-gold: #ffffff;
+  --rccg-gold-light: #ffffff;
   --rccg-green: #16a34a;
   --rccg-green-light: #dcfce7;
   --rccg-red: #dc2626;
@@ -220,7 +220,7 @@
 }
 .glass-input::placeholder { color: rgba(255,255,255,.5) !important; }
 .glass-input:focus {
-  border-color: #f59e0b !important;
+  border-color: #ffffff !important;
   box-shadow: 0 0 0 3px rgba(245,158,11,.25) !important;
   outline: none !important;
 }
