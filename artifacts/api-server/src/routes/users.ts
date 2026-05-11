@@ -7,6 +7,14 @@ import { authMiddleware, requireRoles } from "../middlewares/auth";
 
 const router = Router();
 
+const VALID_ROLES = ["super_admin", "admin", "teacher", "attendant", "parent"] as const;
+type UserRole = typeof VALID_ROLES[number];
+
+function parseSecondaryRoles(raw: string | null | undefined): UserRole[] {
+  if (!raw) return [];
+  try { return JSON.parse(raw) as UserRole[]; } catch { return []; }
+}
+
 function sanitizeUser(u: typeof usersTable.$inferSelect) {
   return {
     id: u.id,
@@ -22,6 +30,7 @@ function sanitizeUser(u: typeof usersTable.$inferSelect) {
     gender: u.gender,
     placeOfWork: u.placeOfWork,
     communicationPrefs: u.communicationPrefs,
+    secondaryRoles: parseSecondaryRoles(u.secondaryRoles),
     createdAt: u.createdAt,
   };
 }
@@ -192,6 +201,42 @@ router.post("/users/:id/reassign-role", authMiddleware, requireRoles("super_admi
     .returning();
 
   res.json({ success: true, user: sanitizeUser(updated), message: `Role updated to ${role}` });
+});
+
+router.post("/users/:id/grant-role", authMiddleware, requireRoles("super_admin"), async (req, res): Promise<void> => {
+  const id = parseInt(req.params.id as string, 10);
+  if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
+  if (req.user!.userId === id) { res.status(400).json({ error: "Bad request", message: "Cannot modify your own secondary roles" }); return; }
+
+  const { role } = req.body as { role: string };
+  if (!role || !VALID_ROLES.includes(role as UserRole)) {
+    res.status(400).json({ error: "Bad request", message: "Invalid role" }); return;
+  }
+
+  const [target] = await db.select().from(usersTable).where(eq(usersTable.id, id));
+  if (!target) { res.status(404).json({ error: "Not found", message: "User not found" }); return; }
+  if (target.role === role) { res.status(400).json({ error: "Bad request", message: "This is already the user's primary role" }); return; }
+
+  const existing = parseSecondaryRoles(target.secondaryRoles);
+  if (existing.includes(role as UserRole)) { res.status(400).json({ error: "Conflict", message: "User already has this secondary role" }); return; }
+
+  const updated = [...existing, role as UserRole];
+  const [saved] = await db.update(usersTable).set({ secondaryRoles: JSON.stringify(updated) }).where(eq(usersTable.id, id)).returning();
+  res.json({ success: true, user: sanitizeUser(saved), message: `Secondary role ${role} granted` });
+});
+
+router.delete("/users/:id/grant-role/:role", authMiddleware, requireRoles("super_admin"), async (req, res): Promise<void> => {
+  const id = parseInt(req.params.id as string, 10);
+  const role = req.params.role as string;
+  if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
+
+  const [target] = await db.select().from(usersTable).where(eq(usersTable.id, id));
+  if (!target) { res.status(404).json({ error: "Not found", message: "User not found" }); return; }
+
+  const existing = parseSecondaryRoles(target.secondaryRoles);
+  const updated = existing.filter(r => r !== role);
+  const [saved] = await db.update(usersTable).set({ secondaryRoles: JSON.stringify(updated) }).where(eq(usersTable.id, id)).returning();
+  res.json({ success: true, user: sanitizeUser(saved), message: `Secondary role ${role} revoked` });
 });
 
 router.delete("/users/:id", authMiddleware, requireRoles("super_admin", "admin"), async (req, res): Promise<void> => {

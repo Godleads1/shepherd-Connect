@@ -15,7 +15,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import { Edit2, Trash2, CheckCircle, XCircle, Clock, UserCheck, Users as UsersIcon, Search, RefreshCw, AlertTriangle } from "lucide-react";
+import { Edit2, Trash2, CheckCircle, XCircle, Clock, UserCheck, Users as UsersIcon, Search, RefreshCw, AlertTriangle, Plus, X } from "lucide-react";
 import { apiGet, apiPut, apiPost, apiDelete } from "@/lib/api-call";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
@@ -166,6 +166,102 @@ function ReassignRoleDialog({ user, isSuperAdmin, onConfirm, onCancel, loading }
   );
 }
 
+function GrantRoleDialog({ user, onClose }: { user: any; onClose: () => void }) {
+  const { toast } = useToast();
+  const [loading, setLoading] = useState(false);
+  const secondary: string[] = user.secondaryRoles ?? [];
+  const allRoles = ["parent", "teacher", "attendant", "admin", "super_admin"];
+  const available = allRoles.filter(r => r !== user.role && !secondary.includes(r));
+
+  const grant = async (role: string) => {
+    setLoading(true);
+    try {
+      await apiPost(`/users/${user.id}/grant-role`, { role });
+      toast({ title: `${role} access granted to ${user.firstName}` });
+      onClose();
+    } catch (e: any) {
+      toast({ variant: "destructive", title: e.message || "Failed to grant role" });
+    } finally { setLoading(false); }
+  };
+
+  const revoke = async (role: string) => {
+    setLoading(true);
+    try {
+      await apiDelete(`/users/${user.id}/grant-role/${role}`);
+      toast({ title: `${role} access revoked from ${user.firstName}` });
+      onClose();
+    } catch (e: any) {
+      toast({ variant: "destructive", title: e.message || "Failed to revoke role" });
+    } finally { setLoading(false); }
+  };
+
+  const roleLabels: Record<string, string> = { parent: "Parent", teacher: "Teacher", attendant: "Attendant", admin: "Admin", super_admin: "Super Admin" };
+  const roleColors: Record<string, string> = { parent: "#6b7280", teacher: "#0d9488", attendant: "#ea580c", admin: "#2563eb", super_admin: "#9333ea" };
+
+  return (
+    <Dialog open onOpenChange={() => onClose()}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2" style={{ color: "#1e3a8a" }}>
+            <Plus className="w-4 h-4" /> Grant Extra Role Access
+          </DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div className="p-3 bg-gray-50 rounded-xl border text-sm flex items-center gap-3">
+            <div className="w-9 h-9 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
+              style={{ background: "linear-gradient(135deg,#1e3a8a,#3b82f6)" }}>
+              {user.firstName[0]}{user.lastName[0]}
+            </div>
+            <div>
+              <p className="font-semibold text-gray-900">{user.firstName} {user.lastName}</p>
+              <p className="text-xs text-gray-500">Primary role: <strong>{roleLabels[user.role] ?? user.role}</strong></p>
+            </div>
+          </div>
+
+          {secondary.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">Current Extra Access</p>
+              <div className="flex flex-wrap gap-2">
+                {secondary.map(r => (
+                  <span key={r} className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold border"
+                    style={{ background: `${roleColors[r]}15`, color: roleColors[r], borderColor: `${roleColors[r]}30` }}>
+                    {roleLabels[r] ?? r}
+                    <button onClick={() => revoke(r)} disabled={loading} className="hover:opacity-70 transition-opacity">
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {available.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">Grant Access To</p>
+              <div className="grid grid-cols-2 gap-2">
+                {available.map(r => (
+                  <button key={r} onClick={() => grant(r)} disabled={loading}
+                    className="px-3 py-2.5 rounded-xl text-sm font-semibold border transition-all hover:opacity-90 disabled:opacity-50"
+                    style={{ background: `${roleColors[r]}12`, color: roleColors[r], borderColor: `${roleColors[r]}30` }}>
+                    {roleLabels[r] ?? r}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <p className="text-xs text-gray-400 flex items-center gap-1.5">
+            <AlertTriangle className="w-3 h-3 flex-shrink-0" />
+            This user will be prompted to choose a role when they sign in.
+          </p>
+
+          <Button variant="outline" className="w-full" onClick={onClose} disabled={loading}>Close</Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export default function Users() {
   const { user: currentUser } = useAuth();
   const currentRole = currentUser?.role ?? "";
@@ -187,6 +283,7 @@ export default function Users() {
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [reassignTarget, setReassignTarget] = useState<any>(null);
   const [reassignLoading, setReassignLoading] = useState(false);
+  const [grantRoleTarget, setGrantRoleTarget] = useState<any>(null);
 
   const { data: pendingData, refetch: refetchPending } = useQuery({
     queryKey: ["pending-users"],
@@ -388,6 +485,14 @@ export default function Users() {
         />
       )}
 
+      {/* Grant extra role dialog */}
+      {grantRoleTarget && (
+        <GrantRoleDialog
+          user={grantRoleTarget}
+          onClose={() => { setGrantRoleTarget(null); refetch(); }}
+        />
+      )}
+
       <Tabs defaultValue="all">
         <TabsList className="bg-gray-100">
           <TabsTrigger value="all" className="flex items-center gap-2">
@@ -460,6 +565,12 @@ export default function Users() {
                         {isSuperAdmin && (
                           <Button variant="ghost" size="sm" onClick={() => handleOpenEdit(user)} title="Edit">
                             <Edit2 className="w-4 h-4" />
+                          </Button>
+                        )}
+                        {isSuperAdmin && user.id !== currentUser?.id && (
+                          <Button variant="ghost" size="sm" className="text-purple-600 hover:bg-purple-50" title="Grant Extra Role Access"
+                            onClick={() => setGrantRoleTarget(user)}>
+                            <Plus className="w-4 h-4" />
                           </Button>
                         )}
                         {canReassignUser(user) && (

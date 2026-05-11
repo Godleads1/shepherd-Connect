@@ -83,6 +83,12 @@ export default function Login() {
   const [mfaLoading, setMfaLoading] = useState(false);
   const [mfaError, setMfaError] = useState("");
 
+  // Role picker step (multi-role users)
+  const [rolePickStep, setRolePickStep] = useState(false);
+  const [rolePickOptions, setRolePickOptions] = useState<string[]>([]);
+  const [rolePickFirstName, setRolePickFirstName] = useState("");
+  const [pendingCredentials, setPendingCredentials] = useState<{ email: string; password: string } | null>(null);
+
   const form = useForm<LoginFormValues>({
     resolver: zodResolver(loginSchema),
     defaultValues: { email: "", password: "" },
@@ -100,32 +106,59 @@ export default function Login() {
     attendant: "Attendant",
   };
 
+  const navigateForRole = (role: string) => {
+    if (role === "parent") setLocation("/my-family");
+    else if (role === "teacher") setLocation("/my-class");
+    else if (role === "attendant") setLocation("/checkin");
+    else setLocation("/dashboard");
+  };
+
+  const completeLoginWithRole = async (requestedRole: string, creds: { email: string; password: string }) => {
+    try {
+      const response = await loginMutation.mutateAsync({ data: { ...creds, requestedRole } as any }) as any;
+      localLogin(response.token, response.user);
+      navigateForRole(response.user.role);
+    } catch {
+      form.setError("root", { message: t.invalidLogin });
+      setRolePickStep(false);
+    }
+  };
+
   const onSubmit = async (data: LoginFormValues) => {
     try {
       const response = await loginMutation.mutateAsync({ data }) as any;
 
       if (response.requiresMfa) {
-        // Still check tab match before allowing MFA step
-        // mfaToken carries role info but we can't read it here — defer to after verify
         setMfaToken(response.mfaToken);
         setMfaStep(true);
         return;
       }
 
-      if (!roleMatchesTab(response.user.role, selectedRole)) {
-        const correct = response.user.role === "super_admin" ? "admin" : response.user.role;
-        form.setError("root", {
-          message: `These credentials belong to a ${tabLabel[correct] ?? response.user.role} account. Please select the correct portal above.`,
-        });
+      // Multi-role: show picker
+      if (response.requiresRolePick) {
+        setRolePickOptions(response.allRoles);
+        setRolePickFirstName(response.firstName);
+        setPendingCredentials({ email: data.email, password: data.password });
+        setRolePickStep(true);
         return;
       }
 
+      if (!roleMatchesTab(response.user.role, selectedRole)) {
+        // Check if the role is in their secondary roles — then allow it
+        const allRoles: string[] = response.user.allRoles ?? [response.user.role];
+        const tabRole = selectedRole === "admin" ? ["admin", "super_admin"] : [selectedRole];
+        const hasAccess = allRoles.some(r => tabRole.includes(r));
+        if (!hasAccess) {
+          const correct = response.user.role === "super_admin" ? "admin" : response.user.role;
+          form.setError("root", {
+            message: `These credentials belong to a ${tabLabel[correct] ?? response.user.role} account. Please select the correct portal above.`,
+          });
+          return;
+        }
+      }
+
       localLogin(response.token, response.user);
-      const role = response.user.role;
-      if (role === "parent") setLocation("/my-family");
-      else if (role === "teacher") setLocation("/my-class");
-      else if (role === "attendant") setLocation("/checkin");
-      else setLocation("/dashboard");
+      navigateForRole(response.user.role);
     } catch {
       form.setError("root", { message: t.invalidLogin });
     }
@@ -170,6 +203,22 @@ export default function Login() {
     boxShadow: "0 8px 40px rgba(26,35,126,0.10)",
   };
 
+  const roleLabels: Record<string, string> = {
+    parent: "Parent",
+    teacher: "Teacher",
+    admin: "Admin",
+    super_admin: "Super Admin",
+    attendant: "Attendant",
+  };
+
+  const roleIcons: Record<string, string> = {
+    parent: "👨‍👩‍👧",
+    teacher: "📚",
+    admin: "🛡️",
+    super_admin: "⚡",
+    attendant: "🎫",
+  };
+
   return (
     <div className="relative flex min-h-screen flex-col items-center justify-center px-4 py-12 overflow-hidden"
       style={{ background: "radial-gradient(ellipse at 20% 20%, #fde8d8 0%, transparent 55%), radial-gradient(ellipse at 80% 80%, #dbeafe 0%, transparent 55%), radial-gradient(ellipse at 50% 50%, #fefcf9 0%, #f8fafc 100%)" }}>
@@ -194,7 +243,39 @@ export default function Login() {
         <p className="mt-1 text-xs italic" style={{ color: "#64748b" }}>{t.motto}</p>
       </div>
 
-      {!mfaStep ? (
+      {rolePickStep ? (
+        /* ── Role picker step ── */
+        <div className="slide-up-delay-3 w-full z-10" style={cardStyle}>
+          <div className="text-center mb-6">
+            <div className="w-16 h-16 rounded-2xl bg-blue-50 border border-blue-200 flex items-center justify-center mx-auto mb-4 text-3xl">
+              👋
+            </div>
+            <h2 className="text-xl font-bold text-gray-900" style={{ fontFamily: "'Playfair Display', serif" }}>
+              Welcome, {rolePickFirstName}!
+            </h2>
+            <p className="text-sm text-gray-500 mt-2">You have access to multiple roles. Which would you like to sign in as?</p>
+          </div>
+          <div className="space-y-2">
+            {rolePickOptions.map(r => (
+              <button key={r}
+                onClick={() => pendingCredentials && completeLoginWithRole(r, pendingCredentials)}
+                disabled={loginMutation.isPending}
+                className="w-full flex items-center gap-4 px-4 py-4 rounded-xl border text-left font-semibold transition-all hover:opacity-90 disabled:opacity-60"
+                style={{ background: "linear-gradient(135deg, #1a237e, #1565c0)", color: "white", borderColor: "transparent" }}>
+                <span className="text-2xl">{roleIcons[r] ?? "👤"}</span>
+                <div>
+                  <p className="font-bold">{roleLabels[r] ?? r}</p>
+                  <p className="text-xs opacity-70">Sign in as {roleLabels[r]}</p>
+                </div>
+              </button>
+            ))}
+          </div>
+          <button onClick={() => { setRolePickStep(false); setPendingCredentials(null); }}
+            className="w-full flex items-center justify-center gap-2 text-sm text-gray-500 hover:text-gray-700 py-3 mt-3 transition-colors">
+            <ArrowLeft className="w-4 h-4" /> Back to Login
+          </button>
+        </div>
+      ) : !mfaStep ? (
         <>
           <div className="slide-up-delay-2 flex gap-2 mb-5 overflow-x-auto z-10 max-w-sm w-full justify-center flex-wrap">
             {rolePillItems.map(r => (
