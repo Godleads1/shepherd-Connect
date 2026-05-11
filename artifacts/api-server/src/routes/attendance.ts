@@ -69,8 +69,18 @@ router.put("/attendance/:id/escort", authMiddleware, async (req, res): Promise<v
 router.put("/attendance/:id/arrive", authMiddleware, async (req, res): Promise<void> => {
   const id = parseInt(req.params.id as string, 10);
   if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
-  const [record] = await db.update(attendanceTable).set({ status: "in_class" }).where(eq(attendanceTable.id, id)).returning();
-  if (!record) { res.status(404).json({ error: "Not found", message: "Attendance record not found" }); return; }
+
+  const [existing] = await db.select().from(attendanceTable).where(eq(attendanceTable.id, id));
+  if (!existing) { res.status(404).json({ error: "Not found", message: "Attendance record not found" }); return; }
+  if (existing.status === "picked_up") { res.status(400).json({ error: "Bad request", message: "Child has already been picked up" }); return; }
+  if (existing.status === "in_class") { res.json(await formatAttendance(existing)); return; }
+
+  const now = new Date();
+  const [record] = await db.update(attendanceTable).set({
+    status: "in_class",
+    classArrivalTime: now,
+    confirmedByTeacherId: req.user!.userId,
+  }).where(eq(attendanceTable.id, id)).returning();
 
   notifyChildArrivedInClass(record.childId, record.classId).catch(() => {});
 
