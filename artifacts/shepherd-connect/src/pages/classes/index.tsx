@@ -10,7 +10,24 @@ import { useToast } from "@/hooks/use-toast";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import { Users, MapPin, Clock, Edit2, Trash2 } from "lucide-react";
+import { Users, MapPin, Clock, Edit2, Trash2, ListOrdered } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { apiGet } from "@/lib/api-call";
+
+function WaitlistBadge({ classId }: { classId: number }) {
+  const { data } = useQuery({
+    queryKey: ["class-waitlist", classId],
+    queryFn: () => apiGet<any[]>(`/classes/${classId}/waitlist`),
+    staleTime: 30000,
+  });
+  if (!data || data.length === 0) return null;
+  return (
+    <div className="flex items-center gap-1.5 text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-1.5 border border-amber-100 mb-2">
+      <ListOrdered className="w-3.5 h-3.5 flex-shrink-0" />
+      <span><strong>{data.length}</strong> on waitlist</span>
+    </div>
+  );
+}
 
 const classSchema = z.object({
   name: z.string().min(1, "Name is required"),
@@ -203,6 +220,7 @@ export default function Classes() {
                   </div>
                 </div>
                 
+                <WaitlistBadge classId={cls.id} />
                 <div className="mt-auto space-y-2">
                   <div className="flex justify-between text-xs font-semibold text-gray-700">
                     <span>Capacity Status</span>

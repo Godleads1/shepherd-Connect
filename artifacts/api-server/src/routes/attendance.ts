@@ -3,6 +3,7 @@ import { eq, and } from "drizzle-orm";
 import { db, attendanceTable, childrenTable, classesTable, familiesTable } from "@workspace/db";
 import { CheckInBody, CheckOutBody, ListAttendanceQueryParams, ScanQrCodeBody } from "@workspace/api-zod";
 import { authMiddleware } from "../middlewares/auth";
+import { notifyChildCheckedIn, notifyChildInTransit, notifyChildArrivedInClass, notifyChildPickedUp } from "../lib/notify";
 
 const router = Router();
 
@@ -44,10 +45,12 @@ router.post("/attendance", authMiddleware, async (req, res): Promise<void> => {
     checkInTime: new Date(),
     status: "dropped_off",
   }).returning();
+
+  notifyChildCheckedIn(childId, classId, serviceSlot).catch(() => {});
+
   res.status(201).json(await formatAttendance(record));
 });
 
-// Attendant escorts child to class → in_transit
 router.put("/attendance/:id/escort", authMiddleware, async (req, res): Promise<void> => {
   const id = parseInt(req.params.id as string, 10);
   if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
@@ -57,15 +60,20 @@ router.put("/attendance/:id/escort", authMiddleware, async (req, res): Promise<v
     escortedBy: req.user!.userId,
   }).where(and(eq(attendanceTable.id, id), eq(attendanceTable.status, "dropped_off"))).returning();
   if (!record) { res.status(404).json({ error: "Not found", message: "Attendance record not found or not in dropped_off state" }); return; }
+
+  notifyChildInTransit(record.childId, record.classId).catch(() => {});
+
   res.json(await formatAttendance(record));
 });
 
-// Teacher confirms child arrived in class → in_class
 router.put("/attendance/:id/arrive", authMiddleware, async (req, res): Promise<void> => {
   const id = parseInt(req.params.id as string, 10);
   if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
   const [record] = await db.update(attendanceTable).set({ status: "in_class" }).where(eq(attendanceTable.id, id)).returning();
   if (!record) { res.status(404).json({ error: "Not found", message: "Attendance record not found" }); return; }
+
+  notifyChildArrivedInClass(record.childId, record.classId).catch(() => {});
+
   res.json(await formatAttendance(record));
 });
 
@@ -80,6 +88,9 @@ router.put("/attendance/:id/checkout", authMiddleware, async (req, res): Promise
     checkedOutBy: req.user!.userId,
   }).where(eq(attendanceTable.id, id)).returning();
   if (!record) { res.status(404).json({ error: "Not found", message: "Attendance record not found" }); return; }
+
+  notifyChildPickedUp(record.childId).catch(() => {});
+
   res.json(await formatAttendance(record));
 });
 
@@ -120,45 +131,35 @@ router.post("/attendance/scan-qr", authMiddleware, async (req, res): Promise<voi
   res.json({ family, children: childrenWithDetails, hasAlerts: alerts.length > 0, alerts });
 });
 
-// Face recognition: match descriptor against enrolled children
 router.post("/attendance/scan-face", authMiddleware, async (req, res): Promise<void> => {
   const { descriptor } = req.body as { descriptor: number[] };
   if (!descriptor || !Array.isArray(descriptor) || descriptor.length !== 128) {
     res.status(400).json({ error: "Bad request", message: "descriptor must be a 128-element float array" });
     return;
   }
-  // Load all children who have enrolled face descriptors
   const allChildren = await db.select().from(childrenTable);
   const enrolled = allChildren.filter(c => c.faceDescriptorJson);
-  
+
   let bestMatch: typeof childrenTable.$inferSelect | null = null;
   let bestDist = Infinity;
-  
+
   for (const child of enrolled) {
     try {
       const stored: number[] = JSON.parse(child.faceDescriptorJson!);
       if (stored.length !== 128) continue;
-      // Euclidean distance between descriptors
       const dist = Math.sqrt(stored.reduce((sum, v, i) => sum + Math.pow(v - descriptor[i], 2), 0));
-      if (dist < bestDist) {
-        bestDist = dist;
-        bestMatch = child;
-      }
+      if (dist < bestDist) { bestDist = dist; bestMatch = child; }
     } catch { continue; }
   }
-  
-  // Threshold: face-api.js typically uses 0.6 as the match threshold
+
   if (!bestMatch || bestDist > 0.6) {
     res.status(404).json({ error: "Not found", message: "No matching child found" });
     return;
   }
-  
+
   const [family] = await db.select().from(familiesTable).where(eq(familiesTable.id, bestMatch.familyId));
-  if (!family) {
-    res.status(404).json({ error: "Not found", message: "Family not found" });
-    return;
-  }
-  
+  if (!family) { res.status(404).json({ error: "Not found", message: "Family not found" }); return; }
+
   const familyChildren = await db.select().from(childrenTable).where(eq(childrenTable.familyId, family.id));
   const alerts: string[] = [];
   const childrenWithDetails = await Promise.all(familyChildren.map(async (child) => {
@@ -175,7 +176,7 @@ router.post("/attendance/scan-face", authMiddleware, async (req, res): Promise<v
     }
     return { ...child, age, currentClass, teacher: null, lastAttendance: null, attendanceHistory: [] };
   }));
-  
+
   res.json({ family, children: childrenWithDetails, hasAlerts: alerts.length > 0, alerts, matchedChildId: bestMatch.id, confidence: Math.max(0, Math.round((1 - bestDist / 0.6) * 100)) });
 });
 

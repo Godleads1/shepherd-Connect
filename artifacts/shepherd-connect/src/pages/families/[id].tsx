@@ -1,93 +1,302 @@
-import { useGetFamily, useGetFamilyTree } from "@workspace/api-client-react";
+import { useState } from "react";
+import { useGetFamilyTree, useListAttendance } from "@workspace/api-client-react";
+import { useQuery } from "@tanstack/react-query";
 import { useParams, Link } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import { Phone, Mail, MapPin, Eye, Shield } from "lucide-react";
+import { Phone, Mail, MapPin, Eye, Shield, Calendar, Star, BookOpen, MessageSquare, ChevronRight, AlertTriangle } from "lucide-react";
+import { apiGet } from "@/lib/api-call";
+import { format, parseISO, subMonths, eachDayOfInterval, getDay, isSameDay } from "date-fns";
+
+function AttendanceCalendar({ childId }: { childId: number }) {
+  const { data: attendance } = useListAttendance({ childId }, {
+    query: { queryKey: ["attendance", childId] }
+  });
+
+  const today = new Date();
+  const start = subMonths(today, 2);
+  const days = eachDayOfInterval({ start, end: today });
+
+  const attendedDates = (attendance || []).map((a: any) => a.serviceDate);
+
+  const weeks: Date[][] = [];
+  let week: Date[] = [];
+
+  const firstDay = getDay(start);
+  for (let i = 0; i < firstDay; i++) week.push(null as any);
+
+  for (const day of days) {
+    if (week.length === 7) { weeks.push(week); week = []; }
+    week.push(day);
+  }
+  while (week.length < 7) week.push(null as any);
+  weeks.push(week);
+
+  const dayLabels = ["S", "M", "T", "W", "T", "F", "S"];
+
+  return (
+    <div>
+      <div className="grid grid-cols-7 gap-0.5 mb-1">
+        {dayLabels.map((d, i) => (
+          <div key={i} className="text-center text-xs text-gray-400 font-medium py-0.5">{d}</div>
+        ))}
+      </div>
+      <div className="space-y-0.5">
+        {weeks.map((w, wi) => (
+          <div key={wi} className="grid grid-cols-7 gap-0.5">
+            {w.map((day, di) => {
+              if (!day) return <div key={di} className="h-5 w-5 mx-auto" />;
+              const dateStr = format(day, "yyyy-MM-dd");
+              const attended = attendedDates.includes(dateStr);
+              const isToday = isSameDay(day, today);
+              return (
+                <div key={di}
+                  title={dateStr}
+                  className={`h-5 w-5 mx-auto rounded-sm transition-colors ${
+                    attended ? "bg-blue-600" : isToday ? "bg-amber-300" : "bg-gray-100"
+                  }`}
+                />
+              );
+            })}
+          </div>
+        ))}
+      </div>
+      <div className="flex items-center gap-4 mt-2 text-xs text-gray-500">
+        <div className="flex items-center gap-1"><span className="w-3 h-3 rounded-sm bg-blue-600 inline-block" /> Attended</div>
+        <div className="flex items-center gap-1"><span className="w-3 h-3 rounded-sm bg-gray-100 inline-block border" /> Absent</div>
+        <span className="ml-auto">{(attendance || []).length} total sessions</span>
+      </div>
+    </div>
+  );
+}
+
+function ChildCard({ child, familyId }: { child: any; familyId: number }) {
+  const [expanded, setExpanded] = useState(false);
+
+  const { data: attendance } = useListAttendance({ childId: child.id }, {
+    query: { queryKey: ["attendance", child.id], enabled: expanded }
+  });
+
+  const { data: appraisals } = useQuery({
+    queryKey: ["appraisals", child.id],
+    queryFn: () => apiGet<any[]>(`/appraisals?childId=${child.id}`),
+    enabled: expanded,
+  });
+
+  const recentAppraisal = appraisals?.[appraisals.length - 1];
+  const attendanceRate = attendance
+    ? Math.round((attendance.filter((a: any) => a.status === "in_class" || a.status === "picked_up").length / Math.max(attendance.length, 1)) * 100)
+    : null;
+
+  const levelColors: Record<string, string> = {
+    excellent: "bg-emerald-100 text-emerald-800",
+    good: "bg-blue-100 text-blue-800",
+    needs_improvement: "bg-amber-100 text-amber-800",
+    concerning: "bg-red-100 text-red-800",
+  };
+
+  return (
+    <div className="border rounded-xl overflow-hidden bg-white">
+      <div className="p-4">
+        <div className="flex items-start justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-xl flex items-center justify-center text-white font-bold text-lg flex-shrink-0"
+              style={{ background: "linear-gradient(135deg, #1e3a8a, #3b82f6)" }}>
+              {child.firstName[0]}{child.lastName[0]}
+            </div>
+            <div>
+              <h3 className="font-bold text-gray-900">{child.firstName} {child.lastName}</h3>
+              <p className="text-sm text-gray-500">Age {child.age} · {child.gender}</p>
+            </div>
+          </div>
+          <div className="flex flex-col items-end gap-1">
+            {child.currentClass ? (
+              <Badge variant="outline" className="text-xs">{child.currentClass.name}</Badge>
+            ) : <Badge variant="secondary" className="text-xs">Unassigned</Badge>}
+            {child.allergies && (
+              <Badge className="bg-red-100 text-red-700 border-red-200 text-xs flex items-center gap-1">
+                <AlertTriangle className="h-3 w-3" /> Allergy
+              </Badge>
+            )}
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 mt-3">
+          <Link href={`/children/${child.id}`}
+            className="flex items-center gap-1 text-xs font-medium text-blue-700 hover:text-blue-900 px-2 py-1 rounded-lg hover:bg-blue-50">
+            <Eye className="h-3.5 w-3.5" /> Full Profile
+          </Link>
+          <button onClick={() => setExpanded(!expanded)}
+            className="flex items-center gap-1 text-xs font-medium text-gray-600 hover:text-gray-900 px-2 py-1 rounded-lg hover:bg-gray-50">
+            <Calendar className="h-3.5 w-3.5" /> {expanded ? "Hide" : "Show"} History
+          </button>
+        </div>
+      </div>
+
+      {expanded && (
+        <div className="border-t bg-gray-50 p-4 space-y-4">
+          <div>
+            <p className="text-xs font-bold text-gray-600 uppercase tracking-wide mb-2 flex items-center gap-1">
+              <Calendar className="h-3.5 w-3.5" /> Attendance — Last 3 Months
+            </p>
+            <AttendanceCalendar childId={child.id} />
+          </div>
+
+          {child.currentClass && (
+            <div>
+              <p className="text-xs font-bold text-gray-600 uppercase tracking-wide mb-2 flex items-center gap-1">
+                <BookOpen className="h-3.5 w-3.5" /> Class Journey
+              </p>
+              <div className="flex items-center gap-2 p-2 bg-blue-50 rounded-lg">
+                <div className="w-2 h-2 rounded-full bg-blue-500 flex-shrink-0" />
+                <span className="text-sm font-medium text-blue-900">{child.currentClass.name}</span>
+                <span className="text-xs text-blue-600 ml-auto">Current</span>
+              </div>
+            </div>
+          )}
+
+          {recentAppraisal && (
+            <div>
+              <p className="text-xs font-bold text-gray-600 uppercase tracking-wide mb-2 flex items-center gap-1">
+                <Star className="h-3.5 w-3.5" /> Latest Appraisal
+              </p>
+              <div className={`p-3 rounded-lg text-sm ${levelColors[recentAppraisal.level] || "bg-gray-100 text-gray-800"}`}>
+                <div className="flex justify-between items-start mb-1">
+                  <span className="font-semibold capitalize">{recentAppraisal.level?.replace("_", " ")}</span>
+                  <span className="text-xs opacity-70">{recentAppraisal.date}</span>
+                </div>
+                {recentAppraisal.notes && <p className="text-xs mt-1 opacity-80">{recentAppraisal.notes}</p>}
+              </div>
+            </div>
+          )}
+
+          {attendanceRate !== null && (
+            <div className="flex items-center justify-between p-2 bg-white rounded-lg border">
+              <span className="text-xs font-medium text-gray-600">Attendance Rate</span>
+              <span className={`text-sm font-bold ${attendanceRate >= 80 ? "text-green-700" : attendanceRate >= 60 ? "text-amber-700" : "text-red-700"}`}>
+                {attendanceRate}%
+              </span>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function FamilyProfile() {
   const { id } = useParams();
   const familyId = parseInt(id || "0", 10);
-  
-  const { data: tree, isLoading } = useGetFamilyTree(familyId, { query: { enabled: !!familyId, queryKey: ['getFamilyTree', familyId] } });
 
-  if (isLoading) return <div className="space-y-4 p-8"><Skeleton className="h-64 w-full" /><Skeleton className="h-64 w-full" /></div>;
-  if (!tree) return <div>Family not found</div>;
+  const { data: tree, isLoading } = useGetFamilyTree(familyId, {
+    query: { enabled: !!familyId, queryKey: ["getFamilyTree", familyId] }
+  });
+
+  const { data: feedback } = useQuery({
+    queryKey: ["family-feedback", familyId],
+    queryFn: () => apiGet<any[]>(`/feedback?familyId=${familyId}`),
+    enabled: !!familyId,
+  });
+
+  if (isLoading) return (
+    <div className="space-y-4 p-6 max-w-5xl mx-auto">
+      {[1, 2, 3].map(i => <Skeleton key={i} className="h-48 w-full rounded-2xl" />)}
+    </div>
+  );
+  if (!tree) return <div className="p-6 text-gray-500">Family not found</div>;
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto">
-      <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-bold text-primary flex items-center gap-3">
-          Family Profile
-          <Badge variant="outline" className="text-lg py-1 px-3 bg-primary/10">Code: {tree.family.familyCode}</Badge>
-        </h1>
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900">Family Profile</h1>
+          <p className="text-gray-500 text-sm mt-1">Family Code: <strong>{tree.family.familyCode}</strong></p>
+        </div>
+        <Badge className="text-base py-1.5 px-4 bg-blue-50 text-blue-800 border-blue-200">
+          {tree.children.length} {tree.children.length === 1 ? "Child" : "Children"}
+        </Badge>
       </div>
 
-      <div className="grid md:grid-cols-2 gap-6">
-        {/* Parents Section */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Parents & Guardians</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            {tree.parents.map(parent => (
-              <div key={parent.id} className="p-4 border rounded-lg bg-card">
-                <div className="flex justify-between items-start mb-4">
-                  <h3 className="font-bold text-lg">{parent.firstName} {parent.lastName}</h3>
-                  <Badge>{parent.role}</Badge>
-                </div>
-                <div className="space-y-2 text-sm text-muted-foreground">
-                  <div className="flex items-center gap-2"><Mail className="w-4 h-4" /> {parent.email}</div>
-                  {parent.phone && <div className="flex items-center gap-2"><Phone className="w-4 h-4" /> {parent.phone}</div>}
-                </div>
-              </div>
-            ))}
-            
-            <div className="pt-4 border-t space-y-2 text-sm">
-              <div className="flex items-center gap-2 font-medium"><MapPin className="w-4 h-4" /> Address</div>
-              <p className="text-muted-foreground pl-6">{tree.family.address || "No address provided"}</p>
-              
-              <div className="flex items-center gap-2 font-medium mt-4"><Shield className="w-4 h-4 text-accent" /> Emergency Contact</div>
-              <p className="text-muted-foreground pl-6">
-                {tree.family.emergencyContactName ? `${tree.family.emergencyContactName} (${tree.family.emergencyContactPhone})` : "Not provided"}
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Children Section */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Children</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {tree.children.map(child => (
-              <div key={child.id} className="p-4 border rounded-lg bg-card flex flex-col gap-3">
-                <div className="flex justify-between items-start">
-                  <div>
-                    <h3 className="font-bold text-lg">{child.firstName} {child.lastName}</h3>
-                    <p className="text-sm text-muted-foreground">Age {child.age} • {child.gender}</p>
+      <div className="grid md:grid-cols-3 gap-5">
+        <div className="md:col-span-1 space-y-4">
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">Parents & Guardians</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4 pt-0">
+              {tree.parents.map((parent: any) => (
+                <div key={parent.id} className="p-3 border rounded-xl bg-gray-50">
+                  <div className="flex items-start justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <div className="w-9 h-9 rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0"
+                        style={{ background: "linear-gradient(135deg, #1e3a8a, #1d4ed8)" }}>
+                        {parent.firstName[0]}{parent.lastName[0]}
+                      </div>
+                      <div>
+                        <p className="font-semibold text-sm text-gray-900">{parent.firstName} {parent.lastName}</p>
+                        <Badge variant="outline" className="text-xs">{parent.role}</Badge>
+                      </div>
+                    </div>
                   </div>
-                  {child.currentClass ? (
-                    <Badge variant="outline">{child.currentClass.name}</Badge>
-                  ) : (
-                    <Badge variant="secondary">Unassigned</Badge>
-                  )}
+                  <div className="space-y-1 text-xs text-gray-600 pl-11">
+                    <div className="flex items-center gap-1.5"><Mail className="h-3 w-3" /> {parent.email}</div>
+                    {parent.phone && <div className="flex items-center gap-1.5"><Phone className="h-3 w-3" /> {parent.phone}</div>}
+                  </div>
                 </div>
-                
-                <div className="flex justify-end">
-                  <Link href={`/children/${child.id}`}
-                    className="inline-flex items-center gap-2 text-sm font-medium text-primary hover:text-primary/80 px-3 py-1.5 rounded-md hover:bg-muted transition-colors"
-                    data-testid={`link-child-${child.id}`}
-                  >
-                    <Eye className="w-4 h-4" /> View Profile
-                  </Link>
+              ))}
+
+              <div className="pt-2 border-t space-y-2 text-sm">
+                <div className="flex items-center gap-2 text-gray-500 text-xs">
+                  <MapPin className="h-3.5 w-3.5" />
+                  <span>{tree.family.address || "No address provided"}</span>
+                </div>
+                <div className="flex items-center gap-2 text-gray-500 text-xs">
+                  <Shield className="h-3.5 w-3.5 text-amber-500" />
+                  <span>{tree.family.emergencyContactName
+                    ? `${tree.family.emergencyContactName} — ${tree.family.emergencyContactPhone}`
+                    : "No emergency contact"}</span>
                 </div>
               </div>
-            ))}
-            {tree.children.length === 0 && <p className="text-muted-foreground">No children registered.</p>}
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+
+          {feedback && feedback.length > 0 && (
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <MessageSquare className="h-4 w-4" /> Recent Feedback
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2 pt-0">
+                {feedback.slice(-3).map((fb: any) => (
+                  <div key={fb.id} className="p-2.5 bg-gray-50 rounded-lg border text-sm">
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="flex">
+                        {Array.from({ length: 5 }).map((_, i) => (
+                          <Star key={i} className={`h-3.5 w-3.5 ${i < Number(fb.rating) ? "text-amber-400 fill-amber-400" : "text-gray-200"}`} />
+                        ))}
+                      </div>
+                      <span className="text-xs text-gray-400">{format(new Date(fb.createdAt), "MMM d")}</span>
+                    </div>
+                    {fb.comments && <p className="text-xs text-gray-600 line-clamp-2">{fb.comments}</p>}
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          )}
+        </div>
+
+        <div className="md:col-span-2 space-y-4">
+          <h2 className="font-bold text-gray-900 text-lg">Children</h2>
+          {tree.children.length === 0 ? (
+            <div className="p-8 text-center text-gray-400 border rounded-2xl">No children registered</div>
+          ) : (
+            tree.children.map((child: any) => (
+              <ChildCard key={child.id} child={child} familyId={familyId} />
+            ))
+          )}
+        </div>
       </div>
     </div>
   );

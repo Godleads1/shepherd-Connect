@@ -1,6 +1,6 @@
 import { Router } from "express";
-import { eq, and } from "drizzle-orm";
-import { db, teacherAllocationsTable, teachersTable, classesTable, usersTable } from "@workspace/db";
+import { eq, and, sql } from "drizzle-orm";
+import { db, teacherAllocationsTable, teachersTable, classesTable, usersTable, notificationsTable } from "@workspace/db";
 import { CreateTeacherAllocationBody, UpdateTeacherAllocationBody, ListTeacherAllocationsQueryParams } from "@workspace/api-zod";
 import { authMiddleware, requireRoles } from "../middlewares/auth";
 
@@ -48,6 +48,120 @@ router.put("/teacher-allocations/:id", authMiddleware, requireRoles("super_admin
   const [allocation] = await db.update(teacherAllocationsTable).set(updates).where(eq(teacherAllocationsTable.id, id)).returning();
   if (!allocation) { res.status(404).json({ error: "Not found", message: "Allocation not found" }); return; }
   res.json(await formatAllocation(allocation));
+});
+
+router.get("/teacher-allocations/service-hours", authMiddleware, requireRoles("super_admin", "admin"), async (req, res): Promise<void> => {
+  const teachers = await db.select().from(teachersTable);
+  const result = await Promise.all(teachers.map(async (teacher) => {
+    const allAllocs = await db.select().from(teacherAllocationsTable).where(eq(teacherAllocationsTable.teacherId, teacher.id));
+    const [u] = await db.select().from(usersTable).where(eq(usersTable.id, teacher.userId));
+    const totalServices = allAllocs.length;
+    const completedServices = allAllocs.filter(a => a.status === "completed").length;
+    const upcomingServices = allAllocs.filter(a => a.status === "scheduled").length;
+    return { teacherId: teacher.id, teacherName: u ? `${u.firstName} ${u.lastName}` : "Unknown", totalAllocations: totalServices, completedServices, upcomingServices, estimatedHours: totalServices * 2 };
+  }));
+  result.sort((a, b) => b.totalAllocations - a.totalAllocations);
+  res.json(result);
+});
+
+router.post("/teacher-allocations/auto-schedule", authMiddleware, requireRoles("super_admin", "admin"), async (req, res): Promise<void> => {
+  const { serviceDate, serviceSlots = ["9am", "11am"] } = req.body as { serviceDate: string; serviceSlots?: string[] };
+  if (!serviceDate) { res.status(400).json({ error: "Bad request", message: "serviceDate is required" }); return; }
+
+  const teachers = await db.select().from(teachersTable);
+  const classes = await db.select().from(classesTable);
+
+  if (teachers.length === 0 || classes.length === 0) {
+    res.json({ success: true, created: 0, message: "No teachers or classes available" });
+    return;
+  }
+
+  const teacherHours = await Promise.all(teachers.map(async (t) => {
+    const allocs = await db.select().from(teacherAllocationsTable).where(eq(teacherAllocationsTable.teacherId, t.id));
+    return { teacher: t, totalServices: allocs.length };
+  }));
+  teacherHours.sort((a, b) => a.totalServices - b.totalServices);
+
+  const created: number[] = [];
+  let teacherIdx = 0;
+
+  for (const slot of serviceSlots) {
+    const slotClasses = classes.filter(c => c.serviceSlot === slot || slot === c.serviceSlot);
+    for (const cls of slotClasses) {
+      const existing = await db.select().from(teacherAllocationsTable)
+        .where(and(eq(teacherAllocationsTable.classId, cls.id), eq(teacherAllocationsTable.serviceDate, serviceDate), eq(teacherAllocationsTable.serviceSlot, slot)));
+      if (existing.length > 0) continue;
+
+      const assigned = teacherHours[teacherIdx % teacherHours.length];
+      teacherIdx++;
+
+      const [alloc] = await db.insert(teacherAllocationsTable).values({
+        teacherId: assigned.teacher.id,
+        classId: cls.id,
+        serviceDate,
+        serviceSlot: slot,
+        status: "scheduled",
+      }).returning();
+      created.push(alloc.id);
+      assigned.totalServices++;
+      teacherHours.sort((a, b) => a.totalServices - b.totalServices);
+    }
+  }
+
+  const adminUsers = await db.select({ id: usersTable.id }).from(usersTable)
+    .where(and(eq(usersTable.isActive, true), eq(usersTable.role, "teacher")));
+  if (adminUsers.length > 0) {
+    await db.insert(notificationsTable).values(adminUsers.map(u => ({
+      userId: u.id,
+      type: "schedule_published",
+      title: "New Schedule Published",
+      message: `Your schedule for ${serviceDate} has been published. Please check your allocations.`,
+      channel: "in_app" as const,
+      readStatus: false,
+      metadataJson: JSON.stringify({ serviceDate }),
+    })));
+  }
+
+  res.json({ success: true, created: created.length, allocationIds: created, message: `Auto-scheduled ${created.length} teacher allocation(s) for ${serviceDate}` });
+});
+
+router.post("/teacher-allocations/:id/swap", authMiddleware, requireRoles("super_admin", "admin"), async (req, res): Promise<void> => {
+  const id = parseInt(req.params.id as string, 10);
+  if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
+  const { newTeacherId, reason } = req.body as { newTeacherId: number; reason?: string };
+  if (!newTeacherId) { res.status(400).json({ error: "Bad request", message: "newTeacherId is required" }); return; }
+
+  const [original] = await db.select().from(teacherAllocationsTable).where(eq(teacherAllocationsTable.id, id));
+  if (!original) { res.status(404).json({ error: "Not found", message: "Allocation not found" }); return; }
+
+  const [updated] = await db.update(teacherAllocationsTable).set({ teacherId: newTeacherId }).where(eq(teacherAllocationsTable.id, id)).returning();
+  const [cls] = await db.select().from(classesTable).where(eq(classesTable.id, original.classId));
+
+  const [origTeacher] = await db.select().from(teachersTable).where(eq(teachersTable.id, original.teacherId));
+  const [newTeacherRec] = await db.select().from(teachersTable).where(eq(teachersTable.id, newTeacherId));
+
+  const notifyIds: number[] = [];
+  if (origTeacher) notifyIds.push(origTeacher.userId);
+  if (newTeacherRec) notifyIds.push(newTeacherRec.userId);
+
+  for (const uid of notifyIds) {
+    const [u] = await db.select().from(usersTable).where(eq(usersTable.id, uid));
+    if (!u) continue;
+    const isOld = origTeacher && uid === origTeacher.userId;
+    await db.insert(notificationsTable).values({
+      userId: uid,
+      type: "schedule_swap",
+      title: "Schedule Change",
+      message: isOld
+        ? `You have been swapped out of ${cls?.name || "class"} on ${original.serviceDate} (${original.serviceSlot}).${reason ? " Reason: " + reason : ""}`
+        : `You have been assigned to ${cls?.name || "class"} on ${original.serviceDate} (${original.serviceSlot}).${reason ? " Reason: " + reason : ""}`,
+      channel: "in_app" as const,
+      readStatus: false,
+      metadataJson: JSON.stringify({ allocationId: id, serviceDate: original.serviceDate, serviceSlot: original.serviceSlot }),
+    });
+  }
+
+  res.json(await formatAllocation(updated));
 });
 
 export default router;
