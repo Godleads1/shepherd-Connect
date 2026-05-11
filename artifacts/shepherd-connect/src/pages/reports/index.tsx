@@ -411,10 +411,10 @@ export default function Reports() {
             </div>
             <div>
               <label className="text-xs font-medium text-gray-600 block mb-1">Service Slot</label>
-              <Select value={serviceSlot} onValueChange={setServiceSlot}>
+              <Select value={serviceSlot || "all"} onValueChange={v => setServiceSlot(v === "all" ? "" : v)}>
                 <SelectTrigger className="w-32"><SelectValue placeholder="All slots" /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">All Slots</SelectItem>
+                  <SelectItem value="all">All Slots</SelectItem>
                   {SLOTS.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
                 </SelectContent>
               </Select>
@@ -844,12 +844,12 @@ export default function Reports() {
               {reportType !== "family-registry" && (
                 <div>
                   <label className="text-xs font-medium text-gray-600 block mb-1">Class</label>
-                  <Select value={builderClass} onValueChange={setBuilderClass}>
+                  <Select value={builderClass || "all"} onValueChange={v => setBuilderClass(v === "all" ? "" : v)}>
                     <SelectTrigger className="w-44">
                       <SelectValue placeholder="All classes" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">All Classes</SelectItem>
+                      <SelectItem value="all">All Classes</SelectItem>
                       {classList.map((c: any) => (
                         <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>
                       ))}
@@ -860,10 +860,10 @@ export default function Reports() {
               {reportType !== "family-registry" && reportType !== "appraisals" && (
                 <div>
                   <label className="text-xs font-medium text-gray-600 block mb-1">Service Slot</label>
-                  <Select value={builderSlot} onValueChange={setBuilderSlot}>
+                  <Select value={builderSlot || "all"} onValueChange={v => setBuilderSlot(v === "all" ? "" : v)}>
                     <SelectTrigger className="w-32"><SelectValue placeholder="All slots" /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">All Slots</SelectItem>
+                      <SelectItem value="all">All Slots</SelectItem>
                       {SLOTS.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
                     </SelectContent>
                   </Select>

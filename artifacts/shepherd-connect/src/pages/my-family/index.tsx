@@ -471,10 +471,10 @@ export default function MyFamily() {
             </div>
             <div>
               <label className="text-sm font-medium text-gray-700 block mb-1">Class (optional)</label>
-              <Select value={childForm.currentClassId} onValueChange={v => setChildForm(p => ({ ...p, currentClassId: v }))}>
+              <Select value={childForm.currentClassId || "unassigned"} onValueChange={v => setChildForm(p => ({ ...p, currentClassId: v === "unassigned" ? "" : v }))}>
                 <SelectTrigger><SelectValue placeholder="Auto-suggest by age" /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Unassigned</SelectItem>
+                  <SelectItem value="unassigned">Unassigned</SelectItem>
                   {(classesData || []).map((c: any) => (
                     <SelectItem key={c.id} value={String(c.id)}>{c.name} (Age {c.ageMin}–{c.ageMax})</SelectItem>
                   ))}

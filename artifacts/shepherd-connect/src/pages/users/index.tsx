@@ -229,10 +229,10 @@ export default function Users() {
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
               <Input placeholder="Search users..." value={search} onChange={e => setSearch(e.target.value)} className="pl-10" />
             </div>
-            <Select value={roleFilter} onValueChange={setRoleFilter}>
+            <Select value={roleFilter || "all"} onValueChange={v => setRoleFilter(v === "all" ? "" : v)}>
               <SelectTrigger className="w-44"><SelectValue placeholder="All roles" /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="">All Roles</SelectItem>
+                <SelectItem value="all">All Roles</SelectItem>
                 <SelectItem value="super_admin">Super Admin</SelectItem>
                 <SelectItem value="admin">Admin</SelectItem>
                 <SelectItem value="teacher">Teacher</SelectItem>
