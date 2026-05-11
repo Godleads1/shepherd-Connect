@@ -63,7 +63,7 @@ function Router() {
         <DefaultRedirect />
       </Route>
       
-      <Route path="/:path*">
+      <Route path="/*">
         <ProtectedRoute>
           <Layout>
             <Switch>
