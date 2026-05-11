@@ -3,8 +3,20 @@ import { eq, and, sql } from "drizzle-orm";
 import { db, parentFeedbackTable } from "@workspace/db";
 import { SubmitFeedbackBody, ListFeedbackQueryParams } from "@workspace/api-zod";
 import { authMiddleware, requireRoles } from "../middlewares/auth";
+import { scoreFeedbackRecord, scoreAllUnscoredFeedback } from "../services/sentiment";
 
 const router = Router();
+
+function serializeFeedback(f: typeof parentFeedbackTable.$inferSelect) {
+  return {
+    ...f,
+    rating: Number(f.rating),
+    classExperience: Number(f.classExperience),
+    teacherEngagement: Number(f.teacherEngagement),
+    safetyRating: Number(f.safetyRating),
+    sentimentScore: f.sentimentScore != null ? Number(f.sentimentScore) : null,
+  };
+}
 
 router.get("/feedback", authMiddleware, async (req, res): Promise<void> => {
   const params = ListFeedbackQueryParams.safeParse(req.query);
@@ -15,10 +27,11 @@ router.get("/feedback", authMiddleware, async (req, res): Promise<void> => {
   if (serviceDate) conditions.push(eq(parentFeedbackTable.serviceDate, serviceDate));
   const feedback = await db.select().from(parentFeedbackTable)
     .where(conditions.length ? and(...conditions) : undefined)
+    .orderBy(parentFeedbackTable.createdAt)
     .limit(limit).offset(offset);
   const [{ count }] = await db.select({ count: sql<number>`count(*)` }).from(parentFeedbackTable)
     .where(conditions.length ? and(...conditions) : undefined);
-  res.json({ data: feedback.map(f => ({ ...f, rating: Number(f.rating), classExperience: Number(f.classExperience), teacherEngagement: Number(f.teacherEngagement), safetyRating: Number(f.safetyRating) })), total: Number(count), page, limit });
+  res.json({ data: feedback.map(serializeFeedback), total: Number(count), page, limit });
 });
 
 router.post("/feedback", authMiddleware, requireRoles("parent"), async (req, res): Promise<void> => {
@@ -33,7 +46,15 @@ router.post("/feedback", authMiddleware, requireRoles("parent"), async (req, res
     safetyRating: String(parsed.data.safetyRating),
     improvementNote: parsed.data.improvementNote,
   }).returning();
-  res.status(201).json({ ...fb, rating: Number(fb.rating), classExperience: Number(fb.classExperience), teacherEngagement: Number(fb.teacherEngagement), safetyRating: Number(fb.safetyRating) });
+  res.status(201).json(serializeFeedback(fb));
+
+  // Async sentiment analysis — does not block the response
+  void scoreFeedbackRecord(fb.id);
+});
+
+router.post("/feedback/analyze-all", authMiddleware, requireRoles("super_admin", "admin"), async (req, res): Promise<void> => {
+  const result = await scoreAllUnscoredFeedback();
+  res.json(result);
 });
 
 export default router;

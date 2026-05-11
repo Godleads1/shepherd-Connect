@@ -17,6 +17,7 @@ import type {
 } from "@tanstack/react-query";
 
 import type {
+  AnalyzeFeedbackSentiment200,
   Appraisal,
   ApproveClassChangeRequestBody,
   Attendance,
@@ -5302,6 +5303,90 @@ export const useSubmitFeedback = <
   TContext
 > => {
   return useMutation(getSubmitFeedbackMutationOptions(options));
+};
+
+/**
+ * @summary Retroactively analyze sentiment for all unscored feedback (admin only)
+ */
+export const getAnalyzeFeedbackSentimentUrl = () => {
+  return `/api/feedback/analyze-all`;
+};
+
+export const analyzeFeedbackSentiment = async (
+  options?: RequestInit,
+): Promise<AnalyzeFeedbackSentiment200> => {
+  return customFetch<AnalyzeFeedbackSentiment200>(
+    getAnalyzeFeedbackSentimentUrl(),
+    {
+      ...options,
+      method: "POST",
+    },
+  );
+};
+
+export const getAnalyzeFeedbackSentimentMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof analyzeFeedbackSentiment>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof analyzeFeedbackSentiment>>,
+  TError,
+  void,
+  TContext
+> => {
+  const mutationKey = ["analyzeFeedbackSentiment"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof analyzeFeedbackSentiment>>,
+    void
+  > = () => {
+    return analyzeFeedbackSentiment(requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type AnalyzeFeedbackSentimentMutationResult = NonNullable<
+  Awaited<ReturnType<typeof analyzeFeedbackSentiment>>
+>;
+
+export type AnalyzeFeedbackSentimentMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Retroactively analyze sentiment for all unscored feedback (admin only)
+ */
+export const useAnalyzeFeedbackSentiment = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof analyzeFeedbackSentiment>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof analyzeFeedbackSentiment>>,
+  TError,
+  void,
+  TContext
+> => {
+  return useMutation(getAnalyzeFeedbackSentimentMutationOptions(options));
 };
 
 /**

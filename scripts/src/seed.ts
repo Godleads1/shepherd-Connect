@@ -1,5 +1,5 @@
 import bcrypt from "bcryptjs";
-import { db, usersTable, familiesTable, childrenTable, classesTable, classAssignmentsTable, teachersTable, notificationsTable } from "@workspace/db";
+import { db, usersTable, familiesTable, childrenTable, classesTable, classAssignmentsTable, teachersTable, notificationsTable, parentFeedbackTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 
 async function seed() {
@@ -283,6 +283,74 @@ async function seed() {
   }
 
   console.log("Notifications seeded");
+
+  // Seed sample feedback with varied sentiments
+  if (parent1) {
+    await db.insert(parentFeedbackTable).values([
+      {
+        parentId: parent1.id,
+        serviceDate: "2026-05-04",
+        rating: "5",
+        classExperience: "5",
+        teacherEngagement: "5",
+        safetyRating: "5",
+        improvementNote: "Absolutely wonderful! The teachers are so loving and attentive. My children always look forward to church.",
+        sentimentLabel: "positive",
+        sentimentScore: "0.92",
+        sentimentNote: "Parent extremely satisfied with all aspects of the children's ministry.",
+      },
+      {
+        parentId: parent1.id,
+        serviceDate: "2026-04-27",
+        rating: "4",
+        classExperience: "4",
+        teacherEngagement: "4",
+        safetyRating: "5",
+        improvementNote: "Good service overall. It would be nice to have more craft activities for the older children.",
+        sentimentLabel: "positive",
+        sentimentScore: "0.55",
+        sentimentNote: "Generally positive with a minor suggestion for improved activities.",
+      },
+      {
+        parentId: parent1.id,
+        serviceDate: "2026-04-13",
+        rating: "3",
+        classExperience: "3",
+        teacherEngagement: "3",
+        safetyRating: "3",
+        improvementNote: "Average experience. Nothing particularly stood out this week.",
+        sentimentLabel: "neutral",
+        sentimentScore: "0.05",
+        sentimentNote: "Parent reports an unremarkable but adequate experience.",
+      },
+      {
+        parentId: parent1.id,
+        serviceDate: "2026-03-30",
+        rating: "2",
+        classExperience: "2",
+        teacherEngagement: "2",
+        safetyRating: "3",
+        improvementNote: "My child came home upset. The teacher seemed distracted and didn't engage the kids well. Please improve.",
+        sentimentLabel: "negative",
+        sentimentScore: "-0.71",
+        sentimentNote: "Parent unhappy with teacher engagement; child had a negative experience.",
+      },
+      {
+        parentId: parent1.id,
+        serviceDate: "2026-03-16",
+        rating: "5",
+        classExperience: "5",
+        teacherEngagement: "5",
+        safetyRating: "5",
+        improvementNote: null,
+        sentimentLabel: "positive",
+        sentimentScore: "0.85",
+        sentimentNote: "All ratings at maximum, indicating strong satisfaction.",
+      },
+    ]).onConflictDoNothing();
+  }
+
+  console.log("Sample feedback seeded");
 
   console.log("\n=== SEED COMPLETE ===");
   console.log("Demo accounts:");

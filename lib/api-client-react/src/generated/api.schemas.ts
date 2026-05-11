@@ -463,6 +463,19 @@ export interface PaginatedNotifications {
   limit: number;
 }
 
+/**
+ * AI-derived sentiment category
+ */
+export type FeedbackSentimentLabel =
+  | (typeof FeedbackSentimentLabel)[keyof typeof FeedbackSentimentLabel]
+  | null;
+
+export const FeedbackSentimentLabel = {
+  positive: "positive",
+  neutral: "neutral",
+  negative: "negative",
+} as const;
+
 export interface Feedback {
   id: number;
   parentId: number;
@@ -472,6 +485,12 @@ export interface Feedback {
   teacherEngagement: number;
   safetyRating: number;
   improvementNote?: string | null;
+  /** AI-scored sentiment from -1 (very negative) to 1 (very positive) */
+  sentimentScore?: number | null;
+  /** AI-derived sentiment category */
+  sentimentLabel?: FeedbackSentimentLabel;
+  /** Brief AI-generated insight about the feedback */
+  sentimentNote?: string | null;
   createdAt: string;
 }
 
@@ -745,12 +764,23 @@ export interface ClassUtilization {
   utilizationPercent: number;
 }
 
+export interface SentimentBreakdown {
+  positive: number;
+  neutral: number;
+  negative: number;
+  unanalyzed: number;
+  positivePercent: number;
+  neutralPercent: number;
+  negativePercent: number;
+}
+
 export interface FeedbackAnalytics {
   averageRating: number;
   averageClassExperience: number;
   averageTeacherEngagement: number;
   averageSafetyRating: number;
   totalResponses: number;
+  sentimentBreakdown: SentimentBreakdown;
   recentFeedback: Feedback[];
 }
 
@@ -883,6 +913,11 @@ export type ListFeedbackParams = {
   serviceDate?: string;
   page?: number;
   limit?: number;
+};
+
+export type AnalyzeFeedbackSentiment200 = {
+  analyzed: number;
+  skipped: number;
 };
 
 export type ListAppraisalsParams = {

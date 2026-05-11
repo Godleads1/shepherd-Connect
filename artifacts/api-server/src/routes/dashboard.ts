@@ -107,18 +107,48 @@ router.get("/dashboard/class-utilization", authMiddleware, requireRoles("super_a
 });
 
 router.get("/dashboard/feedback-analytics", authMiddleware, requireRoles("super_admin", "admin"), async (req, res): Promise<void> => {
-  const feedback = await db.select().from(parentFeedbackTable).limit(10);
-  const totalResponses = feedback.length;
-  const avg = (field: keyof typeof feedback[0]) => totalResponses > 0
-    ? feedback.reduce((sum, f) => sum + Number(f[field]), 0) / totalResponses
+  const allFeedback = await db.select().from(parentFeedbackTable);
+  const totalResponses = allFeedback.length;
+  const avg = (field: keyof typeof allFeedback[0]) => totalResponses > 0
+    ? allFeedback.reduce((sum, f) => sum + Number(f[field]), 0) / totalResponses
     : 0;
+
+  // Sentiment breakdown counts
+  const positive = allFeedback.filter(f => f.sentimentLabel === "positive").length;
+  const neutral = allFeedback.filter(f => f.sentimentLabel === "neutral").length;
+  const negative = allFeedback.filter(f => f.sentimentLabel === "negative").length;
+  const analyzed = positive + neutral + negative;
+  const unanalyzed = totalResponses - analyzed;
+  const sentimentBreakdown = {
+    positive,
+    neutral,
+    negative,
+    unanalyzed,
+    positivePercent: analyzed > 0 ? parseFloat(((positive / analyzed) * 100).toFixed(1)) : 0,
+    neutralPercent: analyzed > 0 ? parseFloat(((neutral / analyzed) * 100).toFixed(1)) : 0,
+    negativePercent: analyzed > 0 ? parseFloat(((negative / analyzed) * 100).toFixed(1)) : 0,
+  };
+
+  const recentFeedback = [...allFeedback]
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    .slice(0, 10)
+    .map(f => ({
+      ...f,
+      rating: Number(f.rating),
+      classExperience: Number(f.classExperience),
+      teacherEngagement: Number(f.teacherEngagement),
+      safetyRating: Number(f.safetyRating),
+      sentimentScore: f.sentimentScore != null ? Number(f.sentimentScore) : null,
+    }));
+
   res.json({
     averageRating: parseFloat(avg("rating").toFixed(1)),
     averageClassExperience: parseFloat(avg("classExperience").toFixed(1)),
     averageTeacherEngagement: parseFloat(avg("teacherEngagement").toFixed(1)),
     averageSafetyRating: parseFloat(avg("safetyRating").toFixed(1)),
     totalResponses,
-    recentFeedback: feedback.map(f => ({ ...f, rating: Number(f.rating), classExperience: Number(f.classExperience), teacherEngagement: Number(f.teacherEngagement), safetyRating: Number(f.safetyRating) })),
+    sentimentBreakdown,
+    recentFeedback,
   });
 });
 

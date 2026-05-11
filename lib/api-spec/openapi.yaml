@@ -1290,6 +1290,27 @@ paths:
               schema:
                 $ref: "#/components/schemas/Feedback"
 
+  /feedback/analyze-all:
+    post:
+      operationId: analyzeFeedbackSentiment
+      tags: [feedback]
+      summary: Retroactively analyze sentiment for all unscored feedback (admin only)
+      responses:
+        "200":
+          description: Analysis complete
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  analyzed:
+                    type: integer
+                  skipped:
+                    type: integer
+                required:
+                  - analyzed
+                  - skipped
+
   # APPRAISALS
   /appraisals:
     get:
@@ -2772,6 +2793,19 @@ components:
         improvementNote:
           type: string
           nullable: true
+        sentimentScore:
+          type: number
+          nullable: true
+          description: AI-scored sentiment from -1 (very negative) to 1 (very positive)
+        sentimentLabel:
+          type: string
+          nullable: true
+          enum: [positive, neutral, negative]
+          description: AI-derived sentiment category
+        sentimentNote:
+          type: string
+          nullable: true
+          description: Brief AI-generated insight about the feedback
         createdAt:
           type: string
           format: date-time
@@ -3141,6 +3175,32 @@ components:
         - enrolled
         - utilizationPercent
 
+    SentimentBreakdown:
+      type: object
+      properties:
+        positive:
+          type: integer
+        neutral:
+          type: integer
+        negative:
+          type: integer
+        unanalyzed:
+          type: integer
+        positivePercent:
+          type: number
+        neutralPercent:
+          type: number
+        negativePercent:
+          type: number
+      required:
+        - positive
+        - neutral
+        - negative
+        - unanalyzed
+        - positivePercent
+        - neutralPercent
+        - negativePercent
+
     FeedbackAnalytics:
       type: object
       properties:
@@ -3154,6 +3214,8 @@ components:
           type: number
         totalResponses:
           type: integer
+        sentimentBreakdown:
+          $ref: "#/components/schemas/SentimentBreakdown"
         recentFeedback:
           type: array
           items:
@@ -3164,6 +3226,7 @@ components:
         - averageTeacherEngagement
         - averageSafetyRating
         - totalResponses
+        - sentimentBreakdown
         - recentFeedback
 
     ExceptionReport:

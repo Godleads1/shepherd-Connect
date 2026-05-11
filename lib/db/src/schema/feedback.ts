@@ -12,6 +12,9 @@ export const parentFeedbackTable = pgTable("parent_feedback", {
   teacherEngagement: numeric("teacher_engagement", { precision: 3, scale: 1 }).notNull(),
   safetyRating: numeric("safety_rating", { precision: 3, scale: 1 }).notNull(),
   improvementNote: text("improvement_note"),
+  sentimentScore: numeric("sentiment_score", { precision: 4, scale: 2 }),
+  sentimentLabel: text("sentiment_label"),
+  sentimentNote: text("sentiment_note"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

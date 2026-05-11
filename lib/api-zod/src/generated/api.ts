@@ -2584,6 +2584,20 @@ export const ListFeedbackResponse = zod.object({
       teacherEngagement: zod.number(),
       safetyRating: zod.number(),
       improvementNote: zod.string().nullish(),
+      sentimentScore: zod
+        .number()
+        .nullish()
+        .describe(
+          "AI-scored sentiment from -1 (very negative) to 1 (very positive)",
+        ),
+      sentimentLabel: zod
+        .enum(["positive", "neutral", "negative"])
+        .nullish()
+        .describe("AI-derived sentiment category"),
+      sentimentNote: zod
+        .string()
+        .nullish()
+        .describe("Brief AI-generated insight about the feedback"),
       createdAt: zod.string().datetime({}),
     }),
   ),
@@ -2616,6 +2630,14 @@ export const SubmitFeedbackBody = zod.object({
     .max(submitFeedbackBodyTeacherEngagementMax),
   safetyRating: zod.number().min(1).max(submitFeedbackBodySafetyRatingMax),
   improvementNote: zod.string().nullish(),
+});
+
+/**
+ * @summary Retroactively analyze sentiment for all unscored feedback (admin only)
+ */
+export const AnalyzeFeedbackSentimentResponse = zod.object({
+  analyzed: zod.number(),
+  skipped: zod.number(),
 });
 
 /**
@@ -3120,6 +3142,15 @@ export const GetFeedbackAnalyticsResponse = zod.object({
   averageTeacherEngagement: zod.number(),
   averageSafetyRating: zod.number(),
   totalResponses: zod.number(),
+  sentimentBreakdown: zod.object({
+    positive: zod.number(),
+    neutral: zod.number(),
+    negative: zod.number(),
+    unanalyzed: zod.number(),
+    positivePercent: zod.number(),
+    neutralPercent: zod.number(),
+    negativePercent: zod.number(),
+  }),
   recentFeedback: zod.array(
     zod.object({
       id: zod.number(),
@@ -3130,6 +3161,20 @@ export const GetFeedbackAnalyticsResponse = zod.object({
       teacherEngagement: zod.number(),
       safetyRating: zod.number(),
       improvementNote: zod.string().nullish(),
+      sentimentScore: zod
+        .number()
+        .nullish()
+        .describe(
+          "AI-scored sentiment from -1 (very negative) to 1 (very positive)",
+        ),
+      sentimentLabel: zod
+        .enum(["positive", "neutral", "negative"])
+        .nullish()
+        .describe("AI-derived sentiment category"),
+      sentimentNote: zod
+        .string()
+        .nullish()
+        .describe("Brief AI-generated insight about the feedback"),
       createdAt: zod.string().datetime({}),
     }),
   ),

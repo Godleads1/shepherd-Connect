@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api-call";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -7,10 +7,12 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useAnalyzeFeedbackSentiment } from "@workspace/api-client-react";
 import {
   Download, AlertTriangle, Clock, Users, BarChart3, FileText, Bell,
-  Star, Printer, TrendingUp, BookOpen, Wand2, RefreshCw, Table2,
+  Star, Printer, TrendingUp, BookOpen, Wand2, RefreshCw, Table2, Sparkles, SmilePlus, Meh, Frown,
 } from "lucide-react";
+import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import { format } from "date-fns";
 
 const BASE = "/api";
@@ -318,6 +320,22 @@ export default function Reports() {
       return apiGet<any>(`/reports/feedback-summary?${params}`);
     },
     enabled: activeTab === "analytics",
+  });
+
+  const queryClient = useQueryClient();
+  const { data: feedbackAnalytics, isLoading: loadingFeedbackAnalytics } = useQuery({
+    queryKey: ["feedback-analytics"],
+    queryFn: () => apiGet<any>("/dashboard/feedback-analytics"),
+    enabled: activeTab === "analytics",
+  });
+  const analyzeAllMutation = useAnalyzeFeedbackSentiment({
+    mutation: {
+      onSuccess: () => {
+        toast({ title: "Sentiment analysis complete" });
+        void queryClient.invalidateQueries({ queryKey: ["feedback-analytics"] });
+      },
+      onError: () => toast({ variant: "destructive", title: "Analysis failed" }),
+    },
   });
 
   const { data: classUtilization, isLoading: loadingUtilization } = useQuery({
@@ -698,6 +716,122 @@ export default function Reports() {
                   )}
                 </div>
               ) : <div className="py-8 text-center text-gray-400 text-sm">No feedback data yet</div>}
+            </div>
+          </div>
+
+          {/* ── AI Sentiment Analysis ── */}
+          <div className="bg-white border rounded-xl overflow-hidden">
+            <div className="flex items-center justify-between p-4 border-b bg-purple-50">
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-5 h-5 text-purple-600" />
+                <h2 className="font-semibold text-gray-900">AI Sentiment Analysis</h2>
+                {feedbackAnalytics?.sentimentBreakdown?.unanalyzed > 0 && (
+                  <Badge className="bg-amber-100 text-amber-800 border-amber-200 text-xs">
+                    {feedbackAnalytics.sentimentBreakdown.unanalyzed} unanalyzed
+                  </Badge>
+                )}
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                className="text-purple-700 border-purple-200 hover:bg-purple-50 gap-1.5 text-xs h-7"
+                onClick={() => analyzeAllMutation.mutate()}
+                disabled={analyzeAllMutation.isPending}
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                {analyzeAllMutation.isPending ? "Analyzing…" : "Run AI Analysis"}
+              </Button>
+            </div>
+            <div className="p-4">
+              {loadingFeedbackAnalytics ? (
+                <Skeleton className="h-40 w-full" />
+              ) : feedbackAnalytics?.sentimentBreakdown ? (() => {
+                const sb = feedbackAnalytics.sentimentBreakdown;
+                const analyzed = sb.positive + sb.neutral + sb.negative;
+                const pieData = [
+                  { name: "Positive", value: sb.positive, color: "#16a34a" },
+                  { name: "Neutral", value: sb.neutral, color: "#d97706" },
+                  { name: "Negative", value: sb.negative, color: "#dc2626" },
+                ].filter(d => d.value > 0);
+                return (
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-3 gap-3">
+                      {[
+                        { label: "Positive", count: sb.positive, pct: sb.positivePercent, icon: SmilePlus, color: "text-green-600", bg: "bg-green-50 border-green-100" },
+                        { label: "Neutral", count: sb.neutral, pct: sb.neutralPercent, icon: Meh, color: "text-amber-600", bg: "bg-amber-50 border-amber-100" },
+                        { label: "Negative", count: sb.negative, pct: sb.negativePercent, icon: Frown, color: "text-red-600", bg: "bg-red-50 border-red-100" },
+                      ].map(({ label, count, pct, icon: Icon, color, bg }) => (
+                        <div key={label} className={`p-3 rounded-xl border ${bg} flex flex-col items-center text-center`}>
+                          <Icon className={`w-6 h-6 ${color} mb-1`} />
+                          <p className={`text-2xl font-bold ${color}`}>{count}</p>
+                          <p className="text-xs text-gray-500">{label}</p>
+                          {analyzed > 0 && <p className={`text-xs font-semibold ${color} mt-0.5`}>{pct}%</p>}
+                        </div>
+                      ))}
+                    </div>
+                    {analyzed > 0 && pieData.length > 0 && (
+                      <div className="h-48">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <PieChart>
+                            <Pie data={pieData} cx="50%" cy="50%" innerRadius={50} outerRadius={80} dataKey="value" paddingAngle={3}>
+                              {pieData.map((entry) => (
+                                <Cell key={entry.name} fill={entry.color} />
+                              ))}
+                            </Pie>
+                            <Tooltip formatter={(v: number) => [`${v} responses`]} />
+                            <Legend />
+                          </PieChart>
+                        </ResponsiveContainer>
+                      </div>
+                    )}
+                    {feedbackAnalytics.recentFeedback?.length > 0 && (
+                      <div>
+                        <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">Recent Feedback Sentiment</p>
+                        <div className="space-y-2">
+                          {feedbackAnalytics.recentFeedback.slice(0, 5).map((fb: any) => (
+                            <div key={fb.id} className="flex items-start gap-3 p-3 rounded-lg border bg-gray-50">
+                              <div className="mt-0.5">
+                                {fb.sentimentLabel === "positive" && <SmilePlus className="w-4 h-4 text-green-600" />}
+                                {fb.sentimentLabel === "neutral" && <Meh className="w-4 h-4 text-amber-600" />}
+                                {fb.sentimentLabel === "negative" && <Frown className="w-4 h-4 text-red-600" />}
+                                {!fb.sentimentLabel && <Sparkles className="w-4 h-4 text-gray-400" />}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="text-xs font-medium text-gray-700">{fb.serviceDate}</span>
+                                  <span className="text-amber-500 text-xs">{"★".repeat(Math.round(fb.rating))}</span>
+                                  {fb.sentimentLabel && (
+                                    <Badge className={`text-[10px] px-1.5 py-0 ${
+                                      fb.sentimentLabel === "positive" ? "bg-green-100 text-green-800 border-green-200" :
+                                      fb.sentimentLabel === "neutral"  ? "bg-amber-100 text-amber-800 border-amber-200" :
+                                      "bg-red-100 text-red-800 border-red-200"
+                                    }`}>{fb.sentimentLabel}</Badge>
+                                  )}
+                                </div>
+                                {fb.sentimentNote && <p className="text-xs text-gray-500 mt-0.5 truncate">{fb.sentimentNote}</p>}
+                                {fb.improvementNote && <p className="text-xs text-gray-400 mt-0.5 italic truncate">"{fb.improvementNote}"</p>}
+                              </div>
+                              {fb.sentimentScore != null && (
+                                <span className="text-xs font-bold shrink-0" style={{ color: fb.sentimentScore >= 0.2 ? "#16a34a" : fb.sentimentScore <= -0.2 ? "#dc2626" : "#d97706" }}>
+                                  {fb.sentimentScore > 0 ? "+" : ""}{Number(fb.sentimentScore).toFixed(2)}
+                                </span>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {analyzed === 0 && sb.unanalyzed > 0 && (
+                      <p className="text-sm text-center text-gray-400 py-4">
+                        {sb.unanalyzed} feedback entr{sb.unanalyzed === 1 ? "y" : "ies"} waiting for AI analysis. Click "Run AI Analysis" above.
+                      </p>
+                    )}
+                    {feedbackAnalytics.totalResponses === 0 && (
+                      <p className="text-sm text-center text-gray-400 py-4">No feedback submitted yet.</p>
+                    )}
+                  </div>
+                );
+              })() : <div className="py-8 text-center text-gray-400 text-sm">No feedback data available</div>}
             </div>
           </div>
 
