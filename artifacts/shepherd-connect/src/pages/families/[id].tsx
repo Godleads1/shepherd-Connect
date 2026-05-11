@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { useGetFamilyTree, useListAttendance } from "@workspace/api-client-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { apiPatch, apiGet } from "@/lib/api-call";
-import { useParams, Link } from "wouter";
+import { apiPatch, apiGet, apiDelete } from "@/lib/api-call";
+import { useParams, Link, useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import { Phone, Mail, MapPin, Eye, Shield, Calendar, Star, BookOpen, MessageSquare, ChevronRight, AlertTriangle, FileText, Edit2, Check, X, Users } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Phone, Mail, MapPin, Eye, Shield, Calendar, Star, BookOpen, MessageSquare, AlertTriangle, FileText, Edit2, Check, X, Users, Trash2 } from "lucide-react";
 import { useAuth } from "@/contexts/auth";
 import { useToast } from "@/hooks/use-toast";
 import { format, parseISO, subMonths, eachDayOfInterval, getDay, isSameDay } from "date-fns";
@@ -338,6 +339,11 @@ function ChildCard({ child, familyId }: { child: any; familyId: number }) {
 export default function FamilyProfile() {
   const { id } = useParams();
   const familyId = parseInt(id || "0", 10);
+  const [, setLocation] = useLocation();
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const isAdmin = user && ["super_admin", "admin"].includes(user.role);
 
   const { data: tree, isLoading } = useGetFamilyTree(familyId, {
     query: { enabled: !!familyId, queryKey: ["getFamilyTree", familyId] }
@@ -349,6 +355,15 @@ export default function FamilyProfile() {
     enabled: !!familyId,
   });
 
+  const deleteMutation = useMutation({
+    mutationFn: () => apiDelete<{ success: boolean }>(`/families/${familyId}`),
+    onSuccess: () => {
+      toast({ title: "Family deleted", description: "The family record has been permanently removed." });
+      setLocation("/families");
+    },
+    onError: () => toast({ variant: "destructive", title: "Delete failed", description: "Could not delete this family." }),
+  });
+
   if (isLoading) return (
     <div className="space-y-4 p-6 max-w-5xl mx-auto">
       {[1, 2, 3].map(i => <Skeleton key={i} className="h-48 w-full rounded-2xl" />)}
@@ -358,14 +373,57 @@ export default function FamilyProfile() {
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto">
+      {/* Delete confirmation dialog */}
+      <Dialog open={confirmDelete} onOpenChange={setConfirmDelete}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-600">
+              <Trash2 className="w-5 h-5" /> Delete Family
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 mt-1">
+            <p className="text-sm text-gray-700">
+              This will permanently delete <strong>{tree.family.familyCode}</strong> and all{" "}
+              <strong>{tree.children.length} {tree.children.length === 1 ? "child" : "children"}</strong> in
+              this family. This action cannot be undone.
+            </p>
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setConfirmDelete(false)}
+                className="px-4 py-2 rounded-lg text-sm font-semibold border border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => deleteMutation.mutate()}
+                disabled={deleteMutation.isPending}
+                className="px-4 py-2 rounded-lg text-sm font-semibold bg-red-600 text-white hover:bg-red-700 disabled:opacity-60 transition-colors flex items-center gap-2"
+              >
+                {deleteMutation.isPending ? "Deleting…" : "Yes, Delete Family"}
+              </button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Family Profile</h1>
           <p className="text-gray-500 text-sm mt-1">Family Code: <strong>{tree.family.familyCode}</strong></p>
         </div>
-        <Badge className="text-base py-1.5 px-4 bg-blue-50 text-blue-800 border-blue-200">
-          {tree.children.length} {tree.children.length === 1 ? "Child" : "Children"}
-        </Badge>
+        <div className="flex items-center gap-3">
+          <Badge className="text-base py-1.5 px-4 bg-blue-50 text-blue-800 border-blue-200">
+            {tree.children.length} {tree.children.length === 1 ? "Child" : "Children"}
+          </Badge>
+          {isAdmin && (
+            <button
+              onClick={() => setConfirmDelete(true)}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold text-red-600 border border-red-200 hover:bg-red-50 transition-colors"
+            >
+              <Trash2 className="w-4 h-4" /> Delete Family
+            </button>
+          )}
+        </div>
       </div>
 
       <FamilyTreeVisual parents={tree.parents} children={tree.children} />
