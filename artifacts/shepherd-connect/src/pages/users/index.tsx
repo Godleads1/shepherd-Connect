@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useListUsers, useCreateUser, useUpdateUser, useDeleteUser } from "@workspace/api-client-react";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { useListUsers, useCreateUser, useUpdateUser } from "@workspace/api-client-react";
 import { useAuth } from "@/contexts/auth";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -16,7 +16,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { Edit2, Trash2, CheckCircle, XCircle, Clock, UserCheck, Users as UsersIcon, Search, RefreshCw, AlertTriangle } from "lucide-react";
-import { apiGet, apiPut, apiPost } from "@/lib/api-call";
+import { apiGet, apiPut, apiPost, apiDelete } from "@/lib/api-call";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 const userSchema = z.object({
@@ -175,7 +175,6 @@ export default function Users() {
   const { data, isLoading, refetch } = useListUsers();
   const createMutation = useCreateUser();
   const updateMutation = useUpdateUser();
-  const deleteMutation = useDeleteUser();
   const { toast } = useToast();
 
   const [isOpen, setIsOpen] = useState(false);
@@ -183,6 +182,7 @@ export default function Users() {
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState("");
 
+  const [deletedIds, setDeletedIds] = useState<Set<number>>(new Set());
   const [deleteTarget, setDeleteTarget] = useState<any>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [reassignTarget, setReassignTarget] = useState<any>(null);
@@ -244,11 +244,12 @@ export default function Users() {
     if (!deleteTarget) return;
     setDeleteLoading(true);
     try {
-      await deleteMutation.mutateAsync({ id: deleteTarget.id });
-      toast({ title: "User removed", description: `${deleteTarget.firstName} ${deleteTarget.lastName}'s account has been deactivated.` });
+      await apiDelete(`/users/${deleteTarget.id}`);
+      setDeletedIds(prev => new Set([...prev, deleteTarget.id]));
+      toast({ title: "User removed", description: `${deleteTarget.firstName} ${deleteTarget.lastName} has been removed from the system.` });
       refetch();
-    } catch {
-      toast({ variant: "destructive", title: "Could not remove user" });
+    } catch (e: any) {
+      toast({ variant: "destructive", title: "Could not remove user", description: e.message });
     } finally {
       setDeleteLoading(false);
       setDeleteTarget(null);
@@ -288,6 +289,7 @@ export default function Users() {
   const pendingUsers = pendingData?.data || [];
 
   const filtered = allUsers.filter(u => {
+    if (deletedIds.has(u.id)) return false;
     const matchRole = !roleFilter || u.role === roleFilter;
     const matchSearch = !search || `${u.firstName} ${u.lastName} ${u.email}`.toLowerCase().includes(search.toLowerCase());
     return matchRole && matchSearch;
