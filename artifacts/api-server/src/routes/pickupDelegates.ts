@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { eq, and } from "drizzle-orm";
-import { db, pickupDelegatesTable } from "@workspace/db";
+import { db, pickupDelegatesTable, childrenTable, familiesTable, usersTable, notificationsTable } from "@workspace/db";
 import { CreatePickupDelegateBody, VerifyDelegateOtpBody, ListPickupDelegatesQueryParams } from "@workspace/api-zod";
 import { authMiddleware } from "../middlewares/auth";
 
@@ -59,6 +59,36 @@ router.put("/pickup-delegates/:id/approve", authMiddleware, async (req, res): Pr
   const [delegate] = await db.update(pickupDelegatesTable).set({ parentApproved: true }).where(eq(pickupDelegatesTable.id, id)).returning();
   if (!delegate) { res.status(404).json({ error: "Not found", message: "Delegate not found" }); return; }
   res.json({ ...delegate, otpCode: undefined });
+});
+
+router.post("/pickup-delegates/:id/notify-parent", authMiddleware, async (req, res): Promise<void> => {
+  const id = parseInt(req.params.id as string, 10);
+  if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
+
+  const [delegate] = await db.select().from(pickupDelegatesTable).where(eq(pickupDelegatesTable.id, id));
+  if (!delegate) { res.status(404).json({ error: "Not found", message: "Delegate not found" }); return; }
+
+  const [child] = await db.select().from(childrenTable).where(eq(childrenTable.id, delegate.childId));
+  if (!child) { res.status(404).json({ error: "Not found", message: "Child not found" }); return; }
+
+  let parentUserId: number | null = null;
+  if (child.familyId) {
+    const [family] = await db.select().from(familiesTable).where(eq(familiesTable.id, child.familyId));
+    if (family?.parent1Id) parentUserId = family.parent1Id;
+  }
+  if (!parentUserId) { res.status(404).json({ error: "Not found", message: "Parent not found for this child" }); return; }
+
+  await db.insert(notificationsTable).values({
+    userId: parentUserId,
+    type: "delegate_pickup_alert",
+    title: `📢 Delegate Collecting ${child.firstName}`,
+    message: `${delegate.name} has presented a verified OTP to collect ${child.firstName} ${child.lastName}. If this is not authorised, contact the front desk immediately.`,
+    channel: "in_app" as const,
+    readStatus: false,
+    metadataJson: JSON.stringify({ delegateId: id, childId: child.id, delegateName: delegate.name }),
+  });
+
+  res.json({ success: true, message: `Parent notified of delegate pickup for ${child.firstName} ${child.lastName}.` });
 });
 
 export default router;

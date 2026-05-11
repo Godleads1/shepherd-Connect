@@ -1,26 +1,153 @@
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useListAttendance, useCheckOut } from "@workspace/api-client-react";
 import { useMutation } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Search, LogOut, CheckCircle, Clock, ShieldCheck, KeyRound } from "lucide-react";
+import { Search, LogOut, CheckCircle, Clock, ShieldCheck, KeyRound, Bell, Timer, ChevronDown, ChevronUp, X } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { format } from "date-fns";
+import { format, differenceInMinutes, differenceInSeconds } from "date-fns";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { apiPost } from "@/lib/api-call";
+import { useAuth } from "@/contexts/auth";
+
+const SERVICE_CLOCK_KEY = "shepherd_service_end_time";
+
+function ServiceClock() {
+  const { user } = useAuth();
+  const isAdmin = user?.role === "super_admin" || user?.role === "admin";
+  const [endTime, setEndTime] = useState<string>(() => localStorage.getItem(SERVICE_CLOCK_KEY) || "");
+  const [inputTime, setInputTime] = useState(endTime);
+  const [showSet, setShowSet] = useState(false);
+  const [now, setNow] = useState(new Date());
+  const [predismissalSent, setPredismissalSent] = useState(false);
+  const { toast } = useToast();
+
+  useEffect(() => {
+    const iv = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(iv);
+  }, []);
+
+  const endDate = endTime ? (() => {
+    const [h, m] = endTime.split(":").map(Number);
+    const d = new Date();
+    d.setHours(h, m, 0, 0);
+    return d;
+  })() : null;
+
+  const minsLeft = endDate ? differenceInMinutes(endDate, now) : null;
+  const secsLeft = endDate ? differenceInSeconds(endDate, now) : null;
+  const isPast = secsLeft !== null && secsLeft < 0;
+  const isWarning = minsLeft !== null && minsLeft <= 10 && minsLeft >= 0;
+  const isCritical = minsLeft !== null && minsLeft <= 2 && minsLeft >= 0;
+
+  useEffect(() => {
+    if (minsLeft === 10 && !predismissalSent && endTime) {
+      setPredismissalSent(true);
+      apiPost("/notifications/pre-dismissal", {}).then(() => {
+        toast({ title: "Pre-Dismissal Alert Sent", description: "All parents of checked-in children have been notified (10 min to service end)." });
+      }).catch(() => {});
+    }
+  }, [minsLeft, predismissalSent, endTime, toast]);
+
+  const handleSet = () => {
+    if (!inputTime) return;
+    setEndTime(inputTime);
+    localStorage.setItem(SERVICE_CLOCK_KEY, inputTime);
+    setPredismissalSent(false);
+    setShowSet(false);
+    toast({ title: "Service end time set", description: `Pre-dismissal alert will auto-send at 10 min before ${inputTime}.` });
+  };
+
+  const handleClear = () => {
+    setEndTime("");
+    setInputTime("");
+    localStorage.removeItem(SERVICE_CLOCK_KEY);
+    setPredismissalSent(false);
+  };
+
+  if (!endTime && !isAdmin) return null;
+
+  const bgClass = isCritical ? "bg-red-50 border-red-300" : isWarning ? "bg-amber-50 border-amber-300" : "bg-blue-50 border-blue-200";
+  const textClass = isCritical ? "text-red-800" : isWarning ? "text-amber-800" : "text-blue-800";
+
+  return (
+    <div className={`rounded-2xl border p-4 ${bgClass}`}>
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-3">
+          <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${isCritical ? "bg-red-200" : isWarning ? "bg-amber-200" : "bg-blue-200"}`}>
+            <Timer className={`h-5 w-5 ${textClass}`} />
+          </div>
+          <div>
+            <p className={`text-xs font-bold uppercase tracking-wide ${textClass}`}>
+              Service Clock {predismissalSent && <span className="ml-2 text-green-700">· Pre-dismissal sent ✓</span>}
+            </p>
+            {endTime ? (
+              <div className="flex items-center gap-2 mt-0.5">
+                <p className={`text-2xl font-black tabular-nums ${isCritical ? "text-red-700 animate-pulse" : isWarning ? "text-amber-700" : "text-blue-700"}`}>
+                  {isPast ? "Service ended" : (
+                    minsLeft !== null && secsLeft !== null
+                      ? `${Math.floor(Math.abs(secsLeft) / 60)}m ${Math.abs(secsLeft) % 60}s`
+                      : "—"
+                  )}
+                </p>
+                {!isPast && <span className={`text-xs ${textClass} opacity-70`}>remaining · ends {endTime}</span>}
+              </div>
+            ) : (
+              <p className={`text-sm ${textClass} opacity-70`}>No service end time set</p>
+            )}
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          {isWarning && !isPast && (
+            <button onClick={() => {
+              apiPost("/notifications/pre-dismissal", {}).then(() =>
+                toast({ title: "Pre-dismissal alert sent manually" })
+              ).catch(() => {});
+            }} className="flex items-center gap-1.5 px-3 py-2 bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold rounded-xl transition-colors">
+              <Bell className="h-3.5 w-3.5" /> Notify Parents Now
+            </button>
+          )}
+          {isAdmin && (
+            <button onClick={() => setShowSet(v => !v)} className={`flex items-center gap-1.5 px-3 py-2 text-xs font-bold rounded-xl border transition-colors ${textClass} bg-white hover:bg-gray-50`}>
+              <Clock className="h-3.5 w-3.5" /> {showSet ? "Cancel" : endTime ? "Change" : "Set Time"}
+            </button>
+          )}
+          {endTime && isAdmin && (
+            <button onClick={handleClear} className="p-2 rounded-xl border text-gray-400 hover:text-red-500 hover:border-red-200 bg-white transition-colors">
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
+      </div>
+      {showSet && isAdmin && (
+        <div className="mt-3 flex items-center gap-3 pt-3 border-t border-current/10 animate-in fade-in slide-in-from-top-1 duration-150">
+          <label className={`text-xs font-semibold ${textClass} whitespace-nowrap`}>Service ends at:</label>
+          <Input type="time" value={inputTime} onChange={e => setInputTime(e.target.value)}
+            className="h-9 w-32 text-sm font-mono" />
+          <button onClick={handleSet} disabled={!inputTime}
+            className="px-4 py-2 bg-blue-700 hover:bg-blue-800 text-white text-xs font-bold rounded-xl disabled:opacity-40 transition-colors">
+            Set
+          </button>
+          <p className={`text-xs ${textClass} opacity-70`}>Auto-sends parent alert at T−10 min</p>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function Checkout() {
   const [search, setSearch] = useState("");
   const [otpInput, setOtpInput] = useState("");
   const [otpResult, setOtpResult] = useState<any>(null);
   const [otpLoading, setOtpLoading] = useState(false);
+  const [notifyingParent, setNotifyingParent] = useState(false);
   const { toast } = useToast();
-  
-  const today = format(new Date(), 'yyyy-MM-dd');
+
+  const today = format(new Date(), "yyyy-MM-dd");
   const { data: attendanceList, refetch } = useListAttendance({ serviceDate: today });
-  
+
   const checkoutMutation = useCheckOut();
 
   const handleCheckout = async (attendanceId: number) => {
@@ -28,7 +155,7 @@ export default function Checkout() {
       await checkoutMutation.mutateAsync({ id: attendanceId, data: {} });
       toast({ title: "Checked out successfully" });
       refetch();
-    } catch (error) {
+    } catch {
       toast({ variant: "destructive", title: "Checkout failed" });
     }
   };
@@ -63,6 +190,18 @@ export default function Checkout() {
     }
   };
 
+  const handleNotifyParent = async (delegateId: number, childName: string) => {
+    setNotifyingParent(true);
+    try {
+      await apiPost(`/pickup-delegates/${delegateId}/notify-parent`, {});
+      toast({ title: "Parent Notified", description: `${childName}'s parent has received an in-app alert about this pickup.` });
+    } catch {
+      toast({ variant: "destructive", title: "Could not notify parent" });
+    } finally {
+      setNotifyingParent(false);
+    }
+  };
+
   const activeRecords = (attendanceList || []).filter((a: any) =>
     a.status === "in_class" || a.status === "dropped_off"
   );
@@ -79,6 +218,8 @@ export default function Checkout() {
         <h1 className="text-3xl font-bold text-gray-900" style={{ fontFamily: "'Playfair Display', serif" }}>Check Out</h1>
         <p className="text-gray-500 text-sm mt-1">Release children to authorised parents or delegates</p>
       </div>
+
+      <ServiceClock />
 
       <Tabs defaultValue="standard">
         <TabsList className="bg-gray-100">
@@ -127,7 +268,7 @@ export default function Checkout() {
                         <Badge variant="outline" className="text-xs">{record.class?.name}</Badge>
                         <Badge variant="secondary" className="flex items-center gap-1 text-xs">
                           <Clock className="w-3 h-3" />
-                          Checked in at {record.checkInTime ? format(new Date(record.checkInTime), 'HH:mm') : '—'}
+                          Checked in at {record.checkInTime ? format(new Date(record.checkInTime), "HH:mm") : "—"}
                         </Badge>
                       </div>
                     </div>
@@ -200,6 +341,17 @@ export default function Checkout() {
                       <p><span className="text-gray-500">Phone:</span> {otpResult.data?.delegate?.phone}</p>
                       <p><span className="text-gray-500">Authorised for:</span> <strong>{otpResult.data?.child?.firstName} {otpResult.data?.child?.lastName}</strong></p>
                     </div>
+
+                    {/* Notify parent button */}
+                    {otpResult.data?.delegate?.id && (
+                      <button
+                        onClick={() => handleNotifyParent(otpResult.data.delegate.id, otpResult.data?.child?.firstName || "child")}
+                        disabled={notifyingParent}
+                        className="w-full flex items-center justify-center gap-2 py-2.5 bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-800 text-sm font-semibold rounded-xl transition-colors disabled:opacity-50">
+                        <Bell className="w-4 h-4" />
+                        {notifyingParent ? "Notifying..." : "Notify Parent of this Pickup"}
+                      </button>
+                    )}
 
                     {/* Find the attendance record for this child */}
                     {(() => {

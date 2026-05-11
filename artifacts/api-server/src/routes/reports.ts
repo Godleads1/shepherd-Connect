@@ -765,4 +765,75 @@ router.get("/reports/pdf/emergency-log", authMiddleware, requireRoles("super_adm
   });
 });
 
+router.get("/reports/annual-summary", authMiddleware, requireRoles("super_admin", "admin"), async (req, res): Promise<void> => {
+  const { year } = req.query as { year?: string };
+  const targetYear = parseInt(year || String(new Date().getFullYear()), 10);
+  const startDate = `${targetYear}-01-01`;
+  const endDate = `${targetYear}-12-31`;
+
+  const [allChildren, allFamilies, allTeachers] = await Promise.all([
+    db.select().from(childrenTable),
+    db.select().from(familiesTable),
+    db.select().from(teachersTable),
+  ]);
+
+  const yearAttendance = await db.select().from(attendanceTable)
+    .where(and(sql`${attendanceTable.serviceDate} >= ${startDate}`, sql`${attendanceTable.serviceDate} <= ${endDate}`));
+
+  const totalSessions = yearAttendance.length;
+  const uniqueChildIds = new Set(yearAttendance.map(a => a.childId));
+  const pickedUp = yearAttendance.filter(a => a.status === "picked_up").length;
+  const pickupRate = totalSessions > 0 ? Math.round((pickedUp / totalSessions) * 100) : 0;
+
+  const monthlyMap: Record<number, number> = {};
+  for (let m = 1; m <= 12; m++) monthlyMap[m] = 0;
+  for (const rec of yearAttendance) {
+    const month = parseInt(rec.serviceDate.split("-")[1], 10);
+    monthlyMap[month] = (monthlyMap[month] || 0) + 1;
+  }
+  const monthlyAttendance = Object.entries(monthlyMap).map(([month, count]) => ({
+    month: parseInt(month, 10),
+    count,
+    label: new Date(targetYear, parseInt(month, 10) - 1, 1).toLocaleString("en", { month: "short" }),
+  }));
+
+  const peakMonth = monthlyAttendance.reduce((best, m) => m.count > best.count ? m : best, monthlyAttendance[0]);
+
+  const allFeedback = await db.select().from(parentFeedbackTable);
+  const yearFeedback = allFeedback.filter(f => new Date(f.createdAt).getFullYear() === targetYear);
+  const avgRating = yearFeedback.length > 0
+    ? (yearFeedback.reduce((s, f) => s + Number(f.rating || 0), 0) / yearFeedback.length).toFixed(1)
+    : null;
+
+  const yearEmergencies = await db.select().from(emergenciesTable)
+    .where(sql`EXTRACT(YEAR FROM ${emergenciesTable.createdAt}) = ${targetYear}`);
+
+  const newFamilies = allFamilies.filter(f => new Date(f.createdAt).getFullYear() === targetYear).length;
+  const newChildren = allChildren.filter(c => new Date(c.createdAt).getFullYear() === targetYear).length;
+
+  const teacherAllocsYear = await db.select().from(teacherAllocationsTable)
+    .where(and(sql`${teacherAllocationsTable.serviceDate} >= ${startDate}`, sql`${teacherAllocationsTable.serviceDate} <= ${endDate}`));
+  const completedServices = teacherAllocsYear.filter(a => a.status === "completed").length;
+
+  res.json({
+    year: targetYear,
+    totalChildren: allChildren.length,
+    newChildrenThisYear: newChildren,
+    totalFamilies: allFamilies.length,
+    newFamiliesThisYear: newFamilies,
+    totalTeachers: allTeachers.length,
+    totalSessions,
+    uniqueChildrenAttended: uniqueChildIds.size,
+    pickupRate,
+    avgFeedbackRating: avgRating,
+    totalFeedbackResponses: yearFeedback.length,
+    totalEmergencies: yearEmergencies.length,
+    resolvedEmergencies: yearEmergencies.filter(e => e.status === "resolved").length,
+    completedTeacherServices: completedServices,
+    monthlyAttendance,
+    peakMonth: peakMonth?.label || "N/A",
+    peakMonthCount: peakMonth?.count || 0,
+  });
+});
+
 export default router;

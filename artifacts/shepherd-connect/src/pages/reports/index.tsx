@@ -235,7 +235,7 @@ export default function Reports() {
   const [serviceSlot, setServiceSlot] = useState("");
   const [exportFrom, setExportFrom] = useState("");
   const [exportTo, setExportTo] = useState(today);
-  const [activeTab, setActiveTab] = useState<"live" | "exports" | "analytics" | "builder" | "heatmap">("live");
+  const [activeTab, setActiveTab] = useState<"live" | "exports" | "analytics" | "builder" | "heatmap" | "annual">("live");
   const { toast } = useToast();
 
   const [reportType, setReportType]       = useState<ReportType>("attendance");
@@ -456,12 +456,21 @@ export default function Reports() {
     enabled: activeTab === "heatmap",
   });
 
+  const [annualYear, setAnnualYear] = useState(new Date().getFullYear());
+
+  const { data: annualData, isLoading: annualLoading } = useQuery({
+    queryKey: ["annual-summary", annualYear],
+    queryFn: () => apiGet<any>(`/reports/annual-summary?year=${annualYear}`),
+    enabled: activeTab === "annual",
+  });
+
   const tabs = [
     { key: "live",     label: "Live Reports",    icon: Clock },
     { key: "exports",  label: "Export Data",     icon: Download },
     { key: "analytics",label: "Analytics",       icon: BarChart3 },
     { key: "heatmap",  label: "Room Heatmap",    icon: LayoutGrid },
     { key: "builder",  label: "Custom Builder",  icon: Wand2 },
+    { key: "annual",   label: "Annual Summary",  icon: GraduationCap },
   ] as const;
 
   return (
@@ -1479,6 +1488,82 @@ export default function Reports() {
               </div>
             )}
           </div>
+        </div>
+      )}
+
+      {/* ── ANNUAL SUMMARY ── */}
+      {activeTab === "annual" && (
+        <div className="space-y-6">
+          <div className="flex items-center gap-4 flex-wrap">
+            <div className="flex items-center gap-2">
+              <label className="text-sm font-semibold text-gray-700">Year:</label>
+              <select
+                value={annualYear}
+                onChange={e => setAnnualYear(parseInt(e.target.value, 10))}
+                className="border rounded-xl px-3 py-2 text-sm font-medium bg-white"
+              >
+                {[0,1,2,3].map(offset => {
+                  const yr = new Date().getFullYear() - offset;
+                  return <option key={yr} value={yr}>{yr}</option>;
+                })}
+              </select>
+            </div>
+          </div>
+
+          {annualLoading ? (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              {Array(8).fill(0).map((_, i) => <Skeleton key={i} className="h-28 rounded-2xl" />)}
+            </div>
+          ) : annualData ? (
+            <>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                {[
+                  { label: "Total Children", value: annualData.totalChildren, sub: `+${annualData.newChildrenThisYear} joined in ${annualYear}`, color: "from-blue-700 to-blue-500" },
+                  { label: "Total Families", value: annualData.totalFamilies, sub: `+${annualData.newFamiliesThisYear} new families`, color: "from-indigo-700 to-indigo-500" },
+                  { label: "Total Teachers", value: annualData.totalTeachers, sub: `${annualData.completedTeacherServices} completed services`, color: "from-violet-700 to-violet-500" },
+                  { label: "Attendance Records", value: annualData.totalSessions, sub: `${annualData.uniqueChildrenAttended} unique children`, color: "from-amber-600 to-amber-400" },
+                  { label: "Pickup Rate", value: `${annualData.pickupRate}%`, sub: "Children collected on time", color: "from-green-700 to-green-500" },
+                  { label: "Avg Feedback Rating", value: annualData.avgFeedbackRating ? `${annualData.avgFeedbackRating}/5` : "N/A", sub: `${annualData.totalFeedbackResponses} responses`, color: "from-pink-600 to-pink-400" },
+                  { label: "Emergencies", value: annualData.totalEmergencies, sub: `${annualData.resolvedEmergencies} resolved`, color: "from-red-700 to-red-500" },
+                  { label: "Peak Month", value: annualData.peakMonth, sub: `${annualData.peakMonthCount} sessions`, color: "from-teal-700 to-teal-500" },
+                ].map(card => (
+                  <div key={card.label} className={`rounded-2xl p-5 bg-gradient-to-br ${card.color} text-white`}>
+                    <p className="text-xs font-bold uppercase tracking-wide opacity-80">{card.label}</p>
+                    <p className="text-3xl font-black mt-1">{card.value}</p>
+                    <p className="text-xs opacity-75 mt-1">{card.sub}</p>
+                  </div>
+                ))}
+              </div>
+
+              <div className="bg-white rounded-2xl border border-gray-100 p-6">
+                <h3 className="text-sm font-bold text-gray-700 mb-4 uppercase tracking-wide">Monthly Attendance — {annualYear}</h3>
+                <div className="flex items-end gap-2 h-40">
+                  {annualData.monthlyAttendance.map((m: any) => {
+                    const maxCount = Math.max(...annualData.monthlyAttendance.map((x: any) => x.count), 1);
+                    const pct = (m.count / maxCount) * 100;
+                    const isPeak = m.label === annualData.peakMonth;
+                    return (
+                      <div key={m.month} className="flex-1 flex flex-col items-center gap-1">
+                        <span className="text-xs font-bold text-gray-600">{m.count > 0 ? m.count : ""}</span>
+                        <div className="w-full rounded-t-lg transition-all" style={{
+                          height: `${Math.max(pct, 2)}%`,
+                          background: isPeak ? "linear-gradient(to top, #1e3a8a, #3b82f6)" : "linear-gradient(to top, #e5e7eb, #d1d5db)",
+                        }} />
+                        <span className="text-xs text-gray-500">{m.label}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+                <p className="text-xs text-gray-400 mt-3 text-center">Peak: {annualData.peakMonth} ({annualData.peakMonthCount} sessions)</p>
+              </div>
+            </>
+          ) : (
+            <div className="text-center py-16 text-gray-400">
+              <GraduationCap className="h-12 w-12 mx-auto mb-3 text-gray-200" />
+              <p className="font-semibold">No data available for {annualYear}</p>
+              <p className="text-sm mt-1">Try a different year or check that data has been seeded.</p>
+            </div>
+          )}
         </div>
       )}
     </div>

@@ -4,11 +4,76 @@ import { useParams, Link } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import { AlertTriangle, Clock, Calendar, CheckSquare, Award, Activity, Phone, Shield, Stethoscope } from "lucide-react";
+import { AlertTriangle, Clock, Calendar, CheckSquare, Award, Activity, Phone, Shield, Stethoscope, Route, ArrowRight } from "lucide-react";
 import { format } from "date-fns";
 import { QRCodeSVG } from "qrcode.react";
 import FaceEnrollment from "@/components/FaceEnrollment";
 import { apiGet } from "@/lib/api-call";
+
+function ClassJourneyTimeline({ childId }: { childId: number }) {
+  const { data: assignments, isLoading } = useQuery({
+    queryKey: ["class-assignments", childId],
+    queryFn: () => apiGet<any[]>(`/class-assignments?childId=${childId}`),
+    enabled: !!childId,
+  });
+
+  const sorted = [...(assignments || [])].sort(
+    (a, b) => new Date(a.assignedAt || a.createdAt || 0).getTime() - new Date(b.assignedAt || b.createdAt || 0).getTime()
+  );
+
+  if (!isLoading && sorted.length === 0) return null;
+
+  return (
+    <Card className="rounded-2xl border-gray-100 shadow-sm">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Route className="w-5 h-5 text-blue-700" /> Class Journey
+        </CardTitle>
+        <p className="text-xs text-gray-500 -mt-1">Class progression history for this child</p>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <div className="space-y-3">{[1,2,3].map(i => <Skeleton key={i} className="h-12 w-full" />)}</div>
+        ) : (
+          <div className="relative">
+            <div className="absolute left-4 top-0 bottom-0 w-0.5 bg-gradient-to-b from-blue-200 via-blue-100 to-transparent" />
+            <div className="space-y-3">
+              {sorted.map((a, i) => {
+                const isLast = i === sorted.length - 1;
+                return (
+                  <div key={a.id} className="flex items-start gap-4 pl-10 relative">
+                    <div className={`absolute left-2.5 top-2 w-3 h-3 rounded-full border-2 flex-shrink-0 ${
+                      isLast ? "bg-blue-700 border-blue-700" : "bg-white border-blue-300"
+                    }`} />
+                    <div className={`flex-1 rounded-xl p-3 border ${isLast ? "bg-blue-50 border-blue-200" : "bg-gray-50 border-gray-100"}`}>
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <div className="flex items-center gap-2">
+                          <span className={`font-semibold text-sm ${isLast ? "text-blue-900" : "text-gray-700"}`}>
+                            {a.class?.name || `Class #${a.classId}`}
+                          </span>
+                          {isLast && <Badge className="bg-blue-700 text-white text-xs px-1.5 py-0">Current</Badge>}
+                        </div>
+                        <span className="text-xs text-gray-400">
+                          {a.assignedAt || a.createdAt
+                            ? format(new Date(a.assignedAt || a.createdAt), "MMM d, yyyy")
+                            : "—"}
+                        </span>
+                      </div>
+                      {a.notes && <p className="text-xs text-gray-500 mt-1">{a.notes}</p>}
+                    </div>
+                    {!isLast && (
+                      <ArrowRight className="absolute left-[38px] top-[38px] h-3 w-3 text-blue-200 rotate-90" />
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
 
 export default function ChildProfile() {
   const { id } = useParams();
@@ -145,6 +210,9 @@ export default function ChildProfile() {
           </CardContent>
         </Card>
       )}
+
+      {/* Class Journey Timeline */}
+      <ClassJourneyTimeline childId={childId} />
 
       <div className="grid md:grid-cols-2 gap-6">
         <Card className="rounded-2xl border-gray-100 shadow-sm">

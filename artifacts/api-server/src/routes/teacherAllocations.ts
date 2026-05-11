@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and, or, sql } from "drizzle-orm";
 import { db, teacherAllocationsTable, teachersTable, classesTable, usersTable, notificationsTable } from "@workspace/db";
 import { CreateTeacherAllocationBody, UpdateTeacherAllocationBody, ListTeacherAllocationsQueryParams } from "@workspace/api-zod";
 import { authMiddleware, requireRoles } from "../middlewares/auth";
@@ -162,6 +162,44 @@ router.post("/teacher-allocations/:id/swap", authMiddleware, requireRoles("super
   }
 
   res.json(await formatAllocation(updated));
+});
+
+router.post("/teacher-allocations/:id/mark-unavailable", authMiddleware, async (req, res): Promise<void> => {
+  const id = parseInt(req.params.id as string, 10);
+  if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
+  const { reason } = req.body as { reason?: string };
+
+  const [alloc] = await db.select().from(teacherAllocationsTable).where(eq(teacherAllocationsTable.id, id));
+  if (!alloc) { res.status(404).json({ error: "Not found", message: "Allocation not found" }); return; }
+
+  const [updated] = await db.update(teacherAllocationsTable)
+    .set({ status: "cancelled" })
+    .where(eq(teacherAllocationsTable.id, id)).returning();
+
+  const [teacher] = await db.select().from(teachersTable).where(eq(teachersTable.id, alloc.teacherId));
+  const [cls] = await db.select().from(classesTable).where(eq(classesTable.id, alloc.classId));
+  let teacherName = "A teacher";
+  if (teacher) {
+    const [u] = await db.select().from(usersTable).where(eq(usersTable.id, teacher.userId));
+    if (u) teacherName = `${u.firstName} ${u.lastName}`;
+  }
+
+  const admins = await db.select({ id: usersTable.id }).from(usersTable)
+    .where(and(eq(usersTable.isActive, true), or(eq(usersTable.role, "admin"), eq(usersTable.role, "super_admin"))));
+
+  if (admins.length > 0) {
+    await db.insert(notificationsTable).values(admins.map(a => ({
+      userId: a.id,
+      type: "teacher_unavailable",
+      title: "⚠️ Teacher Unavailable — Substitute Needed",
+      message: `${teacherName} is unavailable for ${cls?.name || "class"} on ${alloc.serviceDate} (${alloc.serviceSlot}).${reason ? " Reason: " + reason : ""} Please assign a substitute.`,
+      channel: "in_app" as const,
+      readStatus: false,
+      metadataJson: JSON.stringify({ allocationId: id, teacherId: alloc.teacherId, classId: alloc.classId, serviceDate: alloc.serviceDate }),
+    })));
+  }
+
+  res.json({ ...await formatAllocation(updated), teacherName, className: cls?.name, adminNotified: admins.length });
 });
 
 export default router;

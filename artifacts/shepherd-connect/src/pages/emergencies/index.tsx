@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import {
   AlertTriangle, Flame, ShieldAlert, HeartPulse, Shield, BadgeAlert,
   ChevronRight, Search, CheckCircle, MessageSquare, TrendingUp, Clock,
-  Users, UserCheck, Radio, ChevronDown, ChevronUp, MapPin, Info,
+  Users, UserCheck, Radio, ChevronDown, ChevronUp, MapPin, Info, FileText,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiGet, apiPost, apiPut } from "@/lib/api-call";
@@ -45,6 +45,58 @@ type Emergency = {
   resolvedAt: string | null; resolutionNotes: string | null;
   child: any; triggeredByUser: any; updates?: EmergencyUpdate[];
 };
+
+// ─── post-incident report ─────────────────────────────────────────────────────
+
+async function generateIncidentReport(emergency: Emergency) {
+  let updates: EmergencyUpdate[] = [];
+  try { updates = await apiGet<EmergencyUpdate[]>(`/emergencies/${emergency.id}/updates`); } catch {}
+  const typeLabel = emergency.type.replace(/_/g, " ").toUpperCase();
+  const duration = emergency.resolvedAt
+    ? Math.round((new Date(emergency.resolvedAt).getTime() - new Date(emergency.createdAt).getTime()) / 60000)
+    : null;
+  const win = window.open("", "_blank", "width=820,height=750");
+  if (!win) return;
+  win.document.write(`<!DOCTYPE html><html><head><title>Incident Report #${emergency.id}</title><style>
+  body{font-family:Inter,Arial,sans-serif;padding:32px;color:#111;max-width:720px;margin:0 auto}
+  h1{color:#1e3a8a;font-size:22px;margin:0 0 4px}
+  .sub{color:#6b7280;font-size:13px;margin-bottom:24px}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px}
+  .box{background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:12px}
+  .box-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#6b7280;margin-bottom:4px}
+  .box-val{font-size:15px;font-weight:700;color:#111827}
+  .box-green{border-color:#86efac;background:#f0fdf4}.box-val-green{color:#166534}
+  .tl-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#6b7280;margin:20px 0 10px}
+  .upd{padding:10px 14px;border-left:3px solid #e5e7eb;margin-bottom:8px;background:#f9fafb;border-radius:0 8px 8px 0}
+  .upd.escalation{border-color:#f97316;background:#fff7ed}
+  .upd.all_clear{border-color:#22c55e;background:#f0fdf4}
+  .upd-hdr{display:flex;justify-content:space-between;font-size:11px;color:#6b7280;margin-bottom:4px}
+  .upd-author{font-weight:700;color:#374151}
+  .upd-msg{font-size:13px;color:#111827}
+  .footer{margin-top:32px;padding-top:16px;border-top:1px solid #e5e7eb;font-size:11px;color:#9ca3af;display:flex;justify-content:space-between}
+  @media print{@page{margin:1cm}}
+  </style></head><body>
+  <h1>Post-Incident Report #${emergency.id}</h1>
+  <p class="sub">Shepherd Connect — RCCG City of David &nbsp;·&nbsp; Generated: ${new Date().toLocaleString()}</p>
+  <div class="grid2">
+    <div class="box"><div class="box-label">Emergency Type</div><div class="box-val">${typeLabel}</div></div>
+    <div class="box"><div class="box-label">Severity Level</div><div class="box-val">${emergency.level}</div></div>
+    <div class="box"><div class="box-label">Triggered</div><div class="box-val" style="font-size:13px">${new Date(emergency.createdAt).toLocaleString()}</div></div>
+    <div class="box"><div class="box-label">Resolved</div><div class="box-val" style="font-size:13px">${emergency.resolvedAt ? new Date(emergency.resolvedAt).toLocaleString() : "—"}</div></div>
+    ${duration !== null ? `<div class="box"><div class="box-label">Duration</div><div class="box-val">${duration} minutes</div></div>` : ""}
+    <div class="box"><div class="box-label">Triggered By</div><div class="box-val" style="font-size:13px">${emergency.triggeredByUser ? emergency.triggeredByUser.firstName + " " + emergency.triggeredByUser.lastName : "Unknown"}</div></div>
+    ${emergency.child ? `<div class="box"><div class="box-label">Child Involved</div><div class="box-val" style="font-size:13px">${emergency.child.firstName} ${emergency.child.lastName}</div></div>` : ""}
+  </div>
+  <div class="box" style="margin-bottom:16px"><div class="box-label">Description</div><div class="box-val" style="font-size:14px;font-weight:500;margin-top:4px">${emergency.description}</div></div>
+  ${emergency.resolutionNotes ? `<div class="box box-green" style="margin-bottom:16px"><div class="box-label box-val-green">Resolution Notes</div><div class="box-val box-val-green" style="font-size:14px;font-weight:500;margin-top:4px">${emergency.resolutionNotes}</div></div>` : ""}
+  <div class="tl-title">Incident Timeline (${updates.length} entr${updates.length === 1 ? "y" : "ies"})</div>
+  ${updates.length === 0 ? '<p style="color:#9ca3af;font-size:13px">No updates were logged during this incident.</p>' : ""}
+  ${updates.map(u => `<div class="upd ${u.updateType}"><div class="upd-hdr"><span class="upd-author">${u.user ? u.user.firstName + " " + u.user.lastName : "System"} (${u.user?.role || "system"})</span><span>${new Date(u.createdAt).toLocaleString()}</span></div><div class="upd-msg">${u.message}</div></div>`).join("")}
+  <div class="footer"><span>Shepherd Connect — Confidential Safeguarding Record</span><span>Incident #${emergency.id}</span></div>
+  <script>window.onload=function(){setTimeout(function(){window.print()},400)}<\/script>
+  </body></html>`);
+  win.document.close();
+}
 
 // ─── escalation tree config ───────────────────────────────────────────────────
 
@@ -902,20 +954,25 @@ export default function Emergencies() {
           <div className="divide-y">
             {history.slice(0, 20).map(em => (
               <div key={em.id}
-                className="px-5 py-3 flex items-center justify-between hover:bg-gray-50 cursor-pointer transition-colors"
-                onClick={() => setShowDetailId(em.id)}>
-                <div className="flex items-center gap-3">
+                className="px-5 py-3 flex items-center justify-between hover:bg-gray-50 transition-colors">
+                <div className="flex items-center gap-3 cursor-pointer flex-1 min-w-0" onClick={() => setShowDetailId(em.id)}>
                   <div className={`w-8 h-8 rounded-lg flex items-center justify-center bg-gradient-to-br ${COLORS[em.type] || "from-gray-500 to-gray-700"} text-white flex-shrink-0`}>
                     <EmergencyIcon type={em.type} className="h-4 w-4" />
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <p className="text-sm font-semibold text-gray-900 capitalize">{em.type.replace(/_/g, " ")} · {em.level}</p>
                     <p className="text-xs text-gray-500">{format(new Date(em.createdAt), "MMM d, yyyy h:mm a")}</p>
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-shrink-0">
                   <Badge className="bg-green-100 text-green-800 border-green-200 text-xs">Resolved</Badge>
-                  <ChevronRight className="h-4 w-4 text-gray-400" />
+                  <button
+                    onClick={() => generateIncidentReport(em)}
+                    className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-blue-700 border border-blue-200 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors"
+                    title="Download post-incident report">
+                    <FileText className="h-3.5 w-3.5" /> Report
+                  </button>
+                  <ChevronRight className="h-4 w-4 text-gray-400 cursor-pointer" onClick={() => setShowDetailId(em.id)} />
                 </div>
               </div>
             ))}
