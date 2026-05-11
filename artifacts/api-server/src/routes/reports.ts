@@ -2,6 +2,7 @@ import { Router } from "express";
 import { eq, and, ne, sql } from "drizzle-orm";
 import { db, attendanceTable, childrenTable, classesTable, familiesTable, usersTable, emergenciesTable, pickupDelegatesTable, teacherAllocationsTable, teachersTable, parentFeedbackTable, childAppraisalsTable } from "@workspace/db";
 import { authMiddleware, requireRoles } from "../middlewares/auth";
+import { streamPdf, renderReportPdf } from "../lib/pdf";
 
 const router = Router();
 
@@ -488,6 +489,180 @@ router.get("/reports/custom-builder", authMiddleware, requireRoles("super_admin"
   }
 
   res.status(400).json({ error: "Unknown report type", validTypes: ["attendance", "arrivals", "not-picked-up", "appraisals", "teacher-schedule", "family-registry", "feedback"] });
+});
+
+// ─── PDF Export Routes ────────────────────────────────────────────────────────
+
+router.get("/reports/pdf/attendance", authMiddleware, requireRoles("super_admin", "admin"), async (req, res): Promise<void> => {
+  const { from, to, serviceSlot, classId } = req.query as { from?: string; to?: string; serviceSlot?: string; classId?: string };
+  const conds: ReturnType<typeof eq>[] = [];
+  if (serviceSlot) conds.push(eq(attendanceTable.serviceSlot, serviceSlot));
+  if (classId) conds.push(eq(attendanceTable.classId, parseInt(classId, 10)));
+
+  const records = await db.select().from(attendanceTable)
+    .where(conds.length ? and(...conds) : undefined)
+    .orderBy(attendanceTable.serviceDate);
+
+  const filtered = records.filter(r => {
+    if (from && r.serviceDate < from) return false;
+    if (to && r.serviceDate > to) return false;
+    return true;
+  });
+
+  const rows = await Promise.all(filtered.map(async (r) => {
+    const [child] = await db.select().from(childrenTable).where(eq(childrenTable.id, r.childId));
+    const [cls] = await db.select().from(classesTable).where(eq(classesTable.id, r.classId));
+    return [
+      r.serviceDate,
+      r.serviceSlot,
+      child ? `${child.firstName} ${child.lastName}` : "Unknown",
+      cls?.name || "Unknown",
+      r.status,
+      r.checkInTime ? new Date(r.checkInTime).toLocaleTimeString() : "—",
+      r.checkOutTime ? new Date(r.checkOutTime).toLocaleTimeString() : "—",
+    ];
+  }));
+
+  const pickedUp = rows.filter(r => r[4] === "picked_up").length;
+  const uniqueDates = new Set(rows.map(r => r[0])).size;
+  const rate = rows.length > 0 ? Math.round((pickedUp / rows.length) * 100) : 0;
+
+  const dateLabel = from && to ? `${from} to ${to}` : from ? `from ${from}` : to ? `to ${to}` : "All dates";
+  const slotLabel = serviceSlot ? ` · ${serviceSlot}` : "";
+
+  streamPdf(res, `attendance-${from || "all"}-to-${to || "all"}.pdf`, (doc) => {
+    renderReportPdf(doc, {
+      title: "Attendance Report",
+      subtitle: `${dateLabel}${slotLabel} · ${rows.length} records`,
+      columns: [
+        { label: "Date", width: 65 },
+        { label: "Slot", width: 50 },
+        { label: "Child Name", width: 110 },
+        { label: "Class", width: 90 },
+        { label: "Status", width: 70 },
+        { label: "Check-In", width: 65 },
+        { label: "Check-Out", width: 65 },
+      ],
+      rows,
+      summaryStats: [
+        { label: "Total Records", value: String(rows.length) },
+        { label: "Picked Up", value: String(pickedUp) },
+        { label: "Pickup Rate", value: `${rate}%` },
+        { label: "Service Days", value: String(uniqueDates) },
+      ],
+    });
+  });
+});
+
+router.get("/reports/pdf/feedback", authMiddleware, requireRoles("super_admin", "admin"), async (req, res): Promise<void> => {
+  const { from, to } = req.query as { from?: string; to?: string };
+  const feedbacks = await db.select().from(parentFeedbackTable).orderBy(parentFeedbackTable.createdAt);
+  const filtered = feedbacks.filter(f => {
+    const date = new Date(f.createdAt).toISOString().split("T")[0];
+    if (from && date < from) return false;
+    if (to && date > to) return false;
+    return true;
+  });
+
+  const rows = await Promise.all(filtered.map(async (f) => {
+    const [user] = await db.select().from(usersTable).where(eq(usersTable.id, f.parentId));
+    return [
+      new Date(f.createdAt).toISOString().split("T")[0],
+      user ? `${user.firstName} ${user.lastName}` : "—",
+      f.serviceDate || "—",
+      String(f.rating),
+      String(f.classExperience),
+      String(f.teacherEngagement),
+      String(f.safetyRating),
+      f.sentimentLabel || "unanalyzed",
+      f.improvementNote?.slice(0, 60) || "—",
+    ];
+  }));
+
+  const avgRating = rows.length > 0
+    ? (rows.reduce((s, r) => s + Number(r[3]), 0) / rows.length).toFixed(1)
+    : "—";
+  const positive = rows.filter(r => r[7] === "positive").length;
+  const negative = rows.filter(r => r[7] === "negative").length;
+  const neutral = rows.length - positive - negative;
+
+  const dateLabel = from && to ? `${from} to ${to}` : "All dates";
+
+  streamPdf(res, `feedback-${from || "all"}-to-${to || "all"}.pdf`, (doc) => {
+    renderReportPdf(doc, {
+      title: "Parent Feedback Report",
+      subtitle: `${dateLabel} · ${rows.length} responses`,
+      columns: [
+        { label: "Date", width: 60 },
+        { label: "Parent", width: 95 },
+        { label: "Service Date", width: 65 },
+        { label: "Rating", width: 42 },
+        { label: "Class Exp.", width: 42 },
+        { label: "Teacher Eng.", width: 50 },
+        { label: "Safety", width: 40 },
+        { label: "Sentiment", width: 60 },
+        { label: "Note", width: 61 },
+      ],
+      rows,
+      summaryStats: [
+        { label: "Total Responses", value: String(rows.length) },
+        { label: "Avg Rating", value: `${avgRating} ★` },
+        { label: "Positive", value: String(positive) },
+        { label: "Neutral", value: String(neutral) },
+        { label: "Negative", value: String(negative) },
+      ],
+    });
+  });
+});
+
+router.get("/reports/pdf/emergency-log", authMiddleware, requireRoles("super_admin", "admin"), async (req, res): Promise<void> => {
+  const records = await db.select().from(emergenciesTable).orderBy(emergenciesTable.createdAt);
+  const enriched = await Promise.all(records.map(async (r) => {
+    let childName = "—";
+    if (r.childId) {
+      const [child] = await db.select().from(childrenTable).where(eq(childrenTable.id, r.childId));
+      if (child) childName = `${child.firstName} ${child.lastName}`;
+    }
+    const [triggeredByUser] = await db.select().from(usersTable).where(eq(usersTable.id, r.triggeredBy));
+    return [
+      r.type,
+      r.level,
+      r.status,
+      (r.description || "").slice(0, 60),
+      childName,
+      triggeredByUser ? `${triggeredByUser.firstName} ${triggeredByUser.lastName}` : "Unknown",
+      new Date(r.createdAt).toLocaleDateString(),
+      r.resolvedAt ? new Date(r.resolvedAt).toLocaleDateString() : "—",
+    ];
+  }));
+
+  const resolved = enriched.filter(r => r[2] === "resolved").length;
+  const medical = enriched.filter(r => r[0] === "medical").length;
+  const security = enriched.filter(r => r[0] === "security").length;
+
+  streamPdf(res, `emergency-log-${new Date().toISOString().split("T")[0]}.pdf`, (doc) => {
+    renderReportPdf(doc, {
+      title: "Emergency Incident Log",
+      subtitle: `Generated ${new Date().toLocaleDateString()} · ${enriched.length} incidents total`,
+      columns: [
+        { label: "Type", width: 65 },
+        { label: "Level", width: 42 },
+        { label: "Status", width: 58 },
+        { label: "Description", width: 125 },
+        { label: "Child", width: 80 },
+        { label: "Triggered By", width: 85 },
+        { label: "Date", width: 60 },
+      ],
+      rows: enriched.map(r => r.slice(0, 7)),
+      summaryStats: [
+        { label: "Total Incidents", value: String(enriched.length) },
+        { label: "Resolved", value: String(resolved) },
+        { label: "Open", value: String(enriched.length - resolved) },
+        { label: "Medical", value: String(medical) },
+        { label: "Security", value: String(security) },
+      ],
+    });
+  });
 });
 
 export default router;

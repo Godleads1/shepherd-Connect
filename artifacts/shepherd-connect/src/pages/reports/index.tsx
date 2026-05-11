@@ -29,6 +29,16 @@ async function downloadCsv(path: string, filename: string) {
   URL.revokeObjectURL(url);
 }
 
+async function downloadPdf(path: string, filename: string) {
+  const res = await fetch(`${BASE}${path}`, { headers: { Authorization: `Bearer ${token()}` } });
+  if (!res.ok) throw new Error("Download failed");
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename; a.click();
+  URL.revokeObjectURL(url);
+}
+
 function printReport(title: string, contentId: string) {
   const el = document.getElementById(contentId);
   if (!el) return;
@@ -380,11 +390,41 @@ export default function Reports() {
     } catch { toast({ variant: "destructive", title: "Export failed" }); }
   };
 
+  const handleAttendancePdf = async () => {
+    try {
+      const params = new URLSearchParams();
+      if (exportFrom) params.set("from", exportFrom);
+      if (exportTo) params.set("to", exportTo);
+      if (serviceSlot) params.set("serviceSlot", serviceSlot);
+      const qs = params.toString();
+      await downloadPdf(`/reports/pdf/attendance${qs ? "?" + qs : ""}`, `attendance-${exportFrom || "all"}-to-${exportTo || "all"}.pdf`);
+      toast({ title: "Attendance PDF downloaded" });
+    } catch { toast({ variant: "destructive", title: "PDF export failed" }); }
+  };
+
   const handleEmergencyExport = async () => {
     try {
       await downloadCsv("/reports/emergency-log?format=csv", "emergency-log.csv");
       toast({ title: "Emergency log downloaded" });
     } catch { toast({ variant: "destructive", title: "Export failed" }); }
+  };
+
+  const handleEmergencyPdf = async () => {
+    try {
+      await downloadPdf("/reports/pdf/emergency-log", `emergency-log-${new Date().toISOString().split("T")[0]}.pdf`);
+      toast({ title: "Emergency log PDF downloaded" });
+    } catch { toast({ variant: "destructive", title: "PDF export failed" }); }
+  };
+
+  const handleFeedbackPdf = async () => {
+    try {
+      const params = new URLSearchParams();
+      if (exportFrom) params.set("from", exportFrom);
+      if (exportTo) params.set("to", exportTo);
+      const qs = params.toString();
+      await downloadPdf(`/reports/pdf/feedback${qs ? "?" + qs : ""}`, `feedback-${exportFrom || "all"}-to-${exportTo || "all"}.pdf`);
+      toast({ title: "Feedback PDF downloaded" });
+    } catch { toast({ variant: "destructive", title: "PDF export failed" }); }
   };
 
   const handleNotPickedUpExport = () => {
@@ -578,54 +618,121 @@ export default function Reports() {
           </div>
 
           <div className="grid sm:grid-cols-2 gap-4">
-            {[
-              { title: "Attendance Records", desc: "All attendance data for selected date range", icon: FileText, color: "#1e3a8a", action: handleAttendanceExport, label: "Download CSV" },
-              { title: "Emergency Log",      desc: "Full incident log with resolution notes",     icon: AlertTriangle, color: "#dc2626", action: handleEmergencyExport, label: "Download CSV" },
-              {
-                title: "Family Registry", desc: `All registered families with contacts (${familyRegistry?.total ?? "—"} families)`,
-                icon: Users, color: "#7c3aed",
-                action: async () => {
-                  try { await downloadCsv("/reports/families-export", "family-registry.csv"); toast({ title: "Family registry downloaded" }); }
-                  catch { toast({ variant: "destructive", title: "Export failed" }); }
-                },
-                label: "Download CSV",
-                extra: familyRegistry?.total != null ? (
+            {/* Attendance */}
+            <div className="p-4 rounded-xl bg-gray-50 border space-y-3">
+              <div className="flex items-center gap-2">
+                <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: "#1e3a8a18" }}>
+                  <FileText className="w-4 h-4" style={{ color: "#1e3a8a" }} />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-gray-900 text-sm">Attendance Records</h3>
+                  <p className="text-xs text-gray-500">All attendance data for selected date range</p>
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <Button size="sm" className="flex-1 flex items-center justify-center gap-1.5 text-xs"
+                  style={{ background: "linear-gradient(135deg, #1e3a8a, #1e3a8acc)" }}
+                  onClick={handleAttendanceExport}>
+                  <Download className="w-3.5 h-3.5" /> CSV
+                </Button>
+                <Button size="sm" variant="outline" className="flex-1 flex items-center justify-center gap-1.5 text-xs border-[#1e3a8a] text-[#1e3a8a] hover:bg-blue-50"
+                  onClick={handleAttendancePdf}>
+                  <FileText className="w-3.5 h-3.5" /> PDF
+                </Button>
+              </div>
+            </div>
+
+            {/* Emergency Log */}
+            <div className="p-4 rounded-xl bg-gray-50 border space-y-3">
+              <div className="flex items-center gap-2">
+                <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: "#dc262618" }}>
+                  <AlertTriangle className="w-4 h-4" style={{ color: "#dc2626" }} />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-gray-900 text-sm">Emergency Log</h3>
+                  <p className="text-xs text-gray-500">Full incident log with resolution notes</p>
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <Button size="sm" className="flex-1 flex items-center justify-center gap-1.5 text-xs"
+                  style={{ background: "linear-gradient(135deg, #dc2626, #dc2626cc)" }}
+                  onClick={handleEmergencyExport}>
+                  <Download className="w-3.5 h-3.5" /> CSV
+                </Button>
+                <Button size="sm" variant="outline" className="flex-1 flex items-center justify-center gap-1.5 text-xs border-red-600 text-red-700 hover:bg-red-50"
+                  onClick={handleEmergencyPdf}>
+                  <FileText className="w-3.5 h-3.5" /> PDF
+                </Button>
+              </div>
+            </div>
+
+            {/* Family Registry */}
+            <div className="p-4 rounded-xl bg-gray-50 border space-y-3">
+              <div className="flex items-start justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: "#7c3aed18" }}>
+                    <Users className="w-4 h-4" style={{ color: "#7c3aed" }} />
+                  </div>
+                  <div>
+                    <h3 className="font-semibold text-gray-900 text-sm">Family Registry</h3>
+                    <p className="text-xs text-gray-500">All registered families with contacts ({familyRegistry?.total ?? "—"} families)</p>
+                  </div>
+                </div>
+                {familyRegistry?.total != null && (
                   <button onClick={() => printReport("Family Registry", "family-registry-print")}
                     className="flex items-center gap-1 text-xs text-purple-700 hover:text-purple-900">
                     <Printer className="h-3.5 w-3.5" /> Print
                   </button>
-                ) : null,
-              },
-              {
-                title: "Teacher Schedule", desc: "Teacher-class assignments and service hours",
-                icon: BookOpen, color: "#0891b2",
-                action: async () => {
+                )}
+              </div>
+              <Button size="sm" className="w-full flex items-center justify-center gap-2 text-xs"
+                style={{ background: "linear-gradient(135deg, #7c3aed, #7c3aedcc)" }}
+                onClick={async () => {
+                  try { await downloadCsv("/reports/families-export", "family-registry.csv"); toast({ title: "Family registry downloaded" }); }
+                  catch { toast({ variant: "destructive", title: "Export failed" }); }
+                }}>
+                <Download className="w-3.5 h-3.5" /> Download CSV
+              </Button>
+            </div>
+
+            {/* Teacher Schedule */}
+            <div className="p-4 rounded-xl bg-gray-50 border space-y-3">
+              <div className="flex items-center gap-2">
+                <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: "#0891b218" }}>
+                  <BookOpen className="w-4 h-4" style={{ color: "#0891b2" }} />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-gray-900 text-sm">Teacher Schedule</h3>
+                  <p className="text-xs text-gray-500">Teacher-class assignments and service hours</p>
+                </div>
+              </div>
+              <Button size="sm" className="w-full flex items-center justify-center gap-2 text-xs"
+                style={{ background: "linear-gradient(135deg, #0891b2, #0891b2cc)" }}
+                onClick={async () => {
                   try { await downloadCsv(`/reports/teacher-schedule?serviceDate=${serviceDate}&format=csv`, `teacher-schedule-${serviceDate}.csv`); toast({ title: "Teacher schedule downloaded" }); }
                   catch { toast({ variant: "destructive", title: "Export failed" }); }
-                },
-                label: "Download CSV",
-              },
-            ].map(({ title, desc, icon: Icon, color, action, label, extra }: any) => (
-              <div key={title} className="p-4 rounded-xl bg-gray-50 border space-y-3">
-                <div className="flex items-start justify-between">
-                  <div className="flex items-center gap-2">
-                    <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: color + "18" }}>
-                      <Icon className="w-4 h-4" style={{ color }} />
-                    </div>
-                    <div>
-                      <h3 className="font-semibold text-gray-900 text-sm">{title}</h3>
-                      <p className="text-xs text-gray-500">{desc}</p>
-                    </div>
-                  </div>
-                  {extra}
+                }}>
+                <Download className="w-3.5 h-3.5" /> Download CSV
+              </Button>
+            </div>
+
+            {/* Feedback */}
+            <div className="p-4 rounded-xl bg-gray-50 border space-y-3">
+              <div className="flex items-center gap-2">
+                <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: "#f59e0b18" }}>
+                  <Star className="w-4 h-4" style={{ color: "#f59e0b" }} />
                 </div>
-                <Button size="sm" className="w-full flex items-center gap-2 text-xs"
-                  style={{ background: `linear-gradient(135deg, ${color}, ${color}cc)` }}
-                  onClick={action}>
-                  <Download className="w-3.5 h-3.5" /> {label}
-                </Button>
+                <div>
+                  <h3 className="font-semibold text-gray-900 text-sm">Parent Feedback</h3>
+                  <p className="text-xs text-gray-500">All feedback with sentiment and ratings</p>
+                </div>
               </div>
-            ))}
+              <Button size="sm" className="w-full flex items-center justify-center gap-2 text-xs"
+                style={{ background: "linear-gradient(135deg, #f59e0b, #f59e0bcc)" }}
+                onClick={handleFeedbackPdf}>
+                <FileText className="w-3.5 h-3.5" /> Download PDF
+              </Button>
+            </div>
           </div>
 
           {familyRegistry?.families && (
