@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useListClasses } from "@workspace/api-client-react";
 import { apiGet } from "@/lib/api-call";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -7,7 +8,10 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Download, AlertTriangle, Clock, Users, BarChart3, FileText, Bell, Star, Printer, TrendingUp, BookOpen } from "lucide-react";
+import {
+  Download, AlertTriangle, Clock, Users, BarChart3, FileText, Bell,
+  Star, Printer, TrendingUp, BookOpen, Wand2, RefreshCw, Table2,
+} from "lucide-react";
 import { format } from "date-fns";
 
 const BASE = "/api";
@@ -39,9 +43,6 @@ function printReport(title: string, contentId: string) {
       td { padding: 8px 12px; border-bottom: 1px solid #f3f4f6; }
       tr:nth-child(even) td { background: #f9fafb; }
       .badge { display: inline-block; padding: 2px 8px; border-radius: 9999px; font-size: 11px; font-weight: 600; }
-      .badge-red { background: #fee2e2; color: #991b1b; }
-      .badge-green { background: #d1fae5; color: #065f46; }
-      .badge-blue { background: #dbeafe; color: #1e40af; }
       @media print { @page { margin: 1cm; } }
     </style></head>
     <body>
@@ -53,14 +54,148 @@ function printReport(title: string, contentId: string) {
   setTimeout(() => { win.print(); }, 300);
 }
 
+async function exportBuilderPdf(title: string, columns: string[], rows: string[][], meta: string) {
+  const { default: jsPDF } = await import("jspdf");
+  const { default: autoTable } = await import("jspdf-autotable");
+
+  const isLandscape = columns.length > 6;
+  const doc = new jsPDF({ orientation: isLandscape ? "landscape" : "portrait", unit: "mm", format: "a4" });
+  const pageW = doc.internal.pageSize.getWidth();
+
+  doc.setFillColor(30, 58, 138);
+  doc.rect(0, 0, pageW, 22, "F");
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(15);
+  doc.setFont("helvetica", "bold");
+  doc.text("Shepherd Connect — RCCG City of David", 14, 10);
+  doc.setFontSize(10);
+  doc.setFont("helvetica", "normal");
+  doc.text("Safe. Known. Celebrated.", 14, 17);
+
+  doc.setTextColor(30, 58, 138);
+  doc.setFontSize(14);
+  doc.setFont("helvetica", "bold");
+  doc.text(title, 14, 32);
+
+  doc.setTextColor(107, 114, 128);
+  doc.setFontSize(9);
+  doc.setFont("helvetica", "normal");
+  doc.text(meta, 14, 39);
+  doc.text(`Generated: ${new Date().toLocaleString()}`, pageW - 14, 39, { align: "right" });
+
+  autoTable(doc, {
+    head: [columns],
+    body: rows,
+    startY: 44,
+    styles: { fontSize: 9, cellPadding: 3, overflow: "linebreak" },
+    headStyles: { fillColor: [30, 58, 138], textColor: 255, fontStyle: "bold", fontSize: 9 },
+    alternateRowStyles: { fillColor: [249, 250, 251] },
+    tableLineColor: [229, 231, 235],
+    tableLineWidth: 0.1,
+  });
+
+  const pageCount = (doc as any).internal.getNumberOfPages();
+  for (let i = 1; i <= pageCount; i++) {
+    doc.setPage(i);
+    doc.setFontSize(8);
+    doc.setTextColor(156, 163, 175);
+    doc.text(`Page ${i} of ${pageCount}`, pageW / 2, doc.internal.pageSize.getHeight() - 8, { align: "center" });
+  }
+
+  doc.save(`${title.toLowerCase().replace(/\s+/g, "-")}-${format(new Date(), "yyyy-MM-dd")}.pdf`);
+}
+
+function exportBuilderCsv(title: string, columns: string[], rows: string[][]) {
+  const csv = [columns, ...rows]
+    .map(row => row.map(c => `"${String(c ?? "").replace(/"/g, '""')}"`).join(","))
+    .join("\n");
+  const blob = new Blob([csv], { type: "text/csv" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${title.toLowerCase().replace(/\s+/g, "-")}-${format(new Date(), "yyyy-MM-dd")}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+const REPORT_TYPES = [
+  { value: "attendance",       label: "Attendance Log",         icon: Table2,         color: "#1e3a8a", desc: "Full check-in/in-class/pick-up log with timestamps" },
+  { value: "arrivals",         label: "Class Arrivals",         icon: Clock,          color: "#0891b2", desc: "Teacher-confirmed arrivals with drop-off → in-class lag" },
+  { value: "not-picked-up",    label: "Not Picked Up",          icon: AlertTriangle,  color: "#dc2626", desc: "Children still in church by date range" },
+  { value: "appraisals",       label: "Child Appraisals",       icon: Star,           color: "#7c3aed", desc: "Behaviour & participation appraisals by teacher" },
+  { value: "teacher-schedule", label: "Teacher Schedule",       icon: BookOpen,       color: "#059669", desc: "Allocations with class, room, and slot info" },
+  { value: "family-registry",  label: "Family Registry",        icon: Users,          color: "#d97706", desc: "All registered families with contacts" },
+] as const;
+
+type ReportType = typeof REPORT_TYPES[number]["value"];
+
+const SLOTS = ["7am", "9am", "11am", "1pm"];
+
 export default function Reports() {
   const today = format(new Date(), "yyyy-MM-dd");
+  const firstOfMonth = format(new Date(new Date().getFullYear(), new Date().getMonth(), 1), "yyyy-MM-dd");
+
   const [serviceDate, setServiceDate] = useState(today);
   const [serviceSlot, setServiceSlot] = useState("");
   const [exportFrom, setExportFrom] = useState("");
   const [exportTo, setExportTo] = useState(today);
-  const [activeTab, setActiveTab] = useState<"live" | "exports" | "analytics">("live");
+  const [activeTab, setActiveTab] = useState<"live" | "exports" | "analytics" | "builder">("live");
   const { toast } = useToast();
+
+  const [reportType, setReportType]     = useState<ReportType>("attendance");
+  const [builderFrom, setBuilderFrom]   = useState(firstOfMonth);
+  const [builderTo, setBuilderTo]       = useState(today);
+  const [builderClass, setBuilderClass] = useState("");
+  const [builderSlot, setBuilderSlot]   = useState("");
+  const [pdfLoading, setPdfLoading]     = useState(false);
+
+  const { data: classes } = useListClasses({}, { enabled: activeTab === "builder" });
+  const classList = Array.isArray(classes) ? classes : [];
+
+  const builderParams = new URLSearchParams({ reportType });
+  if (builderFrom) builderParams.set("from", builderFrom);
+  if (builderTo)   builderParams.set("to", builderTo);
+  if (builderClass && reportType !== "family-registry") builderParams.set("classId", builderClass);
+  if (builderSlot  && reportType !== "family-registry" && reportType !== "appraisals") builderParams.set("serviceSlot", builderSlot);
+
+  const {
+    data: builderData,
+    isLoading: builderLoading,
+    refetch: refetchBuilder,
+    isFetching: builderFetching,
+  } = useQuery({
+    queryKey: ["custom-builder", reportType, builderFrom, builderTo, builderClass, builderSlot],
+    queryFn: () => apiGet<any>(`/reports/custom-builder?${builderParams}`),
+    enabled: activeTab === "builder",
+  });
+
+  const handlePdfExport = useCallback(async () => {
+    if (!builderData?.columns || !builderData?.rows) return;
+    setPdfLoading(true);
+    try {
+      const typeMeta = REPORT_TYPES.find(r => r.value === reportType);
+      const meta = [
+        reportType !== "family-registry" && builderFrom ? `From: ${builderFrom}` : "",
+        reportType !== "family-registry" && builderTo   ? `To: ${builderTo}`     : "",
+        builderClass ? `Class: ${classList.find((c: any) => String(c.id) === builderClass)?.name || builderClass}` : "",
+        builderSlot  ? `Slot: ${builderSlot}`  : "",
+        `Total records: ${builderData.total}`,
+      ].filter(Boolean).join("  ·  ");
+      await exportBuilderPdf(typeMeta?.label || builderData.title, builderData.columns, builderData.rows, meta);
+      toast({ title: "PDF exported", description: `${builderData.total} records saved.` });
+    } catch (err) {
+      toast({ variant: "destructive", title: "PDF export failed", description: String(err) });
+    } finally {
+      setPdfLoading(false);
+    }
+  }, [builderData, reportType, builderFrom, builderTo, builderClass, builderSlot, classList, toast]);
+
+  const handleCsvExport = useCallback(() => {
+    if (!builderData?.columns || !builderData?.rows) return;
+    const typeMeta = REPORT_TYPES.find(r => r.value === reportType);
+    exportBuilderCsv(typeMeta?.label || builderData.title, builderData.columns, builderData.rows);
+    toast({ title: "CSV exported" });
+  }, [builderData, reportType, toast]);
 
   const { data: notPickedUp, isLoading: loadingNPU, refetch: refetchNPU } = useQuery({
     queryKey: ["not-picked-up", serviceDate, serviceSlot],
@@ -91,7 +226,7 @@ export default function Reports() {
     enabled: activeTab === "exports",
   });
 
-  const { data: teacherSchedule, isLoading: loadingTeacherSchedule } = useQuery({
+  const { data: teacherSchedule } = useQuery({
     queryKey: ["teacher-schedule", serviceDate],
     queryFn: () => apiGet<any>(`/reports/teacher-schedule?serviceDate=${serviceDate}`),
     enabled: activeTab === "analytics",
@@ -122,34 +257,26 @@ export default function Reports() {
       if (serviceSlot) params.set("serviceSlot", serviceSlot);
       await downloadCsv(`/reports/attendance-export?${params}`, `attendance-${exportFrom || "all"}-to-${exportTo}.csv`);
       toast({ title: "Attendance report downloaded" });
-    } catch {
-      toast({ variant: "destructive", title: "Export failed" });
-    }
+    } catch { toast({ variant: "destructive", title: "Export failed" }); }
   };
 
   const handleEmergencyExport = async () => {
     try {
       await downloadCsv("/reports/emergency-log?format=csv", "emergency-log.csv");
       toast({ title: "Emergency log downloaded" });
-    } catch {
-      toast({ variant: "destructive", title: "Export failed" });
-    }
+    } catch { toast({ variant: "destructive", title: "Export failed" }); }
   };
 
   const handleNotPickedUpExport = () => {
     if (!notPickedUp?.children) return;
     const rows = notPickedUp.children.map((r: any) => [
       r.child?.firstName + " " + r.child?.lastName,
-      r.class?.name || "",
-      r.status,
+      r.class?.name || "", r.status,
       r.minutesSinceCheckIn ? r.minutesSinceCheckIn + " min ago" : "",
-      r.family?.familyCode || "",
-      r.family?.parentPhone || "",
+      r.family?.familyCode || "", r.family?.parentPhone || "",
     ]);
-    const csv = [
-      ["Child Name", "Class", "Status", "Check-in", "Family Code", "Parent Phone"],
-      ...rows,
-    ].map(row => row.map((c: string | number) => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
+    const csv = [["Child Name", "Class", "Status", "Check-in", "Family Code", "Parent Phone"], ...rows]
+      .map(row => row.map((c: string | number) => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
     const blob = new Blob([csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -161,30 +288,43 @@ export default function Reports() {
   const notPickedUpChildren = notPickedUp?.children || [];
   const ratioAlerts = (teacherRatios?.classes || []).filter((c: any) => c.alert);
 
+  const selectedType = REPORT_TYPES.find(r => r.value === reportType)!;
+
   const tabs = [
-    { key: "live", label: "Live Reports", icon: Clock },
-    { key: "exports", label: "Export Data", icon: Download },
-    { key: "analytics", label: "Analytics", icon: BarChart3 },
+    { key: "live",     label: "Live Reports",    icon: Clock },
+    { key: "exports",  label: "Export Data",     icon: Download },
+    { key: "analytics",label: "Analytics",       icon: BarChart3 },
+    { key: "builder",  label: "Custom Builder",  icon: Wand2 },
   ] as const;
 
   return (
-    <div className="space-y-6 max-w-5xl mx-auto">
+    <div className="space-y-6 max-w-6xl mx-auto">
       <div>
-        <h1 className="text-3xl font-bold text-gray-900" style={{ fontFamily: "'Playfair Display', serif" }}>Reports & Export</h1>
-        <p className="text-gray-500 text-sm mt-1">Live reports, data exports, and analytics for RCCG City of David</p>
+        <h1 className="text-3xl font-bold text-gray-900" style={{ fontFamily: "'Playfair Display', serif" }}>
+          Reports & Export
+        </h1>
+        <p className="text-gray-500 text-sm mt-1">Live reports, data exports, analytics, and custom report builder for RCCG City of David</p>
       </div>
 
-      <div className="flex gap-1 p-1 bg-gray-100 rounded-xl w-fit">
+      <div className="flex gap-1 p-1 bg-gray-100 rounded-xl w-fit flex-wrap">
         {tabs.map(({ key, label, icon: Icon }) => (
           <button key={key} onClick={() => setActiveTab(key)}
             className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-              activeTab === key ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"
-            }`}>
+              activeTab === key
+                ? key === "builder"
+                  ? "text-white shadow-sm"
+                  : "bg-white text-gray-900 shadow-sm"
+                : "text-gray-500 hover:text-gray-700"
+            }`}
+            style={activeTab === key && key === "builder"
+              ? { background: "linear-gradient(135deg, #1e3a8a, #3b82f6)" }
+              : {}}>
             <Icon className="h-4 w-4" /> {label}
           </button>
         ))}
       </div>
 
+      {/* ── Live Reports ── */}
       {activeTab === "live" && (
         <div className="space-y-5">
           <div className="bg-white border rounded-xl p-4 flex flex-wrap gap-3 items-end">
@@ -198,10 +338,7 @@ export default function Reports() {
                 <SelectTrigger className="w-32"><SelectValue placeholder="All slots" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="">All Slots</SelectItem>
-                  <SelectItem value="7am">7am</SelectItem>
-                  <SelectItem value="9am">9am</SelectItem>
-                  <SelectItem value="11am">11am</SelectItem>
-                  <SelectItem value="1pm">1pm</SelectItem>
+                  {SLOTS.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
@@ -210,11 +347,11 @@ export default function Reports() {
 
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
             {loadingSummary ? Array(4).fill(0).map((_, i) => <Skeleton key={i} className="h-24 rounded-xl" />) : [
-              { label: "Checked In Today", value: summary?.totalCheckedIn ?? 0, icon: Users, color: "#1e3a8a" },
-              { label: "Still Present", value: summary?.stillPresent ?? 0, icon: Clock, color: "#f59e0b" },
-              { label: "Picked Up", value: summary?.pickedUp ?? 0, icon: BarChart3, color: "#16a34a" },
-              { label: "Pending Approvals", value: summary?.pendingUserApprovals ?? 0, icon: Bell, color: "#dc2626" },
-            ].map((card) => {
+              { label: "Checked In Today",   value: summary?.totalCheckedIn ?? 0,       icon: Users,    color: "#1e3a8a" },
+              { label: "Still Present",      value: summary?.stillPresent ?? 0,          icon: Clock,    color: "#f59e0b" },
+              { label: "Picked Up",          value: summary?.pickedUp ?? 0,              icon: BarChart3,color: "#16a34a" },
+              { label: "Pending Approvals",  value: summary?.pendingUserApprovals ?? 0,  icon: Bell,     color: "#dc2626" },
+            ].map(card => {
               const Icon = card.icon;
               return (
                 <div key={card.label} className="bg-white border rounded-xl p-4 flex items-start gap-3">
@@ -306,6 +443,7 @@ export default function Reports() {
         </div>
       )}
 
+      {/* ── Export Data ── */}
       {activeTab === "exports" && (
         <div className="space-y-5">
           <div className="bg-white border rounded-xl p-4 flex flex-wrap gap-3 items-end">
@@ -321,29 +459,14 @@ export default function Reports() {
 
           <div className="grid sm:grid-cols-2 gap-4">
             {[
+              { title: "Attendance Records", desc: "All attendance data for selected date range", icon: FileText, color: "#1e3a8a", action: handleAttendanceExport, label: "Download CSV" },
+              { title: "Emergency Log",      desc: "Full incident log with resolution notes",     icon: AlertTriangle, color: "#dc2626", action: handleEmergencyExport, label: "Download CSV" },
               {
-                title: "Attendance Records",
-                desc: "All attendance data for selected date range",
-                icon: FileText, color: "#1e3a8a",
-                action: handleAttendanceExport,
-                label: "Download CSV",
-              },
-              {
-                title: "Emergency Log",
-                desc: "Full incident log with resolution notes",
-                icon: AlertTriangle, color: "#dc2626",
-                action: handleEmergencyExport,
-                label: "Download CSV",
-              },
-              {
-                title: "Family Registry",
-                desc: `All registered families with contacts (${familyRegistry?.total ?? "—"} families)`,
+                title: "Family Registry", desc: `All registered families with contacts (${familyRegistry?.total ?? "—"} families)`,
                 icon: Users, color: "#7c3aed",
                 action: async () => {
-                  try {
-                    await downloadCsv("/reports/families-export", "family-registry.csv");
-                    toast({ title: "Family registry downloaded" });
-                  } catch { toast({ variant: "destructive", title: "Export failed" }); }
+                  try { await downloadCsv("/reports/families-export", "family-registry.csv"); toast({ title: "Family registry downloaded" }); }
+                  catch { toast({ variant: "destructive", title: "Export failed" }); }
                 },
                 label: "Download CSV",
                 extra: familyRegistry?.total != null ? (
@@ -354,18 +477,15 @@ export default function Reports() {
                 ) : null,
               },
               {
-                title: "Teacher Schedule",
-                desc: "Teacher-class assignments and service hours",
+                title: "Teacher Schedule", desc: "Teacher-class assignments and service hours",
                 icon: BookOpen, color: "#0891b2",
                 action: async () => {
-                  try {
-                    await downloadCsv(`/reports/teacher-schedule?serviceDate=${serviceDate}&format=csv`, `teacher-schedule-${serviceDate}.csv`);
-                    toast({ title: "Teacher schedule downloaded" });
-                  } catch { toast({ variant: "destructive", title: "Export failed" }); }
+                  try { await downloadCsv(`/reports/teacher-schedule?serviceDate=${serviceDate}&format=csv`, `teacher-schedule-${serviceDate}.csv`); toast({ title: "Teacher schedule downloaded" }); }
+                  catch { toast({ variant: "destructive", title: "Export failed" }); }
                 },
                 label: "Download CSV",
               },
-            ].map(({ title, desc, icon: Icon, color, action, label, extra }) => (
+            ].map(({ title, desc, icon: Icon, color, action, label, extra }: any) => (
               <div key={title} className="p-4 rounded-xl bg-gray-50 border space-y-3">
                 <div className="flex items-start justify-between">
                   <div className="flex items-center gap-2">
@@ -403,7 +523,7 @@ export default function Reports() {
                 <table className="w-full text-sm">
                   <thead className="bg-gray-50 text-xs font-semibold text-gray-600 uppercase tracking-wide">
                     <tr>
-                      <th className="px-4 py-2 text-left">Family Code</th>
+                      <th className="px-4 py-2 text-left">Code</th>
                       <th className="px-4 py-2 text-left">Family Name</th>
                       <th className="px-4 py-2 text-left">Parent</th>
                       <th className="px-4 py-2 text-left">Phone</th>
@@ -418,9 +538,7 @@ export default function Reports() {
                         <td className="px-4 py-2">{f.familyName}</td>
                         <td className="px-4 py-2">{f.parentName}</td>
                         <td className="px-4 py-2 text-gray-500">{f.parentPhone || "—"}</td>
-                        <td className="px-4 py-2">
-                          <Badge className="bg-blue-50 text-blue-800 border-blue-200">{f.childCount}</Badge>
-                        </td>
+                        <td className="px-4 py-2"><Badge className="bg-blue-50 text-blue-800 border-blue-200">{f.childCount}</Badge></td>
                         <td className="px-4 py-2">
                           <Badge className={f.isActive ? "bg-green-50 text-green-800 border-green-200" : "bg-gray-100 text-gray-600"}>
                             {f.isActive ? "Active" : "Inactive"}
@@ -436,6 +554,7 @@ export default function Reports() {
         </div>
       )}
 
+      {/* ── Analytics ── */}
       {activeTab === "analytics" && (
         <div className="space-y-5">
           <div className="bg-white border rounded-xl p-4 flex flex-wrap gap-3 items-end">
@@ -453,7 +572,6 @@ export default function Reports() {
             </div>
           </div>
 
-          {/* Feedback Summary */}
           <div className="bg-white border rounded-xl overflow-hidden">
             <div className="flex items-center justify-between p-4 border-b bg-amber-50">
               <div className="flex items-center gap-2">
@@ -501,25 +619,11 @@ export default function Reports() {
                       </div>
                     </div>
                   )}
-                  {feedbackSummary.appraisalLevels && (
-                    <div>
-                      <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">Appraisal Levels</p>
-                      <div className="flex flex-wrap gap-2">
-                        {Object.entries(feedbackSummary.appraisalLevels).map(([level, count]: [string, any]) => (
-                          <div key={level} className="px-3 py-1.5 rounded-lg bg-gray-50 border text-sm">
-                            <span className="font-medium capitalize">{level.replace("_", " ")}</span>
-                            <span className="ml-2 text-gray-500">{count}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
                 </div>
               ) : <div className="py-8 text-center text-gray-400 text-sm">No feedback data yet</div>}
             </div>
           </div>
 
-          {/* Class Utilization */}
           <div className="bg-white border rounded-xl overflow-hidden">
             <div className="flex items-center justify-between p-4 border-b bg-blue-50">
               <div className="flex items-center gap-2">
@@ -538,27 +642,24 @@ export default function Reports() {
                     <div className="flex items-center justify-between mb-1.5">
                       <div>
                         <p className="font-semibold text-sm text-gray-900">{c.className}</p>
-                        <p className="text-xs text-gray-500">{c.serviceSlot} · {c.roomLocation}</p>
+                        <p className="text-xs text-gray-500">{c.serviceSlot}</p>
                       </div>
                       <div className="text-right">
-                        <p className="text-sm font-bold text-gray-900">{c.enrolled}/{c.capacity}</p>
+                        <p className="text-sm font-bold text-gray-900">{c.enrollmentCount}/{c.capacity}</p>
                         <Badge className={
-                          c.utilizationPct >= 90 ? "bg-red-100 text-red-800 border-red-200" :
-                            c.utilizationPct >= 70 ? "bg-amber-100 text-amber-800 border-amber-200" :
+                          c.utilizationPercent >= 90 ? "bg-red-100 text-red-800 border-red-200" :
+                            c.utilizationPercent >= 70 ? "bg-amber-100 text-amber-800 border-amber-200" :
                               "bg-green-100 text-green-800 border-green-200"
-                        }>{c.utilizationPct}%</Badge>
+                        }>{c.utilizationPercent}%</Badge>
                       </div>
                     </div>
                     <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
                       <div className="h-full rounded-full transition-all"
                         style={{
-                          width: `${Math.min(c.utilizationPct, 100)}%`,
-                          background: c.utilizationPct >= 90 ? "#ef4444" : c.utilizationPct >= 70 ? "#f59e0b" : "#22c55e"
+                          width: `${Math.min(c.utilizationPercent, 100)}%`,
+                          background: c.utilizationPercent >= 90 ? "#ef4444" : c.utilizationPercent >= 70 ? "#f59e0b" : "#22c55e",
                         }} />
                     </div>
-                    {c.waitlistCount > 0 && (
-                      <p className="text-xs text-amber-600 mt-1">{c.waitlistCount} on waitlist</p>
-                    )}
                   </div>
                 ))}
               {!loadingUtilization && (!classUtilization?.classes || classUtilization.classes.length === 0) && (
@@ -567,8 +668,7 @@ export default function Reports() {
             </div>
           </div>
 
-          {/* Teacher Schedule */}
-          {teacherSchedule?.schedule && teacherSchedule.schedule.length > 0 && (
+          {teacherSchedule?.data && teacherSchedule.data.length > 0 && (
             <div className="bg-white border rounded-xl overflow-hidden">
               <div className="flex items-center justify-between p-4 border-b bg-cyan-50">
                 <div className="flex items-center gap-2">
@@ -581,8 +681,8 @@ export default function Reports() {
                 </button>
               </div>
               <div id="teacher-schedule-print" className="divide-y">
-                {teacherSchedule.schedule.map((s: any) => (
-                  <div key={s.teacherId} className="px-4 py-3 flex items-center justify-between hover:bg-gray-50">
+                {teacherSchedule.data.map((s: any) => (
+                  <div key={s.id} className="px-4 py-3 flex items-center justify-between hover:bg-gray-50">
                     <div className="flex items-center gap-3">
                       <div className="w-9 h-9 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
                         style={{ background: "linear-gradient(135deg, #1e3a8a, #3b82f6)" }}>
@@ -590,7 +690,7 @@ export default function Reports() {
                       </div>
                       <div>
                         <p className="font-medium text-sm text-gray-900">{s.teacherName}</p>
-                        <p className="text-xs text-gray-500">{s.className || "—"} · {s.serviceSlot || "—"}</p>
+                        <p className="text-xs text-gray-500">{s.className} · {s.serviceSlot || "—"}</p>
                       </div>
                     </div>
                     <Badge className={s.status === "confirmed" ? "bg-green-100 text-green-800 border-green-200" : "bg-blue-100 text-blue-800 border-blue-200"}>
@@ -601,6 +701,194 @@ export default function Reports() {
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* ── Custom Report Builder ── */}
+      {activeTab === "builder" && (
+        <div className="space-y-5">
+          {/* Intro banner */}
+          <div className="rounded-xl p-5 text-white relative overflow-hidden"
+            style={{ background: "linear-gradient(135deg, #172554 0%, #1e3a8a 60%, #1d4ed8 100%)" }}>
+            <div className="absolute -top-6 -right-6 w-32 h-32 rounded-full bg-white/5" />
+            <div className="relative">
+              <h2 className="text-lg font-bold flex items-center gap-2">
+                <Wand2 className="w-5 h-5" /> Custom Report Builder
+              </h2>
+              <p className="text-blue-200 text-sm mt-1">
+                Choose a report type, apply date range, class, and slot filters, then preview results and export as PDF or CSV.
+              </p>
+            </div>
+          </div>
+
+          {/* Report type picker */}
+          <div className="bg-white border rounded-xl p-5 space-y-3">
+            <p className="text-sm font-semibold text-gray-700">1. Select Report Type</p>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              {REPORT_TYPES.map(rt => {
+                const Icon = rt.icon;
+                const active = reportType === rt.value;
+                return (
+                  <button key={rt.value} onClick={() => setReportType(rt.value)}
+                    className="p-3 rounded-xl border text-left transition-all hover:shadow-sm"
+                    style={active
+                      ? { borderColor: rt.color, background: rt.color + "10", boxShadow: `0 0 0 2px ${rt.color}40` }
+                      : { borderColor: "#e5e7eb" }}>
+                    <div className="flex items-center gap-2 mb-1">
+                      <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0"
+                        style={{ background: active ? rt.color : rt.color + "18" }}>
+                        <Icon className="w-3.5 h-3.5" style={{ color: active ? "white" : rt.color }} />
+                      </div>
+                      <span className="text-xs font-bold" style={{ color: active ? rt.color : "#374151" }}>{rt.label}</span>
+                    </div>
+                    <p className="text-xs text-gray-400 leading-snug pl-0.5">{rt.desc}</p>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Filters */}
+          <div className="bg-white border rounded-xl p-5 space-y-3">
+            <p className="text-sm font-semibold text-gray-700">2. Apply Filters</p>
+            <div className="flex flex-wrap gap-3 items-end">
+              {reportType !== "family-registry" && (
+                <>
+                  <div>
+                    <label className="text-xs font-medium text-gray-600 block mb-1">From Date</label>
+                    <Input type="date" value={builderFrom} onChange={e => setBuilderFrom(e.target.value)} className="w-40" />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-gray-600 block mb-1">To Date</label>
+                    <Input type="date" value={builderTo} onChange={e => setBuilderTo(e.target.value)} className="w-40" />
+                  </div>
+                </>
+              )}
+              {reportType !== "family-registry" && (
+                <div>
+                  <label className="text-xs font-medium text-gray-600 block mb-1">Class</label>
+                  <Select value={builderClass} onValueChange={setBuilderClass}>
+                    <SelectTrigger className="w-44">
+                      <SelectValue placeholder="All classes" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="">All Classes</SelectItem>
+                      {classList.map((c: any) => (
+                        <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+              {reportType !== "family-registry" && reportType !== "appraisals" && (
+                <div>
+                  <label className="text-xs font-medium text-gray-600 block mb-1">Service Slot</label>
+                  <Select value={builderSlot} onValueChange={setBuilderSlot}>
+                    <SelectTrigger className="w-32"><SelectValue placeholder="All slots" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="">All Slots</SelectItem>
+                      {SLOTS.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+              <button
+                onClick={() => refetchBuilder()}
+                disabled={builderFetching}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-gray-300 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 transition-colors">
+                <RefreshCw className={`w-3.5 h-3.5 ${builderFetching ? "animate-spin" : ""}`} />
+                Refresh
+              </button>
+            </div>
+          </div>
+
+          {/* Preview + export */}
+          <div className="bg-white border rounded-xl overflow-hidden">
+            <div className="flex items-center justify-between p-4 border-b"
+              style={{ background: selectedType.color + "0d" }}>
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg flex items-center justify-center"
+                  style={{ background: selectedType.color }}>
+                  <selectedType.icon className="w-4 h-4 text-white" />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-gray-900 text-sm">
+                    {builderData?.title || selectedType.label}
+                  </h3>
+                  {builderData && (
+                    <p className="text-xs text-gray-500">{builderData.total} record{builderData.total !== 1 ? "s" : ""}</p>
+                  )}
+                </div>
+              </div>
+              {builderData?.rows?.length > 0 && (
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleCsvExport}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 text-xs font-semibold text-gray-700 hover:bg-gray-50 transition-colors">
+                    <Download className="w-3.5 h-3.5" /> CSV
+                  </button>
+                  <button
+                    onClick={handlePdfExport}
+                    disabled={pdfLoading}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white transition-all disabled:opacity-60"
+                    style={{ background: `linear-gradient(135deg, ${selectedType.color}, ${selectedType.color}cc)` }}>
+                    {pdfLoading ? (
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <FileText className="w-3.5 h-3.5" />
+                    )}
+                    {pdfLoading ? "Generating…" : "Export PDF"}
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Table */}
+            {builderLoading || builderFetching ? (
+              <div className="p-6 space-y-2">
+                {[1,2,3,4,5].map(i => <Skeleton key={i} className="h-8 w-full rounded" />)}
+              </div>
+            ) : !builderData ? (
+              <div className="py-16 text-center text-gray-400">
+                <Table2 className="w-12 h-12 mx-auto mb-3 text-gray-200" />
+                <p className="font-medium">Select filters and click Refresh to preview your report</p>
+              </div>
+            ) : builderData.rows.length === 0 ? (
+              <div className="py-16 text-center text-gray-400">
+                <Table2 className="w-12 h-12 mx-auto mb-3 text-gray-200" />
+                <p className="font-medium">No records match the selected filters</p>
+                <p className="text-sm mt-1">Try adjusting the date range, class, or service slot.</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50 text-xs font-semibold text-gray-500 uppercase tracking-wide border-b">
+                    <tr>
+                      {builderData.columns.map((col: string) => (
+                        <th key={col} className="px-4 py-3 text-left whitespace-nowrap">{col}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50">
+                    {builderData.rows.slice(0, 200).map((row: string[], i: number) => (
+                      <tr key={i} className={i % 2 === 0 ? "bg-white hover:bg-gray-50" : "bg-gray-50/50 hover:bg-gray-50"}>
+                        {row.map((cell: string, j: number) => (
+                          <td key={j} className="px-4 py-2.5 text-gray-700 whitespace-nowrap max-w-xs truncate">
+                            {cell || <span className="text-gray-300">—</span>}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {builderData.rows.length > 200 && (
+                  <div className="px-4 py-3 bg-amber-50 border-t border-amber-100 text-xs text-amber-700 text-center">
+                    Showing first 200 of {builderData.rows.length} records — export to PDF or CSV to see all.
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>

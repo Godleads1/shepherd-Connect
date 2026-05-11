@@ -252,4 +252,158 @@ router.get("/reports/class-utilization", authMiddleware, requireRoles("super_adm
   res.json({ classes: result, averageUtilization: avgUtil, atCapacityCount, totalClasses: result.length });
 });
 
+router.get("/reports/custom-builder", authMiddleware, requireRoles("super_admin", "admin"), async (req, res): Promise<void> => {
+  const { reportType, from, to, classId, serviceSlot } = req.query as {
+    reportType?: string; from?: string; to?: string; classId?: string; serviceSlot?: string;
+  };
+
+  const type = reportType || "attendance";
+  const cls = classId ? parseInt(classId, 10) : null;
+
+  if (type === "attendance") {
+    const conds: ReturnType<typeof eq>[] = [];
+    if (cls) conds.push(eq(attendanceTable.classId, cls));
+    if (serviceSlot) conds.push(eq(attendanceTable.serviceSlot, serviceSlot));
+    const records = await db.select().from(attendanceTable)
+      .where(conds.length ? and(...conds) : undefined)
+      .orderBy(attendanceTable.serviceDate);
+    const filtered = records.filter(r => {
+      if (from && r.serviceDate < from) return false;
+      if (to && r.serviceDate > to) return false;
+      return true;
+    });
+    const rows = await Promise.all(filtered.map(async (r) => {
+      const [child] = await db.select().from(childrenTable).where(eq(childrenTable.id, r.childId));
+      const [c] = await db.select().from(classesTable).where(eq(classesTable.id, r.classId));
+      return [
+        r.serviceDate,
+        r.serviceSlot,
+        child ? `${child.firstName} ${child.lastName}` : "—",
+        c?.name || "—",
+        r.status,
+        r.checkInTime ? new Date(r.checkInTime).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : "—",
+        (r as any).classArrivalTime ? new Date((r as any).classArrivalTime).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : "—",
+        r.checkOutTime ? new Date(r.checkOutTime).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : "—",
+      ];
+    }));
+    res.json({ title: "Attendance Log", columns: ["Date", "Slot", "Child", "Class", "Status", "Checked In", "In Class", "Picked Up"], rows, total: rows.length });
+    return;
+  }
+
+  if (type === "arrivals") {
+    const conds: ReturnType<typeof eq>[] = [eq(attendanceTable.status, "in_class")];
+    if (cls) conds.push(eq(attendanceTable.classId, cls));
+    if (serviceSlot) conds.push(eq(attendanceTable.serviceSlot, serviceSlot));
+    const records = await db.select().from(attendanceTable).where(and(...conds)).orderBy(attendanceTable.serviceDate);
+    const filtered = records.filter(r => {
+      if (from && r.serviceDate < from) return false;
+      if (to && r.serviceDate > to) return false;
+      return true;
+    });
+    const rows = await Promise.all(filtered.map(async (r) => {
+      const [child] = await db.select().from(childrenTable).where(eq(childrenTable.id, r.childId));
+      const [c] = await db.select().from(classesTable).where(eq(classesTable.id, r.classId));
+      const arrivalTime = (r as any).classArrivalTime;
+      const dropTime = r.checkInTime;
+      const lagMins = dropTime && arrivalTime ? Math.round((new Date(arrivalTime).getTime() - new Date(dropTime).getTime()) / 60000) : null;
+      return [
+        r.serviceDate,
+        r.serviceSlot,
+        child ? `${child.firstName} ${child.lastName}` : "—",
+        c?.name || "—",
+        dropTime ? new Date(dropTime).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : "—",
+        arrivalTime ? new Date(arrivalTime).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : "—",
+        lagMins !== null ? `${lagMins} min` : "—",
+      ];
+    }));
+    res.json({ title: "Class Arrivals (Teacher Confirmed)", columns: ["Date", "Slot", "Child", "Class", "Dropped Off", "In Class", "Lag Time"], rows, total: rows.length });
+    return;
+  }
+
+  if (type === "not-picked-up") {
+    const conds: ReturnType<typeof eq>[] = [ne(attendanceTable.status, "picked_up")];
+    if (cls) conds.push(eq(attendanceTable.classId, cls));
+    if (serviceSlot) conds.push(eq(attendanceTable.serviceSlot, serviceSlot));
+    const records = await db.select().from(attendanceTable).where(and(...conds)).orderBy(attendanceTable.serviceDate);
+    const filtered = records.filter(r => {
+      if (from && r.serviceDate < from) return false;
+      if (to && r.serviceDate > to) return false;
+      return true;
+    });
+    const rows = await Promise.all(filtered.map(async (r) => {
+      const [child] = await db.select().from(childrenTable).where(eq(childrenTable.id, r.childId));
+      const [c] = await db.select().from(classesTable).where(eq(classesTable.id, r.classId));
+      const [fam] = child ? await db.select().from(familiesTable).where(eq(familiesTable.id, child.familyId)) : [null];
+      let parentPhone = "—";
+      if (fam?.parent1Id) {
+        const [p] = await db.select().from(usersTable).where(eq(usersTable.id, fam.parent1Id));
+        if (p?.phone) parentPhone = p.phone;
+      }
+      return [r.serviceDate, r.serviceSlot, child ? `${child.firstName} ${child.lastName}` : "—", c?.name || "—", r.status, fam?.familyCode || "—", parentPhone];
+    }));
+    res.json({ title: "Not Picked Up Report", columns: ["Date", "Slot", "Child", "Class", "Status", "Family Code", "Parent Phone"], rows, total: rows.length });
+    return;
+  }
+
+  if (type === "appraisals") {
+    const appraisals = await db.select().from(childAppraisalsTable).orderBy(childAppraisalsTable.createdAt);
+    const filtered = await Promise.all(appraisals
+      .filter(a => {
+        const date = new Date(a.createdAt).toISOString().split("T")[0];
+        if (from && date < from) return false;
+        if (to && date > to) return false;
+        return true;
+      })
+      .map(async (a) => {
+        const [child] = await db.select().from(childrenTable).where(eq(childrenTable.id, a.childId));
+        if (cls && child?.currentClassId !== cls) return null;
+        const [c] = child?.currentClassId ? await db.select().from(classesTable).where(eq(classesTable.id, child.currentClassId)) : [null];
+        const [teacher] = await db.select().from(usersTable).where(eq(usersTable.id, a.teacherId));
+        return [
+          new Date(a.createdAt).toISOString().split("T")[0],
+          child ? `${child.firstName} ${child.lastName}` : "—",
+          c?.name || "—",
+          teacher ? `${teacher.firstName} ${teacher.lastName}` : "—",
+          a.behavior || "—",
+          a.participation || "—",
+          a.notes || "—",
+        ];
+      }));
+    const rows = filtered.filter(Boolean) as string[][];
+    res.json({ title: "Child Appraisals", columns: ["Date", "Child", "Class", "Teacher", "Behaviour", "Participation", "Notes"], rows, total: rows.length });
+    return;
+  }
+
+  if (type === "teacher-schedule") {
+    const conds: ReturnType<typeof eq>[] = [];
+    if (cls) conds.push(eq(teacherAllocationsTable.classId, cls));
+    if (serviceSlot) conds.push(eq(teacherAllocationsTable.serviceSlot, serviceSlot));
+    const allocations = await db.select().from(teacherAllocationsTable)
+      .where(conds.length ? and(...conds) : undefined)
+      .orderBy(teacherAllocationsTable.serviceDate);
+    const filtered = allocations.filter(a => {
+      if (from && a.serviceDate < from) return false;
+      if (to && a.serviceDate > to) return false;
+      return true;
+    });
+    const rows = await Promise.all(filtered.map(async (a) => {
+      const [teacher] = await db.select().from(teachersTable).where(eq(teachersTable.id, a.teacherId));
+      const [u] = teacher ? await db.select().from(usersTable).where(eq(usersTable.id, teacher.userId)) : [null];
+      const [c] = await db.select().from(classesTable).where(eq(classesTable.id, a.classId));
+      return [a.serviceDate, a.serviceSlot || "—", u ? `${u.firstName} ${u.lastName}` : "—", u?.phone || "—", c?.name || "—", c?.roomLocation || "—", a.status];
+    }));
+    res.json({ title: "Teacher Schedule", columns: ["Date", "Slot", "Teacher", "Phone", "Class", "Room", "Status"], rows, total: rows.length });
+    return;
+  }
+
+  if (type === "family-registry") {
+    const enriched = await buildFamilyRegistry();
+    const rows = enriched.map(f => [f.familyCode, f.familyName, f.parentName, f.parentPhone, f.parent2Name, f.childCount.toString(), f.childrenNames, f.address, f.emergencyContact, f.emergencyPhone, f.registeredAt, f.isActive ? "Active" : "Inactive"]);
+    res.json({ title: "Family Registry", columns: ["Code", "Family Name", "Parent 1", "Phone", "Parent 2", "Children", "Child Names", "Address", "Emergency Contact", "Emerg. Phone", "Registered", "Status"], rows, total: rows.length });
+    return;
+  }
+
+  res.status(400).json({ error: "Unknown report type", validTypes: ["attendance", "arrivals", "not-picked-up", "appraisals", "teacher-schedule", "family-registry"] });
+});
+
 export default router;
