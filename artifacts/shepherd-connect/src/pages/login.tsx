@@ -88,14 +88,38 @@ export default function Login() {
     defaultValues: { email: "", password: "" },
   });
 
+  const roleMatchesTab = (userRole: string, tab: string): boolean => {
+    if (tab === "admin") return userRole === "admin" || userRole === "super_admin";
+    return userRole === tab;
+  };
+
+  const tabLabel: Record<string, string> = {
+    parent: "Parent",
+    teacher: "Teacher",
+    admin: "Admin",
+    attendant: "Attendant",
+  };
+
   const onSubmit = async (data: LoginFormValues) => {
     try {
       const response = await loginMutation.mutateAsync({ data }) as any;
+
       if (response.requiresMfa) {
+        // Still check tab match before allowing MFA step
+        // mfaToken carries role info but we can't read it here — defer to after verify
         setMfaToken(response.mfaToken);
         setMfaStep(true);
         return;
       }
+
+      if (!roleMatchesTab(response.user.role, selectedRole)) {
+        const correct = response.user.role === "super_admin" ? "admin" : response.user.role;
+        form.setError("root", {
+          message: `These credentials belong to a ${tabLabel[correct] ?? response.user.role} account. Please select the correct portal above.`,
+        });
+        return;
+      }
+
       localLogin(response.token, response.user);
       const role = response.user.role;
       if (role === "parent") setLocation("/my-family");
@@ -113,6 +137,11 @@ export default function Login() {
     setMfaError("");
     try {
       const response = await apiPost<any>("/auth/mfa/verify-login", { mfaToken, totpCode });
+      if (!roleMatchesTab(response.user.role, selectedRole)) {
+        const correct = response.user.role === "super_admin" ? "admin" : response.user.role;
+        setMfaError(`These credentials belong to a ${tabLabel[correct] ?? response.user.role} account. Please go back and select the correct portal.`);
+        return;
+      }
       localLogin(response.token, response.user);
       const role = response.user.role;
       if (role === "parent") setLocation("/my-family");
