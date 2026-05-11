@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "t3S0W6Q7jWiwZw7Mlor4O"
+uri = "file://reports/shepherd-connect-report.zip"
+type = "unspecified"
+title = "Shepherd Connect — Implementation Status Report (HTML, May 2026)"
