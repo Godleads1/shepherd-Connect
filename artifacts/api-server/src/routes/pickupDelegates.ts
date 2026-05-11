@@ -78,17 +78,49 @@ router.post("/pickup-delegates/:id/notify-parent", authMiddleware, async (req, r
   }
   if (!parentUserId) { res.status(404).json({ error: "Not found", message: "Parent not found for this child" }); return; }
 
+  await db.update(pickupDelegatesTable)
+    .set({ approvalStatus: "pending", approvalRequestedAt: new Date() })
+    .where(eq(pickupDelegatesTable.id, id));
+
   await db.insert(notificationsTable).values({
     userId: parentUserId,
-    type: "delegate_pickup_alert",
-    title: `📢 Delegate Collecting ${child.firstName}`,
-    message: `${delegate.name} has presented a verified OTP to collect ${child.firstName} ${child.lastName}. If this is not authorised, contact the front desk immediately.`,
+    type: "delegate_approval_request",
+    title: `🔔 Approve Pickup: ${child.firstName}`,
+    message: `${delegate.name} is at the front desk to collect ${child.firstName} ${child.lastName}. Please approve or deny this pickup request.`,
     channel: "in_app" as const,
     readStatus: false,
-    metadataJson: JSON.stringify({ delegateId: id, childId: child.id, delegateName: delegate.name }),
+    metadataJson: JSON.stringify({ delegateId: id, childId: child.id, delegateName: delegate.name, requiresApproval: true }),
   });
 
-  res.json({ success: true, message: `Parent notified of delegate pickup for ${child.firstName} ${child.lastName}.` });
+  res.json({ success: true, requiresApproval: true, message: `Parent notified. Waiting for their approval before releasing ${child.firstName}.` });
+});
+
+router.post("/pickup-delegates/:id/approve", authMiddleware, async (req, res): Promise<void> => {
+  const id = parseInt(req.params.id as string, 10);
+  if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
+
+  const [delegate] = await db.select().from(pickupDelegatesTable).where(eq(pickupDelegatesTable.id, id));
+  if (!delegate) { res.status(404).json({ error: "Not found", message: "Delegate not found" }); return; }
+
+  const [updated] = await db.update(pickupDelegatesTable)
+    .set({ parentApproved: true, approvalStatus: "approved" })
+    .where(eq(pickupDelegatesTable.id, id)).returning();
+
+  res.json({ success: true, delegate: updated, message: "Pickup approved. Child may be released." });
+});
+
+router.post("/pickup-delegates/:id/deny", authMiddleware, async (req, res): Promise<void> => {
+  const id = parseInt(req.params.id as string, 10);
+  if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
+
+  const [delegate] = await db.select().from(pickupDelegatesTable).where(eq(pickupDelegatesTable.id, id));
+  if (!delegate) { res.status(404).json({ error: "Not found", message: "Delegate not found" }); return; }
+
+  const [updated] = await db.update(pickupDelegatesTable)
+    .set({ approvalStatus: "denied" })
+    .where(eq(pickupDelegatesTable.id, id)).returning();
+
+  res.json({ success: true, delegate: updated, message: "Pickup denied. Front desk has been notified." });
 });
 
 export default router;

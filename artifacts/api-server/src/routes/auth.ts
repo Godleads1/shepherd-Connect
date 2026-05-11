@@ -1,9 +1,13 @@
 import { Router } from "express";
 import bcrypt from "bcryptjs";
+import jwt from "jsonwebtoken";
+import * as OTPAuth from "otpauth";
 import { eq } from "drizzle-orm";
 import { db, usersTable } from "@workspace/db";
 import { LoginBody, RegisterBody } from "@workspace/api-zod";
 import { generateToken, authMiddleware } from "../middlewares/auth";
+
+const JWT_SECRET = process.env.SESSION_SECRET || "shepherd-connect-secret";
 
 const router = Router();
 
@@ -36,29 +40,28 @@ router.post("/auth/login", async (req, res): Promise<void> => {
     res.status(401).json({ error: "Unauthorized", message: "Invalid credentials" });
     return;
   }
+
+  if (user.mfaEnabled && user.mfaSecret) {
+    const mfaToken = jwt.sign(
+      { userId: user.id, email: user.email, role: user.role, firstName: user.firstName, lastName: user.lastName, mfaOnly: true },
+      JWT_SECRET,
+      { expiresIn: "5m" }
+    );
+    res.json({ requiresMfa: true, mfaToken });
+    return;
+  }
+
   const token = generateToken({
-    userId: user.id,
-    email: user.email,
-    role: user.role,
-    firstName: user.firstName,
-    lastName: user.lastName,
+    userId: user.id, email: user.email, role: user.role,
+    firstName: user.firstName, lastName: user.lastName,
   });
   res.json({
     token,
     user: {
-      id: user.id,
-      email: user.email,
-      phone: user.phone,
-      role: user.role,
-      firstName: user.firstName,
-      lastName: user.lastName,
-      isActive: user.isActive,
-      status: user.status,
-      photoUrl: user.photoUrl,
-      dob: user.dob,
-      gender: user.gender,
-      placeOfWork: user.placeOfWork,
-      communicationPrefs: user.communicationPrefs,
+      id: user.id, email: user.email, phone: user.phone, role: user.role,
+      firstName: user.firstName, lastName: user.lastName, isActive: user.isActive,
+      status: user.status, photoUrl: user.photoUrl, dob: user.dob, gender: user.gender,
+      placeOfWork: user.placeOfWork, communicationPrefs: user.communicationPrefs,
       createdAt: user.createdAt,
     },
   });
@@ -165,6 +168,88 @@ router.get("/auth/me", authMiddleware, async (req, res): Promise<void> => {
 
 router.post("/auth/logout", (_req, res): void => {
   res.json({ success: true, message: "Logged out" });
+});
+
+// ── MFA endpoints ─────────────────────────────────────────────────────────────
+
+router.post("/auth/mfa/setup", authMiddleware, async (req, res): Promise<void> => {
+  const [user] = await db.select().from(usersTable).where(eq(usersTable.id, req.user!.userId));
+  if (!user) { res.status(404).json({ error: "Not found" }); return; }
+
+  const secret = new OTPAuth.Secret({ size: 20 });
+  const totp = new OTPAuth.TOTP({
+    issuer: "Shepherd Connect",
+    label: user.email,
+    algorithm: "SHA1",
+    digits: 6,
+    period: 30,
+    secret,
+  });
+
+  await db.update(usersTable).set({ mfaSecret: secret.base32 }).where(eq(usersTable.id, user.id));
+  res.json({ qrCodeUri: totp.toString(), secret: secret.base32 });
+});
+
+router.post("/auth/mfa/confirm", authMiddleware, async (req, res): Promise<void> => {
+  const { totpCode } = req.body as { totpCode: string };
+  const [user] = await db.select().from(usersTable).where(eq(usersTable.id, req.user!.userId));
+  if (!user?.mfaSecret) { res.status(400).json({ error: "Bad request", message: "Run /auth/mfa/setup first" }); return; }
+
+  const totp = new OTPAuth.TOTP({ secret: OTPAuth.Secret.fromBase32(user.mfaSecret), algorithm: "SHA1", digits: 6, period: 30 });
+  const delta = totp.validate({ token: totpCode, window: 1 });
+  if (delta === null) { res.status(400).json({ error: "Bad request", message: "Invalid authenticator code" }); return; }
+
+  await db.update(usersTable).set({ mfaEnabled: true }).where(eq(usersTable.id, user.id));
+  res.json({ success: true, message: "Two-factor authentication is now enabled." });
+});
+
+router.post("/auth/mfa/disable", authMiddleware, async (req, res): Promise<void> => {
+  const { totpCode } = req.body as { totpCode: string };
+  const [user] = await db.select().from(usersTable).where(eq(usersTable.id, req.user!.userId));
+  if (!user?.mfaEnabled || !user.mfaSecret) { res.status(400).json({ error: "Bad request", message: "MFA is not enabled" }); return; }
+
+  const totp = new OTPAuth.TOTP({ secret: OTPAuth.Secret.fromBase32(user.mfaSecret), algorithm: "SHA1", digits: 6, period: 30 });
+  const delta = totp.validate({ token: totpCode, window: 1 });
+  if (delta === null) { res.status(400).json({ error: "Bad request", message: "Invalid authenticator code" }); return; }
+
+  await db.update(usersTable).set({ mfaEnabled: false, mfaSecret: null }).where(eq(usersTable.id, user.id));
+  res.json({ success: true, message: "Two-factor authentication disabled." });
+});
+
+router.get("/auth/mfa/status", authMiddleware, async (req, res): Promise<void> => {
+  const [user] = await db.select({ mfaEnabled: usersTable.mfaEnabled }).from(usersTable).where(eq(usersTable.id, req.user!.userId));
+  res.json({ mfaEnabled: user?.mfaEnabled || false });
+});
+
+router.post("/auth/mfa/verify-login", async (req, res): Promise<void> => {
+  const { mfaToken, totpCode } = req.body as { mfaToken: string; totpCode: string };
+  if (!mfaToken || !totpCode) { res.status(400).json({ error: "Bad request", message: "mfaToken and totpCode are required" }); return; }
+
+  let payload: any;
+  try {
+    payload = jwt.verify(mfaToken, JWT_SECRET) as any;
+    if (!payload.mfaOnly) { res.status(400).json({ error: "Bad request", message: "Invalid token type" }); return; }
+  } catch {
+    res.status(401).json({ error: "Unauthorized", message: "MFA token expired or invalid. Please log in again." }); return;
+  }
+
+  const [user] = await db.select().from(usersTable).where(eq(usersTable.id, payload.userId));
+  if (!user?.mfaEnabled || !user.mfaSecret) { res.status(400).json({ error: "Bad request", message: "MFA not configured" }); return; }
+
+  const totp = new OTPAuth.TOTP({ secret: OTPAuth.Secret.fromBase32(user.mfaSecret), algorithm: "SHA1", digits: 6, period: 30 });
+  const delta = totp.validate({ token: totpCode, window: 1 });
+  if (delta === null) { res.status(401).json({ error: "Unauthorized", message: "Invalid authenticator code" }); return; }
+
+  const token = generateToken({ userId: user.id, email: user.email, role: user.role, firstName: user.firstName, lastName: user.lastName });
+  res.json({
+    token,
+    user: {
+      id: user.id, email: user.email, phone: user.phone, role: user.role,
+      firstName: user.firstName, lastName: user.lastName, isActive: user.isActive,
+      status: user.status, photoUrl: user.photoUrl, dob: user.dob, gender: user.gender,
+      placeOfWork: user.placeOfWork, communicationPrefs: user.communicationPrefs, createdAt: user.createdAt,
+    },
+  });
 });
 
 export default router;

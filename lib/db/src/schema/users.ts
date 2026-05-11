@@ -32,6 +32,8 @@ export const usersTable = pgTable("users", {
   gender: text("gender"),
   placeOfWork: text("place_of_work"),
   communicationPrefs: text("communication_prefs"),
+  mfaSecret: text("mfa_secret"),
+  mfaEnabled: boolean("mfa_enabled").notNull().default(false),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

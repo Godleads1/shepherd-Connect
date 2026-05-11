@@ -12,6 +12,8 @@ export const pickupDelegatesTable = pgTable("pickup_delegates", {
   otpCode: text("otp_code"),
   otpExpiresAt: timestamp("otp_expires_at"),
   parentApproved: boolean("parent_approved").notNull().default(false),
+  approvalStatus: text("approval_status"),
+  approvalRequestedAt: timestamp("approval_requested_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

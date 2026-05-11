@@ -1,10 +1,64 @@
 import { useState } from "react";
 import { useListNotifications, useMarkNotificationRead, useMarkAllNotificationsRead } from "@workspace/api-client-react";
-import { Bell, CheckCircle, Info, AlertTriangle, Check, CheckCheck } from "lucide-react";
+import { Bell, CheckCircle, Info, AlertTriangle, Check, CheckCheck, ShieldCheck, ShieldX } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { apiPost } from "@/lib/api-call";
 import { format } from "date-fns";
 
 type TabKey = "all" | "unread" | "read";
+
+function DelegateApprovalActions({ notif, onAction }: { notif: any; onAction: () => void }) {
+  const { toast } = useToast();
+  const meta = (() => { try { return JSON.parse(notif.metadataJson || "{}"); } catch { return {}; } })();
+  const delegateId = meta.delegateId;
+  const [loading, setLoading] = useState<"approved" | "denied" | null>(null);
+  const [done, setDone] = useState<"approved" | "denied" | null>(null);
+
+  if (!delegateId) return null;
+
+  const handle = async (action: "approve" | "deny") => {
+    const mapped: "approved" | "denied" = action === "approve" ? "approved" : "denied";
+    setLoading(mapped);
+    try {
+      await apiPost(`/pickup-delegates/${delegateId}/${action}`, {});
+      setDone(mapped);
+      toast({
+        title: mapped === "approved" ? "Pickup Approved ✓" : "Pickup Denied ✗",
+        description: mapped === "approved"
+          ? `${meta.delegateName} is authorised to collect the child.`
+          : "The front desk has been notified that pickup is denied.",
+        variant: mapped === "denied" ? "destructive" : "default",
+      });
+      onAction();
+    } catch {
+      toast({ variant: "destructive", title: `Failed to ${action} pickup` });
+    } finally {
+      setLoading(null);
+    }
+  };
+
+  if (done) {
+    return (
+      <div className={`mt-3 flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-semibold ${done === "approved" ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700"}`}>
+        {done === "approved" ? <ShieldCheck className="w-4 h-4" /> : <ShieldX className="w-4 h-4" />}
+        {done === "approved" ? "You approved this pickup" : "You denied this pickup"}
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-3 flex gap-2">
+      <button onClick={() => handle("approve")} disabled={!!loading}
+        className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-green-600 hover:bg-green-700 text-white text-sm font-bold rounded-xl transition-colors disabled:opacity-50">
+        {loading === "approved" ? "Approving..." : <><ShieldCheck className="w-4 h-4" /> Approve</>}
+      </button>
+      <button onClick={() => handle("deny")} disabled={!!loading}
+        className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-bold rounded-xl transition-colors disabled:opacity-50">
+        {loading === "denied" ? "Denying..." : <><ShieldX className="w-4 h-4" /> Deny</>}
+      </button>
+    </div>
+  );
+}
 
 export default function Notifications() {
   const [activeTab, setActiveTab] = useState<TabKey>("all");
@@ -24,6 +78,7 @@ export default function Notifications() {
   };
 
   const getIconAndColor = (type: string) => {
+    if (type === "delegate_approval_request") return { icon: <ShieldCheck className="w-5 h-5 text-amber-600" />, bg: "bg-amber-100" };
     if (type.includes("emergency") || type.includes("alert")) return { icon: <AlertTriangle className="w-5 h-5 text-red-600" />, bg: "bg-red-100" };
     if (type.includes("success")) return { icon: <CheckCircle className="w-5 h-5 text-green-600" />, bg: "bg-green-100" };
     return { icon: <Info className="w-5 h-5 text-blue-600" />, bg: "bg-blue-100" };
@@ -78,9 +133,16 @@ export default function Notifications() {
       <div className="space-y-3">
         {filtered.map(notif => {
           const { icon, bg } = getIconAndColor(notif.type);
+          const isApprovalRequest = notif.type === "delegate_approval_request";
           return (
             <div key={notif.id}
-              className={`p-5 rounded-2xl transition-all duration-300 flex gap-4 ${notif.readStatus ? "bg-white border border-gray-100 opacity-70" : "bg-white border-l-4 border-l-[#1a237e] border border-gray-100 shadow-sm"}`}>
+              className={`p-5 rounded-2xl transition-all duration-300 flex gap-4 ${
+                isApprovalRequest && !notif.readStatus
+                  ? "bg-amber-50 border-l-4 border-l-amber-500 border border-amber-200 shadow-sm"
+                  : notif.readStatus
+                    ? "bg-white border border-gray-100 opacity-70"
+                    : "bg-white border-l-4 border-l-[#1a237e] border border-gray-100 shadow-sm"
+              }`}>
               <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 ${bg}`}>{icon}</div>
               <div className="flex-1 min-w-0">
                 <div className="flex justify-between items-start mb-1">
@@ -89,8 +151,12 @@ export default function Notifications() {
                 </div>
                 <p className={`text-sm ${notif.readStatus ? "text-gray-500" : "text-gray-700 font-medium"}`}>{notif.message}</p>
                 <p className="text-xs text-gray-400 mt-1 capitalize">{notif.channel?.replace("_", " ")} · {notif.type?.replace(/_/g, " ")}</p>
+
+                {isApprovalRequest && (
+                  <DelegateApprovalActions notif={notif} onAction={() => { handleMarkRead(notif.id); refetch(); }} />
+                )}
               </div>
-              {!notif.readStatus && (
+              {!notif.readStatus && !isApprovalRequest && (
                 <button className="w-8 h-8 rounded-full bg-gray-50 hover:bg-green-50 text-gray-400 hover:text-green-600 flex items-center justify-center transition-colors flex-shrink-0"
                   onClick={() => handleMarkRead(notif.id)} disabled={markReadMutation.isPending} title="Mark as read">
                   <Check className="w-4 h-4" />

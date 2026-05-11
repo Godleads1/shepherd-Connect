@@ -9,7 +9,7 @@ import { Search, LogOut, CheckCircle, Clock, ShieldCheck, KeyRound, Bell, Timer,
 import { useToast } from "@/hooks/use-toast";
 import { format, differenceInMinutes, differenceInSeconds } from "date-fns";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { apiPost } from "@/lib/api-call";
+import { apiPost, apiGet } from "@/lib/api-call";
 import { useAuth } from "@/contexts/auth";
 
 const SERVICE_CLOCK_KEY = "shepherd_service_end_time";
@@ -143,6 +143,8 @@ export default function Checkout() {
   const [otpResult, setOtpResult] = useState<any>(null);
   const [otpLoading, setOtpLoading] = useState(false);
   const [notifyingParent, setNotifyingParent] = useState(false);
+  const [approvalState, setApprovalState] = useState<"idle" | "pending" | "approved" | "denied">("idle");
+  const [checkingApproval, setCheckingApproval] = useState(false);
   const { toast } = useToast();
 
   const today = format(new Date(), "yyyy-MM-dd");
@@ -194,11 +196,32 @@ export default function Checkout() {
     setNotifyingParent(true);
     try {
       await apiPost(`/pickup-delegates/${delegateId}/notify-parent`, {});
-      toast({ title: "Parent Notified", description: `${childName}'s parent has received an in-app alert about this pickup.` });
+      setApprovalState("pending");
+      toast({ title: "Parent Notified — Awaiting Approval", description: `${childName}'s parent has been asked to approve this pickup in their app.` });
     } catch {
       toast({ variant: "destructive", title: "Could not notify parent" });
     } finally {
       setNotifyingParent(false);
+    }
+  };
+
+  const handleCheckApproval = async (delegateId: number) => {
+    setCheckingApproval(true);
+    try {
+      const res = await apiGet<any>(`/pickup-delegates/${delegateId}`);
+      if (res.approvalStatus === "approved") {
+        setApprovalState("approved");
+        toast({ title: "Pickup Approved ✓", description: "Parent has approved. You may now check out the child." });
+      } else if (res.approvalStatus === "denied") {
+        setApprovalState("denied");
+        toast({ variant: "destructive", title: "Pickup Denied", description: "Parent has denied this pickup request." });
+      } else {
+        toast({ title: "Still waiting…", description: "Parent hasn't responded yet. Ask them to check their Shepherd Connect app." });
+      }
+    } catch {
+      toast({ variant: "destructive", title: "Could not check status" });
+    } finally {
+      setCheckingApproval(false);
     }
   };
 
@@ -342,21 +365,50 @@ export default function Checkout() {
                       <p><span className="text-gray-500">Authorised for:</span> <strong>{otpResult.data?.child?.firstName} {otpResult.data?.child?.lastName}</strong></p>
                     </div>
 
-                    {/* Notify parent button */}
-                    {otpResult.data?.delegate?.id && (
+                    {/* Step 2: Notify Parent for Approval */}
+                    {otpResult.data?.delegate?.id && approvalState === "idle" && (
                       <button
                         onClick={() => handleNotifyParent(otpResult.data.delegate.id, otpResult.data?.child?.firstName || "child")}
                         disabled={notifyingParent}
                         className="w-full flex items-center justify-center gap-2 py-2.5 bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-800 text-sm font-semibold rounded-xl transition-colors disabled:opacity-50">
                         <Bell className="w-4 h-4" />
-                        {notifyingParent ? "Notifying..." : "Notify Parent of this Pickup"}
+                        {notifyingParent ? "Notifying..." : "Request Parent Approval"}
                       </button>
                     )}
 
-                    {/* Find the attendance record for this child */}
+                    {/* Step 3: Waiting for parent approval */}
+                    {approvalState === "pending" && (
+                      <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 space-y-3">
+                        <div className="flex items-center gap-2">
+                          <div className="w-5 h-5 rounded-full border-2 border-amber-500 border-t-transparent animate-spin flex-shrink-0" />
+                          <p className="text-sm font-semibold text-amber-900">Waiting for parent approval…</p>
+                        </div>
+                        <p className="text-xs text-amber-700">Ask the parent to open their Shepherd Connect app and tap <strong>Approve</strong> on the notification.</p>
+                        <button
+                          onClick={() => handleCheckApproval(otpResult.data.delegate.id)}
+                          disabled={checkingApproval}
+                          className="w-full py-2.5 bg-amber-500 hover:bg-amber-600 text-white text-sm font-bold rounded-xl transition-colors disabled:opacity-50">
+                          {checkingApproval ? "Checking…" : "↻ Check Approval Status"}
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Denied state */}
+                    {approvalState === "denied" && (
+                      <div className="bg-red-50 border border-red-200 rounded-xl p-4">
+                        <p className="font-semibold text-red-800 flex items-center gap-2">
+                          <span className="text-red-500">✕</span> Parent Denied This Pickup
+                        </p>
+                        <p className="text-xs text-red-700 mt-1">Do not release the child. Contact the family directly.</p>
+                      </div>
+                    )}
+
+                    {/* Find the attendance record for this child — only after approved */}
                     {(() => {
                       const childId = otpResult.data?.delegate?.childId;
                       const rec = activeRecords.find((r: any) => r.childId === childId);
+                      const canCheckout = approvalState === "approved";
+                      if (!canCheckout) return null;
                       return rec ? (
                         <Button
                           className="w-full gap-2 bg-green-600 hover:bg-green-700 text-white"

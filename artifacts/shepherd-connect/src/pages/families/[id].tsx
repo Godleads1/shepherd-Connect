@@ -1,16 +1,101 @@
 import { useState } from "react";
 import { useGetFamilyTree, useListAttendance } from "@workspace/api-client-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { apiPatch } from "@/lib/api-call";
+import { apiPatch, apiGet } from "@/lib/api-call";
 import { useParams, Link } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import { Phone, Mail, MapPin, Eye, Shield, Calendar, Star, BookOpen, MessageSquare, ChevronRight, AlertTriangle, FileText, Edit2, Check, X } from "lucide-react";
-import { apiGet } from "@/lib/api-call";
+import { Phone, Mail, MapPin, Eye, Shield, Calendar, Star, BookOpen, MessageSquare, ChevronRight, AlertTriangle, FileText, Edit2, Check, X, Users } from "lucide-react";
 import { useAuth } from "@/contexts/auth";
 import { useToast } from "@/hooks/use-toast";
 import { format, parseISO, subMonths, eachDayOfInterval, getDay, isSameDay } from "date-fns";
+
+function FamilyTreeVisual({ parents, children }: { parents: any[]; children: any[] }) {
+  const colors = ["linear-gradient(135deg,#1e3a8a,#3b82f6)", "linear-gradient(135deg,#7c3aed,#a78bfa)"];
+  const childColors = [
+    "linear-gradient(135deg,#0891b2,#22d3ee)",
+    "linear-gradient(135deg,#16a34a,#4ade80)",
+    "linear-gradient(135deg,#d97706,#fbbf24)",
+    "linear-gradient(135deg,#dc2626,#f87171)",
+    "linear-gradient(135deg,#7c3aed,#c4b5fd)",
+  ];
+
+  return (
+    <div className="p-4 bg-gradient-to-br from-blue-50 to-indigo-50 rounded-2xl border border-blue-100">
+      <p className="text-xs font-bold uppercase tracking-widest text-blue-800 mb-4 flex items-center gap-2">
+        <Users className="w-4 h-4" /> Family Tree
+      </p>
+
+      {/* Parents row */}
+      <div className="flex justify-center items-start gap-0 mb-0 relative">
+        {parents.map((parent, i) => (
+          <div key={parent.id} className="flex flex-col items-center">
+            <div className="w-14 h-14 rounded-2xl flex items-center justify-center text-white font-bold text-lg shadow-md border-2 border-white"
+              style={{ background: colors[i % colors.length] }}>
+              {parent.firstName[0]}{parent.lastName[0]}
+            </div>
+            <p className="text-xs font-bold text-gray-800 mt-1.5 text-center max-w-[80px] leading-tight">{parent.firstName}</p>
+            <p className="text-[10px] text-gray-500 capitalize">{parent.role}</p>
+            {/* Vertical stem from parent down */}
+            <div className="w-0.5 bg-blue-300 mt-1" style={{ height: 20 }} />
+          </div>
+        ))}
+        {/* Horizontal bridge between parents */}
+        {parents.length === 2 && (
+          <div className="absolute top-7 left-1/2 -translate-x-1/2 h-0.5 bg-blue-300" style={{ width: 64 }} />
+        )}
+      </div>
+
+      {/* Central vertical trunk */}
+      {children.length > 0 && (
+        <div className="flex justify-center">
+          <div className="w-0.5 bg-blue-300" style={{ height: 24 }} />
+        </div>
+      )}
+
+      {/* Children row */}
+      {children.length > 0 && (
+        <>
+          {/* Horizontal branch */}
+          <div className="flex justify-center">
+            <div className="h-0.5 bg-blue-300" style={{ width: Math.min(children.length * 88, 440) }} />
+          </div>
+
+          <div className="flex justify-center gap-4 mt-0">
+            {children.map((child, i) => (
+              <div key={child.id} className="flex flex-col items-center">
+                {/* Vertical line from branch to child */}
+                <div className="w-0.5 bg-blue-300" style={{ height: 16 }} />
+                <Link href={`/children/${child.id}`} className="group">
+                  <div className="w-12 h-12 rounded-xl flex items-center justify-center text-white font-bold shadow-md border-2 border-white group-hover:scale-110 transition-transform"
+                    style={{ background: childColors[i % childColors.length] }}>
+                    {child.firstName[0]}{child.lastName[0]}
+                  </div>
+                </Link>
+                <p className="text-xs font-semibold text-gray-800 mt-1.5 text-center max-w-[72px] leading-tight">{child.firstName}</p>
+                {child.currentClass && (
+                  <span className="text-[9px] bg-white border border-blue-200 text-blue-700 rounded-full px-1.5 py-0.5 mt-0.5 font-semibold text-center leading-tight">
+                    {child.currentClass.name}
+                  </span>
+                )}
+                {child.allergies && (
+                  <span className="text-[9px] bg-red-100 text-red-700 rounded-full px-1.5 py-0.5 mt-0.5 font-semibold flex items-center gap-0.5">
+                    <AlertTriangle className="w-2.5 h-2.5" /> Allergy
+                  </span>
+                )}
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      {children.length === 0 && (
+        <div className="text-center text-xs text-blue-500 italic mt-2">No children registered yet</div>
+      )}
+    </div>
+  );
+}
 
 function AttendanceCalendar({ childId }: { childId: number }) {
   const { data: attendance } = useListAttendance({ childId }, {
@@ -282,6 +367,8 @@ export default function FamilyProfile() {
           {tree.children.length} {tree.children.length === 1 ? "Child" : "Children"}
         </Badge>
       </div>
+
+      <FamilyTreeVisual parents={tree.parents} children={tree.children} />
 
       <div className="grid md:grid-cols-3 gap-5">
         <div className="md:col-span-1 space-y-4">
