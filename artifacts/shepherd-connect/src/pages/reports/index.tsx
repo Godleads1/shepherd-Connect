@@ -11,8 +11,9 @@ import { useAnalyzeFeedbackSentiment } from "@workspace/api-client-react";
 import {
   Download, AlertTriangle, Clock, Users, BarChart3, FileText, Bell,
   Star, Printer, TrendingUp, BookOpen, Wand2, RefreshCw, Table2, Sparkles, SmilePlus, Meh, Frown,
+  MessageSquare, GraduationCap, Home,
 } from "lucide-react";
-import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend } from "recharts";
+import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend, BarChart, Bar, XAxis, YAxis, CartesianGrid } from "recharts";
 import { format } from "date-fns";
 
 const BASE = "/api";
@@ -209,6 +210,7 @@ const REPORT_TYPES = [
   { value: "appraisals",       label: "Child Appraisals",       icon: Star,           color: "#7c3aed", desc: "Behaviour & participation appraisals by teacher" },
   { value: "teacher-schedule", label: "Teacher Schedule",       icon: BookOpen,       color: "#059669", desc: "Allocations with class, room, and slot info" },
   { value: "family-registry",  label: "Family Registry",        icon: Users,          color: "#d97706", desc: "All registered families with contacts" },
+  { value: "feedback",         label: "Parent Feedback",        icon: MessageSquare,  color: "#be185d", desc: "Satisfaction ratings and AI sentiment by parent" },
 ] as const;
 
 type ReportType = typeof REPORT_TYPES[number]["value"];
@@ -226,24 +228,47 @@ export default function Reports() {
   const [activeTab, setActiveTab] = useState<"live" | "exports" | "analytics" | "builder">("live");
   const { toast } = useToast();
 
-  const [reportType, setReportType]     = useState<ReportType>("attendance");
-  const [builderFrom, setBuilderFrom]   = useState(firstOfMonth);
-  const [builderTo, setBuilderTo]       = useState(today);
-  const [builderClass, setBuilderClass] = useState("");
-  const [builderSlot, setBuilderSlot]   = useState("");
+  const [reportType, setReportType]       = useState<ReportType>("attendance");
+  const [builderFrom, setBuilderFrom]     = useState(firstOfMonth);
+  const [builderTo, setBuilderTo]         = useState(today);
+  const [builderClass, setBuilderClass]   = useState("");
+  const [builderSlot, setBuilderSlot]     = useState("");
+  const [builderTeacher, setBuilderTeacher] = useState("");
+  const [builderFamily, setBuilderFamily]   = useState("");
 
   const { data: classes } = useQuery({
     queryKey: ["classes-list"],
     queryFn: () => apiGet<any[]>("/classes"),
     enabled: activeTab === "builder",
   });
-  const classList = Array.isArray(classes) ? classes : [];
+  const { data: teacherUsers } = useQuery({
+    queryKey: ["users-teachers"],
+    queryFn: () => apiGet<any[]>("/users?role=teacher"),
+    enabled: activeTab === "builder",
+  });
+  const { data: familiesList } = useQuery({
+    queryKey: ["families-list"],
+    queryFn: () => apiGet<any[]>("/families"),
+    enabled: activeTab === "builder",
+  });
+
+  const classList    = Array.isArray(classes) ? classes : [];
+  const teacherList  = Array.isArray(teacherUsers) ? teacherUsers : [];
+  const familyList   = Array.isArray(familiesList) ? familiesList : [];
+
+  const noDateRange = reportType === "family-registry";
+  const noClass     = reportType === "family-registry" || reportType === "feedback";
+  const noSlot      = reportType === "family-registry" || reportType === "appraisals" || reportType === "feedback";
+  const showTeacher = reportType === "attendance" || reportType === "appraisals" || reportType === "teacher-schedule";
+  const showFamily  = reportType === "attendance" || reportType === "not-picked-up" || reportType === "appraisals" || reportType === "feedback" || reportType === "family-registry";
 
   const builderParams = new URLSearchParams({ reportType });
-  if (builderFrom) builderParams.set("from", builderFrom);
-  if (builderTo)   builderParams.set("to", builderTo);
-  if (builderClass && reportType !== "family-registry") builderParams.set("classId", builderClass);
-  if (builderSlot  && reportType !== "family-registry" && reportType !== "appraisals") builderParams.set("serviceSlot", builderSlot);
+  if (builderFrom && !noDateRange)   builderParams.set("from", builderFrom);
+  if (builderTo && !noDateRange)     builderParams.set("to", builderTo);
+  if (builderClass && !noClass)      builderParams.set("classId", builderClass);
+  if (builderSlot && !noSlot)        builderParams.set("serviceSlot", builderSlot);
+  if (builderTeacher && showTeacher) builderParams.set("teacherId", builderTeacher);
+  if (builderFamily && showFamily)   builderParams.set("familyId", builderFamily);
 
   const {
     data: builderData,
@@ -251,7 +276,7 @@ export default function Reports() {
     refetch: refetchBuilder,
     isFetching: builderFetching,
   } = useQuery({
-    queryKey: ["custom-builder", reportType, builderFrom, builderTo, builderClass, builderSlot],
+    queryKey: ["custom-builder", reportType, builderFrom, builderTo, builderClass, builderSlot, builderTeacher, builderFamily],
     queryFn: () => apiGet<any>(`/reports/custom-builder?${builderParams}`),
     enabled: activeTab === "builder",
   });
@@ -960,10 +985,10 @@ export default function Reports() {
           </div>
 
           {/* Filters */}
-          <div className="bg-white border rounded-xl p-5 space-y-3">
+          <div className="bg-white border rounded-xl p-5 space-y-4">
             <p className="text-sm font-semibold text-gray-700">2. Apply Filters</p>
             <div className="flex flex-wrap gap-3 items-end">
-              {reportType !== "family-registry" && (
+              {!noDateRange && (
                 <>
                   <div>
                     <label className="text-xs font-medium text-gray-600 block mb-1">From Date</label>
@@ -975,13 +1000,11 @@ export default function Reports() {
                   </div>
                 </>
               )}
-              {reportType !== "family-registry" && (
+              {!noClass && (
                 <div>
                   <label className="text-xs font-medium text-gray-600 block mb-1">Class</label>
                   <Select value={builderClass || "all"} onValueChange={v => setBuilderClass(v === "all" ? "" : v)}>
-                    <SelectTrigger className="w-44">
-                      <SelectValue placeholder="All classes" />
-                    </SelectTrigger>
+                    <SelectTrigger className="w-44"><SelectValue placeholder="All classes" /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">All Classes</SelectItem>
                       {classList.map((c: any) => (
@@ -991,7 +1014,7 @@ export default function Reports() {
                   </Select>
                 </div>
               )}
-              {reportType !== "family-registry" && reportType !== "appraisals" && (
+              {!noSlot && (
                 <div>
                   <label className="text-xs font-medium text-gray-600 block mb-1">Service Slot</label>
                   <Select value={builderSlot || "all"} onValueChange={v => setBuilderSlot(v === "all" ? "" : v)}>
@@ -999,6 +1022,42 @@ export default function Reports() {
                     <SelectContent>
                       <SelectItem value="all">All Slots</SelectItem>
                       {SLOTS.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+              {showTeacher && (
+                <div>
+                  <label className="text-xs font-medium text-gray-600 block mb-1 flex items-center gap-1">
+                    <GraduationCap className="h-3 w-3" /> Teacher
+                  </label>
+                  <Select value={builderTeacher || "all"} onValueChange={v => setBuilderTeacher(v === "all" ? "" : v)}>
+                    <SelectTrigger className="w-48"><SelectValue placeholder="All teachers" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Teachers</SelectItem>
+                      {teacherList.map((t: any) => (
+                        <SelectItem key={t.id} value={String(t.id)}>
+                          {t.firstName} {t.lastName}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+              {showFamily && (
+                <div>
+                  <label className="text-xs font-medium text-gray-600 block mb-1 flex items-center gap-1">
+                    <Home className="h-3 w-3" /> Family
+                  </label>
+                  <Select value={builderFamily || "all"} onValueChange={v => setBuilderFamily(v === "all" ? "" : v)}>
+                    <SelectTrigger className="w-48"><SelectValue placeholder="All families" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Families</SelectItem>
+                      {familyList.map((f: any) => (
+                        <SelectItem key={f.id} value={String(f.id)}>
+                          {f.familyCode} — {f.familyName || `${f.parent1?.firstName || ""} Family`}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
@@ -1011,7 +1070,126 @@ export default function Reports() {
                 Refresh
               </button>
             </div>
+            {/* Active filter chips */}
+            {(builderTeacher || builderFamily || builderClass || builderSlot) && (
+              <div className="flex flex-wrap gap-1.5 pt-1">
+                {builderTeacher && teacherList.find((t: any) => String(t.id) === builderTeacher) && (
+                  <span className="flex items-center gap-1 text-xs bg-emerald-50 border border-emerald-200 text-emerald-800 px-2 py-1 rounded-full font-medium">
+                    <GraduationCap className="h-3 w-3" />
+                    {(() => { const t = teacherList.find((t: any) => String(t.id) === builderTeacher); return t ? `${t.firstName} ${t.lastName}` : ""; })()}
+                    <button onClick={() => setBuilderTeacher("")} className="ml-0.5 hover:text-emerald-600">×</button>
+                  </span>
+                )}
+                {builderFamily && familyList.find((f: any) => String(f.id) === builderFamily) && (
+                  <span className="flex items-center gap-1 text-xs bg-amber-50 border border-amber-200 text-amber-800 px-2 py-1 rounded-full font-medium">
+                    <Home className="h-3 w-3" />
+                    {(() => { const f = familyList.find((f: any) => String(f.id) === builderFamily); return f?.familyCode || ""; })()}
+                    <button onClick={() => setBuilderFamily("")} className="ml-0.5 hover:text-amber-600">×</button>
+                  </span>
+                )}
+                {builderClass && classList.find((c: any) => String(c.id) === builderClass) && (
+                  <span className="flex items-center gap-1 text-xs bg-blue-50 border border-blue-200 text-blue-800 px-2 py-1 rounded-full font-medium">
+                    {classList.find((c: any) => String(c.id) === builderClass)?.name}
+                    <button onClick={() => setBuilderClass("")} className="ml-0.5 hover:text-blue-600">×</button>
+                  </span>
+                )}
+                {builderSlot && (
+                  <span className="flex items-center gap-1 text-xs bg-purple-50 border border-purple-200 text-purple-800 px-2 py-1 rounded-full font-medium">
+                    {builderSlot}
+                    <button onClick={() => setBuilderSlot("")} className="ml-0.5 hover:text-purple-600">×</button>
+                  </span>
+                )}
+              </div>
+            )}
           </div>
+
+          {/* Summary stats */}
+          {builderData?.summary && builderData.rows?.length > 0 && (() => {
+            const s = builderData.summary;
+            const stats: { label: string; value: string | number; color: string }[] = [];
+            if (s.totalRecords !== undefined) stats.push({ label: "Total Records", value: s.totalRecords, color: selectedType.color });
+            if (s.attendanceRate !== undefined) stats.push({ label: "Pickup Rate", value: `${s.attendanceRate}%`, color: "#16a34a" });
+            if (s.pickedUp !== undefined) stats.push({ label: "Picked Up", value: s.pickedUp, color: "#16a34a" });
+            if (s.uniqueDates !== undefined) stats.push({ label: "Service Days", value: s.uniqueDates, color: "#0891b2" });
+            if (s.avgLagMins !== null && s.avgLagMins !== undefined) stats.push({ label: "Avg Drop→Class Lag", value: `${s.avgLagMins} min`, color: "#d97706" });
+            if (s.excellent !== undefined) stats.push({ label: "Excellent", value: s.excellent, color: "#16a34a" });
+            if (s.good !== undefined) stats.push({ label: "Good", value: s.good, color: "#0891b2" });
+            if (s.confirmed !== undefined) stats.push({ label: "Confirmed", value: s.confirmed, color: "#059669" });
+            if (s.pending !== undefined) stats.push({ label: "Pending", value: s.pending, color: "#d97706" });
+            if (s.active !== undefined && s.inactive !== undefined) {
+              stats.push({ label: "Active Families", value: s.active, color: "#16a34a" });
+              stats.push({ label: "Inactive", value: s.inactive, color: "#9ca3af" });
+            }
+            if (s.avgRating !== undefined) stats.push({ label: "Avg Rating", value: `${s.avgRating}★`, color: "#f59e0b" });
+            if (s.positive !== undefined) stats.push({ label: "Positive", value: s.positive, color: "#16a34a" });
+            if (s.negative !== undefined) stats.push({ label: "Negative", value: s.negative, color: "#dc2626" });
+            return (
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                {stats.slice(0, 8).map((st, i) => (
+                  <div key={i} className="bg-white border rounded-xl p-3 text-center">
+                    <p className="text-xl font-black" style={{ color: st.color }}>{st.value}</p>
+                    <p className="text-xs text-gray-500 mt-0.5">{st.label}</p>
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
+
+          {/* Chart visualization */}
+          {builderData?.rows?.length > 0 && (() => {
+            let chartData: { name: string; value: number }[] = [];
+            let chartTitle = "";
+            const rows: string[][] = builderData.rows;
+
+            if (reportType === "attendance") {
+              // Group by date, count records
+              const byDate: Record<string, number> = {};
+              rows.forEach(r => { byDate[r[0]] = (byDate[r[0]] || 0) + 1; });
+              chartData = Object.entries(byDate).slice(-14).map(([name, value]) => ({ name: name.slice(5), value }));
+              chartTitle = "Attendance by Service Date";
+            } else if (reportType === "appraisals") {
+              const byLevel: Record<string, number> = {};
+              rows.forEach(r => { const l = r[4] || "—"; byLevel[l] = (byLevel[l] || 0) + 1; });
+              chartData = Object.entries(byLevel).map(([name, value]) => ({ name, value }));
+              chartTitle = "Appraisals by Participation Level";
+            } else if (reportType === "teacher-schedule") {
+              const byTeacher: Record<string, number> = {};
+              rows.forEach(r => { byTeacher[r[2]] = (byTeacher[r[2]] || 0) + 1; });
+              chartData = Object.entries(byTeacher).map(([name, value]) => ({ name, value }));
+              chartTitle = "Sessions by Teacher";
+            } else if (reportType === "feedback") {
+              const bySentiment: Record<string, number> = {};
+              rows.forEach(r => { const s = r[6] || "unanalyzed"; bySentiment[s] = (bySentiment[s] || 0) + 1; });
+              chartData = Object.entries(bySentiment).map(([name, value]) => ({ name, value }));
+              chartTitle = "Feedback by Sentiment";
+            } else if (reportType === "not-picked-up") {
+              const byDate: Record<string, number> = {};
+              rows.forEach(r => { byDate[r[0]] = (byDate[r[0]] || 0) + 1; });
+              chartData = Object.entries(byDate).slice(-14).map(([name, value]) => ({ name: name.slice(5), value }));
+              chartTitle = "Not Picked Up by Date";
+            }
+
+            if (chartData.length < 2) return null;
+            return (
+              <div className="bg-white border rounded-xl overflow-hidden">
+                <div className="flex items-center gap-2 p-4 border-b" style={{ background: selectedType.color + "0d" }}>
+                  <BarChart3 className="w-4 h-4" style={{ color: selectedType.color }} />
+                  <h3 className="font-semibold text-sm text-gray-900">{chartTitle}</h3>
+                </div>
+                <div className="p-4 h-52">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={chartData} margin={{ top: 4, right: 8, left: -20, bottom: 4 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                      <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                      <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
+                      <Tooltip />
+                      <Bar dataKey="value" fill={selectedType.color} radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            );
+          })()}
 
           {/* Preview + export */}
           <div className="bg-white border rounded-xl overflow-hidden">
