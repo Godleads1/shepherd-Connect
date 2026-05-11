@@ -53,55 +53,138 @@ function printReport(title: string, contentId: string) {
   setTimeout(() => { win.print(); }, 300);
 }
 
-async function exportBuilderPdf(title: string, columns: string[], rows: string[][], meta: string) {
-  const { default: jsPDF } = await import("jspdf");
-  const { default: autoTable } = await import("jspdf-autotable");
+function exportBuilderPdf(title: string, columns: string[], rows: string[][], meta: string) {
+  const isWide = columns.length > 6;
+  const win = window.open("", "_blank", "width=1100,height=800");
+  if (!win) return;
 
-  const isLandscape = columns.length > 6;
-  const doc = new jsPDF({ orientation: isLandscape ? "landscape" : "portrait", unit: "mm", format: "a4" });
-  const pageW = doc.internal.pageSize.getWidth();
+  const tableHead = `<tr>${columns.map(c => `<th>${c}</th>`).join("")}</tr>`;
+  const tableBody = rows.map((row, i) =>
+    `<tr class="${i % 2 === 0 ? "" : "alt"}">${row.map(cell => `<td>${cell || "—"}</td>`).join("")}</tr>`
+  ).join("");
 
-  doc.setFillColor(30, 58, 138);
-  doc.rect(0, 0, pageW, 22, "F");
-  doc.setTextColor(255, 255, 255);
-  doc.setFontSize(15);
-  doc.setFont("helvetica", "bold");
-  doc.text("Shepherd Connect — RCCG City of David", 14, 10);
-  doc.setFontSize(10);
-  doc.setFont("helvetica", "normal");
-  doc.text("Safe. Known. Celebrated.", 14, 17);
+  win.document.write(`<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>${title} — Shepherd Connect</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: "Segoe UI", Arial, sans-serif; color: #111; background: #fff; }
 
-  doc.setTextColor(30, 58, 138);
-  doc.setFontSize(14);
-  doc.setFont("helvetica", "bold");
-  doc.text(title, 14, 32);
+    .header {
+      background: #1e3a8a;
+      color: white;
+      padding: 18px 28px 16px;
+    }
+    .header-org { font-size: 10px; font-weight: 600; letter-spacing: 0.08em; opacity: 0.75; margin-bottom: 4px; }
+    .header-title { font-size: 20px; font-weight: 700; }
+    .header-tagline { font-size: 11px; opacity: 0.65; margin-top: 2px; }
 
-  doc.setTextColor(107, 114, 128);
-  doc.setFontSize(9);
-  doc.setFont("helvetica", "normal");
-  doc.text(meta, 14, 39);
-  doc.text(`Generated: ${new Date().toLocaleString()}`, pageW - 14, 39, { align: "right" });
+    .meta-bar {
+      background: #f8fafc;
+      border-bottom: 1px solid #e2e8f0;
+      padding: 10px 28px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .report-name { font-size: 15px; font-weight: 700; color: #1e3a8a; }
+    .report-meta { font-size: 11px; color: #6b7280; margin-top: 2px; }
+    .generated { font-size: 11px; color: #9ca3af; }
 
-  autoTable(doc, {
-    head: [columns],
-    body: rows,
-    startY: 44,
-    styles: { fontSize: 9, cellPadding: 3, overflow: "linebreak" },
-    headStyles: { fillColor: [30, 58, 138], textColor: 255, fontStyle: "bold", fontSize: 9 },
-    alternateRowStyles: { fillColor: [249, 250, 251] },
-    tableLineColor: [229, 231, 235],
-    tableLineWidth: 0.1,
-  });
+    .content { padding: 20px 28px; }
 
-  const pageCount = (doc as any).internal.getNumberOfPages();
-  for (let i = 1; i <= pageCount; i++) {
-    doc.setPage(i);
-    doc.setFontSize(8);
-    doc.setTextColor(156, 163, 175);
-    doc.text(`Page ${i} of ${pageCount}`, pageW / 2, doc.internal.pageSize.getHeight() - 8, { align: "center" });
-  }
+    .stats { display: flex; gap: 16px; margin-bottom: 18px; }
+    .stat { background: #f1f5f9; border-radius: 8px; padding: 10px 16px; }
+    .stat-val { font-size: 22px; font-weight: 700; color: #1e3a8a; }
+    .stat-label { font-size: 11px; color: #6b7280; }
 
-  doc.save(`${title.toLowerCase().replace(/\s+/g, "-")}-${format(new Date(), "yyyy-MM-dd")}.pdf`);
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: ${isWide ? "10px" : "12px"};
+    }
+    thead th {
+      background: #1e3a8a;
+      color: white;
+      padding: 9px 10px;
+      text-align: left;
+      font-weight: 600;
+      font-size: ${isWide ? "9px" : "11px"};
+      letter-spacing: 0.03em;
+      white-space: nowrap;
+    }
+    tbody td {
+      padding: 7px 10px;
+      border-bottom: 1px solid #f1f5f9;
+      color: #374151;
+      vertical-align: top;
+    }
+    tr.alt td { background: #f8fafc; }
+    tbody tr:last-child td { border-bottom: none; }
+
+    .footer {
+      margin-top: 24px;
+      padding-top: 12px;
+      border-top: 1px solid #e5e7eb;
+      display: flex;
+      justify-content: space-between;
+      font-size: 10px;
+      color: #9ca3af;
+    }
+
+    @media print {
+      @page { margin: 1.2cm; size: ${isWide ? "A4 landscape" : "A4 portrait"}; }
+      body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .header { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      thead th { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      tr.alt td { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="header-org">THE REDEEMED CHRISTIAN CHURCH OF GOD</div>
+    <div class="header-title">Shepherd Connect — City of David, Victoria Island</div>
+    <div class="header-tagline">Safe. Known. Celebrated.</div>
+  </div>
+
+  <div class="meta-bar">
+    <div>
+      <div class="report-name">${title}</div>
+      <div class="report-meta">${meta}</div>
+    </div>
+    <div class="generated">Generated: ${new Date().toLocaleString()}</div>
+  </div>
+
+  <div class="content">
+    <div class="stats">
+      <div class="stat">
+        <div class="stat-val">${rows.length}</div>
+        <div class="stat-label">Total Records</div>
+      </div>
+      <div class="stat">
+        <div class="stat-val">${columns.length}</div>
+        <div class="stat-label">Columns</div>
+      </div>
+    </div>
+
+    <table>
+      <thead><tr>${tableHead}</tr></thead>
+      <tbody>${tableBody}</tbody>
+    </table>
+
+    <div class="footer">
+      <span>Shepherd Connect — Confidential Ministry Document</span>
+      <span>${new Date().toLocaleDateString("en-GB", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}</span>
+    </div>
+  </div>
+
+  <script>window.onload = function() { setTimeout(function() { window.print(); }, 400); }<\/script>
+</body>
+</html>`);
+  win.document.close();
 }
 
 function exportBuilderCsv(title: string, columns: string[], rows: string[][]) {
@@ -146,7 +229,6 @@ export default function Reports() {
   const [builderTo, setBuilderTo]       = useState(today);
   const [builderClass, setBuilderClass] = useState("");
   const [builderSlot, setBuilderSlot]   = useState("");
-  const [pdfLoading, setPdfLoading]     = useState(false);
 
   const { data: classes } = useQuery({
     queryKey: ["classes-list"],
@@ -172,26 +254,18 @@ export default function Reports() {
     enabled: activeTab === "builder",
   });
 
-  const handlePdfExport = useCallback(async () => {
+  const handlePdfExport = useCallback(() => {
     if (!builderData?.columns || !builderData?.rows) return;
-    setPdfLoading(true);
-    try {
-      const typeMeta = REPORT_TYPES.find(r => r.value === reportType);
-      const meta = [
-        reportType !== "family-registry" && builderFrom ? `From: ${builderFrom}` : "",
-        reportType !== "family-registry" && builderTo   ? `To: ${builderTo}`     : "",
-        builderClass ? `Class: ${classList.find((c: any) => String(c.id) === builderClass)?.name || builderClass}` : "",
-        builderSlot  ? `Slot: ${builderSlot}`  : "",
-        `Total records: ${builderData.total}`,
-      ].filter(Boolean).join("  ·  ");
-      await exportBuilderPdf(typeMeta?.label || builderData.title, builderData.columns, builderData.rows, meta);
-      toast({ title: "PDF exported", description: `${builderData.total} records saved.` });
-    } catch (err) {
-      toast({ variant: "destructive", title: "PDF export failed", description: String(err) });
-    } finally {
-      setPdfLoading(false);
-    }
-  }, [builderData, reportType, builderFrom, builderTo, builderClass, builderSlot, classList, toast]);
+    const typeMeta = REPORT_TYPES.find(r => r.value === reportType);
+    const meta = [
+      reportType !== "family-registry" && builderFrom ? `From: ${builderFrom}` : "",
+      reportType !== "family-registry" && builderTo   ? `To: ${builderTo}`     : "",
+      builderClass ? `Class: ${classList.find((c: any) => String(c.id) === builderClass)?.name || builderClass}` : "",
+      builderSlot  ? `Slot: ${builderSlot}`  : "",
+      `Total records: ${builderData.total}`,
+    ].filter(Boolean).join("  ·  ");
+    exportBuilderPdf(typeMeta?.label || builderData.title, builderData.columns, builderData.rows, meta);
+  }, [builderData, reportType, builderFrom, builderTo, builderClass, builderSlot, classList]);
 
   const handleCsvExport = useCallback(() => {
     if (!builderData?.columns || !builderData?.rows) return;
@@ -832,15 +906,10 @@ export default function Reports() {
                   </button>
                   <button
                     onClick={handlePdfExport}
-                    disabled={pdfLoading}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white transition-all disabled:opacity-60"
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white transition-all"
                     style={{ background: `linear-gradient(135deg, ${selectedType.color}, ${selectedType.color}cc)` }}>
-                    {pdfLoading ? (
-                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                    ) : (
-                      <FileText className="w-3.5 h-3.5" />
-                    )}
-                    {pdfLoading ? "Generating…" : "Export PDF"}
+                    <FileText className="w-3.5 h-3.5" />
+                    Export PDF
                   </button>
                 </div>
               )}
