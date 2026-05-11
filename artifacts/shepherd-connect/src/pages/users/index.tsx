@@ -15,8 +15,8 @@ import { useToast } from "@/hooks/use-toast";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import { Edit2, Trash2, CheckCircle, XCircle, Clock, UserCheck, Users as UsersIcon, Search } from "lucide-react";
-import { apiGet, apiPut } from "@/lib/api-call";
+import { Edit2, Trash2, CheckCircle, XCircle, Clock, UserCheck, Users as UsersIcon, Search, RefreshCw, AlertTriangle } from "lucide-react";
+import { apiGet, apiPut, apiPost } from "@/lib/api-call";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 const userSchema = z.object({
@@ -48,22 +48,145 @@ function roleBadge(role: string) {
   return <Badge className={colors[role] || ""}>{role.replace("_", " ")}</Badge>;
 }
 
+function DeleteConfirmDialog({ user, onConfirm, onCancel, loading }: {
+  user: any; onConfirm: () => void; onCancel: () => void; loading: boolean;
+}) {
+  return (
+    <Dialog open onOpenChange={() => onCancel()}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-red-700">
+            <AlertTriangle className="w-5 h-5" /> Remove User
+          </DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4">
+          <p className="text-gray-700 text-sm">
+            Are you sure you want to remove <strong>{user.firstName} {user.lastName}</strong>?
+            Their account will be deactivated and they will lose access to Shepherd Connect.
+          </p>
+          <div className="p-3 bg-gray-50 rounded-xl border text-sm flex items-center gap-3">
+            <div className="w-9 h-9 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
+              style={{ background: "linear-gradient(135deg,#1e3a8a,#3b82f6)" }}>
+              {user.firstName[0]}{user.lastName[0]}
+            </div>
+            <div>
+              <p className="font-semibold text-gray-900">{user.firstName} {user.lastName}</p>
+              <p className="text-gray-500 text-xs">{user.email} · {roleBadge(user.role)}</p>
+            </div>
+          </div>
+          <div className="flex gap-2 pt-2">
+            <Button variant="outline" className="flex-1" onClick={onCancel} disabled={loading}>Cancel</Button>
+            <Button className="flex-1 bg-red-600 hover:bg-red-700 text-white" onClick={onConfirm} disabled={loading}>
+              {loading ? "Removing..." : "Yes, Remove"}
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ReassignRoleDialog({ user, isSuperAdmin, onConfirm, onCancel, loading }: {
+  user: any; isSuperAdmin: boolean; onConfirm: (role: string) => void; onCancel: () => void; loading: boolean;
+}) {
+  const [selectedRole, setSelectedRole] = useState<string>(user.role);
+
+  const availableRoles = isSuperAdmin
+    ? [
+        { value: "parent", label: "Parent" },
+        { value: "teacher", label: "Teacher" },
+        { value: "attendant", label: "Attendant" },
+        { value: "admin", label: "Admin" },
+        { value: "super_admin", label: "Super Admin" },
+      ]
+    : [
+        { value: "parent", label: "Parent" },
+        { value: "teacher", label: "Teacher" },
+      ];
+
+  return (
+    <Dialog open onOpenChange={() => onCancel()}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2" style={{ color: "#1e3a8a" }}>
+            <RefreshCw className="w-4 h-4" /> Reassign Role
+          </DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div className="p-3 bg-gray-50 rounded-xl border text-sm flex items-center gap-3">
+            <div className="w-9 h-9 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
+              style={{ background: "linear-gradient(135deg,#1e3a8a,#3b82f6)" }}>
+              {user.firstName[0]}{user.lastName[0]}
+            </div>
+            <div>
+              <p className="font-semibold text-gray-900">{user.firstName} {user.lastName}</p>
+              <p className="text-gray-500 text-xs">{user.email}</p>
+              <div className="mt-1">{roleBadge(user.role)}</div>
+            </div>
+          </div>
+
+          <div>
+            <label className="text-xs font-semibold text-gray-600 block mb-2 uppercase tracking-wide">Assign new role</label>
+            <div className="grid grid-cols-2 gap-2">
+              {availableRoles.map(r => (
+                <button key={r.value} onClick={() => setSelectedRole(r.value)}
+                  disabled={r.value === user.role}
+                  className="px-3 py-2.5 rounded-xl text-sm font-semibold border transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                  style={selectedRole === r.value && r.value !== user.role
+                    ? { background: "#1e3a8a", color: "white", borderColor: "#1e3a8a" }
+                    : r.value === user.role
+                    ? { background: "#f3f4f6", color: "#9ca3af", borderColor: "#e5e7eb" }
+                    : { background: "white", color: "#374151", borderColor: "#e5e7eb" }}>
+                  {r.label}
+                  {r.value === user.role && <span className="block text-[10px] opacity-60">Current</span>}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {!isSuperAdmin && (
+            <p className="text-xs text-gray-400 flex items-center gap-1">
+              <AlertTriangle className="w-3 h-3" /> Admins can only reassign between Parent and Teacher
+            </p>
+          )}
+
+          <div className="flex gap-2 pt-2">
+            <Button variant="outline" className="flex-1" onClick={onCancel} disabled={loading}>Cancel</Button>
+            <Button
+              className="flex-1 text-white"
+              style={{ background: "#1e3a8a" }}
+              disabled={loading || selectedRole === user.role}
+              onClick={() => onConfirm(selectedRole)}>
+              {loading ? "Saving..." : "Reassign Role"}
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export default function Users() {
   const { user: currentUser } = useAuth();
   const currentRole = currentUser?.role ?? "";
   const isSuperAdmin = currentRole === "super_admin";
+  const isAdmin = currentRole === "admin";
 
   const { data, isLoading, refetch } = useListUsers();
   const createMutation = useCreateUser();
   const updateMutation = useUpdateUser();
   const deleteMutation = useDeleteUser();
   const { toast } = useToast();
-  const queryClient = useQueryClient();
 
   const [isOpen, setIsOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState("");
+
+  const [deleteTarget, setDeleteTarget] = useState<any>(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [reassignTarget, setReassignTarget] = useState<any>(null);
+  const [reassignLoading, setReassignLoading] = useState(false);
 
   const { data: pendingData, refetch: refetchPending } = useQuery({
     queryKey: ["pending-users"],
@@ -72,21 +195,13 @@ export default function Users() {
 
   const approveMutation = useMutation({
     mutationFn: (id: number) => apiPut(`/users/${id}/approve`),
-    onSuccess: () => {
-      toast({ title: "User approved successfully" });
-      refetch();
-      refetchPending();
-    },
+    onSuccess: () => { toast({ title: "User approved successfully" }); refetch(); refetchPending(); },
     onError: (e: any) => toast({ variant: "destructive", title: e.message }),
   });
 
   const rejectMutation = useMutation({
     mutationFn: (id: number) => apiPut(`/users/${id}/reject`),
-    onSuccess: () => {
-      toast({ title: "User rejected" });
-      refetch();
-      refetchPending();
-    },
+    onSuccess: () => { toast({ title: "User rejected" }); refetch(); refetchPending(); },
     onError: (e: any) => toast({ variant: "destructive", title: e.message }),
   });
 
@@ -120,24 +235,53 @@ export default function Users() {
       setIsOpen(false);
       refetch();
       refetchPending();
-    } catch (e) {
+    } catch {
       toast({ variant: "destructive", title: "Action failed" });
     }
   };
 
-  const handleDelete = async (user: any) => {
-    if (user.role === "super_admin" || (user.role === "admin" && !isSuperAdmin)) {
-      toast({ variant: "destructive", title: "Not allowed", description: "You cannot deactivate this account." });
-      return;
-    }
-    if (!confirm(`Deactivate ${user.firstName} ${user.lastName}?`)) return;
+  const handleConfirmDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleteLoading(true);
     try {
-      await deleteMutation.mutateAsync({ id: user.id });
-      toast({ title: "User deactivated" });
+      await deleteMutation.mutateAsync({ id: deleteTarget.id });
+      toast({ title: "User removed", description: `${deleteTarget.firstName} ${deleteTarget.lastName}'s account has been deactivated.` });
       refetch();
-    } catch (e) {
-      toast({ variant: "destructive", title: "Action failed" });
+    } catch {
+      toast({ variant: "destructive", title: "Could not remove user" });
+    } finally {
+      setDeleteLoading(false);
+      setDeleteTarget(null);
     }
+  };
+
+  const handleConfirmReassign = async (newRole: string) => {
+    if (!reassignTarget) return;
+    setReassignLoading(true);
+    try {
+      await apiPost(`/users/${reassignTarget.id}/reassign-role`, { role: newRole });
+      toast({ title: "Role updated", description: `${reassignTarget.firstName} ${reassignTarget.lastName} is now a ${newRole}.` });
+      refetch();
+      setReassignTarget(null);
+    } catch (e: any) {
+      toast({ variant: "destructive", title: e.message || "Could not reassign role" });
+    } finally {
+      setReassignLoading(false);
+    }
+  };
+
+  const canDeleteUser = (user: any) => {
+    if (user.id === currentUser?.id) return false;
+    if (isSuperAdmin) return user.role !== "super_admin";
+    if (isAdmin) return user.role === "parent" || user.role === "teacher";
+    return false;
+  };
+
+  const canReassignUser = (user: any) => {
+    if (user.id === currentUser?.id) return false;
+    if (isSuperAdmin) return user.role !== "super_admin";
+    if (isAdmin) return user.role === "parent" || user.role === "teacher";
+    return false;
   };
 
   const allUsers = data?.data || [];
@@ -156,9 +300,12 @@ export default function Users() {
           <h1 className="text-3xl font-bold text-gray-900" style={{ fontFamily: "'Playfair Display', serif" }}>User Management</h1>
           <p className="text-gray-500 text-sm mt-1">Manage all system users and approve new sign-ups</p>
         </div>
-        <Button onClick={handleOpenNew} style={{ background: "linear-gradient(135deg, #1e3a8a, #1d4ed8)" }}>Add User</Button>
+        {isSuperAdmin && (
+          <Button onClick={handleOpenNew} style={{ background: "linear-gradient(135deg, #1e3a8a, #1d4ed8)" }}>Add User</Button>
+        )}
       </div>
 
+      {/* Edit/Create dialog */}
       <Dialog open={isOpen} onOpenChange={setIsOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader><DialogTitle>{editingId ? "Edit User" : "Create New User"}</DialogTitle></DialogHeader>
@@ -192,7 +339,7 @@ export default function Users() {
                       {isSuperAdmin && <SelectItem value="super_admin">Super Admin</SelectItem>}
                       {isSuperAdmin && <SelectItem value="admin">Admin</SelectItem>}
                       <SelectItem value="teacher">Teacher</SelectItem>
-                      <SelectItem value="attendant">Attendant</SelectItem>
+                      {isSuperAdmin && <SelectItem value="attendant">Attendant</SelectItem>}
                       <SelectItem value="parent">Parent</SelectItem>
                     </SelectContent>
                   </Select>
@@ -217,6 +364,27 @@ export default function Users() {
           </Form>
         </DialogContent>
       </Dialog>
+
+      {/* Delete confirmation dialog */}
+      {deleteTarget && (
+        <DeleteConfirmDialog
+          user={deleteTarget}
+          onConfirm={handleConfirmDelete}
+          onCancel={() => setDeleteTarget(null)}
+          loading={deleteLoading}
+        />
+      )}
+
+      {/* Reassign role dialog */}
+      {reassignTarget && (
+        <ReassignRoleDialog
+          user={reassignTarget}
+          isSuperAdmin={isSuperAdmin}
+          onConfirm={handleConfirmReassign}
+          onCancel={() => setReassignTarget(null)}
+          loading={reassignLoading}
+        />
+      )}
 
       <Tabs defaultValue="all">
         <TabsList className="bg-gray-100">
@@ -286,10 +454,18 @@ export default function Users() {
                     <TableCell>{statusBadge(user)}</TableCell>
                     <TableCell className="text-gray-500 text-sm">{new Date(user.createdAt).toLocaleDateString()}</TableCell>
                     <TableCell>
-                      <div className="flex gap-1">
-                        <Button variant="ghost" size="sm" onClick={() => handleOpenEdit(user)} title="Edit">
-                          <Edit2 className="w-4 h-4" />
-                        </Button>
+                      <div className="flex gap-1 items-center">
+                        {isSuperAdmin && (
+                          <Button variant="ghost" size="sm" onClick={() => handleOpenEdit(user)} title="Edit">
+                            <Edit2 className="w-4 h-4" />
+                          </Button>
+                        )}
+                        {canReassignUser(user) && (
+                          <Button variant="ghost" size="sm" className="text-blue-600 hover:bg-blue-50" title="Reassign Role"
+                            onClick={() => setReassignTarget(user)}>
+                            <RefreshCw className="w-4 h-4" />
+                          </Button>
+                        )}
                         {user.status === "pending_approval" && (
                           <>
                             <Button variant="ghost" size="sm" className="text-green-600 hover:bg-green-50" title="Approve"
@@ -302,8 +478,9 @@ export default function Users() {
                             </Button>
                           </>
                         )}
-                        {(isSuperAdmin || (user.role !== "super_admin" && user.role !== "admin")) && (
-                          <Button variant="ghost" size="sm" className="text-red-500 hover:bg-red-50" title="Deactivate" onClick={() => handleDelete(user)}>
+                        {canDeleteUser(user) && (
+                          <Button variant="ghost" size="sm" className="text-red-500 hover:bg-red-50" title="Remove user"
+                            onClick={() => setDeleteTarget(user)}>
                             <Trash2 className="w-4 h-4" />
                           </Button>
                         )}
@@ -317,6 +494,14 @@ export default function Users() {
               </TableBody>
             </Table>
           </div>
+
+          {/* Legend for admin */}
+          {isAdmin && !isSuperAdmin && (
+            <div className="mt-3 flex items-center gap-4 text-xs text-gray-500 bg-blue-50 border border-blue-100 rounded-xl px-4 py-2.5">
+              <RefreshCw className="w-3.5 h-3.5 text-blue-600 flex-shrink-0" />
+              <span>You can <strong>reassign</strong> or <strong>remove</strong> parents and teachers. Super admin manages all other roles.</span>
+            </div>
+          )}
         </TabsContent>
 
         <TabsContent value="pending" className="mt-4">

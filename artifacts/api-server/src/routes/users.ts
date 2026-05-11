@@ -162,6 +162,38 @@ router.put("/users/:id", authMiddleware, async (req, res): Promise<void> => {
   res.json(sanitizeUser(user));
 });
 
+router.post("/users/:id/reassign-role", authMiddleware, requireRoles("super_admin", "admin"), async (req, res): Promise<void> => {
+  const id = parseInt(req.params.id as string, 10);
+  if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
+
+  const { role } = req.body as { role: string };
+  if (!role) { res.status(400).json({ error: "Bad request", message: "role is required" }); return; }
+
+  const requesterRole = req.user!.role;
+  const requesterId = req.user!.userId;
+
+  const [target] = await db.select().from(usersTable).where(eq(usersTable.id, id));
+  if (!target) { res.status(404).json({ error: "Not found", message: "User not found" }); return; }
+  if (requesterId === id) { res.status(400).json({ error: "Bad request", message: "Cannot reassign your own role" }); return; }
+
+  const adminAllowed = ["parent", "teacher"];
+  if (requesterRole === "admin") {
+    if (!adminAllowed.includes(target.role) || !adminAllowed.includes(role)) {
+      res.status(403).json({ error: "Forbidden", message: "Admins can only reassign between parent and teacher" }); return;
+    }
+  }
+
+  const validRoles = ["super_admin", "admin", "teacher", "attendant", "parent"];
+  if (!validRoles.includes(role)) { res.status(400).json({ error: "Bad request", message: "Invalid role" }); return; }
+
+  const [updated] = await db.update(usersTable)
+    .set({ role: role as "super_admin" | "admin" | "teacher" | "attendant" | "parent" })
+    .where(eq(usersTable.id, id))
+    .returning();
+
+  res.json({ success: true, user: sanitizeUser(updated), message: `Role updated to ${role}` });
+});
+
 router.delete("/users/:id", authMiddleware, requireRoles("super_admin", "admin"), async (req, res): Promise<void> => {
   const id = parseInt(req.params.id as string, 10);
   if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
