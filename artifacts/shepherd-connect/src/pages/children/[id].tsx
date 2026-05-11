@@ -1,14 +1,18 @@
 import { useGetChild, useGetChildQrCode, useListAttendance, useListAppraisals } from "@workspace/api-client-react";
-import { useQuery } from "@tanstack/react-query";
-import { useParams, Link } from "wouter";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { useParams, Link, useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import { AlertTriangle, Clock, Calendar, CheckSquare, Award, Activity, Phone, Shield, Stethoscope, Route, ArrowRight } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { AlertTriangle, Clock, Calendar, CheckSquare, Award, Phone, Shield, Stethoscope, Route, ArrowRight, Trash2 } from "lucide-react";
+import { useState } from "react";
 import { format } from "date-fns";
 import { QRCodeSVG } from "qrcode.react";
 import FaceEnrollment from "@/components/FaceEnrollment";
-import { apiGet } from "@/lib/api-call";
+import { apiGet, apiDelete } from "@/lib/api-call";
+import { useAuth } from "@/contexts/auth";
+import { useToast } from "@/hooks/use-toast";
 
 function ClassJourneyTimeline({ childId }: { childId: number }) {
   const { data: assignments, isLoading } = useQuery({
@@ -78,6 +82,10 @@ function ClassJourneyTimeline({ childId }: { childId: number }) {
 export default function ChildProfile() {
   const { id } = useParams();
   const childId = parseInt(id || "0", 10);
+  const [, setLocation] = useLocation();
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const { data: child, isLoading: childLoading } = useGetChild(childId, { query: { enabled: !!childId, queryKey: ["getChild", childId] } });
   const { data: qrData, isLoading: qrLoading } = useGetChildQrCode(childId, { query: { enabled: !!childId, queryKey: ["getChildQrCode", childId] } });
@@ -90,6 +98,26 @@ export default function ChildProfile() {
     enabled: !!child?.familyId,
   });
 
+  const deleteMutation = useMutation({
+    mutationFn: () => apiDelete<{ success: boolean }>(`/children/${childId}`),
+    onSuccess: () => {
+      toast({ title: "Child removed", description: "The child record has been permanently deleted." });
+      // Navigate to family profile if we know it, otherwise families list
+      if (child?.familyId) {
+        const isParent = user?.role === "parent";
+        setLocation(isParent ? "/my-family" : `/families/${child.familyId}`);
+      } else {
+        setLocation("/families");
+      }
+    },
+    onError: () => toast({ variant: "destructive", title: "Delete failed", description: "Could not delete this child." }),
+  });
+
+  const canDelete = user && (
+    ["super_admin", "admin"].includes(user.role) ||
+    (user.role === "parent" && family && (family.parent1Id === user.id || family.parent2Id === user.id))
+  );
+
   if (childLoading) return <div className="p-8 space-y-4"><Skeleton className="h-32 w-full" /><Skeleton className="h-64 w-full" /></div>;
   if (!child) return <div>Child not found</div>;
 
@@ -99,6 +127,38 @@ export default function ChildProfile() {
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto">
+      {/* Delete confirmation dialog */}
+      <Dialog open={confirmDelete} onOpenChange={setConfirmDelete}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-600">
+              <Trash2 className="w-5 h-5" /> Remove Child
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 mt-1">
+            <p className="text-sm text-gray-700">
+              This will permanently remove <strong>{child.firstName} {child.lastName}</strong> and all
+              their attendance, appraisals, and delegate records. This cannot be undone.
+            </p>
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setConfirmDelete(false)}
+                className="px-4 py-2 rounded-lg text-sm font-semibold border border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => deleteMutation.mutate()}
+                disabled={deleteMutation.isPending}
+                className="px-4 py-2 rounded-lg text-sm font-semibold bg-red-600 text-white hover:bg-red-700 disabled:opacity-60 transition-colors"
+              >
+                {deleteMutation.isPending ? "Removing…" : "Yes, Remove Child"}
+              </button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {child.allergies && (
         <div className="bg-destructive text-destructive-foreground p-4 rounded-xl flex items-center gap-3 font-bold shadow-lg animate-in slide-in-from-top-4">
           <AlertTriangle className="h-6 w-6 flex-shrink-0" />
@@ -123,6 +183,16 @@ export default function ChildProfile() {
                   <Badge variant="secondary">Unassigned</Badge>
                 )}
                 <div><Link href={`/families/${child.familyId}`} className="text-sm text-primary hover:underline">View Family</Link></div>
+                {canDelete && (
+                  <div>
+                    <button
+                      onClick={() => setConfirmDelete(true)}
+                      className="flex items-center gap-1.5 text-sm font-semibold text-red-600 hover:text-red-700 hover:bg-red-50 px-2 py-1 rounded-lg transition-colors ml-auto"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" /> Remove Child
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           </CardHeader>

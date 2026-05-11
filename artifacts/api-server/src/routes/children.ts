@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { eq, and, isNull, ilike, or, sql } from "drizzle-orm";
-import { db, childrenTable, classesTable, attendanceTable, classAssignmentsTable, pickupDelegatesTable, childAppraisalsTable, classChangeRequestsTable, classWaitlistTable, emergenciesTable } from "@workspace/db";
+import { db, childrenTable, classesTable, attendanceTable, classAssignmentsTable, pickupDelegatesTable, childAppraisalsTable, classChangeRequestsTable, classWaitlistTable, emergenciesTable, familiesTable } from "@workspace/db";
 import { CreateChildBody, ListChildrenQueryParams } from "@workspace/api-zod";
 import { authMiddleware, requireRoles } from "../middlewares/auth";
 
@@ -110,11 +110,25 @@ router.put("/children/:id/face-descriptor", authMiddleware, async (req, res): Pr
   res.json(await formatChild(child));
 });
 
-router.delete("/children/:id", authMiddleware, requireRoles("super_admin", "admin"), async (req, res): Promise<void> => {
+router.delete("/children/:id", authMiddleware, async (req, res): Promise<void> => {
   const id = parseInt(req.params.id as string, 10);
   if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
   const [child] = await db.select().from(childrenTable).where(eq(childrenTable.id, id));
   if (!child) { res.status(404).json({ error: "Not found", message: "Child not found" }); return; }
+
+  const { role, userId } = req.user!;
+  if (role === "parent") {
+    // Parents may only delete children who belong to their own family
+    const [family] = await db.select().from(familiesTable).where(eq(familiesTable.id, child.familyId));
+    if (!family || (family.parent1Id !== userId && family.parent2Id !== userId)) {
+      res.status(403).json({ error: "Forbidden", message: "You can only delete your own children" });
+      return;
+    }
+  } else if (!["super_admin", "admin"].includes(role)) {
+    res.status(403).json({ error: "Forbidden", message: "Insufficient permissions" });
+    return;
+  }
+
   // Cascade delete all dependent records
   await db.delete(attendanceTable).where(eq(attendanceTable.childId, id));
   await db.delete(classAssignmentsTable).where(eq(classAssignmentsTable.childId, id));
@@ -122,7 +136,6 @@ router.delete("/children/:id", authMiddleware, requireRoles("super_admin", "admi
   await db.delete(childAppraisalsTable).where(eq(childAppraisalsTable.childId, id));
   await db.delete(classChangeRequestsTable).where(eq(classChangeRequestsTable.childId, id));
   await db.delete(classWaitlistTable).where(eq(classWaitlistTable.childId, id));
-  // Nullify optional childId references in emergencies instead of deleting the emergency record
   await db.update(emergenciesTable).set({ childId: null }).where(eq(emergenciesTable.childId, id));
   await db.delete(childrenTable).where(eq(childrenTable.id, id));
   res.json({ success: true, message: "Child deleted" });
