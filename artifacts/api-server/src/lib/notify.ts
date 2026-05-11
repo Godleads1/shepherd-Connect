@@ -1,4 +1,4 @@
-import { db, notificationsTable, usersTable, familiesTable, childrenTable, classesTable, teachersTable, teacherAllocationsTable } from "@workspace/db";
+import { db, notificationsTable, usersTable, familiesTable, childrenTable, classesTable, teachersTable, teacherAllocationsTable, attendanceTable } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
 
 type Channel = "in_app" | "whatsapp" | "sms" | "email";
@@ -156,38 +156,109 @@ export async function notifyChildPickedUp(childId: number) {
   }
 }
 
+/**
+ * Tiered emergency broadcast — L1 to L4 escalation tree.
+ *
+ * L1 — Local/Class level: teachers + admins only
+ * L2 — Department: all staff (teachers, attendants, admins) + child's parents if childId set
+ * L3 — Building-wide: all staff + ALL parents of children currently checked in today
+ * L4 — Full community / critical: every active user on the platform
+ */
 export async function broadcastEmergency(opts: {
   type: string;
   level: string;
   description: string;
   emergencyId: number;
+  childId?: number | null;
 }) {
-  const users = await db
-    .select({ id: usersTable.id, role: usersTable.role })
-    .from(usersTable)
-    .where(eq(usersTable.isActive, true));
-
   const levelLabel: Record<string, string> = {
-    L1: "Local Area",
-    L2: "Department",
-    L3: "Building-Wide",
-    L4: "CRITICAL — Full Community",
+    L1: "Local — Staff Alert",
+    L2: "Department — Staff + Affected Parents",
+    L3: "Building-Wide — All Staff & Checked-In Parents",
+    L4: "CRITICAL — Full Community Evacuation",
   };
 
-  const title = `⚠️ EMERGENCY ALERT — Level ${opts.level} (${levelLabel[opts.level] ?? opts.level})`;
-  const message = `${opts.type.replace(/_/g, " ").toUpperCase()} — ${opts.description}. All staff and parents please respond immediately.`;
+  const emoji: Record<string, string> = {
+    medical: "🩺",
+    missing_child: "🔍",
+    fire_evacuation: "🔥",
+    security: "🔒",
+    general: "⚠️",
+  };
 
-  if (users.length === 0) return;
+  const typeLabel = opts.type.replace(/_/g, " ").toUpperCase();
+  const icon = emoji[opts.type] ?? "⚠️";
+  const title = `${icon} ${opts.level} EMERGENCY — ${typeLabel}`;
+  const baseMessage = `${opts.description}. Level ${opts.level}: ${levelLabel[opts.level] ?? opts.level}.`;
 
-  await db.insert(notificationsTable).values(
-    users.map(u => ({
-      userId: u.id,
-      type: "emergency_alert",
-      title,
-      message,
-      channel: "in_app" as Channel,
-      readStatus: false,
-      metadataJson: JSON.stringify({ emergencyId: opts.emergencyId, level: opts.level }),
-    }))
-  );
+  const meta = { emergencyId: opts.emergencyId, level: opts.level, type: opts.type };
+
+  const insertNotifs = async (userIds: number[], message: string) => {
+    if (userIds.length === 0) return;
+    await db.insert(notificationsTable).values(
+      userIds.map(uid => ({
+        userId: uid,
+        type: "emergency_alert",
+        title,
+        message,
+        channel: "in_app" as Channel,
+        readStatus: false,
+        metadataJson: JSON.stringify(meta),
+      }))
+    );
+  };
+
+  if (opts.level === "L1") {
+    // Teachers + Admins only
+    const staffRoles = new Set(["teacher", "admin", "super_admin"]);
+    const allUsers = await db.select({ id: usersTable.id, role: usersTable.role }).from(usersTable).where(eq(usersTable.isActive, true));
+    const targets = allUsers.filter(u => staffRoles.has(u.role)).map(u => u.id);
+    await insertNotifs(targets, `[STAFF ONLY] ${baseMessage} Please respond immediately and report to your class coordinator.`);
+
+  } else if (opts.level === "L2") {
+    // All staff + child's parents if childId provided
+    const allUsers = await db.select({ id: usersTable.id, role: usersTable.role }).from(usersTable).where(eq(usersTable.isActive, true));
+    const staffRoles = new Set(["teacher", "attendant", "admin", "super_admin"]);
+    const targets = new Set(allUsers.filter(u => staffRoles.has(u.role)).map(u => u.id));
+
+    if (opts.childId) {
+      const [child] = await db.select().from(childrenTable).where(eq(childrenTable.id, opts.childId));
+      if (child) {
+        const [family] = await db.select().from(familiesTable).where(eq(familiesTable.id, child.familyId));
+        if (family?.parent1Id) targets.add(family.parent1Id);
+        if (family?.parent2Id) targets.add(family.parent2Id);
+      }
+    }
+
+    await insertNotifs(Array.from(targets), `[DEPARTMENT ALERT] ${baseMessage} All staff please respond. Affected parents have been notified.`);
+
+  } else if (opts.level === "L3") {
+    // All staff + all parents of children checked in today
+    const today = new Date().toISOString().split("T")[0];
+    const allUsers = await db.select({ id: usersTable.id, role: usersTable.role }).from(usersTable).where(eq(usersTable.isActive, true));
+    const staffRoles = new Set(["teacher", "attendant", "admin", "super_admin"]);
+    const targets = new Set(allUsers.filter(u => staffRoles.has(u.role)).map(u => u.id));
+
+    // Find all children checked in today (not yet picked up)
+    const checkedInToday = await db
+      .select({ childId: attendanceTable.childId })
+      .from(attendanceTable)
+      .where(eq(attendanceTable.serviceDate, today));
+
+    const childIds = [...new Set(checkedInToday.map(r => r.childId))];
+    for (const cid of childIds) {
+      const [child] = await db.select().from(childrenTable).where(eq(childrenTable.id, cid));
+      if (!child) continue;
+      const [family] = await db.select().from(familiesTable).where(eq(familiesTable.id, child.familyId));
+      if (family?.parent1Id) targets.add(family.parent1Id);
+      if (family?.parent2Id) targets.add(family.parent2Id);
+    }
+
+    await insertNotifs(Array.from(targets), `[BUILDING-WIDE ALERT] ${baseMessage} All staff respond immediately. Parents of checked-in children have been notified.`);
+
+  } else {
+    // L4 — ALL active users
+    const allUsers = await db.select({ id: usersTable.id }).from(usersTable).where(eq(usersTable.isActive, true));
+    await insertNotifs(allUsers.map(u => u.id), `[CRITICAL — FULL COMMUNITY] ${baseMessage} All parents and staff: please respond immediately and follow emergency procedures.`);
+  }
 }

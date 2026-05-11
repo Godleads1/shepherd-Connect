@@ -59,6 +59,7 @@ router.post("/emergencies", authMiddleware, async (req, res): Promise<void> => {
     level: emergency.level,
     description: emergency.description,
     emergencyId: emergency.id,
+    childId: emergency.childId,
   });
 
   await db.insert(emergencyUpdatesTable).values({
