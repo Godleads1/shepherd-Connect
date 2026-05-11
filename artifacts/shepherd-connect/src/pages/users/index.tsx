@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useListUsers, useCreateUser, useUpdateUser, useDeleteUser } from "@workspace/api-client-react";
+import { useAuth } from "@/contexts/auth";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
@@ -48,6 +49,10 @@ function roleBadge(role: string) {
 }
 
 export default function Users() {
+  const { user: currentUser } = useAuth();
+  const currentRole = currentUser?.role ?? "";
+  const isSuperAdmin = currentRole === "super_admin";
+
   const { data, isLoading, refetch } = useListUsers();
   const createMutation = useCreateUser();
   const updateMutation = useUpdateUser();
@@ -120,14 +125,18 @@ export default function Users() {
     }
   };
 
-  const handleDelete = async (id: number) => {
-    if (!confirm("Are you sure you want to deactivate this user?")) return;
+  const handleDelete = async (user: any) => {
+    if (user.role === "super_admin" || (user.role === "admin" && !isSuperAdmin)) {
+      toast({ variant: "destructive", title: "Not allowed", description: "You cannot deactivate this account." });
+      return;
+    }
+    if (!confirm(`Deactivate ${user.firstName} ${user.lastName}?`)) return;
     try {
-      await deleteMutation.mutateAsync({ id });
+      await deleteMutation.mutateAsync({ id: user.id });
       toast({ title: "User deactivated" });
       refetch();
     } catch (e) {
-      toast({ variant: "destructive", title: "Delete failed" });
+      toast({ variant: "destructive", title: "Action failed" });
     }
   };
 
@@ -180,8 +189,8 @@ export default function Users() {
                   <Select onValueChange={field.onChange} value={field.value}>
                     <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
                     <SelectContent>
-                      <SelectItem value="super_admin">Super Admin</SelectItem>
-                      <SelectItem value="admin">Admin</SelectItem>
+                      {isSuperAdmin && <SelectItem value="super_admin">Super Admin</SelectItem>}
+                      {isSuperAdmin && <SelectItem value="admin">Admin</SelectItem>}
                       <SelectItem value="teacher">Teacher</SelectItem>
                       <SelectItem value="attendant">Attendant</SelectItem>
                       <SelectItem value="parent">Parent</SelectItem>
@@ -293,9 +302,11 @@ export default function Users() {
                             </Button>
                           </>
                         )}
-                        <Button variant="ghost" size="sm" className="text-red-500 hover:bg-red-50" title="Delete" onClick={() => handleDelete(user.id)}>
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
+                        {(isSuperAdmin || (user.role !== "super_admin" && user.role !== "admin")) && (
+                          <Button variant="ghost" size="sm" className="text-red-500 hover:bg-red-50" title="Deactivate" onClick={() => handleDelete(user)}>
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        )}
                       </div>
                     </TableCell>
                   </TableRow>

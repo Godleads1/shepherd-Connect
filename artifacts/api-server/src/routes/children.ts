@@ -1,8 +1,8 @@
 import { Router } from "express";
 import { eq, and, isNull, ilike, or, sql } from "drizzle-orm";
-import { db, childrenTable, classesTable, attendanceTable } from "@workspace/db";
+import { db, childrenTable, classesTable, attendanceTable, classAssignmentsTable, pickupDelegatesTable, childAppraisalsTable, classChangeRequestsTable, classWaitlistTable, emergenciesTable } from "@workspace/db";
 import { CreateChildBody, ListChildrenQueryParams } from "@workspace/api-zod";
-import { authMiddleware } from "../middlewares/auth";
+import { authMiddleware, requireRoles } from "../middlewares/auth";
 
 const router = Router();
 
@@ -108,6 +108,24 @@ router.put("/children/:id/face-descriptor", authMiddleware, async (req, res): Pr
     .returning();
   if (!child) { res.status(404).json({ error: "Not found", message: "Child not found" }); return; }
   res.json(await formatChild(child));
+});
+
+router.delete("/children/:id", authMiddleware, requireRoles("super_admin", "admin"), async (req, res): Promise<void> => {
+  const id = parseInt(req.params.id as string, 10);
+  if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
+  const [child] = await db.select().from(childrenTable).where(eq(childrenTable.id, id));
+  if (!child) { res.status(404).json({ error: "Not found", message: "Child not found" }); return; }
+  // Cascade delete all dependent records
+  await db.delete(attendanceTable).where(eq(attendanceTable.childId, id));
+  await db.delete(classAssignmentsTable).where(eq(classAssignmentsTable.childId, id));
+  await db.delete(pickupDelegatesTable).where(eq(pickupDelegatesTable.childId, id));
+  await db.delete(childAppraisalsTable).where(eq(childAppraisalsTable.childId, id));
+  await db.delete(classChangeRequestsTable).where(eq(classChangeRequestsTable.childId, id));
+  await db.delete(classWaitlistTable).where(eq(classWaitlistTable.childId, id));
+  // Nullify optional childId references in emergencies instead of deleting the emergency record
+  await db.update(emergenciesTable).set({ childId: null }).where(eq(emergenciesTable.childId, id));
+  await db.delete(childrenTable).where(eq(childrenTable.id, id));
+  res.json({ success: true, message: "Child deleted" });
 });
 
 router.delete("/children/:id/face-descriptor", authMiddleware, async (req, res): Promise<void> => {

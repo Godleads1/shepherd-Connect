@@ -1,15 +1,37 @@
 import { useState } from "react";
 import { useListChildren } from "@workspace/api-client-react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
-import { Search, Eye, AlertCircle, Baby, MapPin } from "lucide-react";
+import { Search, Eye, AlertCircle, Baby, MapPin, Trash2 } from "lucide-react";
+import { useAuth } from "@/contexts/auth";
+import { useToast } from "@/hooks/use-toast";
+import { apiDelete } from "@/lib/api-call";
 
 export default function Children() {
   const [search, setSearch] = useState("");
   const [unassignedOnly, setUnassignedOnly] = useState(false);
   const { data, isLoading } = useListChildren({ search, unassigned: unassignedOnly });
+  const { user: currentUser } = useAuth();
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const canDelete = currentUser?.role === "super_admin" || currentUser?.role === "admin";
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: number) => apiDelete(`/children/${id}`),
+    onSuccess: () => {
+      toast({ title: "Child deleted" });
+      queryClient.invalidateQueries({ queryKey: ["children"] });
+    },
+    onError: () => toast({ variant: "destructive", title: "Delete failed" }),
+  });
+
+  const handleDelete = (id: number, name: string) => {
+    if (!confirm(`Delete ${name}? This cannot be undone.`)) return;
+    deleteMutation.mutate(id);
+  };
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto">
@@ -97,14 +119,26 @@ export default function Children() {
                   Unassigned
                 </div>
               )}
-              
-              <Link
-                href={`/children/${child.id}`}
-                className="text-sm font-semibold text-blue-800 hover:text-blue-900 flex items-center gap-1 transition-colors"
-                data-testid={`link-child-${child.id}`}
-              >
-                <Eye className="w-4 h-4" /> View
-              </Link>
+
+              <div className="flex items-center gap-2">
+                {canDelete && (
+                  <button
+                    onClick={() => handleDelete(child.id, `${child.firstName} ${child.lastName}`)}
+                    disabled={deleteMutation.isPending}
+                    className="p-1.5 rounded-lg text-red-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                    title="Delete child"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                )}
+                <Link
+                  href={`/children/${child.id}`}
+                  className="text-sm font-semibold text-blue-800 hover:text-blue-900 flex items-center gap-1 transition-colors"
+                  data-testid={`link-child-${child.id}`}
+                >
+                  <Eye className="w-4 h-4" /> View
+                </Link>
+              </div>
             </div>
           </div>
         ))}
