@@ -1,12 +1,14 @@
 import { useState } from "react";
-import { useListChildren } from "@workspace/api-client-react";
+import { useListChildren, useListFamilies, useCreateChild, useListClasses } from "@workspace/api-client-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Search, Eye, AlertCircle, Baby, MapPin, Trash2, Upload, FileSpreadsheet, CheckCircle, XCircle } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Button } from "@/components/ui/button";
+import { Search, Eye, AlertCircle, Baby, MapPin, Trash2, Upload, FileSpreadsheet, CheckCircle, XCircle, Plus } from "lucide-react";
 import { useAuth } from "@/contexts/auth";
 import { useToast } from "@/hooks/use-toast";
 import { apiDelete, apiPost } from "@/lib/api-call";
@@ -110,11 +112,142 @@ function BulkImportModal({ open, onClose }: { open: boolean; onClose: () => void
   );
 }
 
+function AddChildModal({ open, onClose, onCreated }: { open: boolean; onClose: () => void; onCreated: () => void }) {
+  const { toast } = useToast();
+  const createChild = useCreateChild();
+  const { data: familiesData } = useListFamilies({ limit: 200 } as any, { query: { enabled: open, queryKey: ["families-for-child-add"] } });
+  const { data: classesData } = useListClasses({}, { query: { enabled: open, queryKey: ["classes-for-child-add"] } });
+  const families = familiesData?.data ?? [];
+  const classes = (classesData as any[]) ?? [];
+
+  const [form, setForm] = useState({
+    familyId: "", firstName: "", lastName: "", dob: "",
+    gender: "male" as "male" | "female", allergies: "", medicalNotes: "", currentClassId: "",
+  });
+
+  const reset = () => setForm({ familyId: "", firstName: "", lastName: "", dob: "", gender: "male", allergies: "", medicalNotes: "", currentClassId: "" });
+
+  const handleClose = () => { reset(); onClose(); };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!form.familyId) { toast({ variant: "destructive", title: "Please select a family" }); return; }
+    if (!form.firstName || !form.lastName || !form.dob) {
+      toast({ variant: "destructive", title: "First name, last name and date of birth are required" }); return;
+    }
+    try {
+      await createChild.mutateAsync({
+        data: {
+          familyId: Number(form.familyId),
+          firstName: form.firstName,
+          lastName: form.lastName,
+          dob: form.dob,
+          gender: form.gender,
+          allergies: form.allergies || undefined,
+          medicalNotes: form.medicalNotes || undefined,
+          currentClassId: form.currentClassId ? Number(form.currentClassId) : undefined,
+        } as any,
+      });
+      toast({ title: "Child registered successfully!" });
+      handleClose();
+      onCreated();
+    } catch (e: any) {
+      toast({ variant: "destructive", title: "Failed to add child", description: e.message });
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={v => { if (!v) handleClose(); }}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2" style={{ fontFamily: "'Playfair Display', serif" }}>
+            <Baby className="w-5 h-5" style={{ color: "#1e3a8a" }} /> Add New Child
+          </DialogTitle>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="space-y-4 mt-1">
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide mb-1.5">Family <span className="text-red-500">*</span></label>
+            <Select value={form.familyId} onValueChange={v => setForm(p => ({ ...p, familyId: v }))}>
+              <SelectTrigger className="w-full"><SelectValue placeholder="Select a family…" /></SelectTrigger>
+              <SelectContent>
+                {families.map((f: any) => (
+                  <SelectItem key={f.id} value={String(f.id)}>
+                    {f.parent1?.firstName} {f.parent1?.lastName} — {f.familyCode}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide mb-1.5">First Name <span className="text-red-500">*</span></label>
+              <Input value={form.firstName} onChange={e => setForm(p => ({ ...p, firstName: e.target.value }))} placeholder="First name" />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide mb-1.5">Last Name <span className="text-red-500">*</span></label>
+              <Input value={form.lastName} onChange={e => setForm(p => ({ ...p, lastName: e.target.value }))} placeholder="Last name" />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide mb-1.5">Date of Birth <span className="text-red-500">*</span></label>
+            <Input type="date" value={form.dob} onChange={e => setForm(p => ({ ...p, dob: e.target.value }))} />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide mb-1.5">Gender <span className="text-red-500">*</span></label>
+            <Select value={form.gender} onValueChange={v => setForm(p => ({ ...p, gender: v as "male" | "female" }))}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="male">Male</SelectItem>
+                <SelectItem value="female">Female</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide mb-1.5">Class <span className="text-gray-400 font-normal">(optional)</span></label>
+            <Select value={form.currentClassId || "unassigned"} onValueChange={v => setForm(p => ({ ...p, currentClassId: v === "unassigned" ? "" : v }))}>
+              <SelectTrigger><SelectValue placeholder="Unassigned" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="unassigned">Unassigned</SelectItem>
+                {classes.map((c: any) => (
+                  <SelectItem key={c.id} value={String(c.id)}>{c.name} (Age {c.ageMin}–{c.ageMax})</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide mb-1.5">Allergies <span className="text-gray-400 font-normal">(optional)</span></label>
+            <Input value={form.allergies} onChange={e => setForm(p => ({ ...p, allergies: e.target.value }))} placeholder="e.g. Peanuts, Dairy" />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide mb-1.5">Medical Notes <span className="text-gray-400 font-normal">(optional)</span></label>
+            <Input value={form.medicalNotes} onChange={e => setForm(p => ({ ...p, medicalNotes: e.target.value }))} placeholder="Any conditions or special needs" />
+          </div>
+
+          <div className="flex justify-end gap-2 pt-2">
+            <Button type="button" variant="outline" onClick={handleClose} disabled={createChild.isPending}>Cancel</Button>
+            <Button type="submit" disabled={createChild.isPending}
+              style={{ background: "linear-gradient(135deg,#1e3a8a,#1d4ed8)", color: "white" }}>
+              {createChild.isPending ? "Registering…" : "Register Child"}
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export default function Children() {
   const [search, setSearch] = useState("");
   const [unassignedOnly, setUnassignedOnly] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
-  const { data, isLoading } = useListChildren({ search, unassigned: unassignedOnly });
+  const [addOpen, setAddOpen] = useState(false);
+  const { data, isLoading, refetch } = useListChildren({ search, unassigned: unassignedOnly });
   const { user: currentUser } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -137,6 +270,7 @@ export default function Children() {
   return (
     <div className="space-y-6 max-w-5xl mx-auto">
       <BulkImportModal open={importOpen} onClose={() => setImportOpen(false)} />
+      <AddChildModal open={addOpen} onClose={() => setAddOpen(false)} onCreated={() => { refetch(); queryClient.invalidateQueries({ queryKey: ["children"] }); }} />
       <div className="flex justify-between items-center gap-3 flex-wrap">
         <h1 className="text-3xl font-bold text-gray-900" style={{ fontFamily: "'Playfair Display', serif" }}>Children</h1>
         <div className="flex items-center gap-2">
@@ -148,13 +282,16 @@ export default function Children() {
               <FileSpreadsheet className="w-4 h-4" /> Import CSV
             </button>
           )}
-          <button 
-            className="px-4 py-2 rounded-xl text-sm font-semibold flex items-center justify-center transition-all hover:opacity-90"
-            style={{ background: "linear-gradient(135deg, #1e3a8a, #1d4ed8)", color: "white", boxShadow: "0 4px 10px rgba(30,58,138,0.2)" }}
-            data-testid="button-create-child"
-          >
-            Add Child
-          </button>
+          {canDelete && (
+            <button
+              onClick={() => setAddOpen(true)}
+              className="px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-2 transition-all hover:opacity-90"
+              style={{ background: "linear-gradient(135deg, #1e3a8a, #1d4ed8)", color: "white", boxShadow: "0 4px 10px rgba(30,58,138,0.2)" }}
+              data-testid="button-create-child"
+            >
+              <Plus className="w-4 h-4" /> Add Child
+            </button>
+          )}
         </div>
       </div>
       
