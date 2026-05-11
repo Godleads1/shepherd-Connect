@@ -128,6 +128,60 @@ router.delete("/children/:id", authMiddleware, requireRoles("super_admin", "admi
   res.json({ success: true, message: "Child deleted" });
 });
 
+router.get("/children/age-out", authMiddleware, requireRoles("super_admin", "admin"), async (req, res): Promise<void> => {
+  const children = await db.select().from(childrenTable).where(sql`${childrenTable.currentClassId} IS NOT NULL`);
+  const classes = await db.select().from(classesTable);
+  const classMap = Object.fromEntries(classes.map(c => [c.id, c]));
+  const agedOut = [];
+  for (const child of children) {
+    if (!child.currentClassId) continue;
+    const cls = classMap[child.currentClassId];
+    if (!cls) continue;
+    const dob = new Date(child.dob);
+    const now = new Date();
+    const age = now.getFullYear() - dob.getFullYear() - (now < new Date(now.getFullYear(), dob.getMonth(), dob.getDate()) ? 1 : 0);
+    if (age > cls.ageMax) {
+      const suggestedClass = classes.filter(c => c.id !== cls.id && c.ageMin <= age && c.ageMax >= age && c.serviceSlot === cls.serviceSlot).sort((a, b) => a.ageMin - b.ageMin)[0] || null;
+      agedOut.push({ childId: child.id, childName: `${child.firstName} ${child.lastName}`, age, currentClass: { id: cls.id, name: cls.name, ageMin: cls.ageMin, ageMax: cls.ageMax }, suggestedClass: suggestedClass ? { id: suggestedClass.id, name: suggestedClass.name, ageMin: suggestedClass.ageMin, ageMax: suggestedClass.ageMax } : null });
+    }
+  }
+  res.json({ total: agedOut.length, children: agedOut });
+});
+
+router.post("/children/auto-promote", authMiddleware, requireRoles("super_admin", "admin"), async (req, res): Promise<void> => {
+  const { promotions } = req.body as { promotions?: Array<{ childId: number; newClassId: number }> };
+  if (!Array.isArray(promotions) || promotions.length === 0) { res.status(400).json({ error: "Bad request", message: "promotions array required" }); return; }
+  const results = [];
+  for (const { childId, newClassId } of promotions) {
+    const [child] = await db.update(childrenTable).set({ currentClassId: newClassId }).where(eq(childrenTable.id, childId)).returning();
+    const [cls] = await db.select().from(classesTable).where(eq(classesTable.id, newClassId));
+    results.push({ childId, childName: child ? `${child.firstName} ${child.lastName}` : null, newClass: cls?.name || null });
+  }
+  res.json({ promoted: results.length, results });
+});
+
+router.post("/children/bulk-import", authMiddleware, requireRoles("super_admin", "admin"), async (req, res): Promise<void> => {
+  const { children: rows } = req.body as { children?: Array<{ firstName: string; lastName: string; dob: string; gender: string; familyId: number; allergies?: string; medicalNotes?: string; currentClassId?: number }> };
+  if (!Array.isArray(rows) || rows.length === 0) { res.status(400).json({ error: "Bad request", message: "children array required" }); return; }
+  const inserted = [];
+  const errors: Array<{ row: number; error: string }> = [];
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    try {
+      const [child] = await db.insert(childrenTable).values({
+        firstName: row.firstName, lastName: row.lastName, dob: row.dob,
+        gender: (row.gender as "male" | "female") || "male", familyId: row.familyId,
+        allergies: row.allergies || null, medicalNotes: row.medicalNotes || null,
+        currentClassId: row.currentClassId || null,
+      }).returning();
+      inserted.push(child);
+    } catch (err: any) {
+      errors.push({ row: i + 1, error: err.message || "Insert failed" });
+    }
+  }
+  res.json({ inserted: inserted.length, errors });
+});
+
 router.delete("/children/:id/face-descriptor", authMiddleware, async (req, res): Promise<void> => {
   const id = parseInt(req.params.id as string, 10);
   if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }

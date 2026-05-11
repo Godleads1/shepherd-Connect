@@ -1,11 +1,14 @@
 import { useState } from "react";
 import { useListAttendance, useMarkArrived } from "@workspace/api-client-react";
+import { useQuery } from "@tanstack/react-query";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   School, CheckCircle2, AlertTriangle, Truck, Users,
-  Clock, ArrowRight, UserCheck, CalendarCheck, ShieldCheck,
+  Clock, ArrowRight, UserCheck, CalendarCheck, ShieldCheck, Calendar,
 } from "lucide-react";
+import { apiGet } from "@/lib/api-call";
+import { useAuth } from "@/contexts/auth";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 
@@ -27,9 +30,16 @@ function TimestampPill({ label, time, color }: { label: string; time: string | n
 
 export default function MyClass() {
   const { toast } = useToast();
+  const { user } = useAuth();
   const today = format(new Date(), "yyyy-MM-dd");
-  const [activeTab, setActiveTab] = useState<"pending" | "roster">("pending");
+  const [activeTab, setActiveTab] = useState<"pending" | "roster" | "schedule">("pending");
   const [confirming, setConfirming] = useState<number | null>(null);
+
+  const { data: scheduleData } = useQuery({
+    queryKey: ["teacher-schedule", user?.id],
+    queryFn: () => apiGet<any>(`/reports/custom-builder?reportType=teacher-schedule&teacherId=${user?.id}&from=${today}`),
+    enabled: activeTab === "schedule" && !!user?.id,
+  });
 
   const { data: allAttendance, isLoading, refetch } = useListAttendance({ serviceDate: today });
   const arriveMutation = useMarkArrived();
@@ -57,8 +67,9 @@ export default function MyClass() {
   };
 
   const tabs = [
-    { key: "pending", label: "Awaiting Confirmation", count: pending.length },
-    { key: "roster",  label: "Class Roster",          count: inClass.length },
+    { key: "pending",  label: "Awaiting Confirmation", count: pending.length },
+    { key: "roster",   label: "Class Roster",          count: inClass.length },
+    { key: "schedule", label: "My Schedule",           count: scheduleData?.total ?? null },
   ];
 
   return (
@@ -243,7 +254,7 @@ export default function MyClass() {
             </div>
           )}
         </>
-      ) : (
+      ) : activeTab === "roster" ? (
         /* ── Class Roster ── */
         <>
           {inClass.length === 0 ? (
@@ -342,7 +353,50 @@ export default function MyClass() {
             </div>
           )}
         </>
-      )}
+      ) : activeTab === "schedule" ? (
+        /* ── My Schedule ── */
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+          <div className="px-4 py-3 bg-blue-50 border-b border-blue-100 flex items-center gap-2">
+            <Calendar className="w-4 h-4 text-blue-600" />
+            <span className="text-sm font-semibold text-blue-800">Upcoming Allocations</span>
+          </div>
+          {!scheduleData ? (
+            <div className="p-8 text-center">
+              <Skeleton className="h-12 w-full rounded-xl mb-2" />
+              <Skeleton className="h-12 w-full rounded-xl" />
+            </div>
+          ) : scheduleData.rows?.length === 0 ? (
+            <div className="p-12 text-center">
+              <Calendar className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+              <p className="text-gray-500 font-medium">No upcoming allocations</p>
+              <p className="text-xs text-gray-400 mt-1">Contact admin to get scheduled</p>
+            </div>
+          ) : (
+            <div className="divide-y divide-gray-50">
+              {scheduleData.rows.map((row: string[], i: number) => {
+                const [date, slot, , , cls, room, status] = row;
+                const isPast = date < today;
+                return (
+                  <div key={i} className={`px-4 py-3 flex items-center gap-4 ${isPast ? "opacity-50" : ""}`}>
+                    <div className="text-center min-w-[52px]">
+                      <p className="text-xs font-bold text-gray-500 uppercase">{date ? format(new Date(date), "EEE") : "—"}</p>
+                      <p className="text-lg font-bold text-gray-900">{date ? format(new Date(date), "d") : "—"}</p>
+                      <p className="text-xs text-gray-400">{date ? format(new Date(date), "MMM") : ""}</p>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold text-gray-900 text-sm">{cls || "—"}</p>
+                      <p className="text-xs text-gray-500">{room} · {slot}</p>
+                    </div>
+                    <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${status === "confirmed" ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"}`}>
+                      {status || "pending"}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      ) : null}
     </div>
   );
 }

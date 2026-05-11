@@ -18,6 +18,7 @@ import auditLogsRouter from "./auditLogs";
 import dashboardRouter from "./dashboard";
 import reportsRouter from "./reports";
 import classChangeRequestsRouter from "./classChangeRequests";
+import searchRouter from "./search";
 
 const router: IRouter = Router();
 
@@ -40,5 +41,6 @@ router.use(auditLogsRouter);
 router.use(dashboardRouter);
 router.use(reportsRouter);
 router.use(classChangeRequestsRouter);
+router.use(searchRouter);
 
 export default router;

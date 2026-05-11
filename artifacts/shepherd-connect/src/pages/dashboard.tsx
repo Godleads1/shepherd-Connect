@@ -1,8 +1,90 @@
 import { useGetDashboardStats, useGetLiveView, useGetAttendanceTrends, useGetClassUtilization, useGetExceptions, useGetFeedbackAnalytics } from "@workspace/api-client-react";
+import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
-import { AlertTriangle, Users, CheckCircle, Clock } from "lucide-react";
+import { AlertTriangle, Users, CheckCircle, Clock, Cake, UserX, Phone } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Link } from "wouter";
+import { apiGet } from "@/lib/api-call";
+
+function BirthdayAndAbsenceRow() {
+  const { data: bdays, isLoading: bdayLoading } = useQuery({
+    queryKey: ["reports-birthdays"],
+    queryFn: () => apiGet<any>("/reports/birthdays?days=30"),
+  });
+  const { data: absences, isLoading: absLoading } = useQuery({
+    queryKey: ["reports-absence-alerts"],
+    queryFn: () => apiGet<any>("/reports/absence-alerts?missedWeeks=2"),
+  });
+
+  return (
+    <div className="grid gap-4 md:grid-cols-2">
+      <Card className="rounded-2xl border-amber-100 bg-amber-50/40 shadow-sm">
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-amber-800 text-base">
+            <Cake className="w-5 h-5 text-amber-500" /> Upcoming Birthdays (30 days)
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {bdayLoading ? <Skeleton className="h-20 w-full rounded-xl" /> : bdays?.children?.length ? (
+            <div className="space-y-2">
+              {bdays.children.slice(0, 5).map((c: any) => (
+                <Link key={c.id} href={`/children/${c.id}`}>
+                  <div className="flex items-center justify-between py-2 px-3 bg-white rounded-xl border border-amber-100 hover:shadow-sm transition-all cursor-pointer">
+                    <div>
+                      <p className="font-semibold text-sm text-gray-900">{c.firstName} {c.lastName}</p>
+                      <p className="text-xs text-gray-500">{c.className || "Unassigned"} · Turning {c.turningAge}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-xs font-bold text-amber-600">{c.daysUntil === 0 ? "Today!" : `In ${c.daysUntil}d`}</p>
+                      <p className="text-xs text-gray-400">{c.birthdayDate}</p>
+                    </div>
+                  </div>
+                </Link>
+              ))}
+              {bdays.total > 5 && <p className="text-xs text-amber-600 font-medium text-center">+{bdays.total - 5} more this month</p>}
+            </div>
+          ) : (
+            <p className="text-sm text-amber-700 text-center py-3">No birthdays in the next 30 days</p>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card className="rounded-2xl border-red-100 bg-red-50/30 shadow-sm">
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-red-800 text-base">
+            <UserX className="w-5 h-5 text-red-500" /> Absence Alerts (2+ weeks)
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {absLoading ? <Skeleton className="h-20 w-full rounded-xl" /> : absences?.children?.length ? (
+            <div className="space-y-2">
+              {absences.children.slice(0, 5).map((c: any) => (
+                <div key={c.childId} className="flex items-center justify-between py-2 px-3 bg-white rounded-xl border border-red-100">
+                  <div>
+                    <p className="font-semibold text-sm text-gray-900">{c.childName}</p>
+                    <p className="text-xs text-gray-500">{c.className || "Unassigned"} · Last: {c.lastAttendanceDate}</p>
+                  </div>
+                  <div className="text-right flex flex-col items-end gap-1">
+                    <p className="text-xs font-bold text-red-600">{c.daysMissed}d absent</p>
+                    {c.family?.parentPhone && (
+                      <a href={`tel:${c.family.parentPhone}`} className="flex items-center gap-1 text-xs text-blue-600 hover:underline">
+                        <Phone className="w-3 h-3" /> {c.family.parentPhone}
+                      </a>
+                    )}
+                  </div>
+                </div>
+              ))}
+              {absences.total > 5 && <p className="text-xs text-red-600 font-medium text-center">+{absences.total - 5} more children absent</p>}
+            </div>
+          ) : (
+            <p className="text-sm text-green-700 text-center py-3 font-medium">All children attended recently</p>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
 
 export default function Dashboard() {
   const { data: stats, isLoading: statsLoading } = useGetDashboardStats();
@@ -79,6 +161,8 @@ export default function Dashboard() {
           </CardContent>
         </Card>
       </div>
+
+      <BirthdayAndAbsenceRow />
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
         <Card className="col-span-4 rounded-2xl border-none shadow-card">

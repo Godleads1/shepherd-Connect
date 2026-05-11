@@ -7,8 +7,10 @@ import {
   LayoutDashboard, Users, Baby, School, ClipboardCheck, CheckSquare,
   LogOut, Menu, Bell, MessageSquare, AlertTriangle, UserCog, FileText,
   Clock, ShieldCheck, QrCode, Home, Grid3x3, X, ChevronRight, Globe,
-  BarChart3, ArrowLeftRight, UserCircle,
+  BarChart3, ArrowLeftRight, UserCircle, Search, ListOrdered,
 } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { apiGet } from "@/lib/api-call";
 
 function SidebarLangSwitcher() {
   const { lang, setLang } = useLang();
@@ -58,6 +60,76 @@ function SidebarLangSwitcher() {
   );
 }
 
+function GlobalSearch() {
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
+  const navigate = useLocation()[1];
+
+  const { data } = useQuery({
+    queryKey: ["global-search", query],
+    queryFn: () => apiGet<any>(`/search?q=${encodeURIComponent(query)}`),
+    enabled: query.trim().length >= 2,
+    staleTime: 10000,
+  });
+
+  const total = (data?.children?.length || 0) + (data?.families?.length || 0) + (data?.users?.length || 0);
+
+  const handleSelect = (href: string) => {
+    setQuery("");
+    setOpen(false);
+    navigate(href);
+  };
+
+  return (
+    <div className="relative hidden md:block" style={{ width: 240 }}>
+      <div className="flex items-center gap-2 px-3 h-8 rounded-xl bg-white/15 border border-white/20 focus-within:bg-white/25 transition-all">
+        <Search className="w-3.5 h-3.5 text-white/60 flex-shrink-0" />
+        <input
+          className="flex-1 text-xs text-white placeholder-white/50 bg-transparent outline-none"
+          placeholder="Search children, families..."
+          value={query}
+          onChange={e => { setQuery(e.target.value); setOpen(true); }}
+          onFocus={() => setOpen(true)}
+          onBlur={() => setTimeout(() => setOpen(false), 200)}
+        />
+        {query && <button onClick={() => setQuery("")} className="text-white/40 hover:text-white text-xs">✕</button>}
+      </div>
+      {open && query.trim().length >= 2 && (
+        <div className="absolute top-full left-0 right-0 mt-1 bg-white rounded-xl shadow-2xl border border-gray-100 overflow-hidden z-50 max-h-80 overflow-y-auto">
+          {total === 0 ? (
+            <p className="text-xs text-gray-400 text-center py-4">No results for "{query}"</p>
+          ) : (
+            <>
+              {data?.children?.map((r: any) => (
+                <button key={r.id} onClick={() => handleSelect(r.href)}
+                  className="w-full flex items-center gap-2 px-3 py-2 hover:bg-blue-50 transition-colors text-left">
+                  <span className="text-xs px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 font-semibold">child</span>
+                  <span className="text-sm font-medium text-gray-800">{r.name}</span>
+                </button>
+              ))}
+              {data?.families?.map((r: any) => (
+                <button key={r.id} onClick={() => handleSelect(r.href)}
+                  className="w-full flex items-center gap-2 px-3 py-2 hover:bg-green-50 transition-colors text-left">
+                  <span className="text-xs px-1.5 py-0.5 rounded bg-green-100 text-green-700 font-semibold">family</span>
+                  <span className="text-sm font-medium text-gray-800 font-mono">{r.name}</span>
+                </button>
+              ))}
+              {data?.users?.map((r: any) => (
+                <button key={r.id} onClick={() => handleSelect(r.href)}
+                  className="w-full flex items-center gap-2 px-3 py-2 hover:bg-purple-50 transition-colors text-left">
+                  <span className="text-xs px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 font-semibold capitalize">{r.role?.replace("_", " ")}</span>
+                  <span className="text-sm font-medium text-gray-800">{r.name}</span>
+                  <span className="text-xs text-gray-400 ml-auto">{r.email}</span>
+                </button>
+              ))}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function Layout({ children }: { children: ReactNode }) {
   const { user, logout: localLogout } = useAuth();
   const [location] = useLocation();
@@ -88,6 +160,7 @@ export function Layout({ children }: { children: ReactNode }) {
       items.push({ href: "/emergencies",        label: t.nav.emergencies,  icon: AlertTriangle });
       items.push({ href: "/audit",              label: t.nav.auditLogs,    icon: FileText });
       items.push({ href: "/reports",            label: "Reports",          icon: BarChart3 });
+      items.push({ href: "/waitlist",           label: "Waitlist",         icon: ListOrdered });
       items.push({ href: "/class-change-requests", label: "Class Changes", icon: ArrowLeftRight });
       if (role === "super_admin") items.push({ href: "/users", label: t.nav.users, icon: ShieldCheck });
     } else if (role === "parent") {
@@ -273,11 +346,9 @@ export function Layout({ children }: { children: ReactNode }) {
             <span className="text-white font-semibold text-sm">Shepherd Connect</span>
           </div>
 
-          {/* Desktop welcome */}
-          <div className="hidden md:flex flex-1 items-center">
-            <span className="text-white/70 text-sm">
-              {t.welcomeBack} <span className="text-white font-medium">{user?.firstName}</span>
-            </span>
+          {/* Desktop search */}
+          <div className="hidden md:flex flex-1 items-center gap-4">
+            {["super_admin", "admin"].includes(role) && <GlobalSearch />}
           </div>
 
           {/* Right actions */}

@@ -166,6 +166,15 @@ router.get("/families/:id/tree", authMiddleware, async (req, res): Promise<void>
   res.json({ family, parents, children: childrenWithDetails });
 });
 
+router.patch("/families/:id/notes", authMiddleware, requireRoles("super_admin", "admin"), async (req, res): Promise<void> => {
+  const id = parseInt(req.params.id as string, 10);
+  if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
+  const { notes } = req.body as { notes?: string };
+  const [family] = await db.update(familiesTable).set({ notes: notes ?? null }).where(eq(familiesTable.id, id)).returning();
+  if (!family) { res.status(404).json({ error: "Not found", message: "Family not found" }); return; }
+  res.json({ success: true, notes: family.notes });
+});
+
 router.get("/families/:id/qr-code", authMiddleware, async (req, res): Promise<void> => {
   const id = parseInt(req.params.id as string, 10);
   if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }

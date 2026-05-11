@@ -1,12 +1,15 @@
 import { useState } from "react";
 import { useGetFamilyTree, useListAttendance } from "@workspace/api-client-react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { apiPatch } from "@/lib/api-call";
 import { useParams, Link } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import { Phone, Mail, MapPin, Eye, Shield, Calendar, Star, BookOpen, MessageSquare, ChevronRight, AlertTriangle } from "lucide-react";
+import { Phone, Mail, MapPin, Eye, Shield, Calendar, Star, BookOpen, MessageSquare, ChevronRight, AlertTriangle, FileText, Edit2, Check, X } from "lucide-react";
 import { apiGet } from "@/lib/api-call";
+import { useAuth } from "@/contexts/auth";
+import { useToast } from "@/hooks/use-toast";
 import { format, parseISO, subMonths, eachDayOfInterval, getDay, isSameDay } from "date-fns";
 
 function AttendanceCalendar({ childId }: { childId: number }) {
@@ -68,6 +71,68 @@ function AttendanceCalendar({ childId }: { childId: number }) {
         <span className="ml-auto">{(attendance || []).length} total sessions</span>
       </div>
     </div>
+  );
+}
+
+function AdminNotesCard({ familyId, notes }: { familyId: number; notes: string | null }) {
+  const { user } = useAuth();
+  const isAdmin = user && ["super_admin", "admin"].includes(user.role);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(notes || "");
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  const mutation = useMutation({
+    mutationFn: (value: string) => apiPatch<any>(`/families/${familyId}/notes`, { notes: value }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["getFamilyTree", familyId] });
+      setEditing(false);
+      toast({ title: "Notes saved" });
+    },
+    onError: () => toast({ variant: "destructive", title: "Save failed" }),
+  });
+
+  if (!isAdmin && !notes) return null;
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base flex items-center justify-between">
+          <span className="flex items-center gap-2"><FileText className="h-4 w-4 text-blue-600" /> Pastoral Notes</span>
+          {isAdmin && !editing && (
+            <button onClick={() => { setDraft(notes || ""); setEditing(true); }}
+              className="p-1.5 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors">
+              <Edit2 className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="pt-0">
+        {editing ? (
+          <div className="space-y-2">
+            <textarea
+              className="w-full text-sm border rounded-xl p-3 resize-none focus:outline-none focus:ring-2 focus:ring-blue-200 min-h-[80px]"
+              value={draft}
+              onChange={e => setDraft(e.target.value)}
+              placeholder="Add pastoral notes about this family..."
+            />
+            <div className="flex gap-2 justify-end">
+              <button onClick={() => setEditing(false)} className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold border border-gray-200 text-gray-600 hover:bg-gray-50">
+                <X className="h-3 w-3" /> Cancel
+              </button>
+              <button onClick={() => mutation.mutate(draft)} disabled={mutation.isPending}
+                className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold bg-blue-700 text-white hover:bg-blue-800 disabled:opacity-60">
+                <Check className="h-3 w-3" /> Save
+              </button>
+            </div>
+          </div>
+        ) : (
+          <p className="text-sm text-gray-600 whitespace-pre-wrap">
+            {notes || <span className="italic text-gray-400">No notes yet. Click edit to add notes.</span>}
+          </p>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -260,6 +325,8 @@ export default function FamilyProfile() {
               </div>
             </CardContent>
           </Card>
+
+          <AdminNotesCard familyId={familyId} notes={(tree.family as any).notes} />
 
           {feedback && feedback.length > 0 && (
             <Card>

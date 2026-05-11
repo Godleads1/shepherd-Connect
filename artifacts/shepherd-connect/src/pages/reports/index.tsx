@@ -11,7 +11,7 @@ import { useAnalyzeFeedbackSentiment } from "@workspace/api-client-react";
 import {
   Download, AlertTriangle, Clock, Users, BarChart3, FileText, Bell,
   Star, Printer, TrendingUp, BookOpen, Wand2, RefreshCw, Table2, Sparkles, SmilePlus, Meh, Frown,
-  MessageSquare, GraduationCap, Home,
+  MessageSquare, GraduationCap, Home, LayoutGrid,
 } from "lucide-react";
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend, BarChart, Bar, XAxis, YAxis, CartesianGrid } from "recharts";
 import { format } from "date-fns";
@@ -235,7 +235,7 @@ export default function Reports() {
   const [serviceSlot, setServiceSlot] = useState("");
   const [exportFrom, setExportFrom] = useState("");
   const [exportTo, setExportTo] = useState(today);
-  const [activeTab, setActiveTab] = useState<"live" | "exports" | "analytics" | "builder">("live");
+  const [activeTab, setActiveTab] = useState<"live" | "exports" | "analytics" | "builder" | "heatmap">("live");
   const { toast } = useToast();
 
   const [reportType, setReportType]       = useState<ReportType>("attendance");
@@ -450,10 +450,17 @@ export default function Reports() {
 
   const selectedType = REPORT_TYPES.find(r => r.value === reportType)!;
 
+  const { data: heatmapData, isLoading: heatmapLoading } = useQuery({
+    queryKey: ["room-occupancy", serviceDate],
+    queryFn: () => apiGet<any>(`/reports/room-occupancy?serviceDate=${serviceDate}`),
+    enabled: activeTab === "heatmap",
+  });
+
   const tabs = [
     { key: "live",     label: "Live Reports",    icon: Clock },
     { key: "exports",  label: "Export Data",     icon: Download },
     { key: "analytics",label: "Analytics",       icon: BarChart3 },
+    { key: "heatmap",  label: "Room Heatmap",    icon: LayoutGrid },
     { key: "builder",  label: "Custom Builder",  icon: Wand2 },
   ] as const;
 
@@ -483,6 +490,98 @@ export default function Reports() {
           </button>
         ))}
       </div>
+
+      {/* ── Room Heatmap ── */}
+      {activeTab === "heatmap" && (
+        <div className="space-y-5">
+          <div className="bg-white border rounded-xl p-4 flex flex-wrap gap-3 items-end">
+            <div>
+              <label className="text-xs font-medium text-gray-600 block mb-1">Service Date</label>
+              <Input type="date" value={serviceDate} onChange={e => setServiceDate(e.target.value)} className="w-44" />
+            </div>
+            <p className="text-xs text-gray-400 self-end pb-2">Showing occupancy across all rooms for this service date.</p>
+          </div>
+
+          {heatmapLoading ? (
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {[1,2,3,4,5,6].map(i => <Skeleton key={i} className="h-32 rounded-xl" />)}
+            </div>
+          ) : !heatmapData?.rooms?.length ? (
+            <div className="py-20 text-center bg-white border rounded-xl">
+              <LayoutGrid className="w-12 h-12 text-gray-200 mx-auto mb-3" />
+              <p className="text-gray-400 font-medium">No room data for this date</p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="flex items-center gap-4 text-xs text-gray-500">
+                <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-green-100 border border-green-200 inline-block" /> 0–50% capacity</span>
+                <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-amber-100 border border-amber-200 inline-block" /> 50–80%</span>
+                <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-orange-200 border border-orange-300 inline-block" /> 80–100%</span>
+                <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-red-300 border border-red-400 inline-block" /> Over capacity</span>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {heatmapData.rooms.map((room: any) => {
+                  const pct = room.capacity > 0 ? (room.checkedIn / room.capacity) * 100 : 0;
+                  const bg = pct > 100 ? "#fca5a5" : pct >= 80 ? "#fed7aa" : pct >= 50 ? "#fef08a" : "#bbf7d0";
+                  const border = pct > 100 ? "#f87171" : pct >= 80 ? "#fdba74" : pct >= 50 ? "#fde047" : "#86efac";
+                  const text = pct > 100 ? "#991b1b" : pct >= 80 ? "#9a3412" : pct >= 50 ? "#713f12" : "#166534";
+                  return (
+                    <div key={room.classId} className="bg-white rounded-2xl border shadow-sm overflow-hidden">
+                      <div className="px-4 py-3 flex items-center justify-between" style={{ background: bg, borderBottom: `1px solid ${border}` }}>
+                        <div>
+                          <p className="font-bold text-sm" style={{ color: text }}>{room.className}</p>
+                          <p className="text-xs" style={{ color: text, opacity: 0.75 }}>{room.roomLocation} · {room.serviceSlot}</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-2xl font-black" style={{ color: text }}>{room.checkedIn}</p>
+                          <p className="text-xs font-medium" style={{ color: text, opacity: 0.75 }}>of {room.capacity}</p>
+                        </div>
+                      </div>
+                      <div className="px-4 py-3">
+                        <div className="flex justify-between text-xs text-gray-500 mb-1.5">
+                          <span>Occupancy</span>
+                          <span className="font-bold">{Math.round(pct)}%</span>
+                        </div>
+                        <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                          <div className="h-full rounded-full transition-all" style={{ width: `${Math.min(pct, 100)}%`, background: pct > 100 ? "#ef4444" : pct >= 80 ? "#f97316" : pct >= 50 ? "#eab308" : "#22c55e" }} />
+                        </div>
+                        <div className="flex justify-between text-xs text-gray-400 mt-2">
+                          <span>{room.inClass} in class</span>
+                          <span>{room.pickedUp} picked up</span>
+                          {room.waitlist > 0 && <span className="text-amber-600 font-medium">{room.waitlist} on waitlist</span>}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {heatmapData.summary && (
+                <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 flex flex-wrap gap-6">
+                  <div className="text-center">
+                    <p className="text-2xl font-bold text-blue-800">{heatmapData.summary.totalCheckedIn}</p>
+                    <p className="text-xs text-blue-600">Total Checked In</p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-2xl font-bold text-blue-800">{heatmapData.summary.totalCapacity}</p>
+                    <p className="text-xs text-blue-600">Total Capacity</p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-2xl font-bold text-blue-800">{Math.round(heatmapData.summary.overallOccupancy)}%</p>
+                    <p className="text-xs text-blue-600">Overall Occupancy</p>
+                  </div>
+                  {heatmapData.summary.overCapacityRooms > 0 && (
+                    <div className="text-center">
+                      <p className="text-2xl font-bold text-red-600">{heatmapData.summary.overCapacityRooms}</p>
+                      <p className="text-xs text-red-500">Over Capacity</p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ── Live Reports ── */}
       {activeTab === "live" && (

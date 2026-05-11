@@ -10,9 +10,9 @@ import { useToast } from "@/hooks/use-toast";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import { Users, MapPin, Clock, Edit2, Trash2, ListOrdered } from "lucide-react";
-import { useQuery } from "@tanstack/react-query";
-import { apiGet } from "@/lib/api-call";
+import { Users, MapPin, Clock, Edit2, Trash2, ListOrdered, Zap, RefreshCw, CheckCircle, ArrowRight } from "lucide-react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { apiGet, apiPost } from "@/lib/api-call";
 
 function WaitlistBadge({ classId }: { classId: number }) {
   const { data } = useQuery({
@@ -50,6 +50,26 @@ export default function Classes() {
 
   const [isOpen, setIsOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
+  const [promoteOpen, setPromoteOpen] = useState(false);
+  const [selectedToPromote, setSelectedToPromote] = useState<number[]>([]);
+  const queryClient = useQueryClient();
+
+  const { data: ageOutData, isLoading: ageOutLoading, refetch: refetchAgeOut } = useQuery({
+    queryKey: ["age-out-candidates"],
+    queryFn: () => apiGet<any>("/children/age-out-candidates"),
+    enabled: promoteOpen,
+  });
+
+  const promoteMutation = useMutation({
+    mutationFn: (childIds: number[]) => apiPost<any>("/children/auto-promote", { childIds }),
+    onSuccess: (result) => {
+      toast({ title: `${result.promoted} children promoted successfully` });
+      setPromoteOpen(false);
+      setSelectedToPromote([]);
+      void queryClient.invalidateQueries({ queryKey: ["classes"] });
+    },
+    onError: () => toast({ variant: "destructive", title: "Promotion failed" }),
+  });
 
   const form = useForm<ClassFormValues>({
     resolver: zodResolver(classSchema),
@@ -109,17 +129,99 @@ export default function Classes() {
 
   return (
     <div className="space-y-6 max-w-6xl mx-auto">
-      <div className="flex justify-between items-center">
+      <div className="flex justify-between items-center gap-3 flex-wrap">
         <h1 className="text-3xl font-bold text-gray-900" style={{ fontFamily: "'Playfair Display', serif" }}>Classes</h1>
-        <button 
-          onClick={handleOpenNew}
-          className="px-4 py-2 rounded-xl text-sm font-semibold flex items-center justify-center transition-all hover:opacity-90"
-          style={{ background: "linear-gradient(135deg, #1e3a8a, #1d4ed8)", color: "white", boxShadow: "0 4px 10px rgba(30,58,138,0.2)" }}
-          data-testid="button-create-class"
-        >
-          Add Class
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setPromoteOpen(true)}
+            className="px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-1.5 border border-amber-300 text-amber-700 bg-amber-50 hover:bg-amber-100 transition-colors"
+          >
+            <Zap className="w-4 h-4" /> Auto-Promote
+          </button>
+          <button 
+            onClick={handleOpenNew}
+            className="px-4 py-2 rounded-xl text-sm font-semibold flex items-center justify-center transition-all hover:opacity-90"
+            style={{ background: "linear-gradient(135deg, #1e3a8a, #1d4ed8)", color: "white", boxShadow: "0 4px 10px rgba(30,58,138,0.2)" }}
+            data-testid="button-create-class"
+          >
+            Add Class
+          </button>
+        </div>
       </div>
+
+      {/* Auto-Promote Dialog */}
+      <Dialog open={promoteOpen} onOpenChange={setPromoteOpen}>
+        <DialogContent className="sm:max-w-[560px] rounded-2xl border-none shadow-2xl">
+          <DialogHeader>
+            <DialogTitle className="text-xl flex items-center gap-2">
+              <Zap className="w-5 h-5 text-amber-500" /> Auto-Promote by Age
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-gray-500">
+              Children whose age exceeds their current class max will be moved to the next age-appropriate class.
+            </p>
+            {ageOutLoading ? (
+              <div className="space-y-2">
+                {[1,2,3].map(i => <div key={i} className="h-14 bg-gray-100 rounded-xl animate-pulse" />)}
+              </div>
+            ) : !ageOutData?.candidates?.length ? (
+              <div className="py-10 text-center bg-green-50 rounded-2xl border border-green-100">
+                <CheckCircle className="w-10 h-10 text-green-500 mx-auto mb-2" />
+                <p className="font-semibold text-green-800">All children are in the correct class</p>
+                <p className="text-xs text-green-600 mt-1">No age-outs detected</p>
+              </div>
+            ) : (
+              <>
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                  {ageOutData.candidates.length} child{ageOutData.candidates.length !== 1 ? "ren" : ""} eligible for promotion
+                </p>
+                <div className="space-y-2 max-h-72 overflow-y-auto">
+                  {ageOutData.candidates.map((c: any) => (
+                    <label key={c.childId}
+                      className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-colors ${
+                        selectedToPromote.includes(c.childId) ? "border-blue-300 bg-blue-50" : "border-gray-100 bg-white hover:bg-gray-50"
+                      }`}>
+                      <input type="checkbox"
+                        checked={selectedToPromote.includes(c.childId)}
+                        onChange={e => setSelectedToPromote(prev =>
+                          e.target.checked ? [...prev, c.childId] : prev.filter(id => id !== c.childId)
+                        )}
+                        className="w-4 h-4 accent-blue-700"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <p className="font-semibold text-gray-900 text-sm">{c.childName}</p>
+                        <p className="text-xs text-gray-500">Age {c.age} · Currently: {c.currentClassName}</p>
+                      </div>
+                      {c.suggestedClassName ? (
+                        <div className="flex items-center gap-1.5 text-xs text-blue-700 font-semibold">
+                          <ArrowRight className="w-3.5 h-3.5" /> {c.suggestedClassName}
+                        </div>
+                      ) : (
+                        <span className="text-xs text-red-500 font-medium">No target</span>
+                      )}
+                    </label>
+                  ))}
+                </div>
+                <div className="flex items-center justify-between pt-2 border-t border-gray-100">
+                  <button
+                    onClick={() => setSelectedToPromote(ageOutData.candidates.filter((c: any) => c.suggestedClassId).map((c: any) => c.childId))}
+                    className="text-xs text-blue-700 font-semibold hover:underline">
+                    Select all promotable
+                  </button>
+                  <button
+                    onClick={() => promoteMutation.mutate(selectedToPromote)}
+                    disabled={selectedToPromote.length === 0 || promoteMutation.isPending}
+                    className="px-5 py-2 rounded-xl font-semibold text-sm text-white transition-all disabled:opacity-50 flex items-center gap-2"
+                    style={{ background: "linear-gradient(135deg, #1e3a8a, #1d4ed8)" }}>
+                    {promoteMutation.isPending ? <><RefreshCw className="w-3.5 h-3.5 animate-spin" /> Promoting...</> : `Promote ${selectedToPromote.length} selected`}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={isOpen} onOpenChange={setIsOpen}>
         <DialogContent className="sm:max-w-[500px] rounded-2xl border-none shadow-2xl">

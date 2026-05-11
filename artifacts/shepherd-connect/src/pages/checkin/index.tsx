@@ -85,6 +85,29 @@ export default function CheckIn() {
 
   const clearScan = () => { setScanResult(null); setFaceMatched(false); };
 
+  const printBadge = (child: any, familyCode?: string) => {
+    const win = window.open("", "_blank", "width=400,height=300");
+    if (!win) return;
+    win.document.write(`<!DOCTYPE html><html><head><title>Badge</title>
+<style>
+  @media print { @page { margin: 0; size: 100mm 70mm; } body { margin: 8mm; } }
+  body { font-family: Inter, Arial, sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; background: white; text-align: center; }
+  .name { font-size: 32px; font-weight: 900; color: #1e3a8a; margin-bottom: 6px; }
+  .class { font-size: 18px; color: #374151; margin-bottom: 8px; font-weight: 600; }
+  .code { font-size: 14px; color: #6b7280; font-family: monospace; background: #f3f4f6; padding: 4px 12px; border-radius: 8px; }
+  .date { font-size: 11px; color: #9ca3af; margin-top: 8px; }
+  .logo { font-size: 11px; font-weight: 700; color: #1e3a8a; letter-spacing: 0.05em; border-top: 1px solid #e5e7eb; padding-top: 8px; margin-top: 10px; width: 100%; }
+</style></head><body>
+<div class="name">${child.firstName} ${child.lastName}</div>
+<div class="class">${child.currentClass?.name || "Children's Church"}</div>
+<div class="code">Family: ${familyCode || "—"}</div>
+<div class="date">${new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}</div>
+<div class="logo">RCCG City of David · Shepherd Connect</div>
+</body></html>`);
+    win.document.close();
+    setTimeout(() => { win.print(); win.close(); }, 400);
+  };
+
   // Children currently dropped off (waiting escort) or in transit — pulled from live attendance
   const droppedOff = attendanceList.filter((a: any) => a.status === "dropped_off");
   const inTransit  = attendanceList.filter((a: any) => a.status === "in_transit");
@@ -300,14 +323,22 @@ export default function CheckIn() {
                     )}
                   </div>
 
-                  <button
-                    onClick={() => handleCheckIn(child.id, child.currentClass?.id)}
-                    disabled={!child.currentClass || checkInMutation.isPending}
-                    data-testid={`button-checkin-${child.id}`}
-                    className="w-full h-14 rounded-xl font-bold text-lg transition-all active:scale-95 disabled:opacity-50"
-                    style={{ background: "#1e3a8a", color: "white" }}>
-                    Check In Child
-                  </button>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => handleCheckIn(child.id, child.currentClass?.id)}
+                      disabled={!child.currentClass || checkInMutation.isPending}
+                      data-testid={`button-checkin-${child.id}`}
+                      className="flex-1 h-14 rounded-xl font-bold text-lg transition-all active:scale-95 disabled:opacity-50"
+                      style={{ background: "#1e3a8a", color: "white" }}>
+                      Check In Child
+                    </button>
+                    <button
+                      onClick={() => printBadge(child, scanResult?.family?.familyCode)}
+                      className="h-14 px-4 rounded-xl font-semibold text-sm border border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors flex items-center gap-1.5"
+                      title="Print name badge">
+                      🖨️
+                    </button>
+                  </div>
                 </div>
               </div>
             ))}

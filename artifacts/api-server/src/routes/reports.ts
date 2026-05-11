@@ -491,6 +491,106 @@ router.get("/reports/custom-builder", authMiddleware, requireRoles("super_admin"
   res.status(400).json({ error: "Unknown report type", validTypes: ["attendance", "arrivals", "not-picked-up", "appraisals", "teacher-schedule", "family-registry", "feedback"] });
 });
 
+// ─── Birthday Tracker ────────────────────────────────────────────────────────
+
+router.get("/reports/birthdays", authMiddleware, requireRoles("super_admin", "admin"), async (req, res): Promise<void> => {
+  const { days = "30" } = req.query as { days?: string };
+  const daysAhead = Math.min(parseInt(days, 10) || 30, 365);
+  const today = new Date();
+  const children = await db.select().from(childrenTable);
+
+  const upcoming = children.map(child => {
+    const dob = new Date(child.dob);
+    let birthday = new Date(today.getFullYear(), dob.getMonth(), dob.getDate());
+    if (birthday < today) birthday = new Date(today.getFullYear() + 1, dob.getMonth(), dob.getDate());
+    const daysUntil = Math.floor((birthday.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+    const age = today.getFullYear() - dob.getFullYear() - (today < new Date(today.getFullYear(), dob.getMonth(), dob.getDate()) ? 1 : 0);
+    return { ...child, birthdayDate: birthday.toISOString().split("T")[0], daysUntil, turningAge: age + 1 };
+  }).filter(c => c.daysUntil <= daysAhead).sort((a, b) => a.daysUntil - b.daysUntil);
+
+  const enriched = await Promise.all(upcoming.map(async (child) => {
+    let className = null;
+    if (child.currentClassId) {
+      const [cls] = await db.select().from(classesTable).where(eq(classesTable.id, child.currentClassId));
+      className = cls?.name || null;
+    }
+    return { id: child.id, firstName: child.firstName, lastName: child.lastName, dob: child.dob, birthdayDate: child.birthdayDate, daysUntil: child.daysUntil, turningAge: child.turningAge, className, familyId: child.familyId };
+  }));
+
+  res.json({ total: enriched.length, daysAhead, children: enriched });
+});
+
+// ─── Consecutive Absence Alerts ───────────────────────────────────────────────
+
+router.get("/reports/absence-alerts", authMiddleware, requireRoles("super_admin", "admin"), async (req, res): Promise<void> => {
+  const { missedWeeks = "2" } = req.query as { missedWeeks?: string };
+  const weeks = parseInt(missedWeeks, 10) || 2;
+  const cutoffDate = new Date();
+  cutoffDate.setDate(cutoffDate.getDate() - weeks * 7);
+  const cutoff = cutoffDate.toISOString().split("T")[0];
+
+  const children = await db.select().from(childrenTable);
+  const alerts = [];
+
+  for (const child of children) {
+    const allAttendance = await db.select().from(attendanceTable)
+      .where(eq(attendanceTable.childId, child.id))
+      .orderBy(attendanceTable.serviceDate);
+    if (allAttendance.length === 0) continue;
+    const lastDate = allAttendance[allAttendance.length - 1].serviceDate;
+    if (lastDate >= cutoff) continue;
+
+    let familyInfo = null;
+    const [fam] = await db.select().from(familiesTable).where(eq(familiesTable.id, child.familyId));
+    if (fam?.parent1Id) {
+      const [p] = await db.select().from(usersTable).where(eq(usersTable.id, fam.parent1Id));
+      familyInfo = { familyCode: fam.familyCode, parentName: p ? `${p.firstName} ${p.lastName}` : null, parentPhone: p?.phone || null };
+    }
+    let className = null;
+    if (child.currentClassId) {
+      const [cls] = await db.select().from(classesTable).where(eq(classesTable.id, child.currentClassId));
+      className = cls?.name || null;
+    }
+    const daysMissed = Math.floor((Date.now() - new Date(lastDate).getTime()) / (1000 * 60 * 60 * 24));
+    alerts.push({ childId: child.id, childName: `${child.firstName} ${child.lastName}`, className, lastAttendanceDate: lastDate, daysMissed, family: familyInfo });
+  }
+
+  alerts.sort((a, b) => b.daysMissed - a.daysMissed);
+  res.json({ total: alerts.length, missedWeeks: weeks, children: alerts });
+});
+
+// ─── Room Occupancy Heatmap ───────────────────────────────────────────────────
+
+router.get("/reports/room-occupancy", authMiddleware, requireRoles("super_admin", "admin"), async (req, res): Promise<void> => {
+  const { weeks = "6" } = req.query as { weeks?: string };
+  const numWeeks = Math.min(parseInt(weeks, 10) || 6, 12);
+  const classes = await db.select().from(classesTable);
+  const slots = ["7am", "9am", "11am", "1pm"];
+
+  const dates: string[] = [];
+  const now = new Date();
+  for (let i = numWeeks - 1; i >= 0; i--) {
+    const d = new Date(now);
+    d.setDate(now.getDate() - now.getDay() - i * 7);
+    dates.push(d.toISOString().split("T")[0]);
+  }
+
+  const grid = await Promise.all(classes.map(async (cls) => {
+    const cells: Record<string, Record<string, number>> = {};
+    for (const date of dates) {
+      cells[date] = {};
+      for (const slot of slots) {
+        const [{ count }] = await db.select({ count: sql<number>`count(*)` }).from(attendanceTable)
+          .where(and(eq(attendanceTable.classId, cls.id), eq(attendanceTable.serviceDate, date), eq(attendanceTable.serviceSlot, slot)));
+        cells[date][slot] = Number(count);
+      }
+    }
+    return { classId: cls.id, className: cls.name, roomLocation: cls.roomLocation, capacity: cls.capacity, data: cells };
+  }));
+
+  res.json({ dates, slots, classes: grid });
+});
+
 // ─── PDF Export Routes ────────────────────────────────────────────────────────
 
 router.get("/reports/pdf/attendance", authMiddleware, requireRoles("super_admin", "admin"), async (req, res): Promise<void> => {
