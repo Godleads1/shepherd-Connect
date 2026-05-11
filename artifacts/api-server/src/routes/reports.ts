@@ -364,13 +364,14 @@ router.get("/reports/custom-builder", authMiddleware, requireRoles("super_admin"
           child ? `${child.firstName} ${child.lastName}` : "—",
           c?.name || "—",
           teacher ? `${teacher.firstName} ${teacher.lastName}` : "—",
-          a.behavior || "—",
-          a.participation || "—",
-          a.notes || "—",
+          a.participationLevel || "—",
+          a.scriptureEngagement || "—",
+          a.socialInteraction || "—",
+          a.milestoneNote || "—",
         ];
       }));
     const rows = filtered.filter(Boolean) as string[][];
-    res.json({ title: "Child Appraisals", columns: ["Date", "Child", "Class", "Teacher", "Behaviour", "Participation", "Notes"], rows, total: rows.length });
+    res.json({ title: "Child Appraisals", columns: ["Date", "Child", "Class", "Teacher", "Participation", "Scripture", "Social", "Milestone Note"], rows, total: rows.length });
     return;
   }
 

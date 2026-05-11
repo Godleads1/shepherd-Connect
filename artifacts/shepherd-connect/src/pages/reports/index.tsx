@@ -1,6 +1,5 @@
 import { useState, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useListClasses } from "@workspace/api-client-react";
 import { apiGet } from "@/lib/api-call";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -149,7 +148,11 @@ export default function Reports() {
   const [builderSlot, setBuilderSlot]   = useState("");
   const [pdfLoading, setPdfLoading]     = useState(false);
 
-  const { data: classes } = useListClasses({}, { enabled: activeTab === "builder" });
+  const { data: classes } = useQuery({
+    queryKey: ["classes-list"],
+    queryFn: () => apiGet<any[]>("/classes"),
+    enabled: activeTab === "builder",
+  });
   const classList = Array.isArray(classes) ? classes : [];
 
   const builderParams = new URLSearchParams({ reportType });
