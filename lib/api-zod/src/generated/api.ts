@@ -1005,6 +1005,7 @@ export const CreateChildBody = zod.object({
   medicalNotes: zod.string().nullish(),
   photoUrl: zod.string().nullish(),
   faceDescriptorJson: zod.string().nullish(),
+  currentClassId: zod.number().nullish(),
 });
 
 /**
@@ -1061,6 +1062,7 @@ export const UpdateChildBody = zod.object({
   medicalNotes: zod.string().nullish(),
   photoUrl: zod.string().nullish(),
   faceDescriptorJson: zod.string().nullish(),
+  currentClassId: zod.number().nullish(),
 });
 
 export const UpdateChildResponse = zod.object({

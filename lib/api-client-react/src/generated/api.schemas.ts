@@ -242,6 +242,7 @@ export interface CreateChildBody {
   medicalNotes?: string | null;
   photoUrl?: string | null;
   faceDescriptorJson?: string | null;
+  currentClassId?: number | null;
 }
 
 export interface PaginatedChildren {

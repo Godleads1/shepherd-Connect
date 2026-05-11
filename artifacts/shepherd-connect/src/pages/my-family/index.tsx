@@ -410,27 +410,22 @@ export default function MyFamily() {
             My Children
             <span className="text-sm font-normal text-gray-400">({children.length})</span>
           </h2>
-          {family?.id && (
-            <Button size="sm" onClick={() => setAddChildOpen(true)} className="flex items-center gap-1.5 text-xs"
-              style={{ background: "linear-gradient(135deg, #1e3a8a, #1d4ed8)" }}>
-              <PlusCircle className="w-3.5 h-3.5" /> Add Child
-            </Button>
-          )}
         </div>
         {children.length === 0 ? (
           <div className="text-center py-12 bg-white rounded-2xl border border-dashed border-gray-200">
             <Users className="w-12 h-12 text-gray-300 mx-auto mb-3" />
             <p className="text-gray-500 text-sm mb-3">No children registered yet.</p>
-            {family?.id && (
-              <Button size="sm" onClick={() => setAddChildOpen(true)} style={{ background: "#1e3a8a" }} className="text-white flex items-center gap-2">
-                <PlusCircle className="w-4 h-4" /> Register Your First Child
-              </Button>
-            )}
           </div>
         ) : (
           <div className="space-y-4">
             {children.map((child: any) => <ChildCard key={child.id} child={child} />)}
           </div>
+        )}
+        {family?.id && (
+          <Button onClick={() => setAddChildOpen(true)} className="w-full mt-2 flex items-center justify-center gap-2 py-5"
+            style={{ background: "linear-gradient(135deg, #1e3a8a, #1d4ed8)" }}>
+            <PlusCircle className="w-4 h-4" /> Add a Child
+          </Button>
         )}
       </div>
 

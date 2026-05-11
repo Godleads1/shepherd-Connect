@@ -3,7 +3,7 @@ import { useLocation, Link } from "wouter";
 import { useForm, useFieldArray } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import { useRegister, useCreateFamily, useCreateChild } from "@workspace/api-client-react";
+import { useRegister, useCreateFamily, useCreateChild, useListClasses } from "@workspace/api-client-react";
 import { useAuth } from "@/contexts/auth";
 import {
   Plus, Trash2, ChevronRight, Check, User, Mail, Phone, Lock,
@@ -70,16 +70,17 @@ function calcAge(day: string, month: string, year: string): number | null {
   return age;
 }
 
-function suggestClass(age: number | null): { name: string; color: string } | null {
-  if (age === null) return null;
-  if (age >= 1 && age <= 2)  return { name: "Cradle Roll (Ages 1–2)",  color: "#9333ea" };
-  if (age === 3)              return { name: "Nursery (Age 3)",         color: "#7c3aed" };
-  if (age === 4)              return { name: "Beginners A (Age 4)",     color: "#0369a1" };
-  if (age === 5)              return { name: "Beginners B (Age 5)",     color: "#0369a1" };
-  if (age >= 6 && age <= 7)  return { name: "Primary (Ages 6–7)",      color: "#047857" };
-  if (age >= 8 && age <= 9)  return { name: "Junior (Ages 8–9)",       color: "#065f46" };
-  if (age >= 10 && age <= 12) return { name: "Teens (Ages 10–12)",     color: "#b45309" };
-  return null;
+const CLASS_COLORS = ["#9333ea","#7c3aed","#0369a1","#0369a1","#047857","#065f46","#b45309","#1e3a8a"];
+
+function matchClassByAge(age: number | null, classes: any[]): { id: number; name: string; color: string } | null {
+  if (age === null || !classes.length) return null;
+  // Deduplicate by name, prefer lower id
+  const seen = new Set<string>();
+  const unique = classes.filter((c: any) => { if (seen.has(c.name)) return false; seen.add(c.name); return true; });
+  const match = unique.find((c: any) => age >= (c.ageMin ?? 0) && age <= (c.ageMax ?? 99));
+  if (!match) return null;
+  const idx = unique.indexOf(match);
+  return { id: match.id, name: match.name, color: CLASS_COLORS[idx % CLASS_COLORS.length] };
 }
 
 function buildDob(day: string, month: string, year: string) {
@@ -133,6 +134,7 @@ export default function Register() {
   const regMutation    = useRegister();
   const famMutation    = useCreateFamily();
   const childMutation  = useCreateChild();
+  const { data: classesList } = useListClasses({});
 
   const form1 = useForm<z.infer<typeof step1Schema>>({
     resolver: zodResolver(step1Schema),
@@ -184,8 +186,10 @@ export default function Register() {
           data: { parent1Id: authRes.user.id, parent2Id: null, address: addrParts.join(", "), emergencyContactName: s2d.emergencyContactName, emergencyContactPhone: s2d.emergencyContactPhone }
         });
         for (const child of (children ?? [])) {
+          const age = calcAge(child.dobDay, child.dobMonth, child.dobYear);
+          const matched = matchClassByAge(age, (classesList as any[]) ?? []);
           await childMutation.mutateAsync({
-            data: { familyId: fam.id, firstName: child.firstName, lastName: child.lastName || step1Data.lastName, dob: buildDob(child.dobDay, child.dobMonth, child.dobYear), gender: child.gender, allergies: child.allergies }
+            data: { familyId: fam.id, firstName: child.firstName, lastName: child.lastName || step1Data.lastName, dob: buildDob(child.dobDay, child.dobMonth, child.dobYear), gender: child.gender, allergies: child.allergies, currentClassId: matched?.id ?? undefined }
           });
         }
         setLocation("/my-family");
@@ -448,7 +452,7 @@ export default function Register() {
                 const month = form3.watch(`children.${index}.dobMonth`);
                 const year  = form3.watch(`children.${index}.dobYear`);
                 const age   = calcAge(day, month, year);
-                const cls   = suggestClass(age);
+                const cls   = matchClassByAge(age, (classesList as any[]) ?? []);
                 return (
                   <div key={field.id} className="p-5 rounded-xl relative" style={{ background: "rgba(26,35,126,0.03)", border: "1px solid rgba(26,35,126,0.10)" }}>
                     {index > 0 && (

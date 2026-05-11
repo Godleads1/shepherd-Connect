@@ -2261,6 +2261,9 @@ components:
         faceDescriptorJson:
           type: string
           nullable: true
+        currentClassId:
+          type: integer
+          nullable: true
       required:
         - familyId
         - firstName
