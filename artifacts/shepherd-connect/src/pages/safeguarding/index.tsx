@@ -37,7 +37,7 @@ export default function Safeguarding() {
 
   const { data: teachers } = useQuery({
     queryKey: ["all-teachers-list"],
-    queryFn: () => apiGet<any[]>("/users?role=teacher"),
+    queryFn: () => apiGet<{ data: any[] }>("/users?role=teacher").then(r => r.data),
   });
 
   const createMut = useMutation({
