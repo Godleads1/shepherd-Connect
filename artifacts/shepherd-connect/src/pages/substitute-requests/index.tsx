@@ -38,7 +38,7 @@ export default function SubstituteRequests() {
 
   const { data: teachers } = useQuery({
     queryKey: ["all-teachers-for-sub"],
-    queryFn: () => apiGet<any[]>("/users?role=teacher"),
+    queryFn: () => apiGet<{ data: any[] }>("/users?role=teacher").then(r => r.data),
     enabled: isAdmin,
   });
 

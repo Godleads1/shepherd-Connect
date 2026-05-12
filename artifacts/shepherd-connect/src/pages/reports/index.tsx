@@ -253,7 +253,7 @@ export default function Reports() {
   });
   const { data: teacherUsers } = useQuery({
     queryKey: ["users-teachers"],
-    queryFn: () => apiGet<any[]>("/users?role=teacher"),
+    queryFn: () => apiGet<{ data: any[] }>("/users?role=teacher").then(r => r.data),
     enabled: activeTab === "builder",
   });
   const { data: familiesList } = useQuery({
