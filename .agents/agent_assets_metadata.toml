@@ -18,3 +18,9 @@ id = "FCZJ9PII4R9MuQxPUNXGR"
 uri = "file://user-guide.pdf"
 type = "pdf"
 title = "Shepherd Connect — User Guide v2.0"
+
+[[outputs]]
+id = "MOzsJMV6uIhv-HKYZ3h26"
+uri = "file://shepherd-connect-qr.png"
+type = "image"
+title = "Shepherd Connect — QR Code"
