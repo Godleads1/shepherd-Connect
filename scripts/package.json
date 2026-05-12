@@ -7,7 +7,7 @@
     "hello": "tsx ./src/hello.ts",
     "seed": "tsx ./src/seed.ts",
     "generate-report": "tsx ./src/generate-progress-report.ts",
-    "user-guide": "tsx ./src/generate-user-guide.ts",
+    "user-guide": "node ./src/generate-user-guide.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {

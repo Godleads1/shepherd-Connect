@@ -12,3 +12,9 @@ id = "wzMOIVJyi-EqyorEChsje"
 uri = "file://shepherd-connect-progress-report.pdf"
 type = "pdf"
 title = "Shepherd Connect — Build Progress Report (May 2026)"
+
+[[outputs]]
+id = "FCZJ9PII4R9MuQxPUNXGR"
+uri = "file://user-guide.pdf"
+type = "pdf"
+title = "Shepherd Connect — User Guide v2.0"
