@@ -5,7 +5,7 @@ import { useLogout, useListNotifications } from "@workspace/api-client-react";
 import { useLang, LANGUAGES, LangCode } from "@/contexts/language";
 import {
   LayoutDashboard, Users, Baby, School, ClipboardCheck, CheckSquare,
-  LogOut, Menu, Bell, MessageSquare, AlertTriangle, UserCog, FileText,
+  LogOut, Menu, Bell, MessageSquare, AlertTriangle, UserCog, FileText, Star,
   Clock, ShieldCheck, QrCode, Home, Grid3x3, X, ChevronRight, Globe,
   BarChart3, ArrowLeftRight, UserCircle, Search, ListOrdered, CalendarClock,
 } from "lucide-react";
@@ -172,7 +172,7 @@ export function Layout({ children }: { children: ReactNode }) {
       items.push({ href: "/pickup-delegates",      label: t.nav.delegates,  icon: UserCog });
       items.push({ href: "/class-change-requests", label: "Class Changes",  icon: ArrowLeftRight });
       items.push({ href: "/messages",              label: "Messages",       icon: MessageSquare });
-      items.push({ href: "/feedback",              label: t.nav.feedback,   icon: MessageSquare });
+      items.push({ href: "/feedback",              label: t.nav.feedback,   icon: Star });
     } else if (role === "teacher") {
       items.push({ href: "/my-class",              label: t.nav.myClass,        icon: School });
       items.push({ href: "/attendance",            label: t.nav.attendance,     icon: CheckSquare });
@@ -193,16 +193,16 @@ export function Layout({ children }: { children: ReactNode }) {
 
   const getBottomTabs = () => {
     if (role === "parent") return [
-      { href: "/my-family",       label: t.nav.myFamily,       icon: Home },
-      { href: "/my-children",     label: t.nav.myChildren,     icon: Users },
-      { href: "/notifications",   label: t.nav.notifications,  icon: Bell, badge: unreadCount },
-      { href: "/pickup-delegates",label: t.nav.delegates,      icon: Grid3x3 },
+      { href: "/my-family",     label: t.nav.myFamily,      icon: Home },
+      { href: "/my-children",   label: t.nav.myChildren,    icon: Users },
+      { href: "/messages",      label: "Messages",           icon: MessageSquare },
+      { href: "/notifications", label: t.nav.notifications, icon: Bell, badge: unreadCount },
     ];
     if (role === "teacher") return [
-      { href: "/my-class",   label: t.nav.myClass,    icon: School },
-      { href: "/attendance", label: t.nav.attendance, icon: CheckSquare },
+      { href: "/my-class",      label: t.nav.myClass,       icon: School },
+      { href: "/messages",      label: "Messages",           icon: MessageSquare },
       { href: "/notifications", label: t.nav.notifications, icon: Bell, badge: unreadCount },
-      { href: "/appraisals", label: t.nav.appraisals, icon: FileText },
+      { href: "/appraisals",    label: t.nav.appraisals,    icon: FileText },
     ];
     if (role === "attendant") return [
       { href: "/checkin",  label: t.nav.checkin,       icon: ClipboardCheck },
