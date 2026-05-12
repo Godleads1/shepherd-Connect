@@ -6,11 +6,13 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   School, CheckCircle2, AlertTriangle, Truck, Users,
   Clock, ArrowRight, UserCheck, CalendarCheck, ShieldCheck, Calendar,
+  Cake, CalendarClock, PartyPopper,
 } from "lucide-react";
 import { apiGet } from "@/lib/api-call";
 import { useAuth } from "@/contexts/auth";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
+import { Link } from "wouter";
 
 function fmt(ts: string | null | undefined) {
   if (!ts) return "—";
@@ -32,7 +34,7 @@ export default function MyClass() {
   const { toast } = useToast();
   const { user } = useAuth();
   const today = format(new Date(), "yyyy-MM-dd");
-  const [activeTab, setActiveTab] = useState<"pending" | "roster" | "schedule">("pending");
+  const [activeTab, setActiveTab] = useState<"pending" | "roster" | "birthdays" | "schedule">("pending");
   const [confirming, setConfirming] = useState<number | null>(null);
 
   const { data: scheduleData } = useQuery({
@@ -66,10 +68,17 @@ export default function MyClass() {
     }
   };
 
+  const { data: birthdays } = useQuery({
+    queryKey: ["birthdays-teacher"],
+    queryFn: () => apiGet<any>("/reports/birthdays?days=30"),
+    enabled: activeTab === "birthdays",
+  });
+
   const tabs = [
-    { key: "pending",  label: "Awaiting Confirmation", count: pending.length },
-    { key: "roster",   label: "Class Roster",          count: inClass.length },
-    { key: "schedule", label: "My Schedule",           count: scheduleData?.total ?? null },
+    { key: "pending",   label: "Awaiting",    count: pending.length },
+    { key: "roster",    label: "Roster",      count: inClass.length },
+    { key: "birthdays", label: "Birthdays",   count: null },
+    { key: "schedule",  label: "Schedule",    count: scheduleData?.total ?? null },
   ];
 
   return (
@@ -353,6 +362,64 @@ export default function MyClass() {
             </div>
           )}
         </>
+      ) : activeTab === "birthdays" ? (
+        /* ── Birthdays ── */
+        <div className="space-y-4">
+          <div className="bg-pink-50 border border-pink-200 rounded-2xl p-4 flex items-center gap-3">
+            <PartyPopper className="w-5 h-5 text-pink-500 flex-shrink-0" />
+            <p className="text-sm text-pink-800">
+              <span className="font-bold">Upcoming birthdays</span> — children celebrating in the next 30 days.
+              Make them feel special!
+            </p>
+          </div>
+          {!birthdays ? (
+            <div className="grid gap-3 md:grid-cols-2">
+              {[1,2,3].map(i => <Skeleton key={i} className="h-20 w-full rounded-2xl" />)}
+            </div>
+          ) : birthdays.children?.length === 0 ? (
+            <div className="text-center py-16 bg-white rounded-2xl border border-dashed">
+              <Cake className="w-12 h-12 text-gray-200 mx-auto mb-3" />
+              <p className="text-gray-500 font-medium">No upcoming birthdays in the next 30 days</p>
+            </div>
+          ) : (
+            <div className="grid gap-3 md:grid-cols-2">
+              {birthdays.children.map((child: any) => {
+                const isToday = child.daysUntil === 0;
+                const isThisWeek = child.daysUntil <= 7;
+                return (
+                  <div key={child.id}
+                    className={`bg-white rounded-2xl border shadow-sm p-4 flex items-center gap-4 ${
+                      isToday ? "border-pink-300 bg-pink-50" : isThisWeek ? "border-amber-200" : "border-gray-100"
+                    }`}>
+                    <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-2xl flex-shrink-0 ${
+                      isToday ? "bg-pink-100" : "bg-blue-50"
+                    }`}>
+                      {isToday ? "🎂" : isThisWeek ? "🎁" : "🎈"}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-bold text-gray-900">{child.firstName} {child.lastName}</p>
+                      <p className="text-xs text-gray-500">{child.className || "No class"}</p>
+                      <p className={`text-xs font-semibold mt-0.5 ${isToday ? "text-pink-600" : isThisWeek ? "text-amber-600" : "text-gray-500"}`}>
+                        {isToday ? "🎉 Happy Birthday Today!" : `Turning ${child.turningAge} in ${child.daysUntil} day${child.daysUntil === 1 ? "" : "s"}`}
+                      </p>
+                    </div>
+                    {isToday && (
+                      <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-pink-200 text-pink-800">TODAY!</span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          <div className="text-center pt-2">
+            <Link href="/reports">
+              <button className="text-sm font-semibold text-blue-700 hover:underline flex items-center gap-1 mx-auto">
+                <CalendarClock className="w-4 h-4" /> View full birthday report
+              </button>
+            </Link>
+          </div>
+        </div>
       ) : activeTab === "schedule" ? (
         /* ── My Schedule ── */
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">

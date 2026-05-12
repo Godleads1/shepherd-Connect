@@ -13,7 +13,7 @@ import {
   Star, Printer, TrendingUp, BookOpen, Wand2, RefreshCw, Table2, Sparkles, SmilePlus, Meh, Frown,
   MessageSquare, GraduationCap, Home, LayoutGrid,
 } from "lucide-react";
-import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend, BarChart, Bar, XAxis, YAxis, CartesianGrid } from "recharts";
+import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend, BarChart, Bar, XAxis, YAxis, CartesianGrid, LineChart, Line } from "recharts";
 import { format } from "date-fns";
 
 const BASE = "/api";
@@ -235,7 +235,7 @@ export default function Reports() {
   const [serviceSlot, setServiceSlot] = useState("");
   const [exportFrom, setExportFrom] = useState("");
   const [exportTo, setExportTo] = useState(today);
-  const [activeTab, setActiveTab] = useState<"live" | "exports" | "analytics" | "builder" | "heatmap" | "annual">("live");
+  const [activeTab, setActiveTab] = useState<"live" | "exports" | "analytics" | "builder" | "heatmap" | "annual" | "trends">("live");
   const { toast } = useToast();
 
   const [reportType, setReportType]       = useState<ReportType>("attendance");
@@ -464,10 +464,18 @@ export default function Reports() {
     enabled: activeTab === "annual",
   });
 
+  const [trendsWeeks, setTrendsWeeks] = useState(12);
+  const { data: trendsData, isLoading: trendsLoading } = useQuery({
+    queryKey: ["attendance-trends", trendsWeeks],
+    queryFn: () => apiGet<any>(`/attendance/trends?weeks=${trendsWeeks}`),
+    enabled: activeTab === "trends",
+  });
+
   const tabs = [
     { key: "live",     label: "Live Reports",    icon: Clock },
     { key: "exports",  label: "Export Data",     icon: Download },
     { key: "analytics",label: "Analytics",       icon: BarChart3 },
+    { key: "trends",   label: "Trends",          icon: TrendingUp },
     { key: "heatmap",  label: "Room Heatmap",    icon: LayoutGrid },
     { key: "builder",  label: "Custom Builder",  icon: Wand2 },
     { key: "annual",   label: "Annual Summary",  icon: GraduationCap },
@@ -499,6 +507,113 @@ export default function Reports() {
           </button>
         ))}
       </div>
+
+      {/* ── Attendance Trends ── */}
+      {activeTab === "trends" && (
+        <div className="space-y-5">
+          {/* Controls */}
+          <div className="bg-white border border-gray-100 rounded-2xl p-4 flex items-center gap-4 flex-wrap shadow-sm">
+            <div>
+              <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1">Time Range</label>
+              <div className="flex gap-2">
+                {[4, 8, 12, 24].map(w => (
+                  <button key={w}
+                    onClick={() => setTrendsWeeks(w)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${
+                      trendsWeeks === w ? "bg-blue-800 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                    }`}>
+                    {w}w
+                  </button>
+                ))}
+              </div>
+            </div>
+            <p className="text-xs text-gray-400 self-end pb-0.5">Weekly attendance counts over the last {trendsWeeks} weeks</p>
+          </div>
+
+          {trendsLoading ? (
+            <div className="space-y-3">
+              <Skeleton className="h-64 w-full rounded-2xl" />
+              <div className="grid grid-cols-3 gap-3">
+                <Skeleton className="h-24 rounded-2xl" />
+                <Skeleton className="h-24 rounded-2xl" />
+                <Skeleton className="h-24 rounded-2xl" />
+              </div>
+            </div>
+          ) : !trendsData?.weeks?.length ? (
+            <div className="py-20 text-center bg-white border rounded-2xl">
+              <TrendingUp className="w-12 h-12 text-gray-200 mx-auto mb-3" />
+              <p className="text-gray-500 font-semibold">No attendance data available</p>
+              <p className="text-sm text-gray-400 mt-1">Attendance trends will appear once check-in records exist</p>
+            </div>
+          ) : (
+            <>
+              {/* Summary stats */}
+              <div className="grid grid-cols-3 gap-3">
+                <div className="bg-blue-50 border border-blue-100 rounded-2xl p-4 text-center">
+                  <p className="text-2xl font-black text-blue-800">{trendsData.summary?.avgCheckins ?? "—"}</p>
+                  <p className="text-xs font-semibold text-blue-600 mt-0.5">Avg. Check-ins / Week</p>
+                </div>
+                <div className="bg-green-50 border border-green-100 rounded-2xl p-4 text-center">
+                  <p className="text-2xl font-black text-green-700">{trendsData.summary?.peakWeek ?? "—"}</p>
+                  <p className="text-xs font-semibold text-green-600 mt-0.5">Peak Week</p>
+                </div>
+                <div className="bg-amber-50 border border-amber-100 rounded-2xl p-4 text-center">
+                  <p className="text-2xl font-black text-amber-700">{trendsData.summary?.trend ?? "Stable"}</p>
+                  <p className="text-xs font-semibold text-amber-600 mt-0.5">12-Week Trend</p>
+                </div>
+              </div>
+
+              {/* Check-ins line chart */}
+              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+                <h3 className="font-bold text-gray-800 mb-4 flex items-center gap-2">
+                  <TrendingUp className="w-4 h-4 text-blue-700" /> Weekly Check-ins
+                </h3>
+                <ResponsiveContainer width="100%" height={240}>
+                  <LineChart data={trendsData.weeks} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                    <XAxis dataKey="week" tick={{ fontSize: 11 }} tickFormatter={(v: string) => v?.slice(5) || v} />
+                    <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
+                    <Tooltip
+                      contentStyle={{ borderRadius: 12, border: "1px solid #e2e8f0", fontSize: 12 }}
+                      formatter={(val: number) => [val, "Check-ins"]}
+                    />
+                    <Line type="monotone" dataKey="checkins" stroke="#1e3a8a" strokeWidth={2.5} dot={{ r: 4, fill: "#1e3a8a" }} activeDot={{ r: 6 }} />
+                    <Line type="monotone" dataKey="pickedUp" stroke="#16a34a" strokeWidth={2} dot={{ r: 3, fill: "#16a34a" }} name="Picked Up" />
+                  </LineChart>
+                </ResponsiveContainer>
+                <div className="flex items-center gap-6 justify-center mt-3">
+                  <div className="flex items-center gap-2">
+                    <div className="w-6 h-0.5 bg-blue-800" style={{ borderRadius: 99 }} />
+                    <span className="text-xs text-gray-500">Total Check-ins</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-6 h-0.5 bg-green-600" style={{ borderRadius: 99 }} />
+                    <span className="text-xs text-gray-500">Picked Up</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Per-class bar chart */}
+              {trendsData.byClass && (
+                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+                  <h3 className="font-bold text-gray-800 mb-4 flex items-center gap-2">
+                    <BarChart3 className="w-4 h-4 text-amber-600" /> Attendance by Class (Period Total)
+                  </h3>
+                  <ResponsiveContainer width="100%" height={200}>
+                    <BarChart data={trendsData.byClass} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                      <XAxis dataKey="className" tick={{ fontSize: 11 }} />
+                      <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
+                      <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid #e2e8f0", fontSize: 12 }} />
+                      <Bar dataKey="total" name="Total Sessions" fill="#f59e0b" radius={[6, 6, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
 
       {/* ── Room Heatmap ── */}
       {activeTab === "heatmap" && (

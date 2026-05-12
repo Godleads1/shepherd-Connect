@@ -2,7 +2,7 @@ import { Router } from "express";
 import { eq, and } from "drizzle-orm";
 import { db, consentFormsTable, childrenTable, usersTable } from "@workspace/db";
 import { authMiddleware } from "../middlewares/auth";
-import { z } from "zod/v4";
+import { z } from "zod";
 
 const router = Router();
 

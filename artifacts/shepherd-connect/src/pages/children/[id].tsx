@@ -1,18 +1,99 @@
 import { useGetChild, useGetChildQrCode, useListAttendance, useListAppraisals } from "@workspace/api-client-react";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useParams, Link, useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { AlertTriangle, Clock, Calendar, CheckSquare, Award, Phone, Shield, Stethoscope, Route, ArrowRight, Trash2 } from "lucide-react";
+import { AlertTriangle, Clock, Calendar, CheckSquare, Award, Phone, Shield, Stethoscope, Route, ArrowRight, Trash2, FileCheck } from "lucide-react";
 import { useState } from "react";
 import { format } from "date-fns";
 import { QRCodeSVG } from "qrcode.react";
 import FaceEnrollment from "@/components/FaceEnrollment";
-import { apiGet, apiDelete } from "@/lib/api-call";
+import { apiGet, apiDelete, apiPost } from "@/lib/api-call";
 import { useAuth } from "@/contexts/auth";
 import { useToast } from "@/hooks/use-toast";
+
+const CONSENT_LABELS: Record<string, string> = {
+  photo: "Photography & Video",
+  medical_treatment: "Emergency Medical Treatment",
+  trips: "Off-site Trips & Outings",
+  social_media: "Social Media Sharing",
+  emergency_contact: "Emergency Contact Authority",
+};
+
+function ConsentFormsSection({ childId, canEdit }: { childId: number; canEdit: boolean }) {
+  const qc = useQueryClient();
+  const { toast } = useToast();
+  const { data: forms, isLoading } = useQuery({
+    queryKey: ["consent-forms", childId],
+    queryFn: () => apiGet<any[]>(`/children/${childId}/consent-forms`),
+    enabled: !!childId,
+  });
+
+  const toggleMut = useMutation({
+    mutationFn: ({ type, granted }: { type: string; granted: boolean }) =>
+      apiPost(`/children/${childId}/consent-forms`, { type, granted }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["consent-forms", childId] });
+      toast({ title: "Consent updated" });
+    },
+    onError: () => toast({ variant: "destructive", title: "Failed to update consent" }),
+  });
+
+  return (
+    <Card className="rounded-2xl border-gray-100 shadow-sm">
+      <CardHeader className="pb-3">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <FileCheck className="w-5 h-5 text-blue-700" /> Consent Forms
+        </CardTitle>
+        <p className="text-xs text-gray-500 -mt-1">Parental consent status for this child</p>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <div className="space-y-2">{[1,2,3,4,5].map(i => <Skeleton key={i} className="h-12 w-full rounded-xl" />)}</div>
+        ) : (
+          <div className="space-y-2">
+            {(forms || []).map((form: any) => (
+              <div key={form.type}
+                className={`flex items-center justify-between p-3 rounded-xl border transition-colors ${
+                  form.granted ? "bg-green-50 border-green-200" : "bg-gray-50 border-gray-200"
+                }`}>
+                <div>
+                  <p className="text-sm font-semibold text-gray-900">{CONSENT_LABELS[form.type] || form.type}</p>
+                  {form.grantedAt && (
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      Granted {format(new Date(form.grantedAt), "MMM d, yyyy")}
+                    </p>
+                  )}
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${
+                    form.granted ? "bg-green-200 text-green-800" : "bg-gray-200 text-gray-600"
+                  }`}>
+                    {form.granted ? "Granted" : "Not granted"}
+                  </span>
+                  {canEdit && (
+                    <button
+                      onClick={() => toggleMut.mutate({ type: form.type, granted: !form.granted })}
+                      disabled={toggleMut.isPending}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all disabled:opacity-50 ${
+                        form.granted
+                          ? "bg-red-100 text-red-700 hover:bg-red-200"
+                          : "bg-green-100 text-green-700 hover:bg-green-200"
+                      }`}>
+                      {form.granted ? "Revoke" : "Grant"}
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
 
 function ClassJourneyTimeline({ childId }: { childId: number }) {
   const { data: assignments, isLoading } = useQuery({
@@ -280,6 +361,13 @@ export default function ChildProfile() {
           </CardContent>
         </Card>
       )}
+
+      {/* Consent Forms */}
+      <ConsentFormsSection
+        childId={childId}
+        canEdit={!!(user && (["super_admin", "admin"].includes(user.role) ||
+          (user.role === "parent" && family && (family.parent1Id === user.id || family.parent2Id === user.id))))}
+      />
 
       {/* Class Journey Timeline */}
       <ClassJourneyTimeline childId={childId} />

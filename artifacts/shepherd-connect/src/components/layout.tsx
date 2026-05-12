@@ -7,7 +7,7 @@ import {
   LayoutDashboard, Users, Baby, School, ClipboardCheck, CheckSquare,
   LogOut, Menu, Bell, MessageSquare, AlertTriangle, UserCog, FileText,
   Clock, ShieldCheck, QrCode, Home, Grid3x3, X, ChevronRight, Globe,
-  BarChart3, ArrowLeftRight, UserCircle, Search, ListOrdered,
+  BarChart3, ArrowLeftRight, UserCircle, Search, ListOrdered, CalendarClock,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api-call";
@@ -159,21 +159,27 @@ export function Layout({ children }: { children: ReactNode }) {
       items.push({ href: "/attendance",         label: t.nav.attendance,   icon: CheckSquare });
       items.push({ href: "/emergencies",        label: t.nav.emergencies,  icon: AlertTriangle });
       items.push({ href: "/audit",              label: t.nav.auditLogs,    icon: FileText });
-      items.push({ href: "/reports",            label: "Reports",          icon: BarChart3 });
-      items.push({ href: "/waitlist",           label: "Waitlist",         icon: ListOrdered });
-      items.push({ href: "/class-change-requests", label: "Class Changes", icon: ArrowLeftRight });
+      items.push({ href: "/reports",               label: "Reports",             icon: BarChart3 });
+      items.push({ href: "/waitlist",              label: "Waitlist",            icon: ListOrdered });
+      items.push({ href: "/class-change-requests", label: "Class Changes",       icon: ArrowLeftRight });
+      items.push({ href: "/substitute-requests",   label: "Substitute Requests", icon: CalendarClock });
+      items.push({ href: "/safeguarding",          label: "Safeguarding & DBS",  icon: ShieldCheck });
+      items.push({ href: "/messages",              label: "Messages",            icon: MessageSquare });
       if (role === "super_admin") items.push({ href: "/users", label: t.nav.users, icon: ShieldCheck });
     } else if (role === "parent") {
-      items.push({ href: "/my-family",       label: t.nav.myFamily,   icon: Home });
-      items.push({ href: "/my-children",     label: t.nav.myChildren, icon: Baby });
-      items.push({ href: "/pickup-delegates",label: t.nav.delegates,  icon: UserCog });
-      items.push({ href: "/class-change-requests", label: "Class Changes", icon: ArrowLeftRight });
-      items.push({ href: "/feedback",        label: t.nav.feedback,   icon: MessageSquare });
+      items.push({ href: "/my-family",             label: t.nav.myFamily,   icon: Home });
+      items.push({ href: "/my-children",           label: t.nav.myChildren, icon: Baby });
+      items.push({ href: "/pickup-delegates",      label: t.nav.delegates,  icon: UserCog });
+      items.push({ href: "/class-change-requests", label: "Class Changes",  icon: ArrowLeftRight });
+      items.push({ href: "/messages",              label: "Messages",       icon: MessageSquare });
+      items.push({ href: "/feedback",              label: t.nav.feedback,   icon: MessageSquare });
     } else if (role === "teacher") {
-      items.push({ href: "/my-class",   label: t.nav.myClass,    icon: School });
-      items.push({ href: "/attendance", label: t.nav.attendance, icon: CheckSquare });
-      items.push({ href: "/appraisals", label: t.nav.appraisals, icon: FileText });
-      items.push({ href: "/class-change-requests", label: "Class Changes", icon: ArrowLeftRight });
+      items.push({ href: "/my-class",              label: t.nav.myClass,        icon: School });
+      items.push({ href: "/attendance",            label: t.nav.attendance,     icon: CheckSquare });
+      items.push({ href: "/appraisals",            label: t.nav.appraisals,     icon: FileText });
+      items.push({ href: "/class-change-requests", label: "Class Changes",      icon: ArrowLeftRight });
+      items.push({ href: "/substitute-requests",   label: "Substitute Requests", icon: CalendarClock });
+      items.push({ href: "/messages",              label: "Messages",           icon: MessageSquare });
     } else if (role === "attendant") {
       items.push({ href: "/checkin",  label: t.nav.checkin,  icon: ClipboardCheck });
       items.push({ href: "/checkout", label: t.nav.checkout, icon: CheckSquare });

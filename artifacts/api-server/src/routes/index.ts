@@ -19,6 +19,10 @@ import dashboardRouter from "./dashboard";
 import reportsRouter from "./reports";
 import classChangeRequestsRouter from "./classChangeRequests";
 import searchRouter from "./search";
+import substituteRequestsRouter from "./substituteRequests";
+import messagesRouter from "./messages";
+import consentFormsRouter from "./consentForms";
+import safeguardingRouter from "./safeguarding";
 
 const router: IRouter = Router();
 
@@ -42,5 +46,9 @@ router.use(dashboardRouter);
 router.use(reportsRouter);
 router.use(classChangeRequestsRouter);
 router.use(searchRouter);
+router.use(substituteRequestsRouter);
+router.use(messagesRouter);
+router.use(consentFormsRouter);
+router.use(safeguardingRouter);
 
 export default router;

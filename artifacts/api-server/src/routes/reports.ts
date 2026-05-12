@@ -493,7 +493,7 @@ router.get("/reports/custom-builder", authMiddleware, requireRoles("super_admin"
 
 // ─── Birthday Tracker ────────────────────────────────────────────────────────
 
-router.get("/reports/birthdays", authMiddleware, requireRoles("super_admin", "admin"), async (req, res): Promise<void> => {
+router.get("/reports/birthdays", authMiddleware, requireRoles("super_admin", "admin", "teacher"), async (req, res): Promise<void> => {
   const { days = "30" } = req.query as { days?: string };
   const daysAhead = Math.min(parseInt(days, 10) || 30, 365);
   const today = new Date();

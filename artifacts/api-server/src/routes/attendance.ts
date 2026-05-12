@@ -1,8 +1,8 @@
 import { Router } from "express";
-import { eq, and } from "drizzle-orm";
-import { db, attendanceTable, childrenTable, classesTable, familiesTable } from "@workspace/db";
+import { eq, and, ne } from "drizzle-orm";
+import { db, attendanceTable, childrenTable, classesTable, familiesTable, usersTable, notificationsTable } from "@workspace/db";
 import { CheckInBody, CheckOutBody, ListAttendanceQueryParams, ScanQrCodeBody } from "@workspace/api-zod";
-import { authMiddleware } from "../middlewares/auth";
+import { authMiddleware, requireRoles } from "../middlewares/auth";
 import { notifyChildCheckedIn, notifyChildInTransit, notifyChildArrivedInClass, notifyChildPickedUp } from "../lib/notify";
 
 const router = Router();
@@ -188,6 +188,65 @@ router.post("/attendance/scan-face", authMiddleware, async (req, res): Promise<v
   }));
 
   res.json({ family, children: childrenWithDetails, hasAlerts: alerts.length > 0, alerts, matchedChildId: bestMatch.id, confidence: Math.max(0, Math.round((1 - bestDist / 0.6) * 100)) });
+});
+
+// ─── Late Pickup Alerts ───────────────────────────────────────────────────────
+router.post("/attendance/late-pickup-alerts", authMiddleware, requireRoles("super_admin", "admin", "attendant"), async (req, res): Promise<void> => {
+  const { serviceDate, serviceSlot } = req.body as { serviceDate?: string; serviceSlot?: string };
+  const today = serviceDate || new Date().toISOString().split("T")[0];
+
+  const conditions = [
+    eq(attendanceTable.serviceDate, today),
+    ne(attendanceTable.status, "picked_up"),
+  ];
+  if (serviceSlot) conditions.push(eq(attendanceTable.serviceSlot, serviceSlot));
+
+  const presentRecords = await db.select().from(attendanceTable).where(and(...conditions));
+
+  let notified = 0;
+  for (const record of presentRecords) {
+    const [child] = await db.select().from(childrenTable).where(eq(childrenTable.id, record.childId));
+    if (!child) continue;
+    const [family] = await db.select().from(familiesTable).where(eq(familiesTable.id, child.familyId));
+    if (!family) continue;
+    const parentIds = [family.parent1Id, family.parent2Id].filter(Boolean) as number[];
+    for (const parentId of parentIds) {
+      await db.insert(notificationsTable).values({
+        userId: parentId,
+        title: "Late Pickup Reminder",
+        message: `${child.firstName} ${child.lastName} is still at church and hasn't been picked up yet. Please collect them as soon as possible.`,
+        type: "info",
+      });
+      notified++;
+    }
+  }
+
+  res.json({ ok: true, childrenStillPresent: presentRecords.length, notificationsSent: notified });
+});
+
+// ─── Attendance Trends ────────────────────────────────────────────────────────
+router.get("/attendance/trends", authMiddleware, requireRoles("super_admin", "admin"), async (req, res): Promise<void> => {
+  const { weeks = "12" } = req.query as { weeks?: string };
+  const numWeeks = Math.min(parseInt(weeks, 10) || 12, 52);
+
+  const now = new Date();
+  const trends: { week: string; label: string; total: number; firstService: number; secondService: number; uniqueChildren: number }[] = [];
+
+  for (let i = numWeeks - 1; i >= 0; i--) {
+    const weekStart = new Date(now);
+    weekStart.setDate(now.getDate() - now.getDay() - i * 7);
+    const dateStr = weekStart.toISOString().split("T")[0];
+    const label = weekStart.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+
+    const dayRecords = await db.select().from(attendanceTable).where(eq(attendanceTable.serviceDate, dateStr));
+    const firstService = dayRecords.filter(r => r.serviceSlot === "7am" || r.serviceSlot === "9am").length;
+    const secondService = dayRecords.filter(r => r.serviceSlot === "11am" || r.serviceSlot === "1pm").length;
+    const uniqueChildren = new Set(dayRecords.map(r => r.childId)).size;
+
+    trends.push({ week: dateStr, label, total: dayRecords.length, firstService, secondService, uniqueChildren });
+  }
+
+  res.json({ weeks: numWeeks, trends });
 });
 
 export default router;
