@@ -24,3 +24,9 @@ id = "MOzsJMV6uIhv-HKYZ3h26"
 uri = "file://shepherd-connect-qr.png"
 type = "image"
 title = "Shepherd Connect — Branded QR Code"
+
+[[outputs]]
+id = "BSdfByDwTGmHswr2-TOEp"
+uri = "file://artifacts/shepherd-connect/public/shepherd-connect-user-guide.pdf"
+type = "pdf"
+title = "Shepherd Connect — Complete User Guide (PDF)"

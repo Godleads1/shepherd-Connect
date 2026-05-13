@@ -8,6 +8,7 @@
     "seed": "tsx ./src/seed.ts",
     "generate-report": "tsx ./src/generate-progress-report.ts",
     "user-guide": "node ./src/generate-user-guide.mjs",
+    "pdf-guide": "tsx ./src/generate-pdf-guide.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
