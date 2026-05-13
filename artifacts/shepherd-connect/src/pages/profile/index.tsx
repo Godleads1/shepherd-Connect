@@ -8,8 +8,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
-import { User, Phone, Briefcase, Bell, Camera, Save, CheckCircle, MessageSquare, Smartphone, ShieldCheck, ShieldOff, QrCode, Loader2, KeyRound } from "lucide-react";
+import { User, Phone, Briefcase, Bell, Save, CheckCircle, MessageSquare, Smartphone, ShieldCheck, ShieldOff, QrCode, Loader2, KeyRound } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
+import { PhotoUploader, resolvePhotoUrl } from "@/components/PhotoUploader";
 
 interface CommPrefs {
   inApp: boolean;
@@ -253,18 +254,25 @@ export default function Profile() {
       <div className="bg-white border rounded-2xl p-6">
         <div className="flex items-start gap-4">
           <div className="relative">
-            {form.photoUrl ? (
-              <img src={form.photoUrl} alt="Profile" className="w-20 h-20 rounded-2xl object-cover" />
+            {editing ? (
+              <PhotoUploader
+                currentPhotoUrl={form.photoUrl}
+                fallbackLabel={`${profile?.firstName?.[0] ?? ""}${profile?.lastName?.[0] ?? ""}`}
+                onChange={objectPath => setForm(p => ({ ...p, photoUrl: objectPath }))}
+                size="md"
+                shape="rounded"
+              />
             ) : (
-              <div className="w-20 h-20 rounded-2xl flex items-center justify-center text-3xl font-bold text-white"
-                style={{ background: "linear-gradient(135deg, #1e3a8a, #3b82f6)" }}>
-                {profile?.firstName?.[0]}{profile?.lastName?.[0]}
-              </div>
-            )}
-            {editing && (
-              <button className="absolute -bottom-2 -right-2 w-7 h-7 rounded-full bg-[#1e3a8a] text-white flex items-center justify-center shadow-md">
-                <Camera className="w-3.5 h-3.5" />
-              </button>
+              <>
+                {resolvePhotoUrl(form.photoUrl) ? (
+                  <img src={resolvePhotoUrl(form.photoUrl)!} alt="Profile" className="w-20 h-20 rounded-2xl object-cover" />
+                ) : (
+                  <div className="w-20 h-20 rounded-2xl flex items-center justify-center text-3xl font-bold text-white"
+                    style={{ background: "linear-gradient(135deg, #1e3a8a, #3b82f6)" }}>
+                    {profile?.firstName?.[0]}{profile?.lastName?.[0]}
+                  </div>
+                )}
+              </>
             )}
           </div>
           <div className="flex-1">
@@ -343,11 +351,6 @@ export default function Profile() {
             </label>
             {editing ? <Input value={form.placeOfWork} onChange={e => setForm(p => ({ ...p, placeOfWork: e.target.value }))} placeholder="Company or organisation" />
               : <p className="text-gray-900">{form.placeOfWork || "—"}</p>}
-          </div>
-          <div className="col-span-2">
-            <label className="text-xs font-medium text-gray-600 block mb-1">Profile Photo URL</label>
-            {editing ? <Input value={form.photoUrl} onChange={e => setForm(p => ({ ...p, photoUrl: e.target.value }))} placeholder="https://..." />
-              : <p className="text-gray-900 text-sm truncate">{form.photoUrl || "—"}</p>}
           </div>
         </div>
       </div>

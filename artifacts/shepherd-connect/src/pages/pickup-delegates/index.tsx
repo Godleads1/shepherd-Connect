@@ -13,6 +13,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { useAuth } from "@/contexts/auth";
+import { PhotoUploader, resolvePhotoUrl } from "@/components/PhotoUploader";
 
 const formSchema = z.object({
   childId: z.coerce.number().min(1, "Please select a child"),
@@ -31,6 +32,7 @@ export default function PickupDelegates() {
   const [isOpen, setIsOpen] = useState(false);
   const [newOtp, setNewOtp] = useState<string | null>(null);
   const [copiedOtp, setCopiedOtp] = useState(false);
+  const [delegatePhotoUrl, setDelegatePhotoUrl] = useState("");
 
   const children = family?.children || [];
 
@@ -41,10 +43,11 @@ export default function PickupDelegates() {
 
   const onSubmit = async (data: z.infer<typeof formSchema>) => {
     try {
-      const res = await createMutation.mutateAsync({ data });
+      const res = await createMutation.mutateAsync({ data: { ...data, photoUrl: delegatePhotoUrl || undefined } as any });
       setNewOtp(res.otpCode || null);
       toast({ title: "Delegate added successfully" });
       form.reset({ childId: 0, name: "", phone: "" });
+      setDelegatePhotoUrl("");
       refetch();
     } catch (error: any) {
       toast({ variant: "destructive", title: error.message || "Failed to add delegate" });
@@ -119,6 +122,15 @@ export default function PickupDelegates() {
             ) : (
               <Form {...form}>
                 <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+                  <div className="flex justify-center">
+                    <PhotoUploader
+                      currentPhotoUrl={delegatePhotoUrl}
+                      fallbackLabel="D"
+                      onChange={setDelegatePhotoUrl}
+                      size="lg"
+                      shape="circle"
+                    />
+                  </div>
                   <FormField control={form.control} name="childId" render={({ field }) => (
                     <FormItem>
                       <FormLabel className="flex items-center gap-1"><Baby className="w-4 h-4" /> Which Child?</FormLabel>
@@ -179,10 +191,15 @@ export default function PickupDelegates() {
             <CardHeader className="pb-2 bg-gray-50">
               <div className="flex justify-between items-start">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold"
-                    style={{ background: delegate.parentApproved ? "#16a34a" : "#f59e0b" }}>
-                    {delegate.name[0]}
-                  </div>
+                  {resolvePhotoUrl(delegate.photoUrl) ? (
+                    <img src={resolvePhotoUrl(delegate.photoUrl)!} alt={delegate.name}
+                      className="w-10 h-10 rounded-full object-cover" />
+                  ) : (
+                    <div className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold"
+                      style={{ background: delegate.parentApproved ? "#16a34a" : "#f59e0b" }}>
+                      {delegate.name[0]}
+                    </div>
+                  )}
                   <div>
                     <CardTitle className="text-base">{delegate.name}</CardTitle>
                     <CardDescription className="text-xs">{delegate.phone}</CardDescription>

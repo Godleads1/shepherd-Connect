@@ -10,6 +10,7 @@ import {
   Home, ShieldAlert, Loader2, MapPin, Bus, Eye, EyeOff,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { PhotoUploader } from "@/components/PhotoUploader";
 
 const LOGO_NAVY  = "#1a237e";
 const LOGO_GREEN = "#1b5e20";
@@ -130,6 +131,7 @@ export default function Register() {
   const [step2Data, setStep2Data] = useState<z.infer<typeof step2Schema> | null>(null);
   const [selectedRole, setSelectedRole] = useState<"parent"|"teacher"|"admin"|"attendant">("parent");
   const [showPw, setShowPw] = useState(false);
+  const [regPhotoUrl, setRegPhotoUrl] = useState("");
 
   const regMutation    = useRegister();
   const famMutation    = useCreateFamily();
@@ -174,6 +176,13 @@ export default function Register() {
         data: { firstName: step1Data.firstName, lastName: step1Data.lastName, email: step1Data.email, phone: step1Data.phone, password: step1Data.password, role: selectedRole }
       });
       localLogin(authRes.token, authRes.user);
+      if (regPhotoUrl) {
+        await fetch("/api/users/me", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${authRes.token}` },
+          body: JSON.stringify({ photoUrl: regPhotoUrl }),
+        }).catch(() => {});
+      }
 
       if (selectedRole === "parent" && s2d) {
         const addrParts = [s2d.houseStreet];
@@ -323,6 +332,16 @@ export default function Register() {
                   If you are also a parent, you can register a separate parent account with a different email.
                 </p>
               )}
+            </div>
+
+            <div className="flex justify-center mb-1">
+              <PhotoUploader
+                currentPhotoUrl={regPhotoUrl}
+                fallbackLabel="?"
+                onChange={setRegPhotoUrl}
+                size="lg"
+                shape="circle"
+              />
             </div>
 
             <div className="grid grid-cols-2 gap-3">

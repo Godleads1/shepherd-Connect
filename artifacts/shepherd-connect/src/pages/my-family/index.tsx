@@ -13,6 +13,7 @@ import { QrCode, FileText, Users, MapPin, ShieldCheck, Star, PlusCircle, AlertCi
 import { useAuth } from "@/contexts/auth";
 import { QRCodeSVG } from "qrcode.react";
 import { apiGet, apiPost, apiDelete } from "@/lib/api-call";
+import { PhotoUploader, resolvePhotoUrl } from "@/components/PhotoUploader";
 
 function WaitlistSection({ familyId, classes }: { familyId?: number; classes: any[] }) {
   const [selectedClassId, setSelectedClassId] = useState("");
@@ -207,8 +208,8 @@ function ChildCard({ child }: { child: any }) {
 
       <div className="flex items-start gap-4">
         <div className="relative flex-shrink-0">
-          {child.photoUrl ? (
-            <img src={child.photoUrl} alt={child.firstName} className="w-16 h-16 rounded-2xl object-cover shadow-sm" />
+          {resolvePhotoUrl(child.photoUrl) ? (
+            <img src={resolvePhotoUrl(child.photoUrl)!} alt={child.firstName} className="w-16 h-16 rounded-2xl object-cover shadow-sm" />
           ) : (
             <div className="w-16 h-16 rounded-2xl flex items-center justify-center text-2xl font-bold text-white shadow-sm"
               style={{ background: "linear-gradient(135deg, #1e3a8a, #3b82f6)" }}>
@@ -273,7 +274,7 @@ export default function MyFamily() {
   const [qrModalOpen, setQrModalOpen] = useState(false);
   const [childForm, setChildForm] = useState({
     firstName: "", lastName: "", dob: "", gender: "male" as "male" | "female",
-    allergies: "", medicalNotes: "", currentClassId: "",
+    allergies: "", medicalNotes: "", currentClassId: "", photoUrl: "",
   });
 
   const hour = new Date().getHours();
@@ -299,11 +300,12 @@ export default function MyFamily() {
           allergies: childForm.allergies || null,
           medicalNotes: childForm.medicalNotes || null,
           currentClassId: childForm.currentClassId ? Number(childForm.currentClassId) : null,
+          photoUrl: childForm.photoUrl || null,
         } as any,
       });
       toast({ title: "Child added successfully!" });
       setAddChildOpen(false);
-      setChildForm({ firstName: "", lastName: "", dob: "", gender: "male", allergies: "", medicalNotes: "", currentClassId: "" });
+      setChildForm({ firstName: "", lastName: "", dob: "", gender: "male", allergies: "", medicalNotes: "", currentClassId: "", photoUrl: "" });
       refetch();
     } catch (e: any) {
       toast({ variant: "destructive", title: e.message || "Failed to add child" });
@@ -440,6 +442,15 @@ export default function MyFamily() {
         <DialogContent className="max-w-md">
           <DialogHeader><DialogTitle>Register a New Child</DialogTitle></DialogHeader>
           <div className="space-y-4">
+            <div className="flex justify-center">
+              <PhotoUploader
+                currentPhotoUrl={childForm.photoUrl}
+                fallbackLabel={childForm.firstName ? childForm.firstName[0] : "?"}
+                onChange={path => setChildForm(p => ({ ...p, photoUrl: path }))}
+                size="lg"
+                shape="rounded"
+              />
+            </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="text-sm font-medium text-gray-700 block mb-1">First Name *</label>

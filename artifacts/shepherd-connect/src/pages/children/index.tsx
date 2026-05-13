@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Search, Eye, AlertCircle, Baby, MapPin, Trash2, Upload, FileSpreadsheet, CheckCircle, XCircle, Plus } from "lucide-react";
+import { PhotoUploader } from "@/components/PhotoUploader";
 import { useAuth } from "@/contexts/auth";
 import { useToast } from "@/hooks/use-toast";
 import { apiDelete, apiPost } from "@/lib/api-call";
@@ -122,10 +123,10 @@ function AddChildModal({ open, onClose, onCreated }: { open: boolean; onClose: (
 
   const [form, setForm] = useState({
     familyId: "", firstName: "", lastName: "", dob: "",
-    gender: "male" as "male" | "female", allergies: "", medicalNotes: "", currentClassId: "",
+    gender: "male" as "male" | "female", allergies: "", medicalNotes: "", currentClassId: "", photoUrl: "",
   });
 
-  const reset = () => setForm({ familyId: "", firstName: "", lastName: "", dob: "", gender: "male", allergies: "", medicalNotes: "", currentClassId: "" });
+  const reset = () => setForm({ familyId: "", firstName: "", lastName: "", dob: "", gender: "male", allergies: "", medicalNotes: "", currentClassId: "", photoUrl: "" });
 
   const handleClose = () => { reset(); onClose(); };
 
@@ -146,6 +147,7 @@ function AddChildModal({ open, onClose, onCreated }: { open: boolean; onClose: (
           allergies: form.allergies || undefined,
           medicalNotes: form.medicalNotes || undefined,
           currentClassId: form.currentClassId ? Number(form.currentClassId) : undefined,
+          photoUrl: form.photoUrl || undefined,
         } as any,
       });
       toast({ title: "Child registered successfully!" });
@@ -165,6 +167,15 @@ function AddChildModal({ open, onClose, onCreated }: { open: boolean; onClose: (
           </DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4 mt-1">
+          <div className="flex justify-center">
+            <PhotoUploader
+              currentPhotoUrl={form.photoUrl}
+              fallbackLabel={form.firstName ? form.firstName[0] : "?"}
+              onChange={path => setForm(p => ({ ...p, photoUrl: path }))}
+              size="lg"
+              shape="rounded"
+            />
+          </div>
           <div>
             <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide mb-1.5">Family <span className="text-red-500">*</span></label>
             <Select value={form.familyId} onValueChange={v => setForm(p => ({ ...p, familyId: v }))}>
