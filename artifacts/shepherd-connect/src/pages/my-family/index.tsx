@@ -367,27 +367,26 @@ function ChildCard({ child, onRefetch }: { child: any; onRefetch: () => void }) 
           <button
             type="button"
             onClick={() => !uploading && fileInputRef.current?.click()}
-            className="relative w-16 h-16 rounded-2xl overflow-hidden shadow-sm group focus:outline-none"
-            title="Tap to update photo"
+            className="relative w-16 h-16 rounded-2xl overflow-hidden shadow-sm focus:outline-none active:scale-95 transition-transform"
+            title="Tap to add or change photo"
           >
             {displayPhoto ? (
               <img src={displayPhoto} alt={child.firstName} className="w-full h-full object-cover" />
             ) : (
-              <div className="w-full h-full flex items-center justify-center text-2xl font-bold text-white"
+              <div className="w-full h-full flex flex-col items-center justify-center gap-0.5"
                 style={{ background: "linear-gradient(135deg, #1e3a8a, #3b82f6)" }}>
-                {child.firstName[0]}{child.lastName[0]}
+                <span className="text-xl font-bold text-white leading-none">{child.firstName[0]}{child.lastName[0]}</span>
+                <Camera className="w-3 h-3 text-white/70" />
               </div>
             )}
-            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 group-active:opacity-100 transition-opacity flex items-center justify-center rounded-2xl">
-              {uploading ? <Loader2 className="w-5 h-5 text-white animate-spin" /> : <Camera className="w-5 h-5 text-white" />}
-            </div>
           </button>
           <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handlePhotoChange} />
-          <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full border-2 border-white flex items-center justify-center"
-            style={{ background: uploading ? "#f59e0b" : statusColor }}>
+          {/* Always-visible camera badge */}
+          <div className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full border-2 border-white flex items-center justify-center shadow-sm"
+            style={{ background: uploading ? "#f59e0b" : "#1e3a8a" }}>
             {uploading
-              ? <Loader2 className="w-2.5 h-2.5 text-white animate-spin" />
-              : <span className="text-white text-[8px]">{child.currentClass ? "✓" : "?"}</span>
+              ? <Loader2 className="w-3 h-3 text-white animate-spin" />
+              : <Camera className="w-3 h-3 text-white" />
             }
           </div>
         </div>
