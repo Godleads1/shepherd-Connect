@@ -1,6 +1,6 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useGetMyFamily, useListClasses, useCreateChild, useUpdateChild } from "@workspace/api-client-react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Link } from "wouter";
@@ -9,11 +9,120 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { QrCode, FileText, Users, MapPin, ShieldCheck, Star, PlusCircle, AlertCircle, Download, X, ListOrdered, Trash2, Camera, Loader2 } from "lucide-react";
+import { QrCode, FileText, Users, MapPin, ShieldCheck, Star, PlusCircle, AlertCircle, Download, X, ListOrdered, Trash2, Camera, Loader2, Cake, ChevronDown, ChevronUp, Calendar, CheckCircle } from "lucide-react";
 import { useAuth } from "@/contexts/auth";
 import { QRCodeSVG } from "qrcode.react";
 import { apiGet, apiPost, apiDelete } from "@/lib/api-call";
 import { PhotoUploader, resolvePhotoUrl } from "@/components/PhotoUploader";
+import WelcomeModal, { shouldShowWelcome } from "@/components/WelcomeModal";
+
+function isBirthdayToday(dob: string): boolean {
+  const d = new Date(dob);
+  const now = new Date();
+  return d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
+}
+function isBirthdayThisMonth(dob: string): boolean {
+  return new Date(dob).getMonth() === new Date().getMonth();
+}
+function daysUntilBirthday(dob: string): number {
+  const d = new Date(dob);
+  const now = new Date();
+  const next = new Date(now.getFullYear(), d.getMonth(), d.getDate());
+  if (next < now) next.setFullYear(now.getFullYear() + 1);
+  return Math.round((next.getTime() - now.getTime()) / 86400000);
+}
+
+function AttendanceHistory({ children }: { children: any[] }) {
+  const [open, setOpen] = useState(false);
+  const [activeChild, setActiveChild] = useState<number | null>(null);
+
+  const childId = activeChild ?? children[0]?.id;
+  const { data, isLoading } = useQuery({
+    queryKey: ["parent-attendance", childId],
+    queryFn: () => apiGet<any>(`/attendance?childId=${childId}&limit=20`),
+    enabled: open && !!childId,
+  });
+
+  const records: any[] = data?.data ?? [];
+
+  const statusLabel: Record<string, { label: string; color: string }> = {
+    dropped_off:  { label: "Dropped Off",   color: "#f59e0b" },
+    in_transit:   { label: "In Transit",    color: "#3b82f6" },
+    in_class:     { label: "In Class",      color: "#8b5cf6" },
+    picked_up:    { label: "Picked Up ✓",   color: "#16a34a" },
+  };
+
+  return (
+    <div className="bg-white rounded-2xl border" style={{ boxShadow: "0 2px 8px rgba(30,58,138,.06)" }}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center justify-between px-5 py-4 text-left"
+      >
+        <div className="flex items-center gap-2">
+          <Calendar className="w-4.5 h-4.5 text-[#1e3a8a]" />
+          <span className="font-semibold text-gray-900">Attendance History</span>
+        </div>
+        {open ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
+      </button>
+
+      {open && (
+        <div className="border-t px-5 pb-5 pt-4 space-y-4">
+          {/* Child selector tabs */}
+          {children.length > 1 && (
+            <div className="flex gap-2 flex-wrap">
+              {children.map((c: any) => (
+                <button
+                  key={c.id}
+                  onClick={() => setActiveChild(c.id)}
+                  className="px-3 py-1.5 rounded-full text-xs font-semibold transition-all"
+                  style={childId === c.id
+                    ? { background: "#1e3a8a", color: "white" }
+                    : { background: "#f1f5f9", color: "#64748b" }}
+                >
+                  {c.firstName}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {isLoading && (
+            <div className="space-y-2">
+              {[1,2,3].map(i => <Skeleton key={i} className="h-12 w-full rounded-xl" />)}
+            </div>
+          )}
+
+          {!isLoading && records.length === 0 && (
+            <div className="text-center py-8 text-gray-400">
+              <Calendar className="w-8 h-8 mx-auto mb-2 opacity-40" />
+              <p className="text-sm">No attendance records yet</p>
+            </div>
+          )}
+
+          {!isLoading && records.length > 0 && (
+            <div className="space-y-2">
+              {records.map((r: any) => {
+                const st = statusLabel[r.status] ?? { label: r.status, color: "#6b7280" };
+                return (
+                  <div key={r.id} className="flex items-center justify-between px-4 py-3 rounded-xl bg-gray-50">
+                    <div>
+                      <p className="text-sm font-semibold text-gray-900">
+                        {new Date(r.serviceDate).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
+                      </p>
+                      <p className="text-xs text-gray-400 capitalize">{r.serviceSlot === "7am" ? "7:00 AM" : "10:30 AM"} service</p>
+                    </div>
+                    <span className="px-3 py-1 rounded-full text-xs font-bold" style={{ background: st.color + "20", color: st.color }}>
+                      {st.label}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function WaitlistSection({ familyId, classes }: { familyId?: number; classes: any[] }) {
   const [selectedClassId, setSelectedClassId] = useState("");

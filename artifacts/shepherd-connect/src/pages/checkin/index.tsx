@@ -1,7 +1,7 @@
 import { useState, useCallback } from "react";
 import { useScanQrCode, useCheckIn, useEscortToClass, useScanFace, useListAttendance } from "@workspace/api-client-react";
 import { Input } from "@/components/ui/input";
-import { AlertTriangle, CheckCircle, QrCode, Scan, Truck, ShieldCheck } from "lucide-react";
+import { AlertTriangle, CheckCircle, QrCode, Scan, Truck, ShieldCheck, Users } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import FaceCapture from "@/components/FaceCapture";
@@ -66,6 +66,9 @@ export default function CheckIn() {
     }
   }, [scanFaceMutation, toast, refetchAttendance]);
 
+  const isAlreadyCheckedIn = (childId: number) =>
+    (todayAttendance as any)?.data?.some((a: any) => a.childId === childId) ?? false;
+
   const handleCheckIn = async (childId: number, classId: number | undefined) => {
     if (!classId) {
       toast({ variant: "destructive", title: "Cannot Check In", description: "Child is not assigned to a class" });
@@ -78,6 +81,29 @@ export default function CheckIn() {
     } catch {
       toast({ variant: "destructive", title: "Check In Failed" });
     }
+  };
+
+  const [checkingInAll, setCheckingInAll] = useState(false);
+  const handleCheckInAll = async () => {
+    if (!scanResult?.children) return;
+    const eligible = scanResult.children.filter(
+      (c: any) => c.currentClass && !isAlreadyCheckedIn(c.id)
+    );
+    if (eligible.length === 0) {
+      toast({ title: "All children already checked in" });
+      return;
+    }
+    setCheckingInAll(true);
+    let done = 0;
+    for (const child of eligible) {
+      try {
+        await checkInMutation.mutateAsync({ data: { childId: child.id, classId: child.currentClass.id, serviceDate: today, serviceSlot } });
+        done++;
+      } catch { /* skip individual failures */ }
+    }
+    refetchAttendance();
+    setCheckingInAll(false);
+    toast({ title: `${done} of ${eligible.length} children checked in`, description: "Assign escorts to take them to their classes." });
   };
 
   const handleEscort = async (id: number, childName: string) => {
@@ -312,55 +338,83 @@ export default function CheckIn() {
             </div>
           )}
 
+          {/* Check In All button — shown when 2+ children and at least one can be checked in */}
+          {scanResult.children.length > 1 && scanResult.children.some((c: any) => c.currentClass && !isAlreadyCheckedIn(c.id)) && (
+            <button
+              onClick={handleCheckInAll}
+              disabled={checkingInAll || checkInMutation.isPending}
+              className="w-full h-14 rounded-2xl font-bold text-base transition-all active:scale-95 disabled:opacity-60 flex items-center justify-center gap-3 shadow-md"
+              style={{ background: "linear-gradient(135deg, #1e3a8a, #1d4ed8)", color: "white" }}>
+              <Users className="w-5 h-5" />
+              {checkingInAll
+                ? "Checking in all children…"
+                : `Check In All ${scanResult.children.filter((c: any) => c.currentClass && !isAlreadyCheckedIn(c.id)).length} Children at Once`}
+            </button>
+          )}
+
           <div className="grid gap-5 md:grid-cols-2">
-            {scanResult.children.map((child: any) => (
-              <div key={child.id} className="bg-white rounded-2xl overflow-hidden border border-gray-100 shadow-sm flex flex-col">
-                {child.allergies && (
-                  <div className="bg-red-600 text-white px-4 py-2.5 flex items-center justify-center gap-2 font-bold text-sm">
-                    <AlertTriangle className="h-4 w-4" /> ALLERGY ALERT
-                  </div>
-                )}
-                <div className="p-6 flex-1 flex flex-col">
-                  <div className="flex justify-between items-start mb-4">
-                    <div>
-                      <h3 className="text-xl font-bold text-gray-900">{child.firstName} {child.lastName}</h3>
-                      <p className="text-gray-500 mt-1 text-sm">Age {child.age}</p>
+            {scanResult.children.map((child: any) => {
+              const alreadyIn = isAlreadyCheckedIn(child.id);
+              return (
+                <div key={child.id} className={`bg-white rounded-2xl overflow-hidden border shadow-sm flex flex-col transition-all ${alreadyIn ? "border-green-200 opacity-80" : "border-gray-100"}`}>
+                  {alreadyIn && (
+                    <div className="bg-green-600 text-white px-4 py-2 flex items-center justify-center gap-2 font-bold text-sm">
+                      <CheckCircle className="h-4 w-4" /> Already Checked In Today
                     </div>
-                    <div className="w-12 h-12 rounded-full bg-blue-50 text-blue-800 flex items-center justify-center font-bold text-lg">
-                      {child.firstName[0]}
+                  )}
+                  {!alreadyIn && child.allergies && (
+                    <div className="bg-red-600 text-white px-4 py-2.5 flex items-center justify-center gap-2 font-bold text-sm">
+                      <AlertTriangle className="h-4 w-4" /> ALLERGY ALERT
                     </div>
-                  </div>
+                  )}
+                  <div className="p-6 flex-1 flex flex-col">
+                    <div className="flex justify-between items-start mb-4">
+                      <div>
+                        <h3 className="text-xl font-bold text-gray-900">{child.firstName} {child.lastName}</h3>
+                        <p className="text-gray-500 mt-1 text-sm">Age {child.age}</p>
+                      </div>
+                      <div className="w-12 h-12 rounded-full bg-blue-50 text-blue-800 flex items-center justify-center font-bold text-lg">
+                        {child.firstName[0]}
+                      </div>
+                    </div>
 
-                  <div className="mb-5 flex-1">
-                    <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold bg-gray-50 border border-gray-200 text-gray-700">
-                      {child.currentClass
-                        ? <><CheckCircle className="w-4 h-4 text-green-600" /> {child.currentClass.name}</>
-                        : <><AlertTriangle className="w-4 h-4 text-amber-500" /> Unassigned</>}
+                    <div className="mb-5 flex-1">
+                      <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold bg-gray-50 border border-gray-200 text-gray-700">
+                        {child.currentClass
+                          ? <><CheckCircle className="w-4 h-4 text-green-600" /> {child.currentClass.name}</>
+                          : <><AlertTriangle className="w-4 h-4 text-amber-500" /> Unassigned</>}
+                      </div>
+                      {!alreadyIn && child.allergies && (
+                        <p className="mt-3 text-sm font-medium text-red-600 bg-red-50 p-3 rounded-lg border border-red-100">{child.allergies}</p>
+                      )}
                     </div>
-                    {child.allergies && (
-                      <p className="mt-3 text-sm font-medium text-red-600 bg-red-50 p-3 rounded-lg border border-red-100">{child.allergies}</p>
-                    )}
-                  </div>
 
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => handleCheckIn(child.id, child.currentClass?.id)}
-                      disabled={!child.currentClass || checkInMutation.isPending}
-                      data-testid={`button-checkin-${child.id}`}
-                      className="flex-1 h-14 rounded-xl font-bold text-lg transition-all active:scale-95 disabled:opacity-50"
-                      style={{ background: "#1e3a8a", color: "white" }}>
-                      Check In Child
-                    </button>
-                    <button
-                      onClick={() => printBadge(child, scanResult?.family?.familyCode)}
-                      className="h-14 px-4 rounded-xl font-semibold text-sm border border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors flex items-center gap-1.5"
-                      title="Print name badge">
-                      🖨️
-                    </button>
+                    <div className="flex gap-2">
+                      {alreadyIn ? (
+                        <div className="flex-1 h-14 rounded-xl font-bold text-base flex items-center justify-center gap-2 bg-green-50 text-green-700 border border-green-200">
+                          <CheckCircle className="w-5 h-5" /> Checked In
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => handleCheckIn(child.id, child.currentClass?.id)}
+                          disabled={!child.currentClass || checkInMutation.isPending || checkingInAll}
+                          data-testid={`button-checkin-${child.id}`}
+                          className="flex-1 h-14 rounded-xl font-bold text-lg transition-all active:scale-95 disabled:opacity-50"
+                          style={{ background: "#1e3a8a", color: "white" }}>
+                          Check In Child
+                        </button>
+                      )}
+                      <button
+                        onClick={() => printBadge(child, scanResult?.family?.familyCode)}
+                        className="h-14 px-4 rounded-xl font-semibold text-sm border border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors flex items-center gap-1.5"
+                        title="Print name badge">
+                        🖨️
+                      </button>
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
