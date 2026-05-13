@@ -6,7 +6,7 @@ import { Link, useLocation } from "wouter";
 import { useAuth } from "@/contexts/auth";
 import { useLogin } from "@workspace/api-client-react";
 import { useLang, LANGUAGES, LangCode } from "@/contexts/language";
-import { Mail, Lock, Loader2, Globe, ChevronDown, Eye, EyeOff, ShieldCheck, ArrowLeft } from "lucide-react";
+import { Mail, Lock, Loader2, Globe, ChevronDown, Eye, EyeOff, ShieldCheck, ArrowLeft, KeyRound, Copy, Check, RotateCcw } from "lucide-react";
 import { apiPost } from "@/lib/api-call";
 
 const LOGO_NAVY  = "#1a237e";
@@ -82,6 +82,66 @@ export default function Login() {
   const [totpCode, setTotpCode] = useState("");
   const [mfaLoading, setMfaLoading] = useState(false);
   const [mfaError, setMfaError] = useState("");
+
+  // Forgot password flow
+  const [forgotStep, setForgotStep] = useState<"off" | "request" | "reset">("off");
+  const [forgotEmail, setForgotEmail] = useState("");
+  const [forgotCode, setForgotCode] = useState("");
+  const [forgotResetCode, setForgotResetCode] = useState(""); // code returned from API
+  const [forgotNewPw, setForgotNewPw] = useState("");
+  const [forgotConfirmPw, setForgotConfirmPw] = useState("");
+  const [forgotLoading, setForgotLoading] = useState(false);
+  const [forgotError, setForgotError] = useState("");
+  const [forgotSuccess, setForgotSuccess] = useState(false);
+  const [codeCopied, setCodeCopied] = useState(false);
+  const [showForgotPw, setShowForgotPw] = useState(false);
+
+  const handleForgotRequest = async () => {
+    if (!forgotEmail.trim()) { setForgotError("Please enter your email address."); return; }
+    setForgotLoading(true);
+    setForgotError("");
+    try {
+      const res = await apiPost<any>("/auth/forgot-password", { email: forgotEmail.trim() });
+      if (res.code) {
+        setForgotResetCode(res.code);
+        setForgotStep("reset");
+      } else {
+        setForgotError("No account found with that email address.");
+      }
+    } catch (e: any) {
+      setForgotError(e.message || "Something went wrong. Please try again.");
+    } finally {
+      setForgotLoading(false);
+    }
+  };
+
+  const handleForgotReset = async () => {
+    if (forgotNewPw.length < 6) { setForgotError("Password must be at least 6 characters."); return; }
+    if (forgotNewPw !== forgotConfirmPw) { setForgotError("Passwords do not match."); return; }
+    if (!forgotCode.trim()) { setForgotError("Please enter the reset code."); return; }
+    setForgotLoading(true);
+    setForgotError("");
+    try {
+      await apiPost<any>("/auth/reset-password", { email: forgotEmail.trim(), code: forgotCode.trim(), newPassword: forgotNewPw });
+      setForgotSuccess(true);
+    } catch (e: any) {
+      setForgotError(e.message || "Invalid or expired code.");
+    } finally {
+      setForgotLoading(false);
+    }
+  };
+
+  const resetForgotFlow = () => {
+    setForgotStep("off");
+    setForgotEmail("");
+    setForgotCode("");
+    setForgotResetCode("");
+    setForgotNewPw("");
+    setForgotConfirmPw("");
+    setForgotError("");
+    setForgotSuccess(false);
+    setCodeCopied(false);
+  };
 
   // Role picker step (multi-role users)
   const [rolePickStep, setRolePickStep] = useState(false);
@@ -243,7 +303,144 @@ export default function Login() {
         <p className="mt-1 text-xs italic" style={{ color: "#64748b" }}>{t.motto}</p>
       </div>
 
-      {rolePickStep ? (
+      {forgotStep !== "off" ? (
+        /* ── Forgot Password flow ── */
+        <div className="slide-up-delay-3 w-full z-10" style={cardStyle}>
+          <div className="text-center mb-6">
+            <div className="w-16 h-16 rounded-2xl bg-amber-50 border border-amber-200 flex items-center justify-center mx-auto mb-4">
+              <KeyRound className="w-8 h-8 text-amber-600" />
+            </div>
+            <h2 className="text-xl font-bold text-gray-900" style={{ fontFamily: "'Playfair Display', serif" }}>
+              {forgotStep === "request" ? "Reset Your Password" : "Set New Password"}
+            </h2>
+            <p className="text-sm text-gray-500 mt-2">
+              {forgotStep === "request"
+                ? "Enter your registered email to receive a reset code."
+                : "Copy the code below, then enter it with your new password."}
+            </p>
+          </div>
+
+          {forgotSuccess ? (
+            <div className="space-y-4 text-center">
+              <div className="w-14 h-14 rounded-full bg-green-100 flex items-center justify-center mx-auto">
+                <Check className="w-7 h-7 text-green-600" />
+              </div>
+              <p className="text-base font-semibold text-gray-800">Password Updated!</p>
+              <p className="text-sm text-gray-500">You can now sign in with your new password.</p>
+              <button
+                onClick={resetForgotFlow}
+                className="w-full h-11 rounded-full font-semibold text-sm transition-all flex items-center justify-center gap-2"
+                style={{ background: LOGO_NAVY, color: "#ffffff" }}>
+                <ArrowLeft className="w-4 h-4" /> Back to Sign In
+              </button>
+            </div>
+          ) : forgotStep === "request" ? (
+            <div className="space-y-4">
+              <div className="relative">
+                <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <input
+                  type="email"
+                  placeholder="your@email.com"
+                  value={forgotEmail}
+                  onChange={e => { setForgotEmail(e.target.value); setForgotError(""); }}
+                  onKeyDown={e => { if (e.key === "Enter") handleForgotRequest(); }}
+                  autoFocus
+                  className="w-full rounded-xl pl-10 pr-4 py-3 text-sm focus:outline-none transition-all"
+                  style={{ background: "rgba(255,255,255,0.90)", border: `1.5px solid rgba(26,35,126,0.14)`, color: "#0f172a" }}
+                />
+              </div>
+              {forgotError && <p className="text-sm text-red-600 text-center">{forgotError}</p>}
+              <button
+                onClick={handleForgotRequest}
+                disabled={forgotLoading}
+                className="w-full h-11 rounded-full font-semibold text-sm transition-all flex items-center justify-center gap-2 disabled:opacity-60"
+                style={{ background: LOGO_NAVY, color: "#ffffff", boxShadow: `0 4px 16px rgba(26,35,126,0.28)` }}>
+                {forgotLoading ? <><Loader2 className="w-4 h-4 animate-spin" /> Generating code...</> : "Generate Reset Code"}
+              </button>
+              <button onClick={resetForgotFlow} className="w-full flex items-center justify-center gap-2 text-sm text-gray-500 hover:text-gray-700 py-2 transition-colors">
+                <ArrowLeft className="w-4 h-4" /> Back to Sign In
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {/* Reset code display */}
+              <div className="rounded-xl p-4 text-center" style={{ background: "rgba(245,158,11,0.08)", border: "1.5px solid rgba(245,158,11,0.30)" }}>
+                <p className="text-xs font-semibold text-amber-700 mb-1 uppercase tracking-wide">Your Reset Code</p>
+                <p className="text-3xl font-mono font-bold tracking-widest text-amber-800 my-1">{forgotResetCode}</p>
+                <p className="text-[10px] text-amber-600 mb-2">Valid for 15 minutes. Store it safely.</p>
+                <button
+                  type="button"
+                  onClick={() => { navigator.clipboard.writeText(forgotResetCode); setCodeCopied(true); setTimeout(() => setCodeCopied(false), 2000); }}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all"
+                  style={{ background: "rgba(245,158,11,0.15)", color: "#92400e" }}>
+                  {codeCopied ? <><Check className="w-3 h-3" /> Copied!</> : <><Copy className="w-3 h-3" /> Copy Code</>}
+                </button>
+              </div>
+
+              <div className="space-y-3">
+                <div>
+                  <label className="text-xs font-semibold text-gray-600 block mb-1 uppercase tracking-wide">Reset Code</label>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={6}
+                    placeholder="Enter 6-digit code"
+                    value={forgotCode}
+                    onChange={e => { setForgotCode(e.target.value.replace(/\D/g, "")); setForgotError(""); }}
+                    className="w-full rounded-xl px-4 py-3 text-sm font-mono text-center tracking-widest focus:outline-none transition-all"
+                    style={{ background: "rgba(255,255,255,0.90)", border: `1.5px solid rgba(26,35,126,0.14)`, color: "#0f172a" }}
+                  />
+                </div>
+                <div className="relative">
+                  <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                  <input
+                    type={showForgotPw ? "text" : "password"}
+                    placeholder="New password (min 6 chars)"
+                    value={forgotNewPw}
+                    onChange={e => { setForgotNewPw(e.target.value); setForgotError(""); }}
+                    className="w-full rounded-xl pl-10 pr-10 py-3 text-sm focus:outline-none transition-all"
+                    style={{ background: "rgba(255,255,255,0.90)", border: `1.5px solid rgba(26,35,126,0.14)`, color: "#0f172a" }}
+                  />
+                  <button type="button" onClick={() => setShowForgotPw(v => !v)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                    {showForgotPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+                <div className="relative">
+                  <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                  <input
+                    type="password"
+                    placeholder="Confirm new password"
+                    value={forgotConfirmPw}
+                    onChange={e => { setForgotConfirmPw(e.target.value); setForgotError(""); }}
+                    onKeyDown={e => { if (e.key === "Enter") handleForgotReset(); }}
+                    className="w-full rounded-xl pl-10 pr-4 py-3 text-sm focus:outline-none transition-all"
+                    style={{ background: "rgba(255,255,255,0.90)", border: `1.5px solid rgba(26,35,126,0.14)`, color: "#0f172a" }}
+                  />
+                </div>
+              </div>
+
+              {forgotError && <p className="text-sm text-red-600 text-center">{forgotError}</p>}
+
+              <button
+                onClick={handleForgotReset}
+                disabled={forgotLoading}
+                className="w-full h-11 rounded-full font-semibold text-sm transition-all flex items-center justify-center gap-2 disabled:opacity-60"
+                style={{ background: LOGO_NAVY, color: "#ffffff", boxShadow: `0 4px 16px rgba(26,35,126,0.28)` }}>
+                {forgotLoading ? <><Loader2 className="w-4 h-4 animate-spin" /> Resetting...</> : <><KeyRound className="w-4 h-4" /> Reset Password</>}
+              </button>
+
+              <div className="flex gap-2">
+                <button onClick={() => setForgotStep("request")} className="flex-1 flex items-center justify-center gap-1.5 text-xs text-gray-500 hover:text-gray-700 py-2 transition-colors">
+                  <RotateCcw className="w-3 h-3" /> New code
+                </button>
+                <button onClick={resetForgotFlow} className="flex-1 flex items-center justify-center gap-1.5 text-xs text-gray-500 hover:text-gray-700 py-2 transition-colors">
+                  <ArrowLeft className="w-3 h-3" /> Sign In
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      ) : rolePickStep ? (
         /* ── Role picker step ── */
         <div className="slide-up-delay-3 w-full z-10" style={cardStyle}>
           <div className="text-center mb-6">
@@ -327,7 +524,17 @@ export default function Login() {
               </button>
             </form>
 
-            <div className="mt-5 text-center text-sm" style={{ color: "#64748b" }}>
+            <div className="mt-4 text-center">
+              <button
+                type="button"
+                onClick={() => setForgotStep("request")}
+                className="text-sm font-medium transition-opacity hover:opacity-70"
+                style={{ color: LOGO_NAVY }}>
+                Forgot your password?
+              </button>
+            </div>
+
+            <div className="mt-3 text-center text-sm" style={{ color: "#64748b" }}>
               {t.newFamily}{" "}
               <Link href="/register">
                 <span className="font-semibold cursor-pointer transition-opacity hover:opacity-75" style={{ color: LOGO_GREEN }} data-testid="link-register">

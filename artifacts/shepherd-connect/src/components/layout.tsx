@@ -60,6 +60,37 @@ function SidebarLangSwitcher() {
   );
 }
 
+function SearchResults({ data, onSelect }: { data: any; onSelect: (href: string) => void }) {
+  const total = (data?.children?.length || 0) + (data?.families?.length || 0) + (data?.users?.length || 0);
+  if (total === 0) return <p className="text-xs text-gray-400 text-center py-4">No results found</p>;
+  return (
+    <>
+      {data?.children?.map((r: any) => (
+        <button key={r.id} onClick={() => onSelect(r.href)}
+          className="w-full flex items-center gap-2 px-3 py-2.5 hover:bg-blue-50 transition-colors text-left border-b border-gray-50 last:border-0">
+          <span className="text-xs px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 font-semibold flex-shrink-0">child</span>
+          <span className="text-sm font-medium text-gray-800">{r.name}</span>
+        </button>
+      ))}
+      {data?.families?.map((r: any) => (
+        <button key={r.id} onClick={() => onSelect(r.href)}
+          className="w-full flex items-center gap-2 px-3 py-2.5 hover:bg-green-50 transition-colors text-left border-b border-gray-50 last:border-0">
+          <span className="text-xs px-1.5 py-0.5 rounded bg-green-100 text-green-700 font-semibold flex-shrink-0">family</span>
+          <span className="text-sm font-medium text-gray-800 font-mono">{r.name}</span>
+        </button>
+      ))}
+      {data?.users?.map((r: any) => (
+        <button key={r.id} onClick={() => onSelect(r.href)}
+          className="w-full flex items-center gap-2 px-3 py-2.5 hover:bg-purple-50 transition-colors text-left border-b border-gray-50 last:border-0">
+          <span className="text-xs px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 font-semibold capitalize flex-shrink-0">{r.role?.replace("_", " ")}</span>
+          <span className="text-sm font-medium text-gray-800">{r.name}</span>
+          <span className="text-xs text-gray-400 ml-auto hidden sm:block">{r.email}</span>
+        </button>
+      ))}
+    </>
+  );
+}
+
 function GlobalSearch() {
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
@@ -71,8 +102,6 @@ function GlobalSearch() {
     enabled: query.trim().length >= 2,
     staleTime: 10000,
   });
-
-  const total = (data?.children?.length || 0) + (data?.families?.length || 0) + (data?.users?.length || 0);
 
   const handleSelect = (href: string) => {
     setQuery("");
@@ -96,36 +125,63 @@ function GlobalSearch() {
       </div>
       {open && query.trim().length >= 2 && (
         <div className="absolute top-full left-0 right-0 mt-1 bg-white rounded-xl shadow-2xl border border-gray-100 overflow-hidden z-50 max-h-80 overflow-y-auto">
-          {total === 0 ? (
-            <p className="text-xs text-gray-400 text-center py-4">No results for "{query}"</p>
-          ) : (
-            <>
-              {data?.children?.map((r: any) => (
-                <button key={r.id} onClick={() => handleSelect(r.href)}
-                  className="w-full flex items-center gap-2 px-3 py-2 hover:bg-blue-50 transition-colors text-left">
-                  <span className="text-xs px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 font-semibold">child</span>
-                  <span className="text-sm font-medium text-gray-800">{r.name}</span>
-                </button>
-              ))}
-              {data?.families?.map((r: any) => (
-                <button key={r.id} onClick={() => handleSelect(r.href)}
-                  className="w-full flex items-center gap-2 px-3 py-2 hover:bg-green-50 transition-colors text-left">
-                  <span className="text-xs px-1.5 py-0.5 rounded bg-green-100 text-green-700 font-semibold">family</span>
-                  <span className="text-sm font-medium text-gray-800 font-mono">{r.name}</span>
-                </button>
-              ))}
-              {data?.users?.map((r: any) => (
-                <button key={r.id} onClick={() => handleSelect(r.href)}
-                  className="w-full flex items-center gap-2 px-3 py-2 hover:bg-purple-50 transition-colors text-left">
-                  <span className="text-xs px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 font-semibold capitalize">{r.role?.replace("_", " ")}</span>
-                  <span className="text-sm font-medium text-gray-800">{r.name}</span>
-                  <span className="text-xs text-gray-400 ml-auto">{r.email}</span>
-                </button>
-              ))}
-            </>
-          )}
+          <SearchResults data={data} onSelect={handleSelect} />
         </div>
       )}
+    </div>
+  );
+}
+
+function MobileSearchOverlay({ onClose }: { onClose: () => void }) {
+  const [query, setQuery] = useState("");
+  const navigate = useLocation()[1];
+
+  const { data, isFetching } = useQuery({
+    queryKey: ["global-search-mobile", query],
+    queryFn: () => apiGet<any>(`/search?q=${encodeURIComponent(query)}`),
+    enabled: query.trim().length >= 2,
+    staleTime: 10000,
+  });
+
+  const handleSelect = (href: string) => {
+    setQuery("");
+    onClose();
+    navigate(href);
+  };
+
+  return (
+    <div className="fixed inset-0 z-[60] md:hidden flex flex-col" style={{ background: "rgba(15,23,42,0.92)", backdropFilter: "blur(8px)" }}>
+      <div className="flex items-center gap-3 px-4 py-4 border-b border-white/10">
+        <div className="flex-1 flex items-center gap-2 px-3 h-10 rounded-xl bg-white/15 border border-white/20 focus-within:bg-white/25 transition-all">
+          <Search className="w-4 h-4 text-white/60 flex-shrink-0" />
+          <input
+            autoFocus
+            className="flex-1 text-sm text-white placeholder-white/50 bg-transparent outline-none"
+            placeholder="Search children, families..."
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+          />
+          {query && <button onClick={() => setQuery("")} className="text-white/40 hover:text-white text-sm">✕</button>}
+        </div>
+        <button onClick={onClose} className="text-white/70 hover:text-white px-2 py-1 text-sm font-medium">Cancel</button>
+      </div>
+
+      <div className="flex-1 overflow-y-auto">
+        {query.trim().length < 2 ? (
+          <div className="flex flex-col items-center justify-center py-16 gap-3">
+            <Search className="w-12 h-12 text-white/20" />
+            <p className="text-white/40 text-sm">Type at least 2 characters to search</p>
+          </div>
+        ) : isFetching ? (
+          <div className="flex items-center justify-center py-12">
+            <div className="w-6 h-6 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+          </div>
+        ) : (
+          <div className="bg-white mx-4 mt-4 rounded-xl overflow-hidden shadow-xl">
+            <SearchResults data={data} onSelect={handleSelect} />
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -134,6 +190,7 @@ export function Layout({ children }: { children: ReactNode }) {
   const { user, logout: localLogout } = useAuth();
   const [location] = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
   const { t } = useLang();
 
   const logoutMutation = useLogout();
@@ -297,6 +354,9 @@ export function Layout({ children }: { children: ReactNode }) {
   return (
     <div className="flex min-h-screen w-full bg-background">
 
+      {/* ── Mobile Search Overlay ── */}
+      {mobileSearchOpen && <MobileSearchOverlay onClose={() => setMobileSearchOpen(false)} />}
+
       {/* ── Desktop Sidebar ── */}
       <aside
         className="hidden md:flex flex-col w-64 fixed left-0 top-0 bottom-0 z-40"
@@ -352,13 +412,21 @@ export function Layout({ children }: { children: ReactNode }) {
             <span className="text-white font-semibold text-sm">Shepherd Connect</span>
           </div>
 
-          {/* Desktop search */}
+          {/* Desktop search — available to all roles */}
           <div className="hidden md:flex flex-1 items-center gap-4">
-            {["super_admin", "admin"].includes(role) && <GlobalSearch />}
+            <GlobalSearch />
           </div>
 
           {/* Right actions */}
           <div className="flex items-center gap-2">
+            {/* Mobile search icon */}
+            <button
+              className="md:hidden w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-all"
+              onClick={() => setMobileSearchOpen(true)}
+              aria-label="Search">
+              <Search className="w-4 h-4 text-white" />
+            </button>
+
             {/* Language pill (header, visible on mobile) */}
             <div className="md:hidden">
               <MobileLangMenu />

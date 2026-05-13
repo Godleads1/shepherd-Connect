@@ -189,6 +189,57 @@ router.post("/auth/logout", (_req, res): void => {
   res.json({ success: true, message: "Logged out" });
 });
 
+router.post("/auth/forgot-password", async (req, res): Promise<void> => {
+  const { email } = req.body as { email?: string };
+  if (!email || typeof email !== "string") {
+    res.status(400).json({ error: "Bad request", message: "Email is required" });
+    return;
+  }
+  const [user] = await db.select().from(usersTable).where(eq(usersTable.email, email.trim().toLowerCase()));
+  if (!user) {
+    res.json({ success: true, message: "If this email is registered, a reset code has been generated." });
+    return;
+  }
+  const code = Math.floor(100000 + Math.random() * 900000).toString();
+  const expiry = new Date(Date.now() + 15 * 60 * 1000);
+  const hashedCode = await bcrypt.hash(code, 10);
+  await db.update(usersTable)
+    .set({ resetToken: hashedCode, resetTokenExpiry: expiry })
+    .where(eq(usersTable.id, user.id));
+  res.json({ success: true, code, expiresInMinutes: 15, message: "Reset code generated successfully." });
+});
+
+router.post("/auth/reset-password", async (req, res): Promise<void> => {
+  const { email, code, newPassword } = req.body as { email?: string; code?: string; newPassword?: string };
+  if (!email || !code || !newPassword) {
+    res.status(400).json({ error: "Bad request", message: "email, code, and newPassword are required" });
+    return;
+  }
+  if (newPassword.length < 6) {
+    res.status(400).json({ error: "Bad request", message: "Password must be at least 6 characters" });
+    return;
+  }
+  const [user] = await db.select().from(usersTable).where(eq(usersTable.email, email.trim().toLowerCase()));
+  if (!user || !user.resetToken || !user.resetTokenExpiry) {
+    res.status(400).json({ error: "Bad request", message: "Invalid or expired reset code. Please request a new one." });
+    return;
+  }
+  if (new Date() > user.resetTokenExpiry) {
+    res.status(400).json({ error: "Bad request", message: "Reset code has expired. Please request a new one." });
+    return;
+  }
+  const valid = await bcrypt.compare(code, user.resetToken);
+  if (!valid) {
+    res.status(400).json({ error: "Bad request", message: "Incorrect reset code. Please check and try again." });
+    return;
+  }
+  const passwordHash = await bcrypt.hash(newPassword, 12);
+  await db.update(usersTable)
+    .set({ passwordHash, resetToken: null, resetTokenExpiry: null })
+    .where(eq(usersTable.id, user.id));
+  res.json({ success: true, message: "Password reset successfully. You can now sign in with your new password." });
+});
+
 // ── MFA endpoints ─────────────────────────────────────────────────────────────
 
 router.post("/auth/mfa/setup", authMiddleware, async (req, res): Promise<void> => {
