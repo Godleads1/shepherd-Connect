@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { useGetMyFamily, useListClasses, useCreateChild, useUpdateChild } from "@workspace/api-client-react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Link } from "wouter";
@@ -345,6 +345,17 @@ function ChildCard({ child, onRefetch }: { child: any; onRefetch: () => void }) 
         borderLeftColor: borderColor,
       }}
     >
+      {child.dob && isBirthdayToday(child.dob) && (
+        <div className="mb-3 px-3 py-2 rounded-xl text-sm font-bold flex items-center gap-2 animate-pulse"
+          style={{ background: "linear-gradient(135deg, #f59e0b22, #fbbf2422)", color: "#d97706", border: "1px solid #fbbf24" }}>
+          <Cake className="w-4 h-4" /> 🎉 Happy Birthday, {child.firstName}! Today is their special day!
+        </div>
+      )}
+      {child.dob && !isBirthdayToday(child.dob) && isBirthdayThisMonth(child.dob) && (
+        <div className="mb-3 px-3 py-1.5 rounded-lg bg-amber-50 border border-amber-200 text-amber-700 text-xs font-semibold flex items-center gap-2">
+          <Cake className="w-3.5 h-3.5" /> Birthday this month — {daysUntilBirthday(child.dob) === 0 ? "today!" : `in ${daysUntilBirthday(child.dob)} day${daysUntilBirthday(child.dob) === 1 ? "" : "s"}`}
+        </div>
+      )}
       {hasAllergy && (
         <div className="mb-3 px-3 py-1.5 rounded-lg bg-red-50 border border-red-200 text-red-700 text-xs font-semibold flex items-center gap-2">
           <AlertCircle className="w-3.5 h-3.5" /> Allergy: {child.allergies}
@@ -431,10 +442,17 @@ export default function MyFamily() {
 
   const [addChildOpen, setAddChildOpen] = useState(false);
   const [qrModalOpen, setQrModalOpen] = useState(false);
+  const [showWelcome, setShowWelcome] = useState(false);
   const [childForm, setChildForm] = useState({
     firstName: "", lastName: "", dob: "", gender: "male" as "male" | "female",
     allergies: "", medicalNotes: "", currentClassId: "", photoUrl: "",
   });
+
+  useEffect(() => {
+    if (!isLoading && shouldShowWelcome(user?.role, false)) {
+      setShowWelcome(true);
+    }
+  }, [isLoading, user?.role]);
 
   const hour = new Date().getHours();
   const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
@@ -590,11 +608,36 @@ export default function MyFamily() {
         )}
       </div>
 
+      {/* Birthday celebration banner — shown when any child has a birthday this month */}
+      {children.some((c: any) => c.dob && isBirthdayThisMonth(c.dob)) && (
+        <div className="rounded-2xl px-5 py-4 flex items-center gap-3"
+          style={{ background: "linear-gradient(135deg, #78350f22, #f59e0b18)", border: "1px solid #fbbf24" }}>
+          <span className="text-3xl select-none">🎂</span>
+          <div>
+            <p className="font-bold text-amber-800 text-sm">Birthday{children.filter((c: any) => c.dob && isBirthdayThisMonth(c.dob)).length > 1 ? "s" : ""} this month!</p>
+            <p className="text-xs text-amber-700">
+              {children.filter((c: any) => c.dob && isBirthdayThisMonth(c.dob)).map((c: any) => c.firstName).join(" & ")} — don't forget to celebrate!
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Attendance History */}
+      {children.length > 0 && <AttendanceHistory children={children} />}
+
       {/* Class Waitlist */}
       <WaitlistSection familyId={family?.id} classes={classesData || []} />
 
       {/* Family QR Modal */}
       {family && <FamilyQRModal family={family} open={qrModalOpen} onClose={() => setQrModalOpen(false)} />}
+
+      {/* Welcome Onboarding Modal — shown to first-time parents */}
+      {showWelcome && (
+        <WelcomeModal
+          onClose={() => setShowWelcome(false)}
+          onAddChild={() => { setShowWelcome(false); setAddChildOpen(true); }}
+        />
+      )}
 
       {/* Add Child Modal */}
       <Dialog open={addChildOpen} onOpenChange={setAddChildOpen}>
