@@ -745,6 +745,7 @@ export interface DashboardStats {
   classesInSession: number;
   activeEmergencies: number;
   unassignedChildren: number;
+  totalChildren: number;
 }
 
 export interface LiveClassView {

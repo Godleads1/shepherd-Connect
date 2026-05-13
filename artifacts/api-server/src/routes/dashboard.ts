@@ -25,6 +25,7 @@ router.get("/dashboard/stats", authMiddleware, requireRoles("super_admin", "admi
   const teacherAttendanceRate = totalAllocations > 0 ? Math.round((Number(scheduled) / totalAllocations) * 100) : 95;
   const [{ unassigned }] = await db.select({ unassigned: sql<number>`count(*)` }).from(childrenTable)
     .where(sql`${childrenTable.currentClassId} IS NULL`);
+  const [{ totalChildren }] = await db.select({ totalChildren: sql<number>`count(*)` }).from(childrenTable);
   const classes = await db.select().from(classesTable);
 
   res.json({
@@ -36,6 +37,7 @@ router.get("/dashboard/stats", authMiddleware, requireRoles("super_admin", "admi
     classesInSession: classes.length,
     activeEmergencies: Number(activeEmergencies),
     unassignedChildren: Number(unassigned),
+    totalChildren: Number(totalChildren),
   });
 });
 

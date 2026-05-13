@@ -3030,6 +3030,7 @@ export const GetDashboardStatsResponse = zod.object({
   classesInSession: zod.number(),
   activeEmergencies: zod.number(),
   unassignedChildren: zod.number(),
+  totalChildren: zod.number(),
 });
 
 /**

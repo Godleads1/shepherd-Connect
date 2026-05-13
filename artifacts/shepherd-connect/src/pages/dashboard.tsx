@@ -2,7 +2,7 @@ import { useGetDashboardStats, useGetLiveView, useGetAttendanceTrends, useGetCla
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
-import { AlertTriangle, Users, CheckCircle, Clock, Cake, UserX, Phone, Award, MessageSquare, School, ArrowRight, PenTool } from "lucide-react";
+import { AlertTriangle, Users, CheckCircle, Clock, Cake, UserX, Phone, Award, MessageSquare, School, ArrowRight, PenTool, Baby } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Link } from "wouter";
 import { apiGet } from "@/lib/api-call";
@@ -330,7 +330,23 @@ function AdminDashboard() {
         </div>
       </div>
       
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 grid-cols-2 lg:grid-cols-5">
+        <Link href="/children">
+          <Card className="rounded-2xl border-none shadow-card hover:shadow-card-hover transition-all cursor-pointer group h-full">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium text-gray-500">Registered Children</CardTitle>
+              <div className="w-8 h-8 rounded-full bg-[#eff6ff] flex items-center justify-center">
+                <Baby className="h-4 w-4 text-[#1e3a8a]" />
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="text-3xl font-bold text-[#1e3a8a]">{stats?.totalChildren ?? 0}</div>
+              {(stats?.unassignedChildren ?? 0) > 0 && (
+                <p className="text-xs text-amber-600 mt-1 font-medium">{stats!.unassignedChildren} unassigned</p>
+              )}
+            </CardContent>
+          </Card>
+        </Link>
         <Card className="rounded-2xl border-none shadow-card hover:shadow-card-hover transition-all">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium text-gray-500">Checked In</CardTitle>
