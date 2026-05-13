@@ -27,7 +27,9 @@ async function formatChild(child: typeof childrenTable.$inferSelect) {
 }
 
 router.get("/children", authMiddleware, async (req, res): Promise<void> => {
-  const params = ListChildrenQueryParams.safeParse(req.query);
+  const rawQuery = { ...req.query };
+  if (rawQuery.unassigned === "false") delete rawQuery.unassigned;
+  const params = ListChildrenQueryParams.safeParse(rawQuery);
   if (!params.success) { res.status(400).json({ error: "Bad request", message: params.error.message }); return; }
   const { classId, familyId, unassigned, search, page = 1, limit = 300 } = params.data;
   const conditions: ReturnType<typeof eq>[] = [];

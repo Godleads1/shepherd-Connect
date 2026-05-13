@@ -258,7 +258,7 @@ export default function Children() {
   const [unassignedOnly, setUnassignedOnly] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
-  const { data, isLoading, refetch } = useListChildren({ search, unassigned: unassignedOnly });
+  const { data, isLoading, refetch } = useListChildren({ search: search || undefined, unassigned: unassignedOnly || undefined });
   const { user: currentUser } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
