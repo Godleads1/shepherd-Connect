@@ -1234,6 +1234,41 @@ export default function Reports() {
             </div>
           </div>
 
+          {/* Class Enrollment vs Capacity chart */}
+          {!loadingUtilization && (classUtilization?.classes || []).length > 0 && (
+            <div className="bg-white border rounded-xl overflow-hidden">
+              <div className="p-4 border-b bg-blue-50">
+                <div className="flex items-center gap-2">
+                  <BarChart3 className="w-5 h-5 text-blue-600" />
+                  <h2 className="font-semibold text-gray-900">Class Enrollment vs Capacity</h2>
+                </div>
+                <p className="text-xs text-gray-500 mt-0.5">Grouped comparison across all classes</p>
+              </div>
+              <div className="p-4 h-72">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart
+                    data={(classUtilization?.classes || []).map((c: any) => ({
+                      name: c.className.replace(/^(The\s+)?/, "").slice(0, 14),
+                      Enrolled: c.enrollmentCount,
+                      Capacity: c.capacity,
+                    }))}
+                    margin={{ top: 8, right: 16, left: 0, bottom: 24 }}
+                    barCategoryGap="30%"
+                    barGap={4}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                    <XAxis dataKey="name" tick={{ fill: "#64748b", fontSize: 10 }} axisLine={false} tickLine={false} angle={-25} textAnchor="end" height={48} />
+                    <YAxis axisLine={false} tickLine={false} tick={{ fill: "#64748b", fontSize: 11 }} />
+                    <Tooltip contentStyle={{ borderRadius: "10px", border: "none", boxShadow: "0 4px 16px rgba(0,0,0,0.1)" }} />
+                    <Legend wrapperStyle={{ fontSize: 12 }} />
+                    <Bar dataKey="Enrolled" fill="#1e3a8a" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="Capacity" fill="#bfdbfe" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          )}
+
           {teacherSchedule?.data && teacherSchedule.data.length > 0 && (
             <div className="bg-white border rounded-xl overflow-hidden">
               <div className="flex items-center justify-between p-4 border-b bg-cyan-50">

@@ -1,8 +1,9 @@
-import { ReactNode, useState } from "react";
+import { ReactNode, useState, useEffect, useRef } from "react";
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/contexts/auth";
-import { useLogout, useListNotifications } from "@workspace/api-client-react";
+import { useLogout } from "@workspace/api-client-react";
 import { useLang, LANGUAGES, LangCode } from "@/contexts/language";
+import { useToast } from "@/hooks/use-toast";
 import {
   LayoutDashboard, Users, Baby, School, ClipboardCheck, CheckSquare,
   LogOut, Menu, Bell, MessageSquare, AlertTriangle, UserCog, FileText, Star,
@@ -194,8 +195,40 @@ export function Layout({ children }: { children: ReactNode }) {
   const { t } = useLang();
 
   const logoutMutation = useLogout();
-  const { data: notifData } = useListNotifications({ unreadOnly: true, limit: 1 });
+  const { toast } = useToast();
+  const prevUnreadRef = useRef(0);
+  const prevMsgRef = useRef(0);
+
+  const { data: notifData } = useQuery({
+    queryKey: ["layout-notifications"],
+    queryFn: () => apiGet<{ unreadCount: number }>("/notifications?unreadOnly=true&limit=1"),
+    refetchInterval: 30000,
+    enabled: !!user,
+  });
   const unreadCount = notifData?.unreadCount ?? 0;
+
+  const { data: msgCountData } = useQuery({
+    queryKey: ["layout-msg-unread"],
+    queryFn: () => apiGet<{ count: number }>("/messages/unread-count"),
+    refetchInterval: 30000,
+    enabled: !!user,
+  });
+  const msgUnreadCount = msgCountData?.count ?? 0;
+
+  useEffect(() => {
+    if (prevUnreadRef.current !== 0 && unreadCount > prevUnreadRef.current) {
+      const diff = unreadCount - prevUnreadRef.current;
+      toast({ title: `${diff} new notification${diff > 1 ? "s" : ""}`, description: "Tap the bell to view your updates." });
+    }
+    prevUnreadRef.current = unreadCount;
+  }, [unreadCount, toast]);
+
+  useEffect(() => {
+    if (prevMsgRef.current !== 0 && msgUnreadCount > prevMsgRef.current) {
+      toast({ title: "New message received", description: "Someone sent you a message in Shepherd Connect." });
+    }
+    prevMsgRef.current = msgUnreadCount;
+  }, [msgUnreadCount, toast]);
 
   const handleLogout = async () => {
     try { await logoutMutation.mutateAsync(); } finally { localLogout(); }
@@ -204,7 +237,7 @@ export function Layout({ children }: { children: ReactNode }) {
   const role = user?.role || "parent";
 
   const getNavItems = () => {
-    const items: Array<{ href: string; label: string; icon: React.ElementType }> = [];
+    const items: Array<{ href: string; label: string; icon: React.ElementType; badge?: number }> = [];
     if (["super_admin", "admin"].includes(role)) {
       items.push({ href: "/dashboard",          label: t.nav.dashboard,    icon: LayoutDashboard });
       items.push({ href: "/families",           label: t.nav.families,     icon: Users });
@@ -221,14 +254,14 @@ export function Layout({ children }: { children: ReactNode }) {
       items.push({ href: "/class-change-requests", label: "Class Changes",       icon: ArrowLeftRight });
       items.push({ href: "/substitute-requests",   label: "Substitute Requests", icon: CalendarClock });
       items.push({ href: "/safeguarding",          label: "Safeguarding & DBS",  icon: ShieldCheck });
-      items.push({ href: "/messages",              label: "Messages",            icon: MessageSquare });
+      items.push({ href: "/messages",              label: "Messages",            icon: MessageSquare, badge: msgUnreadCount });
       if (role === "super_admin") items.push({ href: "/users", label: t.nav.users, icon: ShieldCheck });
     } else if (role === "parent") {
       items.push({ href: "/my-family",             label: t.nav.myFamily,   icon: Home });
       items.push({ href: "/my-children",           label: t.nav.myChildren, icon: Baby });
       items.push({ href: "/pickup-delegates",      label: t.nav.delegates,  icon: UserCog });
       items.push({ href: "/class-change-requests", label: "Class Changes",  icon: ArrowLeftRight });
-      items.push({ href: "/messages",              label: "Messages",       icon: MessageSquare });
+      items.push({ href: "/messages",              label: "Messages",       icon: MessageSquare, badge: msgUnreadCount });
       items.push({ href: "/feedback",              label: t.nav.feedback,   icon: Star });
     } else if (role === "teacher") {
       items.push({ href: "/my-class",              label: t.nav.myClass,        icon: School });
@@ -236,12 +269,12 @@ export function Layout({ children }: { children: ReactNode }) {
       items.push({ href: "/appraisals",            label: t.nav.appraisals,     icon: FileText });
       items.push({ href: "/class-change-requests", label: "Class Changes",      icon: ArrowLeftRight });
       items.push({ href: "/substitute-requests",   label: "Substitute Requests", icon: CalendarClock });
-      items.push({ href: "/messages",              label: "Messages",           icon: MessageSquare });
+      items.push({ href: "/messages",              label: "Messages",           icon: MessageSquare, badge: msgUnreadCount });
     } else if (role === "attendant") {
       items.push({ href: "/checkin",  label: t.nav.checkin,  icon: ClipboardCheck });
       items.push({ href: "/checkout", label: t.nav.checkout, icon: CheckSquare });
     }
-    items.push({ href: "/notifications", label: t.nav.notifications, icon: Bell });
+    items.push({ href: "/notifications", label: t.nav.notifications, icon: Bell, badge: unreadCount });
     items.push({ href: "/profile", label: "My Profile", icon: UserCircle });
     return items;
   };
@@ -252,12 +285,12 @@ export function Layout({ children }: { children: ReactNode }) {
     if (role === "parent") return [
       { href: "/my-family",     label: t.nav.myFamily,      icon: Home },
       { href: "/my-children",   label: t.nav.myChildren,    icon: Users },
-      { href: "/messages",      label: "Messages",           icon: MessageSquare },
+      { href: "/messages",      label: "Messages",           icon: MessageSquare, badge: msgUnreadCount },
       { href: "/notifications", label: t.nav.notifications, icon: Bell, badge: unreadCount },
     ];
     if (role === "teacher") return [
       { href: "/my-class",      label: t.nav.myClass,       icon: School },
-      { href: "/messages",      label: "Messages",           icon: MessageSquare },
+      { href: "/messages",      label: "Messages",           icon: MessageSquare, badge: msgUnreadCount },
       { href: "/notifications", label: t.nav.notifications, icon: Bell, badge: unreadCount },
       { href: "/appraisals",    label: t.nav.appraisals,    icon: FileText },
     ];
@@ -278,7 +311,7 @@ export function Layout({ children }: { children: ReactNode }) {
 
   const isActive = (href: string) => location === href;
 
-  const NavItem = ({ item, onClick }: { item: { href: string; label: string; icon: React.ElementType }; onClick?: () => void }) => {
+  const NavItem = ({ item, onClick }: { item: { href: string; label: string; icon: React.ElementType; badge?: number }; onClick?: () => void }) => {
     const Icon = item.icon;
     const active = isActive(item.href);
     return (
@@ -292,9 +325,9 @@ export function Layout({ children }: { children: ReactNode }) {
         >
           <Icon className="w-4 h-4 flex-shrink-0" />
           <span className="flex-1">{item.label}</span>
-          {item.href === "/notifications" && unreadCount > 0 && (
+          {(item.badge ?? 0) > 0 && (
             <span className="w-5 h-5 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">
-              {unreadCount > 9 ? "9+" : unreadCount}
+              {(item.badge ?? 0) > 9 ? "9+" : item.badge}
             </span>
           )}
           {active && <ChevronRight className="w-3 h-3 text-white" />}

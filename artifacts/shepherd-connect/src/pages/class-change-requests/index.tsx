@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiGet, apiPost, apiPut } from "@/lib/api-call";
-import { useListChildren, useListClasses } from "@workspace/api-client-react";
+import { useListChildren, useListClasses, useGetMyFamily } from "@workspace/api-client-react";
+import { useAuth } from "@/contexts/auth";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -9,7 +10,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { useAuth } from "@/contexts/auth";
 import { CheckCircle, XCircle, Plus, ArrowRight, Clock } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
@@ -37,7 +37,12 @@ export default function ClassChangeRequests() {
     queryFn: () => apiGet<{ data: any[]; total: number }>("/class-change-requests"),
   });
 
-  const { data: childrenData } = useListChildren({});
+  const isParent = user?.role === "parent";
+  const { data: myFamily } = useGetMyFamily();
+  const { data: allChildrenData } = useListChildren({ limit: 200 });
+  const childrenForSelector: any[] = isParent
+    ? (myFamily?.children ?? [])
+    : ((allChildrenData as any)?.data ?? []);
   const { data: classesData } = useListClasses({});
 
   const createMutation = useMutation({
@@ -108,7 +113,7 @@ export default function ClassChangeRequests() {
               <Select value={childId} onValueChange={setChildId}>
                 <SelectTrigger><SelectValue placeholder="Select child" /></SelectTrigger>
                 <SelectContent>
-                  {(childrenData?.data || []).map((c: any) => (
+                  {childrenForSelector.map((c: any) => (
                     <SelectItem key={c.id} value={String(c.id)}>{c.firstName} {c.lastName}</SelectItem>
                   ))}
                 </SelectContent>
