@@ -189,6 +189,29 @@ router.post("/auth/logout", (_req, res): void => {
   res.json({ success: true, message: "Logged out" });
 });
 
+router.post("/auth/change-password", authMiddleware, async (req, res): Promise<void> => {
+  const { currentPassword, newPassword } = req.body as { currentPassword?: string; newPassword?: string };
+  if (!currentPassword || !newPassword) {
+    res.status(400).json({ error: "Bad request", message: "currentPassword and newPassword are required" });
+    return;
+  }
+  if (newPassword.length < 6) {
+    res.status(400).json({ error: "Bad request", message: "New password must be at least 6 characters" });
+    return;
+  }
+  const [user] = await db.select().from(usersTable).where(eq(usersTable.id, req.user!.userId));
+  if (!user) { res.status(404).json({ error: "Not found" }); return; }
+  const valid = await bcrypt.compare(currentPassword, user.passwordHash);
+  if (!valid) {
+    res.status(400).json({ error: "Bad request", message: "Current password is incorrect" });
+    return;
+  }
+  const passwordHash = await bcrypt.hash(newPassword, 12);
+  await db.update(usersTable).set({ passwordHash }).where(eq(usersTable.id, user.id));
+  req.log.info({ userId: user.id }, "User changed their password");
+  res.json({ success: true, message: "Password changed successfully" });
+});
+
 router.post("/auth/forgot-password", async (req, res): Promise<void> => {
   const { email } = req.body as { email?: string };
   if (!email || typeof email !== "string") {

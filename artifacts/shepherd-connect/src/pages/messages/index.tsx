@@ -1,314 +1,334 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { apiGet, apiPost, apiDelete } from "@/lib/api-call";
+import { apiGet, apiPost, apiPut } from "@/lib/api-call";
 import { useAuth } from "@/contexts/auth";
 import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import {
-  MessageSquare, Send, Inbox, Trash2, Plus, ChevronRight,
-  CheckCheck, User, Baby, X,
-} from "lucide-react";
+import { Textarea } from "@/components/ui/textarea";
+import { Button } from "@/components/ui/button";
+import { MessageSquare, Send, Inbox, PenSquare, ChevronLeft } from "lucide-react";
 import { format } from "date-fns";
+import { resolvePhotoUrl } from "@/components/PhotoUploader";
 
-const ROLE_COLORS: Record<string, string> = {
-  parent: "bg-green-100 text-green-700",
-  teacher: "bg-blue-100 text-blue-700",
-  admin: "bg-purple-100 text-purple-700",
-  super_admin: "bg-red-100 text-red-700",
-  attendant: "bg-amber-100 text-amber-700",
-};
+type Tab = "inbox" | "sent";
 
-export default function Messages() {
-  const { user } = useAuth();
-  const { toast } = useToast();
+function Avatar({ user }: { user: any }) {
+  const photo = resolvePhotoUrl(user?.photoUrl);
+  return (
+    <div className="w-10 h-10 rounded-full flex-shrink-0 overflow-hidden">
+      {photo
+        ? <img src={photo} alt={user?.firstName} className="w-full h-full object-cover" />
+        : <div className="w-full h-full flex items-center justify-center text-white font-bold text-sm"
+            style={{ background: "linear-gradient(135deg, #1e3a8a, #3b82f6)" }}>
+            {user?.firstName?.[0]}{user?.lastName?.[0]}
+          </div>}
+    </div>
+  );
+}
+
+function MessageThread({ message, onBack }: { message: any; onBack: () => void }) {
+  const { user: me } = useAuth();
   const qc = useQueryClient();
-  const [tab, setTab] = useState<"inbox" | "sent">("inbox");
-  const [selected, setSelected] = useState<any | null>(null);
-  const [composing, setComposing] = useState(false);
-  const [recipientId, setRecipientId] = useState("");
-  const [childId, setChildId] = useState("");
-  const [subject, setSubject] = useState("");
-  const [body, setBody] = useState("");
+  const { toast } = useToast();
+  const [reply, setReply] = useState("");
+  const other = message.senderId === me?.id ? message.recipient : message.sender;
 
-  const { data: inbox, isLoading: inboxLoading } = useQuery({
-    queryKey: ["messages-inbox"],
-    queryFn: () => apiGet<any[]>("/messages/inbox"),
-  });
-  const { data: sent, isLoading: sentLoading } = useQuery({
-    queryKey: ["messages-sent"],
-    queryFn: () => apiGet<any[]>("/messages/sent"),
-  });
-  const { data: contacts } = useQuery({
-    queryKey: ["message-contacts"],
-    queryFn: () => apiGet<any[]>("/messages/contacts"),
-  });
-  const { data: myChildren } = useQuery({
-    queryKey: ["my-children-for-msg"],
-    queryFn: () => apiGet<any[]>("/children"),
-    enabled: user?.role === "parent" || user?.role === "teacher",
-  });
-
-  const markRead = useMutation({
-    mutationFn: (id: number) => apiPost(`/messages/${id}/read`, {}),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["messages-inbox"] }),
-  });
-
-  const deleteMut = useMutation({
-    mutationFn: (id: number) => apiDelete(`/messages/${id}`),
+  const sendMutation = useMutation({
+    mutationFn: (body: string) =>
+      apiPost("/messages", { recipientId: other?.id, childId: message.childId, subject: message.subject, body }),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["messages-inbox"] });
-      qc.invalidateQueries({ queryKey: ["messages-sent"] });
-      setSelected(null);
-      toast({ title: "Message deleted" });
-    },
-  });
-
-  const sendMut = useMutation({
-    mutationFn: () => apiPost("/messages", {
-      recipientId: parseInt(recipientId, 10),
-      childId: childId ? parseInt(childId, 10) : undefined,
-      subject: subject || undefined,
-      body,
-    }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["messages-sent"] });
-      setComposing(false);
-      setRecipientId(""); setChildId(""); setSubject(""); setBody("");
-      toast({ title: "Message sent" });
+      setReply("");
+      qc.invalidateQueries({ queryKey: ["messages"] });
+      toast({ title: "Reply sent" });
     },
     onError: (e: any) => toast({ variant: "destructive", title: e.message || "Failed to send" }),
   });
 
-  const list = tab === "inbox" ? (inbox || []) : (sent || []);
-  const loading = tab === "inbox" ? inboxLoading : sentLoading;
-  const unread = (inbox || []).filter((m: any) => !m.isRead).length;
+  return (
+    <div className="flex flex-col" style={{ minHeight: 420 }}>
+      <div className="flex items-center gap-3 pb-4 border-b mb-4">
+        <button onClick={onBack} className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors">
+          <ChevronLeft className="w-5 h-5 text-gray-500" />
+        </button>
+        <Avatar user={other} />
+        <div>
+          <p className="font-semibold text-gray-900">{other?.firstName} {other?.lastName}</p>
+          <p className="text-xs text-gray-400 capitalize">{other?.role?.replace("_", " ")}</p>
+        </div>
+      </div>
 
-  const openMessage = (msg: any) => {
-    setSelected(msg);
-    if (tab === "inbox" && !msg.isRead) markRead.mutate(msg.id);
+      {message.subject && (
+        <p className="text-sm font-semibold text-gray-700 mb-3 px-1">{message.subject}</p>
+      )}
+      {message.child && (
+        <div className="mb-3 px-3 py-1.5 rounded-lg bg-blue-50 border border-blue-100 text-xs text-blue-700 font-medium">
+          Re: {message.child.firstName} {message.child.lastName}
+        </div>
+      )}
+
+      <div className="flex-1 space-y-3 pb-4">
+        <div className={`flex gap-3 ${message.senderId === me?.id ? "flex-row-reverse" : ""}`}>
+          <Avatar user={message.sender} />
+          <div
+            className={`max-w-[75%] rounded-2xl px-4 py-3 text-sm ${message.senderId === me?.id ? "rounded-tr-sm text-white" : "bg-gray-100 text-gray-900 rounded-tl-sm"}`}
+            style={message.senderId === me?.id ? { background: "#1e3a8a" } : {}}>
+            <p>{message.body}</p>
+            <p className={`text-[10px] mt-1.5 ${message.senderId === me?.id ? "text-blue-200" : "text-gray-400"}`}>
+              {format(new Date(message.createdAt), "dd MMM · HH:mm")}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="border-t pt-3 flex gap-2">
+        <Textarea
+          value={reply}
+          onChange={e => setReply(e.target.value)}
+          placeholder="Write a reply…"
+          rows={2}
+          className="resize-none text-sm"
+        />
+        <Button
+          onClick={() => reply.trim() && sendMutation.mutate(reply.trim())}
+          disabled={!reply.trim() || sendMutation.isPending}
+          className="self-end px-3"
+          style={{ background: "#1e3a8a" }}>
+          <Send className="w-4 h-4" />
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+export default function Messages() {
+  const { user: me } = useAuth();
+  const qc = useQueryClient();
+  const { toast } = useToast();
+
+  const [tab, setTab] = useState<Tab>("inbox");
+  const [selectedMsg, setSelectedMsg] = useState<any>(null);
+  const [composeOpen, setComposeOpen] = useState(false);
+  const [form, setForm] = useState({ recipientId: "", childId: "", subject: "", body: "" });
+
+  const { data: inbox = [], isLoading: inboxLoading } = useQuery({
+    queryKey: ["messages", "inbox"],
+    queryFn: () => apiGet<any[]>("/messages/inbox"),
+  });
+  const { data: sent = [], isLoading: sentLoading } = useQuery({
+    queryKey: ["messages", "sent"],
+    queryFn: () => apiGet<any[]>("/messages/sent"),
+  });
+  const { data: contacts = [] } = useQuery({
+    queryKey: ["messages", "contacts"],
+    queryFn: () => apiGet<any[]>("/messages/contacts"),
+  });
+  const { data: myFamily } = useQuery({
+    queryKey: ["my-family-for-msg"],
+    queryFn: () => apiGet<any>("/families/my"),
+    enabled: me?.role === "parent",
+  });
+
+  const children: any[] = myFamily?.children ?? [];
+
+  const markReadMutation = useMutation({
+    mutationFn: (id: number) => apiPut(`/messages/${id}/read`, {}),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["messages"] }),
+  });
+
+  const sendMutation = useMutation({
+    mutationFn: (data: any) => apiPost("/messages", data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["messages"] });
+      toast({ title: "Message sent!" });
+      setComposeOpen(false);
+      setForm({ recipientId: "", childId: "", subject: "", body: "" });
+    },
+    onError: (e: any) => toast({ variant: "destructive", title: e.message || "Failed to send" }),
+  });
+
+  const handleOpenMsg = (msg: any) => {
+    setSelectedMsg(msg);
+    if (!msg.isRead && msg.recipientId === me?.id) markReadMutation.mutate(msg.id);
   };
 
+  const unreadCount = (inbox as any[]).filter((m: any) => !m.isRead).length;
+  const list: any[] = tab === "inbox" ? (inbox as any[]) : (sent as any[]);
+  const loading = tab === "inbox" ? inboxLoading : sentLoading;
+
+  if (selectedMsg) {
+    return (
+      <div className="max-w-2xl mx-auto bg-white rounded-2xl border p-5"
+        style={{ boxShadow: "0 2px 8px rgba(30,58,138,.08)" }}>
+        <MessageThread message={selectedMsg} onBack={() => setSelectedMsg(null)} />
+      </div>
+    );
+  }
+
   return (
-    <div className="max-w-5xl mx-auto space-y-4">
-      {/* Header */}
-      <div className="rounded-2xl p-6 text-white relative overflow-hidden shadow-lg"
-        style={{ background: "linear-gradient(135deg, #172554 0%, #1e3a8a 60%, #1d4ed8 100%)" }}>
-        <div className="absolute -top-10 -right-10 w-48 h-48 rounded-full bg-white/5" />
-        <div className="relative z-10 flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold flex items-center gap-2" style={{ fontFamily: "'Playfair Display', serif" }}>
-              <MessageSquare className="w-7 h-7" /> Messages
-            </h1>
-            <p className="text-blue-200 text-sm mt-1">Two-way parent–teacher communication</p>
-          </div>
-          <button
-            onClick={() => setComposing(true)}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold text-sm transition-all active:scale-95"
-            style={{ background: "#f59e0b", color: "#1a1a1a" }}>
-            <Plus className="w-4 h-4" /> New Message
-          </button>
+    <div className="max-w-2xl mx-auto space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900" style={{ fontFamily: "'Playfair Display', serif" }}>
+            Messages
+          </h1>
+          {unreadCount > 0 && (
+            <p className="text-sm font-medium" style={{ color: "#1e3a8a" }}>
+              {unreadCount} unread message{unreadCount > 1 ? "s" : ""}
+            </p>
+          )}
         </div>
+        <Button onClick={() => setComposeOpen(true)} className="flex items-center gap-2"
+          style={{ background: "linear-gradient(135deg, #1e3a8a, #1d4ed8)" }}>
+          <PenSquare className="w-4 h-4" /> New Message
+        </Button>
       </div>
 
       {/* Tabs */}
       <div className="flex gap-1 bg-gray-100 rounded-xl p-1">
-        {([
-          { key: "inbox", label: "Inbox", icon: Inbox, count: unread },
-          { key: "sent",  label: "Sent",  icon: Send,  count: null },
-        ] as const).map(t => (
-          <button key={t.key} onClick={() => { setTab(t.key); setSelected(null); }}
-            className="flex-1 py-2.5 px-4 rounded-lg text-sm font-semibold transition-all flex items-center justify-center gap-2"
-            style={tab === t.key
-              ? { background: "#1e3a8a", color: "white", boxShadow: "0 2px 8px rgba(30,58,138,.3)" }
-              : { color: "#6b7280" }}>
-            <t.icon className="w-4 h-4" />
-            {t.label}
-            {t.count !== null && t.count > 0 && (
-              <span className="px-1.5 py-0.5 rounded-full text-xs font-bold bg-amber-400 text-amber-900">{t.count}</span>
-            )}
-          </button>
-        ))}
+        {(["inbox", "sent"] as Tab[]).map(key => {
+          const Icon = key === "inbox" ? Inbox : Send;
+          const label = key === "inbox" ? "Inbox" : "Sent";
+          return (
+            <button key={key} onClick={() => setTab(key)}
+              className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-semibold transition-all ${tab === key ? "bg-white shadow-sm" : "text-gray-500"}`}
+              style={tab === key ? { color: "#1e3a8a" } : {}}>
+              <Icon className="w-4 h-4" />
+              {label}
+              {key === "inbox" && unreadCount > 0 && (
+                <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold text-white"
+                  style={{ background: "#dc2626" }}>{unreadCount}</span>
+              )}
+            </button>
+          );
+        })}
       </div>
 
-      <div className="grid md:grid-cols-5 gap-4">
-        {/* List */}
-        <div className="md:col-span-2 space-y-2">
-          {loading ? (
-            [1,2,3].map(i => <Skeleton key={i} className="h-20 w-full rounded-2xl" />)
-          ) : list.length === 0 ? (
-            <div className="text-center py-16 bg-white rounded-2xl border border-dashed">
-              <MessageSquare className="w-10 h-10 text-gray-200 mx-auto mb-2" />
-              <p className="text-gray-400 text-sm">No messages here yet</p>
-            </div>
-          ) : list.map((msg: any) => {
-            const isUnread = tab === "inbox" && !msg.isRead;
-            const person = tab === "inbox" ? msg.sender : msg.recipient;
-            return (
-              <button key={msg.id} onClick={() => openMessage(msg)}
-                className={`w-full text-left p-4 rounded-2xl border transition-all ${
-                  selected?.id === msg.id ? "border-blue-300 bg-blue-50" : "border-gray-100 bg-white hover:border-gray-200"
-                } ${isUnread ? "shadow-sm" : ""}`}>
-                <div className="flex items-start gap-3">
-                  <div className="w-9 h-9 rounded-xl flex items-center justify-center font-bold text-white text-sm flex-shrink-0"
-                    style={{ background: "linear-gradient(135deg, #1e3a8a, #3b82f6)" }}>
-                    {person?.firstName?.[0]}{person?.lastName?.[0]}
-                  </div>
+      {/* Message list */}
+      <div className="bg-white rounded-2xl border overflow-hidden"
+        style={{ boxShadow: "0 2px 8px rgba(30,58,138,.06)" }}>
+        {loading ? (
+          <div className="p-4 space-y-3">
+            {[1,2,3].map(i => <Skeleton key={i} className="h-16 rounded-xl" />)}
+          </div>
+        ) : list.length === 0 ? (
+          <div className="text-center py-14 text-gray-400">
+            <MessageSquare className="w-10 h-10 mx-auto mb-2 opacity-30" />
+            <p className="text-sm">{tab === "inbox" ? "No messages yet" : "No sent messages yet"}</p>
+            <button onClick={() => setComposeOpen(true)}
+              className="text-xs font-medium hover:underline mt-1"
+              style={{ color: "#1e3a8a" }}>
+              Send your first message
+            </button>
+          </div>
+        ) : (
+          <ul className="divide-y">
+            {list.map((msg: any) => {
+              const other = tab === "inbox" ? msg.sender : msg.recipient;
+              const isUnread = tab === "inbox" && !msg.isRead;
+              return (
+                <li key={msg.id}
+                  onClick={() => handleOpenMsg(msg)}
+                  className={`flex items-start gap-3 px-5 py-4 cursor-pointer transition-colors hover:bg-gray-50 ${isUnread ? "bg-blue-50/50" : ""}`}>
+                  <Avatar user={other} />
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between gap-1">
+                    <div className="flex items-baseline justify-between gap-2">
                       <p className={`text-sm truncate ${isUnread ? "font-bold text-gray-900" : "font-medium text-gray-700"}`}>
-                        {person?.firstName} {person?.lastName}
+                        {other?.firstName} {other?.lastName}
+                        <span className="ml-1.5 text-xs font-normal text-gray-400 capitalize">
+                          · {other?.role?.replace("_", " ")}
+                        </span>
                       </p>
-                      {isUnread && <div className="w-2 h-2 rounded-full bg-blue-600 flex-shrink-0" />}
+                      <p className="text-[10px] text-gray-400 flex-shrink-0">
+                        {format(new Date(msg.createdAt), "dd MMM")}
+                      </p>
                     </div>
-                    <p className={`text-xs truncate ${isUnread ? "text-gray-700 font-medium" : "text-gray-400"}`}>
-                      {msg.subject || msg.body}
-                    </p>
-                    <p className="text-xs text-gray-300 mt-0.5">{format(new Date(msg.createdAt), "MMM d, h:mm a")}</p>
+                    {msg.subject && <p className="text-xs font-semibold text-gray-600 truncate">{msg.subject}</p>}
+                    <p className="text-xs text-gray-500 truncate mt-0.5">{msg.body}</p>
+                    {msg.child && (
+                      <span className="inline-block mt-1 text-[10px] px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 font-medium">
+                        Re: {msg.child.firstName}
+                      </span>
+                    )}
                   </div>
-                  <ChevronRight className="w-4 h-4 text-gray-300 flex-shrink-0 mt-1" />
-                </div>
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Detail */}
-        <div className="md:col-span-3">
-          {selected ? (
-            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <h2 className="font-bold text-gray-900 text-lg">{selected.subject || "(no subject)"}</h2>
-                  <div className="flex items-center gap-2 mt-1 flex-wrap">
-                    <span className="text-xs text-gray-500">From:</span>
-                    <span className="text-sm font-semibold text-gray-800">{selected.sender?.firstName} {selected.sender?.lastName}</span>
-                    <span className={`text-xs px-2 py-0.5 rounded-full font-semibold capitalize ${ROLE_COLORS[selected.sender?.role] || "bg-gray-100 text-gray-600"}`}>
-                      {selected.sender?.role?.replace("_", " ")}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                    <span className="text-xs text-gray-500">To:</span>
-                    <span className="text-sm font-semibold text-gray-800">{selected.recipient?.firstName} {selected.recipient?.lastName}</span>
-                  </div>
-                  {selected.child && (
-                    <div className="flex items-center gap-1 mt-1">
-                      <Baby className="w-3.5 h-3.5 text-blue-500" />
-                      <span className="text-xs text-blue-600 font-medium">Re: {selected.child.firstName} {selected.child.lastName}</span>
-                    </div>
+                  {isUnread && (
+                    <div className="w-2.5 h-2.5 rounded-full flex-shrink-0 mt-1.5"
+                      style={{ background: "#1e3a8a" }} />
                   )}
-                  <p className="text-xs text-gray-400 mt-1">{format(new Date(selected.createdAt), "EEEE, MMM d yyyy 'at' h:mm a")}</p>
-                </div>
-                <div className="flex items-center gap-2">
-                  {selected.isRead && <span title="Read"><CheckCheck className="w-4 h-4 text-green-400" /></span>}
-                  <button onClick={() => deleteMut.mutate(selected.id)}
-                    disabled={deleteMut.isPending}
-                    className="p-2 rounded-lg text-red-500 hover:bg-red-50 transition-colors disabled:opacity-50">
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-              <div className="border-t pt-4">
-                <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">{selected.body}</p>
-              </div>
-              <button
-                onClick={() => {
-                  const person = tab === "inbox" ? selected.sender : selected.recipient;
-                  setRecipientId(String(person?.id || ""));
-                  setChildId(selected.child ? String(selected.child.id) : "");
-                  setSubject(selected.subject ? `Re: ${selected.subject}` : "");
-                  setBody("");
-                  setComposing(true);
-                }}
-                className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold border border-blue-200 text-blue-700 hover:bg-blue-50 transition-colors">
-                <Send className="w-4 h-4" /> Reply
-              </button>
-            </div>
-          ) : (
-            <div className="text-center py-24 bg-white rounded-2xl border border-dashed border-gray-200">
-              <MessageSquare className="w-12 h-12 text-gray-200 mx-auto mb-3" />
-              <p className="text-gray-400 font-medium">Select a message to read it</p>
-            </div>
-          )}
-        </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
       </div>
 
-      {/* Compose Dialog */}
-      <Dialog open={composing} onOpenChange={setComposing}>
-        <DialogContent className="max-w-lg">
+      {/* Compose modal */}
+      <Dialog open={composeOpen} onOpenChange={setComposeOpen}>
+        <DialogContent className="max-w-md max-h-[90vh] flex flex-col">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-[#1e3a8a]">
-              <Send className="w-5 h-5" /> New Message
+            <DialogTitle className="flex items-center gap-2">
+              <PenSquare className="w-4 h-4" /> New Message
             </DialogTitle>
           </DialogHeader>
-          <div className="space-y-4 mt-2">
+          <div className="space-y-4 overflow-y-auto flex-1 pr-1">
             <div>
-              <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5 block">To *</label>
-              <Select value={recipientId} onValueChange={setRecipientId}>
-                <SelectTrigger className="rounded-xl">
-                  <SelectValue placeholder="Choose recipient..." />
-                </SelectTrigger>
+              <label className="text-xs font-semibold text-gray-600 block mb-1.5 uppercase tracking-wide">To *</label>
+              <Select value={form.recipientId} onValueChange={v => setForm(p => ({ ...p, recipientId: v }))}>
+                <SelectTrigger><SelectValue placeholder="Select recipient…" /></SelectTrigger>
                 <SelectContent>
-                  {(contacts || []).map((c: any) => (
+                  {(contacts as any[]).map((c: any) => (
                     <SelectItem key={c.id} value={String(c.id)}>
-                      {c.firstName} {c.lastName}
-                      <span className={`ml-2 text-xs px-1.5 py-0.5 rounded capitalize ${ROLE_COLORS[c.role] || ""}`}>
-                        {c.role?.replace("_", " ")}
-                      </span>
+                      {c.firstName} {c.lastName} · <span className="capitalize">{c.role.replace("_", " ")}</span>
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
-            {(myChildren || []).length > 0 && (
+
+            {children.length > 0 && (
               <div>
-                <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5 block">About child (optional)</label>
-                <Select value={childId} onValueChange={setChildId}>
-                  <SelectTrigger className="rounded-xl">
-                    <SelectValue placeholder="Select child..." />
-                  </SelectTrigger>
+                <label className="text-xs font-semibold text-gray-600 block mb-1.5 uppercase tracking-wide">
+                  About a child (optional)
+                </label>
+                <Select value={form.childId || "none"} onValueChange={v => setForm(p => ({ ...p, childId: v === "none" ? "" : v }))}>
+                  <SelectTrigger><SelectValue placeholder="Select child (optional)" /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">None</SelectItem>
-                    {(myChildren || []).map((c: any) => (
-                      <SelectItem key={c.id} value={String(c.id)}>
-                        {c.firstName} {c.lastName}
-                      </SelectItem>
+                    <SelectItem value="none">Not about a specific child</SelectItem>
+                    {children.map((c: any) => (
+                      <SelectItem key={c.id} value={String(c.id)}>{c.firstName} {c.lastName}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
             )}
+
             <div>
-              <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5 block">Subject</label>
-              <Input value={subject} onChange={e => setSubject(e.target.value)} className="rounded-xl" placeholder="Optional subject..." />
+              <label className="text-xs font-semibold text-gray-600 block mb-1.5 uppercase tracking-wide">Subject (optional)</label>
+              <Input value={form.subject} onChange={e => setForm(p => ({ ...p, subject: e.target.value }))}
+                placeholder="e.g. Question about Sunday's class" />
             </div>
             <div>
-              <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5 block">Message *</label>
-              <textarea
-                value={body}
-                onChange={e => setBody(e.target.value)}
-                rows={5}
-                className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="Write your message..."
-              />
+              <label className="text-xs font-semibold text-gray-600 block mb-1.5 uppercase tracking-wide">Message *</label>
+              <Textarea value={form.body} onChange={e => setForm(p => ({ ...p, body: e.target.value }))}
+                placeholder="Write your message here…" rows={5} />
             </div>
-            <div className="flex gap-3">
-              <button onClick={() => setComposing(false)}
-                className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm font-semibold text-gray-600 hover:bg-gray-50 transition-colors">
-                Cancel
-              </button>
-              <button
-                onClick={() => sendMut.mutate()}
-                disabled={!recipientId || !body.trim() || sendMut.isPending}
-                className="flex-1 py-2.5 rounded-xl text-sm font-bold text-white transition-all disabled:opacity-50 flex items-center justify-center gap-2"
-                style={{ background: "#1e3a8a" }}>
-                <Send className="w-4 h-4" />
-                {sendMut.isPending ? "Sending..." : "Send Message"}
-              </button>
-            </div>
+          </div>
+          <div className="flex gap-2 pt-4 border-t flex-shrink-0">
+            <Button variant="outline" className="flex-1" onClick={() => setComposeOpen(false)}>Cancel</Button>
+            <Button className="flex-1 flex items-center gap-2"
+              style={{ background: "linear-gradient(135deg, #1e3a8a, #1d4ed8)" }}
+              disabled={!form.recipientId || !form.body.trim() || sendMutation.isPending}
+              onClick={() => sendMutation.mutate({
+                recipientId: Number(form.recipientId),
+                ...(form.childId ? { childId: Number(form.childId) } : {}),
+                ...(form.subject ? { subject: form.subject } : {}),
+                body: form.body.trim(),
+              })}>
+              <Send className="w-4 h-4" />
+              {sendMutation.isPending ? "Sending…" : "Send Message"}
+            </Button>
           </div>
         </DialogContent>
       </Dialog>

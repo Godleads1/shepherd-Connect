@@ -186,6 +186,80 @@ function MfaSection() {
   );
 }
 
+function ChangePasswordSection() {
+  const { toast } = useToast();
+  const [open, setOpen] = useState(false);
+  const [currentPw, setCurrentPw] = useState("");
+  const [newPw, setNewPw] = useState("");
+  const [confirmPw, setConfirmPw] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = async () => {
+    if (!currentPw || !newPw || !confirmPw) {
+      toast({ variant: "destructive", title: "All fields are required" }); return;
+    }
+    if (newPw.length < 6) {
+      toast({ variant: "destructive", title: "New password must be at least 6 characters" }); return;
+    }
+    if (newPw !== confirmPw) {
+      toast({ variant: "destructive", title: "New passwords do not match" }); return;
+    }
+    setLoading(true);
+    try {
+      await apiPost("/auth/change-password", { currentPassword: currentPw, newPassword: newPw });
+      toast({ title: "Password changed successfully", description: "Your new password is active immediately." });
+      setOpen(false);
+      setCurrentPw(""); setNewPw(""); setConfirmPw("");
+    } catch (e: any) {
+      toast({ variant: "destructive", title: e.message || "Failed to change password" });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="bg-white border rounded-2xl p-5">
+      <h2 className="font-semibold text-gray-900 mb-1 flex items-center gap-2">
+        <KeyRound className="w-4 h-4 text-[#1e3a8a]" /> Password
+      </h2>
+      <p className="text-xs text-gray-500 mb-4">Keep your account secure with a strong password</p>
+
+      {!open ? (
+        <Button variant="outline" onClick={() => setOpen(true)} className="flex items-center gap-2">
+          <KeyRound className="w-4 h-4" /> Change Password
+        </Button>
+      ) : (
+        <div className="space-y-3">
+          <div>
+            <label className="text-xs font-semibold text-gray-600 block mb-1">Current Password</label>
+            <Input type="password" value={currentPw} onChange={e => setCurrentPw(e.target.value)}
+              placeholder="Enter your current password" />
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-gray-600 block mb-1">New Password</label>
+            <Input type="password" value={newPw} onChange={e => setNewPw(e.target.value)}
+              placeholder="At least 6 characters" />
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-gray-600 block mb-1">Confirm New Password</label>
+            <Input type="password" value={confirmPw} onChange={e => setConfirmPw(e.target.value)}
+              placeholder="Repeat new password" />
+          </div>
+          <div className="flex gap-2 pt-1">
+            <Button variant="outline" className="flex-1" onClick={() => { setOpen(false); setCurrentPw(""); setNewPw(""); setConfirmPw(""); }}>
+              Cancel
+            </Button>
+            <Button className="flex-1" disabled={loading} onClick={handleSubmit}
+              style={{ background: "linear-gradient(135deg, #1e3a8a, #1d4ed8)" }}>
+              {loading ? "Saving…" : "Update Password"}
+            </Button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Profile() {
   const { user: authUser } = useAuth();
   const { toast } = useToast();
@@ -389,6 +463,9 @@ export default function Profile() {
 
       {/* MFA Section — admin, super_admin, teacher only */}
       {isMfaRole && <MfaSection />}
+
+      {/* Change Password */}
+      <ChangePasswordSection />
 
       {editing && (
         <Button className="w-full flex items-center gap-2 py-6 text-base" style={{ background: "linear-gradient(135deg, #1e3a8a, #1d4ed8)" }}
