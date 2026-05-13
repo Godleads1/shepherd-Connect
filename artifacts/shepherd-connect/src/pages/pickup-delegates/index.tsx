@@ -91,7 +91,7 @@ export default function PickupDelegates() {
               + Add Delegate
             </Button>
           </DialogTrigger>
-          <DialogContent className="max-w-md">
+          <DialogContent className="max-w-md max-h-[90vh] flex flex-col overflow-y-auto">
             <DialogHeader>
               <DialogTitle>{newOtp ? "Delegate OTP Code" : "Add Pickup Delegate"}</DialogTitle>
             </DialogHeader>

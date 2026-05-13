@@ -439,9 +439,9 @@ export default function MyFamily() {
 
       {/* Add Child Modal */}
       <Dialog open={addChildOpen} onOpenChange={setAddChildOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-md max-h-[90vh] flex flex-col">
           <DialogHeader><DialogTitle>Register a New Child</DialogTitle></DialogHeader>
-          <div className="space-y-4">
+          <div className="space-y-4 overflow-y-auto flex-1 pr-1">
             <div className="flex justify-center">
               <PhotoUploader
                 currentPhotoUrl={childForm.photoUrl}
@@ -495,12 +495,12 @@ export default function MyFamily() {
               <label className="text-sm font-medium text-gray-700 block mb-1">Medical Notes</label>
               <Input value={childForm.medicalNotes} onChange={e => setChildForm(p => ({ ...p, medicalNotes: e.target.value }))} placeholder="Any medical conditions or special needs" />
             </div>
-            <div className="flex gap-2 justify-end pt-2">
-              <Button variant="outline" onClick={() => setAddChildOpen(false)}>Cancel</Button>
-              <Button onClick={handleAddChild} disabled={createChildMutation.isPending} style={{ background: "linear-gradient(135deg, #1e3a8a, #1d4ed8)" }}>
-                {createChildMutation.isPending ? "Registering..." : "Register Child"}
-              </Button>
-            </div>
+          </div>
+          <div className="flex gap-2 justify-end pt-4 border-t mt-2 flex-shrink-0">
+            <Button variant="outline" onClick={() => setAddChildOpen(false)}>Cancel</Button>
+            <Button onClick={handleAddChild} disabled={createChildMutation.isPending} style={{ background: "linear-gradient(135deg, #1e3a8a, #1d4ed8)" }}>
+              {createChildMutation.isPending ? "Registering..." : "Register Child"}
+            </Button>
           </div>
         </DialogContent>
       </Dialog>

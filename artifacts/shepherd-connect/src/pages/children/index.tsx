@@ -160,13 +160,13 @@ function AddChildModal({ open, onClose, onCreated }: { open: boolean; onClose: (
 
   return (
     <Dialog open={open} onOpenChange={v => { if (!v) handleClose(); }}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-md max-h-[90vh] flex flex-col">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2" style={{ fontFamily: "'Playfair Display', serif" }}>
             <Baby className="w-5 h-5" style={{ color: "#1e3a8a" }} /> Add New Child
           </DialogTitle>
         </DialogHeader>
-        <form onSubmit={handleSubmit} className="space-y-4 mt-1">
+        <form id="add-child-form" onSubmit={handleSubmit} className="space-y-4 mt-1 overflow-y-auto flex-1 pr-1">
           <div className="flex justify-center">
             <PhotoUploader
               currentPhotoUrl={form.photoUrl}
@@ -240,14 +240,14 @@ function AddChildModal({ open, onClose, onCreated }: { open: boolean; onClose: (
             <Input value={form.medicalNotes} onChange={e => setForm(p => ({ ...p, medicalNotes: e.target.value }))} placeholder="Any conditions or special needs" />
           </div>
 
-          <div className="flex justify-end gap-2 pt-2">
-            <Button type="button" variant="outline" onClick={handleClose} disabled={createChild.isPending}>Cancel</Button>
-            <Button type="submit" disabled={createChild.isPending}
-              style={{ background: "linear-gradient(135deg,#1e3a8a,#1d4ed8)", color: "white" }}>
-              {createChild.isPending ? "Registering…" : "Register Child"}
-            </Button>
-          </div>
         </form>
+        <div className="flex justify-end gap-2 pt-4 border-t mt-2 flex-shrink-0">
+          <Button type="button" variant="outline" onClick={handleClose} disabled={createChild.isPending}>Cancel</Button>
+          <Button type="submit" form="add-child-form" disabled={createChild.isPending}
+            style={{ background: "linear-gradient(135deg,#1e3a8a,#1d4ed8)", color: "white" }}>
+            {createChild.isPending ? "Registering…" : "Register Child"}
+          </Button>
+        </div>
       </DialogContent>
     </Dialog>
   );
