@@ -41,7 +41,7 @@ router.get("/users", authMiddleware, requireRoles("super_admin", "admin"), async
     res.status(400).json({ error: "Bad request", message: params.error.message });
     return;
   }
-  const { role, search, page = 1, limit = 20 } = params.data;
+  const { role, search, page = 1, limit = 300 } = params.data;
   const statusFilter = req.query["status"] as string | undefined;
   const offset = (page - 1) * limit;
 

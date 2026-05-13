@@ -57,7 +57,7 @@ router.get("/families", authMiddleware, async (req, res): Promise<void> => {
     res.status(400).json({ error: "Bad request", message: params.error.message });
     return;
   }
-  const { search, page = 1, limit = 20 } = params.data;
+  const { search, page = 1, limit = 300 } = params.data;
   const offset = (page - 1) * limit;
   let families: typeof familiesTable.$inferSelect[] = [];
   const [{ count }] = await db.select({ count: sql<number>`count(*)` }).from(familiesTable);
