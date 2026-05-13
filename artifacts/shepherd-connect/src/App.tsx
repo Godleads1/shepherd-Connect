@@ -43,6 +43,7 @@ import Waitlist from "@/pages/waitlist/index";
 import Messages from "@/pages/messages/index";
 import SubstituteRequests from "@/pages/substitute-requests/index";
 import Safeguarding from "@/pages/safeguarding/index";
+import UserGuide from "@/pages/user-guide/index";
 
 const queryClient = new QueryClient();
 
@@ -100,6 +101,7 @@ function Router() {
               <Route path="/messages" component={Messages} />
               <Route path="/substitute-requests" component={SubstituteRequests} />
               <Route path="/safeguarding" component={Safeguarding} />
+              <Route path="/user-guide" component={UserGuide} />
 
               {/* Fallback inside Layout */}
               <Route component={NotFound} />

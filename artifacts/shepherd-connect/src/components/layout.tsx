@@ -8,7 +8,7 @@ import {
   LayoutDashboard, Users, Baby, School, ClipboardCheck, CheckSquare,
   LogOut, Menu, Bell, MessageSquare, AlertTriangle, UserCog, FileText, Star,
   Clock, ShieldCheck, QrCode, Home, Grid3x3, X, ChevronRight, Globe,
-  BarChart3, ArrowLeftRight, UserCircle, Search, ListOrdered, CalendarClock,
+  BarChart3, ArrowLeftRight, UserCircle, Search, ListOrdered, CalendarClock, BookOpen,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api-call";
@@ -276,6 +276,7 @@ export function Layout({ children }: { children: ReactNode }) {
     }
     items.push({ href: "/notifications", label: t.nav.notifications, icon: Bell, badge: unreadCount });
     items.push({ href: "/profile", label: "My Profile", icon: UserCircle });
+    items.push({ href: "/user-guide", label: "User Guide", icon: BookOpen });
     return items;
   };
 
