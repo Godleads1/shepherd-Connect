@@ -239,8 +239,8 @@ router.get("/attendance/trends", authMiddleware, requireRoles("super_admin", "ad
     const label = weekStart.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
 
     const dayRecords = await db.select().from(attendanceTable).where(eq(attendanceTable.serviceDate, dateStr));
-    const firstService = dayRecords.filter(r => r.serviceSlot === "7am" || r.serviceSlot === "9am").length;
-    const secondService = dayRecords.filter(r => r.serviceSlot === "11am" || r.serviceSlot === "1pm").length;
+    const firstService = dayRecords.filter(r => r.serviceSlot === "7am").length;
+    const secondService = dayRecords.filter(r => r.serviceSlot === "10:30am").length;
     const uniqueChildren = new Set(dayRecords.map(r => r.childId)).size;
 
     trends.push({ week: dateStr, label, total: dayRecords.length, firstService, secondService, uniqueChildren });

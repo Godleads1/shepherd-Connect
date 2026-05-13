@@ -2322,7 +2322,7 @@ components:
           type: string
         serviceSlot:
           type: string
-          enum: ["7am", "9am", "11am", "1pm"]
+          enum: ["7am", "10:30am"]
         description:
           type: string
           nullable: true
@@ -2357,7 +2357,7 @@ components:
           type: string
         serviceSlot:
           type: string
-          enum: ["7am", "9am", "11am", "1pm"]
+          enum: ["7am", "10:30am"]
         description:
           type: string
           nullable: true

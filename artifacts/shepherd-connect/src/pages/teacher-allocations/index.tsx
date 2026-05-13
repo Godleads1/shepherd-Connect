@@ -35,7 +35,7 @@ export default function TeacherAllocations() {
   const isAdmin = user?.role === "super_admin" || user?.role === "admin";
   const [tab, setTab] = useState<"schedule" | "hours" | "substitute" | "auto">("schedule");
   const [autoDate, setAutoDate] = useState(format(new Date(), "yyyy-MM-dd"));
-  const [autoSlots, setAutoSlots] = useState("9am,11am");
+  const [autoSlots, setAutoSlots] = useState("7am,10:30am");
   const [showAutoDialog, setShowAutoDialog] = useState(false);
 
   // Mark unavailable
@@ -367,8 +367,8 @@ export default function TeacherAllocations() {
             </div>
             <div>
               <label className="text-sm font-medium text-gray-700 block mb-1.5">Service Slots (comma-separated)</label>
-              <Input value={autoSlots} onChange={e => setAutoSlots(e.target.value)} placeholder="9am,11am" />
-              <p className="text-xs text-gray-500 mt-1">e.g. 7am,9am,11am,1pm</p>
+              <Input value={autoSlots} onChange={e => setAutoSlots(e.target.value)} placeholder="7am,10:30am" />
+              <p className="text-xs text-gray-500 mt-1">Sunday services only: 7am (1st) and/or 10:30am (2nd)</p>
             </div>
           </div>
           <div className="flex gap-3 pt-2">

@@ -565,7 +565,7 @@ router.get("/reports/room-occupancy", authMiddleware, requireRoles("super_admin"
   const { weeks = "6" } = req.query as { weeks?: string };
   const numWeeks = Math.min(parseInt(weeks, 10) || 6, 12);
   const classes = await db.select().from(classesTable);
-  const slots = ["7am", "9am", "11am", "1pm"];
+  const slots = ["7am", "10:30am"];
 
   const dates: string[] = [];
   const now = new Date();

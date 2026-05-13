@@ -225,7 +225,7 @@ const REPORT_TYPES = [
 
 type ReportType = typeof REPORT_TYPES[number]["value"];
 
-const SLOTS = ["7am", "9am", "11am", "1pm"];
+const SLOTS = ["7am", "10:30am"];
 
 export default function Reports() {
   const today = format(new Date(), "yyyy-MM-dd");

@@ -179,7 +179,7 @@ export default function Register() {
         const addrParts = [s2d.houseStreet];
         if (s2d.nearestBusStop) addrParts.push(`Near: ${s2d.nearestBusStop}`);
         if (s2d.city) addrParts.push(s2d.city);
-        const svcLabel = s2d.serviceTime === "first" ? "1st Service (7am)" : s2d.serviceTime === "second" ? "2nd Service (10:30am)" : "Both Services";
+        const svcLabel = s2d.serviceTime === "first" ? "1st Service (7:00–10:00 AM)" : s2d.serviceTime === "second" ? "2nd Service (10:30 AM)" : "Both Services";
         addrParts.push(`[${svcLabel}]`);
 
         const fam = await famMutation.mutateAsync({
@@ -259,9 +259,9 @@ export default function Register() {
   ];
 
   const SVC = [
-    { value: "first",  label: "1st Service", sub: "7:00 – 10:00 am" },
-    { value: "second", label: "2nd Service", sub: "10:30 am onwards" },
-    { value: "both",   label: "Both",        sub: "All services"     },
+    { value: "first",  label: "1st Service", sub: "7:00 – 10:00 AM (Sunday)" },
+    { value: "second", label: "2nd Service", sub: "10:30 AM onwards (Sunday)" },
+    { value: "both",   label: "Both",        sub: "Attend all Sunday services" },
   ];
 
   const isSubmitting = regMutation.isPending || famMutation.isPending || childMutation.isPending;

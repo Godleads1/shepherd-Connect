@@ -8,12 +8,19 @@ import FaceCapture from "@/components/FaceCapture";
 
 type Tab = "qr" | "face";
 
-const SERVICE_SLOTS = ["7am", "9am", "11am", "1pm"];
+const SERVICE_SLOTS = [
+  { value: "7am",     label: "1st Service", time: "7:00 – 10:00 AM" },
+  { value: "10:30am", label: "2nd Service", time: "10:30 AM onwards" },
+];
+
+function isSunday() {
+  return new Date().getDay() === 0;
+}
 
 export default function CheckIn() {
   const [qrCode, setQrCode] = useState("");
   const [activeTab, setActiveTab] = useState<Tab>("qr");
-  const [serviceSlot, setServiceSlot] = useState("9am");
+  const [serviceSlot, setServiceSlot] = useState("7am");
   const [scanResult, setScanResult] = useState<any>(null);
   const [faceMatched, setFaceMatched] = useState(false);
   const { toast } = useToast();
@@ -180,15 +187,27 @@ export default function CheckIn() {
         </div>
       )}
 
+      {/* Sunday indicator */}
+      {!isSunday() && (
+        <div className="w-full mb-3 px-4 py-2.5 rounded-xl flex items-center gap-2 text-sm font-medium"
+          style={{ background: "#fef9c3", color: "#92400e", border: "1px solid #fde68a" }}>
+          <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+          Services are held on Sundays only — today is {new Date().toLocaleDateString("en-GB", { weekday: "long" })}.
+        </div>
+      )}
+
       {/* Service slot selector */}
       <div className="w-full bg-white rounded-2xl p-4 shadow-sm border border-gray-100 mb-4">
-        <p className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-2">Service Slot</p>
+        <p className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-2">Select Service</p>
         <div className="flex gap-2">
           {SERVICE_SLOTS.map(slot => (
-            <button key={slot} onClick={() => setServiceSlot(slot)}
-              className="flex-1 py-2 rounded-xl text-sm font-bold transition-all"
-              style={serviceSlot === slot ? { background: "#1e3a8a", color: "white" } : { background: "#f3f4f6", color: "#6b7280" }}>
-              {slot}
+            <button key={slot.value} onClick={() => setServiceSlot(slot.value)}
+              className="flex-1 py-2.5 px-3 rounded-xl text-left transition-all"
+              style={serviceSlot === slot.value
+                ? { background: "#1e3a8a", color: "white", boxShadow: "0 2px 8px rgba(30,58,138,0.3)" }
+                : { background: "#f3f4f6", color: "#374151" }}>
+              <p className="text-xs font-bold leading-tight">{slot.label}</p>
+              <p className="text-[10px] opacity-75 leading-tight mt-0.5">{slot.time}</p>
             </button>
           ))}
         </div>

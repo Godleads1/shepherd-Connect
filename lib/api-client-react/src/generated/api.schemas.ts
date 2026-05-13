@@ -113,9 +113,7 @@ export type ClassServiceSlot =
 
 export const ClassServiceSlot = {
   "7am": "7am",
-  "9am": "9am",
-  "11am": "11am",
-  "1pm": "1pm",
+  "10:30am": "10:30am",
 } as const;
 
 export interface Class {
@@ -263,9 +261,7 @@ export type CreateClassBodyServiceSlot =
 
 export const CreateClassBodyServiceSlot = {
   "7am": "7am",
-  "9am": "9am",
-  "11am": "11am",
-  "1pm": "1pm",
+  "10:30am": "10:30am",
 } as const;
 
 export interface CreateClassBody {

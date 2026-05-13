@@ -65,7 +65,7 @@ router.get("/teacher-allocations/service-hours", authMiddleware, requireRoles("s
 });
 
 router.post("/teacher-allocations/auto-schedule", authMiddleware, requireRoles("super_admin", "admin"), async (req, res): Promise<void> => {
-  const { serviceDate, serviceSlots = ["9am", "11am"] } = req.body as { serviceDate: string; serviceSlots?: string[] };
+  const { serviceDate, serviceSlots = ["7am", "10:30am"] } = req.body as { serviceDate: string; serviceSlots?: string[] };
   if (!serviceDate) { res.status(400).json({ error: "Bad request", message: "serviceDate is required" }); return; }
 
   const teachers = await db.select().from(teachersTable);

@@ -64,7 +64,7 @@ function WaitlistSection({ familyId, classes }: { familyId?: number; classes: an
             <div key={entry.id} className="flex items-center justify-between p-3 rounded-xl border bg-gray-50">
               <div>
                 <p className="text-sm font-medium text-gray-900">{entry.class?.name}</p>
-                <p className="text-xs text-gray-500">{entry.class?.serviceSlot} · {entry.class?.roomLocation}</p>
+                <p className="text-xs text-gray-500">{entry.class?.serviceSlot === "7am" ? "1st Service · 7:00–10:00 AM" : entry.class?.serviceSlot === "10:30am" ? "2nd Service · 10:30 AM" : entry.class?.serviceSlot} · {entry.class?.roomLocation}</p>
               </div>
               <div className="flex items-center gap-2">
                 <Badge className={`text-xs ${statusColors[entry.status] || "bg-gray-100 text-gray-600"}`}>

@@ -35,7 +35,7 @@ const classSchema = z.object({
   ageMax: z.coerce.number().min(0),
   capacity: z.coerce.number().min(1),
   roomLocation: z.string().min(1, "Room location is required"),
-  serviceSlot: z.enum(["7am", "9am", "11am", "1pm"]),
+  serviceSlot: z.enum(["7am", "10:30am"]),
   description: z.string().optional()
 });
 
@@ -74,13 +74,13 @@ export default function Classes() {
   const form = useForm<ClassFormValues>({
     resolver: zodResolver(classSchema),
     defaultValues: {
-      name: "", ageMin: 0, ageMax: 5, capacity: 20, roomLocation: "", serviceSlot: "9am", description: ""
+      name: "", ageMin: 0, ageMax: 5, capacity: 20, roomLocation: "", serviceSlot: "7am", description: ""
     }
   });
 
   const handleOpenNew = () => {
     setEditingId(null);
-    form.reset({ name: "", ageMin: 0, ageMax: 5, capacity: 20, roomLocation: "", serviceSlot: "9am", description: "" });
+    form.reset({ name: "", ageMin: 0, ageMax: 5, capacity: 20, roomLocation: "", serviceSlot: "7am", description: "" });
     setIsOpen(true);
   };
 
@@ -255,10 +255,8 @@ export default function Classes() {
                     <Select onValueChange={field.onChange} defaultValue={field.value}>
                       <FormControl><SelectTrigger className="rounded-xl"><SelectValue /></SelectTrigger></FormControl>
                       <SelectContent>
-                        <SelectItem value="7am">7:00 AM</SelectItem>
-                        <SelectItem value="9am">9:00 AM</SelectItem>
-                        <SelectItem value="11am">11:00 AM</SelectItem>
-                        <SelectItem value="1pm">1:00 PM</SelectItem>
+                        <SelectItem value="7am">1st Service · 7:00 – 10:00 AM</SelectItem>
+                        <SelectItem value="10:30am">2nd Service · 10:30 AM onwards</SelectItem>
                       </SelectContent>
                     </Select>
                     <FormMessage />
@@ -318,7 +316,7 @@ export default function Classes() {
                   </div>
                   <div className="flex items-center gap-2 text-sm text-gray-600 bg-gray-50 rounded-lg px-3 py-2">
                     <Clock className="w-4 h-4 text-blue-800 flex-shrink-0" /> 
-                    <span className="font-medium">{cls.serviceSlot} Service</span>
+                    <span className="font-medium">{cls.serviceSlot === "7am" ? "1st Service · 7:00–10:00 AM" : cls.serviceSlot === "10:30am" ? "2nd Service · 10:30 AM" : `${cls.serviceSlot} Service`}</span>
                   </div>
                 </div>
                 

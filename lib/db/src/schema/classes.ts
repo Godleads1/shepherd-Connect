@@ -2,7 +2,7 @@ import { pgTable, serial, text, integer, timestamp, pgEnum } from "drizzle-orm/p
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
-export const serviceSlotEnum = pgEnum("service_slot", ["7am", "9am", "11am", "1pm"]);
+export const serviceSlotEnum = pgEnum("service_slot", ["7am", "10:30am"]);
 
 export const classesTable = pgTable("classes", {
   id: serial("id").primaryKey(),
