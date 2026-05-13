@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useGetMyFamily, useListClasses, useCreateChild } from "@workspace/api-client-react";
+import { useState, useRef } from "react";
+import { useGetMyFamily, useListClasses, useCreateChild, useUpdateChild } from "@workspace/api-client-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { QrCode, FileText, Users, MapPin, ShieldCheck, Star, PlusCircle, AlertCircle, Download, X, ListOrdered, Trash2 } from "lucide-react";
+import { QrCode, FileText, Users, MapPin, ShieldCheck, Star, PlusCircle, AlertCircle, Download, X, ListOrdered, Trash2, Camera, Loader2 } from "lucide-react";
 import { useAuth } from "@/contexts/auth";
 import { QRCodeSVG } from "qrcode.react";
 import { apiGet, apiPost, apiDelete } from "@/lib/api-call";
@@ -185,12 +185,48 @@ function FamilyQRModal({ family, open, onClose }: { family: any; open: boolean; 
   );
 }
 
-function ChildCard({ child }: { child: any }) {
+function ChildCard({ child, onRefetch }: { child: any; onRefetch: () => void }) {
   const statusColor = child.currentClass ? "#16a34a" : "#1a237e";
   const statusBg = child.currentClass ? "#dcfce7" : "#eff6ff";
   const statusText = child.currentClass ? "In Class" : "Unassigned";
   const borderColor = child.currentClass ? "#16a34a" : "#1a237e";
   const hasAllergy = !!child.allergies;
+  const { toast } = useToast();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const [localPhoto, setLocalPhoto] = useState<string | null>(null);
+  const updateChild = useUpdateChild();
+
+  const handlePhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    const preview = URL.createObjectURL(file);
+    setLocalPhoto(preview);
+    try {
+      const token = localStorage.getItem("token");
+      const metaRes = await fetch("/api/storage/uploads/request-url", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({ name: file.name, size: file.size, contentType: file.type || "image/jpeg" }),
+      });
+      if (!metaRes.ok) throw new Error("Could not get upload URL");
+      const { uploadURL, objectPath } = await metaRes.json();
+      const putRes = await fetch(uploadURL, { method: "PUT", body: file, headers: { "Content-Type": file.type || "image/jpeg" } });
+      if (!putRes.ok) throw new Error("Upload failed");
+      await updateChild.mutateAsync({ id: child.id, data: { ...child, photoUrl: objectPath } as any });
+      toast({ title: `${child.firstName}'s photo updated!` });
+      onRefetch();
+    } catch (err: any) {
+      toast({ variant: "destructive", title: err.message || "Photo upload failed" });
+      setLocalPhoto(null);
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
+  const displayPhoto = localPhoto ?? resolvePhotoUrl(child.photoUrl);
 
   return (
     <div
@@ -208,17 +244,31 @@ function ChildCard({ child }: { child: any }) {
 
       <div className="flex items-start gap-4">
         <div className="relative flex-shrink-0">
-          {resolvePhotoUrl(child.photoUrl) ? (
-            <img src={resolvePhotoUrl(child.photoUrl)!} alt={child.firstName} className="w-16 h-16 rounded-2xl object-cover shadow-sm" />
-          ) : (
-            <div className="w-16 h-16 rounded-2xl flex items-center justify-center text-2xl font-bold text-white shadow-sm"
-              style={{ background: "linear-gradient(135deg, #1e3a8a, #3b82f6)" }}>
-              {child.firstName[0]}{child.lastName[0]}
+          <button
+            type="button"
+            onClick={() => !uploading && fileInputRef.current?.click()}
+            className="relative w-16 h-16 rounded-2xl overflow-hidden shadow-sm group focus:outline-none"
+            title="Tap to update photo"
+          >
+            {displayPhoto ? (
+              <img src={displayPhoto} alt={child.firstName} className="w-full h-full object-cover" />
+            ) : (
+              <div className="w-full h-full flex items-center justify-center text-2xl font-bold text-white"
+                style={{ background: "linear-gradient(135deg, #1e3a8a, #3b82f6)" }}>
+                {child.firstName[0]}{child.lastName[0]}
+              </div>
+            )}
+            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 group-active:opacity-100 transition-opacity flex items-center justify-center rounded-2xl">
+              {uploading ? <Loader2 className="w-5 h-5 text-white animate-spin" /> : <Camera className="w-5 h-5 text-white" />}
             </div>
-          )}
+          </button>
+          <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handlePhotoChange} />
           <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full border-2 border-white flex items-center justify-center"
-            style={{ background: statusColor }}>
-            <span className="text-white text-[8px]">{child.currentClass ? "✓" : "?"}</span>
+            style={{ background: uploading ? "#f59e0b" : statusColor }}>
+            {uploading
+              ? <Loader2 className="w-2.5 h-2.5 text-white animate-spin" />
+              : <span className="text-white text-[8px]">{child.currentClass ? "✓" : "?"}</span>
+            }
           </div>
         </div>
 
@@ -420,7 +470,7 @@ export default function MyFamily() {
           </div>
         ) : (
           <div className="space-y-4">
-            {children.map((child: any) => <ChildCard key={child.id} child={child} />)}
+            {children.map((child: any) => <ChildCard key={child.id} child={child} onRefetch={refetch} />)}
           </div>
         )}
         {family?.id && (
