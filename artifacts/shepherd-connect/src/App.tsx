@@ -44,6 +44,7 @@ import Messages from "@/pages/messages/index";
 import SubstituteRequests from "@/pages/substitute-requests/index";
 import Safeguarding from "@/pages/safeguarding/index";
 import UserGuide from "@/pages/user-guide/index";
+import { PWABanner } from "@/components/PWABanner";
 
 const queryClient = new QueryClient();
 
@@ -124,6 +125,7 @@ function App() {
                 <Router />
               </WouterRouter>
               <Toaster />
+              <PWABanner />
             </AuthProvider>
           </TooltipProvider>
         </LanguageProvider>

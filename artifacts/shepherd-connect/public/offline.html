@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Shepherd Connect — Offline</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Inter', system-ui, sans-serif;
+      min-height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: linear-gradient(135deg, #1e3a8a 0%, #1d4ed8 100%);
+      color: white;
+      padding: 2rem;
+      text-align: center;
+      gap: 1.5rem;
+    }
+    img { width: 80px; height: 80px; border-radius: 16px; }
+    h1 { font-size: 1.5rem; font-weight: 700; }
+    p { font-size: 0.95rem; opacity: 0.8; max-width: 280px; line-height: 1.6; }
+    button {
+      margin-top: 0.5rem;
+      background: #f59e0b;
+      color: #1e3a8a;
+      border: none;
+      border-radius: 12px;
+      padding: 0.75rem 2rem;
+      font-size: 0.95rem;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .badge {
+      background: rgba(255,255,255,0.15);
+      border-radius: 999px;
+      padding: 0.25rem 1rem;
+      font-size: 0.75rem;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+    }
+  </style>
+</head>
+<body>
+  <img src="/rccg-logo-new.png" alt="Shepherd Connect" />
+  <span class="badge">SHEPHERD CONNECT</span>
+  <h1>You're offline</h1>
+  <p>Check your internet connection and try again. Recently viewed pages may still be available.</p>
+  <button onclick="location.reload()">Try Again</button>
+</body>
+</html>
