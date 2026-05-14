@@ -30,3 +30,9 @@ id = "BSdfByDwTGmHswr2-TOEp"
 uri = "file://artifacts/shepherd-connect/public/shepherd-connect-user-guide.pdf"
 type = "pdf"
 title = "Shepherd Connect — Complete User Guide (PDF)"
+
+[[outputs]]
+id = "sGDUQJI6UT0JfQvo4o0kH"
+uri = "file://Shepherd_Connect_Annual_Cost_Planner.xlsx"
+type = "table"
+title = "Shepherd Connect — Annual Cost Planner (2,000 Users)"
