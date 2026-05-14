@@ -40,7 +40,9 @@ async function sendToPhones(phones: (string | null | undefined)[], msg: string, 
 export async function sendOtp(phone: string, channel: "sms" | "whatsapp", logger?: Logger): Promise<{ pinId: string } | null> {
   if (!isConfigured()) { logger?.warn("Termii not configured — OTP skipped"); return null; }
   const normalised = normalisePhone(phone);
-  const termiiChannel = channel === "whatsapp" ? "whatsapp" : "generic";
+  // WhatsApp channel requires Termii WhatsApp Business API activation.
+  // Fall back to "generic" (shared SMS pool) which works on all accounts.
+  const termiiChannel = channel === "whatsapp" ? "generic" : "generic";
   try {
     const res = await fetch(`${BASE_URL}/api/sms/otp/send`, {
       method: "POST",

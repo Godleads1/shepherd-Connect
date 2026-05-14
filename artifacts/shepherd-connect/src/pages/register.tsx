@@ -450,24 +450,18 @@ export default function Register() {
 
             {!otpSent ? (
               <div className="space-y-3">
-                <p className="text-xs font-semibold uppercase tracking-widest text-center" style={{ color: "#94a3b8" }}>Choose how to receive your code</p>
-                <button type="button" onClick={() => sendOtp("whatsapp")} disabled={otpSending}
-                  className="w-full flex items-center justify-center gap-3 py-3.5 rounded-2xl font-semibold text-sm transition-all disabled:opacity-60"
-                  style={{ background: "#25D366", color: "#fff", boxShadow: "0 4px 14px rgba(37,211,102,0.30)" }}>
-                  {otpSending && otpChannel === "whatsapp" ? <Loader2 className="w-4 h-4 animate-spin" /> : <MessageCircle className="w-4 h-4" />}
-                  Send via WhatsApp
-                </button>
                 <button type="button" onClick={() => sendOtp("sms")} disabled={otpSending}
-                  className="w-full flex items-center justify-center gap-3 py-3 rounded-2xl font-semibold text-sm transition-all disabled:opacity-60"
-                  style={{ background: "rgba(26,35,126,0.07)", color: LOGO_NAVY, border: "1.5px solid rgba(26,35,126,0.18)" }}>
-                  {otpSending && otpChannel === "sms" ? <Loader2 className="w-4 h-4 animate-spin" /> : <Phone className="w-4 h-4" />}
-                  Send via SMS
+                  className="w-full flex items-center justify-center gap-3 py-3.5 rounded-2xl font-bold text-sm transition-all disabled:opacity-60"
+                  style={{ background: LOGO_NAVY, color: "#fff", boxShadow: "0 4px 14px rgba(26,35,126,0.28)" }}>
+                  {otpSending ? <Loader2 className="w-4 h-4 animate-spin" /> : <MessageCircle className="w-4 h-4" />}
+                  Send verification code via SMS
                 </button>
+                <p className="text-center text-xs" style={{ color: "#94a3b8" }}>You'll receive a 6-digit code by text message</p>
               </div>
             ) : (
               <div className="space-y-4">
-                <div className="p-3 rounded-xl text-center text-sm" style={{ background: otpChannel === "whatsapp" ? "rgba(37,211,102,0.08)" : "rgba(26,35,126,0.06)", border: `1px solid ${otpChannel === "whatsapp" ? "rgba(37,211,102,0.25)" : "rgba(26,35,126,0.15)"}`, color: otpChannel === "whatsapp" ? "#15803d" : LOGO_NAVY }}>
-                  ✓ Code sent via {otpChannel === "whatsapp" ? "WhatsApp" : "SMS"} — check your phone
+                <div className="p-3 rounded-xl text-center text-sm" style={{ background: "rgba(26,35,126,0.06)", border: "1px solid rgba(26,35,126,0.15)", color: LOGO_NAVY }}>
+                  ✓ Code sent via SMS — check your messages
                 </div>
 
                 <div className="relative">
