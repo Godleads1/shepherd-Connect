@@ -36,3 +36,9 @@ id = "sGDUQJI6UT0JfQvo4o0kH"
 uri = "file://Shepherd_Connect_Annual_Cost_Planner.xlsx"
 type = "table"
 title = "Shepherd Connect — Annual Cost Planner (updated with Deployment Comparison)"
+
+[[outputs]]
+id = "e1izp30YrwTXZUKuaSU2L"
+uri = "file://Shepherd_Connect_Cost_Report_2025.pdf"
+type = "pdf"
+title = "Shepherd Connect — Annual Cost Report 2025 (PDF)"
