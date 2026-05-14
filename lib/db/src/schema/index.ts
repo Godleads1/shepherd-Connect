@@ -19,3 +19,4 @@ export * from "./consentForms";
 export * from "./safeguardingRecords";
 export * from "./substituteRequests";
 export * from "./messages";
+export * from "./pushSubscriptions";
