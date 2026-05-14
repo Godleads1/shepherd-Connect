@@ -5,10 +5,11 @@ import { CheckInBody, CheckOutBody, ListAttendanceQueryParams, ScanQrCodeBody } 
 import { authMiddleware, requireRoles } from "../middlewares/auth";
 import { notifyChildCheckedIn, notifyChildInTransit, notifyChildArrivedInClass, notifyChildPickedUp } from "../lib/notify";
 import { smsChildCheckedIn, smsChildCheckedOut, smsPreDismissal, emailChildCheckedIn, emailChildCheckedOut } from "../services/sms";
+import { pushToUsers } from "../services/push";
 
-async function getParentContacts(childId: number): Promise<{ phones: (string | null)[]; emails: (string | null)[]; childName: string; className: string }> {
+async function getParentContacts(childId: number): Promise<{ phones: (string | null)[]; emails: (string | null)[]; parentIds: number[]; childName: string; className: string }> {
   const [child] = await db.select().from(childrenTable).where(eq(childrenTable.id, childId));
-  if (!child) return { phones: [], emails: [], childName: "Your child", className: "class" };
+  if (!child) return { phones: [], emails: [], parentIds: [], childName: "Your child", className: "class" };
 
   const childName = `${child.firstName} ${child.lastName}`;
 
@@ -19,7 +20,7 @@ async function getParentContacts(childId: number): Promise<{ phones: (string | n
   }
 
   const [family] = await db.select().from(familiesTable).where(eq(familiesTable.id, child.familyId));
-  if (!family) return { phones: [], emails: [], childName, className };
+  if (!family) return { phones: [], emails: [], parentIds: [], childName, className };
 
   const parentIds = [family.parent1Id, family.parent2Id].filter(Boolean) as number[];
   const parents = parentIds.length
@@ -32,7 +33,7 @@ async function getParentContacts(childId: number): Promise<{ phones: (string | n
     if (p2) parents.push(p2);
   }
 
-  return { phones: parents.map(p => p.phone), emails: parents.map(p => p.email), childName, className };
+  return { phones: parents.map(p => p.phone), emails: parents.map(p => p.email), parentIds, childName, className };
 }
 
 const router = Router();
@@ -78,9 +79,15 @@ router.post("/attendance", authMiddleware, async (req, res): Promise<void> => {
 
   notifyChildCheckedIn(childId, classId, serviceSlot).catch(() => {});
 
-  getParentContacts(childId).then(({ phones, emails, childName, className }) => {
+  getParentContacts(childId).then(({ phones, emails, parentIds, childName, className }) => {
     smsChildCheckedIn(phones, childName, className, serviceSlot, req.log).catch(() => {});
     emailChildCheckedIn(emails, childName, className, serviceSlot, req.log).catch(() => {});
+    pushToUsers(parentIds, {
+      title: "✅ Child Checked In",
+      body: `${childName} has been checked in to ${className} (${serviceSlot ?? "service"}).`,
+      icon: "/pwa-192.png",
+      url: "/my-children",
+    }, req.log).catch(() => {});
   }).catch(() => {});
 
   res.status(201).json(await formatAttendance(record));
@@ -136,9 +143,15 @@ router.put("/attendance/:id/checkout", authMiddleware, async (req, res): Promise
 
   notifyChildPickedUp(record.childId).catch(() => {});
 
-  getParentContacts(record.childId).then(({ phones, emails, childName }) => {
+  getParentContacts(record.childId).then(({ phones, emails, parentIds, childName }) => {
     smsChildCheckedOut(phones, childName, req.log).catch(() => {});
     emailChildCheckedOut(emails, childName, req.log).catch(() => {});
+    pushToUsers(parentIds, {
+      title: "🎉 Child Picked Up",
+      body: `${childName} has been successfully checked out. Safe journey home!`,
+      icon: "/pwa-192.png",
+      url: "/my-children",
+    }, req.log).catch(() => {});
   }).catch(() => {});
 
   res.json(await formatAttendance(record));

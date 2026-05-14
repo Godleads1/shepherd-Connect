@@ -3,6 +3,7 @@ import { eq, and, sql } from "drizzle-orm";
 import { db, notificationsTable, usersTable } from "@workspace/db";
 import { ListNotificationsQueryParams } from "@workspace/api-zod";
 import { authMiddleware, requireRoles } from "../middlewares/auth";
+import { pushToUsers, pushToRole } from "../services/push";
 
 const router = Router();
 
@@ -71,6 +72,11 @@ router.post("/notifications/broadcast", authMiddleware, requireRoles("super_admi
   }));
 
   await db.insert(notificationsTable).values(notifs);
+
+  // Also send browser push to all recipients
+  const recipientIds = recipients.map(r => r.id);
+  pushToUsers(recipientIds, { title, body: message, icon: "/pwa-192.png", url: "/notifications" }, req.log).catch(() => {});
+
   res.json({ success: true, sent: recipients.length, message: `Notification sent to ${recipients.length} user(s)` });
 });
 
@@ -100,6 +106,10 @@ router.post("/notifications/pre-dismissal", authMiddleware, requireRoles("super_
   }));
 
   await db.insert(notificationsTable).values(notifs);
+
+  // Browser push to all parents
+  pushToRole("parent", { title, body: message, icon: "/pwa-192.png", url: "/notifications" }, req.log).catch(() => {});
+
   res.json({ success: true, sent: parents.length, message: `Pre-dismissal alert sent to ${parents.length} parent(s)` });
 });
 

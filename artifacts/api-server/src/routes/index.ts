@@ -24,6 +24,7 @@ import substituteRequestsRouter from "./substituteRequests";
 import messagesRouter from "./messages";
 import consentFormsRouter from "./consentForms";
 import safeguardingRouter from "./safeguarding";
+import pushRouter from "./push";
 
 const router: IRouter = Router();
 
@@ -52,5 +53,6 @@ router.use(substituteRequestsRouter);
 router.use(messagesRouter);
 router.use(consentFormsRouter);
 router.use(safeguardingRouter);
+router.use(pushRouter);
 
 export default router;

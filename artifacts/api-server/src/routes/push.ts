@@ -53,18 +53,10 @@ router.post("/push/subscribe", authMiddleware, async (req, res): Promise<void> =
   res.json({ success: true });
 });
 
-// Remove a push subscription (user explicitly disabling push)
+// Remove all push subscriptions for the current user
 router.delete("/push/unsubscribe", authMiddleware, async (req, res): Promise<void> => {
-  const { endpoint } = req.body as { endpoint?: string };
-  if (!endpoint) {
-    res.status(400).json({ error: "Bad request", message: "endpoint required" });
-    return;
-  }
   await db.delete(pushSubscriptionsTable)
-    .where(and(
-      eq(pushSubscriptionsTable.endpoint, endpoint),
-      eq(pushSubscriptionsTable.userId, req.user!.userId),
-    ));
+    .where(eq(pushSubscriptionsTable.userId, req.user!.userId));
   res.json({ success: true });
 });
 

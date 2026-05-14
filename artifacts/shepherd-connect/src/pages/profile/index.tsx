@@ -8,7 +8,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
-import { User, Phone, Briefcase, Bell, Save, CheckCircle, MessageSquare, Smartphone, ShieldCheck, ShieldOff, QrCode, Loader2, KeyRound, Mail } from "lucide-react";
+import { User, Phone, Briefcase, Bell, Save, CheckCircle, MessageSquare, Smartphone, ShieldCheck, ShieldOff, QrCode, Loader2, KeyRound, Mail, BellRing } from "lucide-react";
+import { usePushNotifications } from "@/hooks/usePushNotifications";
 import { QRCodeSVG } from "qrcode.react";
 import { PhotoUploader, resolvePhotoUrl } from "@/components/PhotoUploader";
 
@@ -17,6 +18,62 @@ interface CommPrefs {
   whatsapp: boolean;
   sms: boolean;
   email: boolean;
+}
+
+function PushToggleSection() {
+  const { state, subscribe, unsubscribe, isSupported } = usePushNotifications();
+  const { toast } = useToast();
+
+  if (!isSupported) return null;
+
+  const handleToggle = async () => {
+    if (state === "subscribed") {
+      const ok = await unsubscribe();
+      if (ok) toast({ title: "Push notifications disabled" });
+    } else {
+      const ok = await subscribe();
+      if (ok) toast({ title: "Push notifications enabled" });
+      else if (state !== "denied") toast({ variant: "destructive", title: "Could not enable push notifications" });
+    }
+  };
+
+  const active = state === "subscribed";
+  const loading = state === "loading";
+  const denied = state === "denied";
+
+  return (
+    <div className="bg-white border rounded-2xl p-5">
+      <h2 className="font-semibold text-gray-900 mb-1 flex items-center gap-2">
+        <BellRing className="w-4 h-4 text-[#1e3a8a]" /> Push Notifications
+      </h2>
+      <p className="text-xs text-gray-500 mb-4">Get instant alerts on this device even when the app is closed</p>
+      <div
+        className={`flex items-center justify-between p-3 rounded-xl border transition-all select-none ${denied ? "opacity-50 cursor-not-allowed" : "cursor-pointer active:scale-[0.98]"} ${active ? "bg-blue-50 border-blue-200" : "bg-gray-50 border-gray-200"}`}
+        onClick={() => !denied && !loading && handleToggle()}
+      >
+        <div className="flex items-center gap-3">
+          <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${active ? "bg-[#1e3a8a]" : "bg-gray-200"}`}>
+            <BellRing className={`w-4 h-4 ${active ? "text-white" : "text-gray-400"}`} />
+          </div>
+          <div>
+            <p className="text-sm font-medium text-gray-900">
+              {denied ? "Blocked by browser" : active ? "Enabled on this device" : "Enable on this device"}
+            </p>
+            <p className="text-xs text-gray-500">
+              {denied
+                ? "Allow notifications in your browser settings to enable this"
+                : active
+                ? "Tap to turn off push notifications"
+                : "Tap to allow push notifications from Shepherd Connect"}
+            </p>
+          </div>
+        </div>
+        <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all ${active ? "border-[#1e3a8a] bg-[#1e3a8a]" : "border-gray-300"}`}>
+          {loading ? <Loader2 className="w-3 h-3 text-white animate-spin" /> : active && <CheckCircle className="w-3 h-3 text-white" />}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 type MfaSetupStep = "idle" | "loading" | "qr" | "confirm" | "done";
@@ -487,6 +544,9 @@ export default function Profile() {
           })}
         </div>
       </div>
+
+      {/* Push Notifications */}
+      <PushToggleSection />
 
       {/* MFA Section — admin, super_admin, teacher only */}
       {isMfaRole && <MfaSection />}

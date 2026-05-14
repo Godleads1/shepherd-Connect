@@ -49,7 +49,7 @@ export function usePushNotifications() {
       const reg = await navigator.serviceWorker.ready;
       const sub = await reg.pushManager.subscribe({
         userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(publicKey),
+        applicationServerKey: urlBase64ToUint8Array(publicKey).buffer as ArrayBuffer,
       });
 
       const json = sub.toJSON() as {
@@ -70,9 +70,8 @@ export function usePushNotifications() {
     if (!subscription) return false;
     try {
       setState("loading");
-      const endpoint = subscription.endpoint;
       await subscription.unsubscribe();
-      await apiDelete("/push/unsubscribe", { endpoint });
+      await apiDelete("/push/unsubscribe");
       setSubscription(null);
       setState("unsubscribed");
       return true;

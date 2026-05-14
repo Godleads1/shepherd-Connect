@@ -4,6 +4,7 @@ import { db, childAppraisalsTable, childrenTable, teachersTable, familiesTable, 
 import { CreateAppraisalBody, ListAppraisalsQueryParams } from "@workspace/api-zod";
 import { authMiddleware, requireRoles } from "../middlewares/auth";
 import { emailShepherdsReport } from "../services/sms";
+import { pushToUsers } from "../services/push";
 
 const router = Router();
 
@@ -58,6 +59,12 @@ router.post("/appraisals", authMiddleware, requireRoles("teacher"), async (req, 
       appraisal.participationLevel, appraisal.scriptureEngagement, appraisal.socialInteraction,
       appraisal.milestoneNote, appraisal.personalNoteToParent, appraisal.serviceDate, req.log,
     );
+    await pushToUsers(parentIds, {
+      title: "📋 Shepherd's Report Ready",
+      body: `${teacherName} has submitted a report for ${childName}. Tap to view.`,
+      icon: "/pwa-192.png",
+      url: "/my-children",
+    }, req.log);
   }).catch(() => {});
 
   res.status(201).json(await formatAppraisal(appraisal));
