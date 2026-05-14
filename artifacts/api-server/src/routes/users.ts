@@ -4,6 +4,7 @@ import { eq, ilike, or, and, sql } from "drizzle-orm";
 import { db, usersTable } from "@workspace/db";
 import { CreateUserBody, UpdateUserBody, ListUsersQueryParams } from "@workspace/api-zod";
 import { authMiddleware, requireRoles } from "../middlewares/auth";
+import { smsAccountApproved, smsAccountRejected } from "../services/sms";
 
 const router = Router();
 
@@ -110,6 +111,7 @@ router.put("/users/:id/approve", authMiddleware, requireRoles("super_admin", "ad
     .where(eq(usersTable.id, id))
     .returning();
   if (!user) { res.status(404).json({ error: "Not found", message: "User not found" }); return; }
+  smsAccountApproved(user.phone, user.firstName, req.log).catch(() => {});
   res.json({ success: true, message: "User approved", user: sanitizeUser(user) });
 });
 
@@ -121,6 +123,7 @@ router.put("/users/:id/reject", authMiddleware, requireRoles("super_admin", "adm
     .where(eq(usersTable.id, id))
     .returning();
   if (!user) { res.status(404).json({ error: "Not found", message: "User not found" }); return; }
+  smsAccountRejected(user.phone, user.firstName, req.log).catch(() => {});
   res.json({ success: true, message: "User rejected", user: sanitizeUser(user) });
 });
 

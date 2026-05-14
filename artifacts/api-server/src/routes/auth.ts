@@ -6,6 +6,7 @@ import { eq } from "drizzle-orm";
 import { db, usersTable } from "@workspace/db";
 import { LoginBody, RegisterBody } from "@workspace/api-zod";
 import { generateToken, authMiddleware } from "../middlewares/auth";
+import { smsWelcome, smsPendingApproval, smsPasswordResetCode } from "../services/sms";
 
 const VALID_ROLES = ["super_admin", "admin", "teacher", "attendant", "parent"] as const;
 type UserRole = typeof VALID_ROLES[number];
@@ -134,6 +135,7 @@ router.post("/auth/register", async (req, res): Promise<void> => {
     .returning();
 
   if (requiresApproval) {
+    smsPendingApproval(user.phone, user.firstName, req.log).catch(() => {});
     res.status(201).json({
       pending: true,
       message: "Registration successful. Your account is pending admin approval. You will be notified once approved.",
@@ -148,6 +150,8 @@ router.post("/auth/register", async (req, res): Promise<void> => {
     });
     return;
   }
+
+  smsWelcome(user.phone, user.firstName, req.log).catch(() => {});
 
   const token = generateToken({
     userId: user.id,
@@ -229,6 +233,9 @@ router.post("/auth/forgot-password", async (req, res): Promise<void> => {
   await db.update(usersTable)
     .set({ resetToken: hashedCode, resetTokenExpiry: expiry })
     .where(eq(usersTable.id, user.id));
+
+  smsPasswordResetCode(user.phone, code, req.log).catch(() => {});
+
   res.json({ success: true, code, expiresInMinutes: 15, message: "Reset code generated successfully." });
 });
 
