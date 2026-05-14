@@ -6,7 +6,7 @@ import { eq } from "drizzle-orm";
 import { db, usersTable } from "@workspace/db";
 import { LoginBody, RegisterBody } from "@workspace/api-zod";
 import { generateToken, authMiddleware } from "../middlewares/auth";
-import { smsWelcome, smsPendingApproval, smsPasswordResetCode } from "../services/sms";
+import { smsWelcome, smsPendingApproval, smsPasswordResetCode, sendOtp, verifyOtp } from "../services/sms";
 
 const VALID_ROLES = ["super_admin", "admin", "teacher", "attendant", "parent"] as const;
 type UserRole = typeof VALID_ROLES[number];
@@ -268,6 +268,36 @@ router.post("/auth/reset-password", async (req, res): Promise<void> => {
     .set({ passwordHash, resetToken: null, resetTokenExpiry: null })
     .where(eq(usersTable.id, user.id));
   res.json({ success: true, message: "Password reset successfully. You can now sign in with your new password." });
+});
+
+// ── OTP endpoints (phone verification) ───────────────────────────────────────
+
+router.post("/auth/send-otp", async (req, res): Promise<void> => {
+  const { phone, channel } = req.body as { phone?: string; channel?: "sms" | "whatsapp" };
+  if (!phone || typeof phone !== "string") {
+    res.status(400).json({ error: "Bad request", message: "phone is required" });
+    return;
+  }
+  const result = await sendOtp(phone.trim(), channel ?? "sms", req.log);
+  if (!result) {
+    res.status(503).json({ error: "Service unavailable", message: "Could not send OTP. Please try again or use a different channel." });
+    return;
+  }
+  res.json({ pinId: result.pinId, message: "OTP sent successfully" });
+});
+
+router.post("/auth/verify-otp", async (req, res): Promise<void> => {
+  const { pinId, otp } = req.body as { pinId?: string; otp?: string };
+  if (!pinId || !otp) {
+    res.status(400).json({ error: "Bad request", message: "pinId and otp are required" });
+    return;
+  }
+  const verified = await verifyOtp(pinId, otp.trim(), req.log);
+  if (!verified) {
+    res.status(400).json({ error: "Bad request", message: "Incorrect or expired code. Please try again." });
+    return;
+  }
+  res.json({ verified: true });
 });
 
 // ── MFA endpoints ─────────────────────────────────────────────────────────────

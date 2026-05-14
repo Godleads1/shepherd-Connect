@@ -8,6 +8,7 @@ import { useAuth } from "@/contexts/auth";
 import {
   Plus, Trash2, ChevronRight, Check, User, Mail, Phone, Lock,
   Home, ShieldAlert, Loader2, MapPin, Bus, Eye, EyeOff,
+  MessageCircle, ShieldCheck, RefreshCw,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { PhotoUploader } from "@/components/PhotoUploader";
@@ -122,7 +123,7 @@ const focusOut = (e: React.FocusEvent<HTMLInputElement | HTMLSelectElement>) => 
 
 // ── Main component ────────────────────────────────────────────────────────────
 export default function Register() {
-  const [step, setStep] = useState(1);
+  const [step, setStep] = useState<number | "otp">(1);
   const [, setLocation] = useLocation();
   const { login: localLogin } = useAuth();
   const { toast } = useToast();
@@ -132,6 +133,54 @@ export default function Register() {
   const [selectedRole, setSelectedRole] = useState<"parent"|"teacher"|"admin"|"attendant">("parent");
   const [showPw, setShowPw] = useState(false);
   const [regPhotoUrl, setRegPhotoUrl] = useState("");
+
+  const [otpPinId, setOtpPinId]     = useState("");
+  const [otpCode, setOtpCode]       = useState("");
+  const [otpSending, setOtpSending] = useState(false);
+  const [otpVerifying, setOtpVerifying] = useState(false);
+  const [otpSent, setOtpSent]       = useState(false);
+  const [otpError, setOtpError]     = useState("");
+  const [otpChannel, setOtpChannel] = useState<"whatsapp" | "sms">("whatsapp");
+
+  const sendOtp = async (channel: "whatsapp" | "sms") => {
+    if (!step1Data?.phone) return;
+    setOtpSending(true); setOtpError(""); setOtpCode("");
+    try {
+      const res = await fetch("/api/auth/send-otp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone: step1Data.phone, channel }),
+      });
+      const data = await res.json() as { pinId?: string; message?: string; error?: string };
+      if (!res.ok) throw new Error(data.message ?? "Failed to send OTP");
+      setOtpPinId(data.pinId ?? "");
+      setOtpSent(true);
+      setOtpChannel(channel);
+    } catch (err) {
+      setOtpError(err instanceof Error ? err.message : "Could not send code. Try again.");
+    } finally {
+      setOtpSending(false);
+    }
+  };
+
+  const verifyOtp = async () => {
+    if (!otpCode || otpCode.length < 6) { setOtpError("Enter the 6-digit code"); return; }
+    setOtpVerifying(true); setOtpError("");
+    try {
+      const res = await fetch("/api/auth/verify-otp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pinId: otpPinId, otp: otpCode }),
+      });
+      const data = await res.json() as { verified?: boolean; message?: string };
+      if (!res.ok || !data.verified) throw new Error(data.message ?? "Incorrect code");
+      setStep(2);
+    } catch (err) {
+      setOtpError(err instanceof Error ? err.message : "Verification failed");
+    } finally {
+      setOtpVerifying(false);
+    }
+  };
 
   const regMutation    = useRegister();
   const famMutation    = useCreateFamily();
@@ -157,7 +206,11 @@ export default function Register() {
 
   const { fields: childFields, append: appendChild, remove: removeChild } = useFieldArray({ control: form3.control, name: "children" });
 
-  const onStep1 = (d: z.infer<typeof step1Schema>) => { setStep1Data(d); setStep(2); };
+  const onStep1 = (d: z.infer<typeof step1Schema>) => {
+    setStep1Data(d);
+    setOtpSent(false); setOtpCode(""); setOtpError(""); setOtpPinId("");
+    setStep("otp");
+  };
   const onStep2 = (d: z.infer<typeof step2Schema>) => {
     setStep2Data(d);
     if (selectedRole !== "parent") {
@@ -299,14 +352,19 @@ export default function Register() {
       <div className="slide-up-delay-2 w-full z-10" style={{ maxWidth: 500, borderRadius: 24, padding: 32, background: "rgba(255,255,255,0.78)", backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)", border: "1px solid rgba(255,255,255,0.92)", boxShadow: "0 8px 40px rgba(26,35,126,0.10)" }}>
 
         {/* Progress bar */}
-        <div className="flex gap-2 mb-8">
-          {(selectedRole === "parent" ? [1,2,3] : [1,2]).map(s => (
-            <div key={s} className="flex-1 relative">
-              <div className="h-1.5 rounded-full transition-all duration-500" style={{ background: step >= s ? LOGO_NAVY : "rgba(26,35,126,0.12)" }} />
-              <div className="absolute -top-6 left-1/2 -translate-x-1/2 text-[10px] font-bold" style={{ color: step >= s ? LOGO_NAVY : "#94a3b8" }}>STEP {s}</div>
+        {(() => {
+          const numericStep = step === "otp" ? 1 : (step as number);
+          return (
+            <div className="flex gap-2 mb-8">
+              {(selectedRole === "parent" ? [1,2,3] : [1,2]).map(s => (
+                <div key={s} className="flex-1 relative">
+                  <div className="h-1.5 rounded-full transition-all duration-500" style={{ background: numericStep >= s ? LOGO_NAVY : "rgba(26,35,126,0.12)" }} />
+                  <div className="absolute -top-6 left-1/2 -translate-x-1/2 text-[10px] font-bold" style={{ color: numericStep >= s ? LOGO_NAVY : "#94a3b8" }}>STEP {s}</div>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
+          );
+        })()}
 
         {/* ── STEP 1 — Account ── */}
         {step === 1 && (
@@ -375,6 +433,76 @@ export default function Register() {
               <Btn testId="reg-step1-next">Next <ChevronRight className="w-4 h-4" /></Btn>
             </div>
           </form>
+        )}
+
+        {/* ── STEP OTP — Phone verification ── */}
+        {step === "otp" && (
+          <div className="space-y-5 animate-in fade-in zoom-in-95 duration-300">
+            <div className="text-center">
+              <div className="w-14 h-14 rounded-full flex items-center justify-center mx-auto mb-3" style={{ background: "rgba(26,35,126,0.08)" }}>
+                <ShieldCheck className="w-7 h-7" style={{ color: LOGO_NAVY }} />
+              </div>
+              <h3 className="font-bold text-base" style={{ color: "#0f172a" }}>Verify your phone number</h3>
+              <p className="text-sm mt-1" style={{ color: "#64748b" }}>
+                We'll send a 6-digit code to <span className="font-semibold" style={{ color: LOGO_NAVY }}>{step1Data?.phone}</span>
+              </p>
+            </div>
+
+            {!otpSent ? (
+              <div className="space-y-3">
+                <p className="text-xs font-semibold uppercase tracking-widest text-center" style={{ color: "#94a3b8" }}>Choose how to receive your code</p>
+                <button type="button" onClick={() => sendOtp("whatsapp")} disabled={otpSending}
+                  className="w-full flex items-center justify-center gap-3 py-3.5 rounded-2xl font-semibold text-sm transition-all disabled:opacity-60"
+                  style={{ background: "#25D366", color: "#fff", boxShadow: "0 4px 14px rgba(37,211,102,0.30)" }}>
+                  {otpSending && otpChannel === "whatsapp" ? <Loader2 className="w-4 h-4 animate-spin" /> : <MessageCircle className="w-4 h-4" />}
+                  Send via WhatsApp
+                </button>
+                <button type="button" onClick={() => sendOtp("sms")} disabled={otpSending}
+                  className="w-full flex items-center justify-center gap-3 py-3 rounded-2xl font-semibold text-sm transition-all disabled:opacity-60"
+                  style={{ background: "rgba(26,35,126,0.07)", color: LOGO_NAVY, border: "1.5px solid rgba(26,35,126,0.18)" }}>
+                  {otpSending && otpChannel === "sms" ? <Loader2 className="w-4 h-4 animate-spin" /> : <Phone className="w-4 h-4" />}
+                  Send via SMS
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="p-3 rounded-xl text-center text-sm" style={{ background: otpChannel === "whatsapp" ? "rgba(37,211,102,0.08)" : "rgba(26,35,126,0.06)", border: `1px solid ${otpChannel === "whatsapp" ? "rgba(37,211,102,0.25)" : "rgba(26,35,126,0.15)"}`, color: otpChannel === "whatsapp" ? "#15803d" : LOGO_NAVY }}>
+                  ✓ Code sent via {otpChannel === "whatsapp" ? "WhatsApp" : "SMS"} — check your phone
+                </div>
+
+                <div className="relative">
+                  <input
+                    type="text" inputMode="numeric" maxLength={6}
+                    placeholder="Enter 6-digit code"
+                    value={otpCode}
+                    onChange={e => { setOtpCode(e.target.value.replace(/\D/g, "")); setOtpError(""); }}
+                    style={{ ...iS, textAlign: "center", fontSize: 22, fontWeight: 700, letterSpacing: 10, padding: "14px 16px" }}
+                    onFocus={focusIn} onBlur={focusOut}
+                    autoFocus
+                  />
+                </div>
+
+                {otpError && <p className="text-xs text-center font-medium" style={{ color: "#b91c1c" }}>{otpError}</p>}
+
+                <button type="button" onClick={verifyOtp} disabled={otpVerifying || otpCode.length < 6}
+                  className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl font-bold text-sm transition-all disabled:opacity-50"
+                  style={{ background: LOGO_NAVY, color: "#fff", boxShadow: "0 4px 14px rgba(26,35,126,0.25)" }}>
+                  {otpVerifying ? <><Loader2 className="w-4 h-4 animate-spin" /> Verifying...</> : <><Check className="w-4 h-4" /> Verify & Continue</>}
+                </button>
+
+                <button type="button" onClick={() => { setOtpSent(false); setOtpError(""); setOtpCode(""); }}
+                  className="w-full flex items-center justify-center gap-2 py-2 text-xs font-medium" style={{ color: "#94a3b8" }}>
+                  <RefreshCw className="w-3 h-3" /> Resend or change channel
+                </button>
+              </div>
+            )}
+
+            {otpError && !otpSent && <p className="text-xs text-center font-medium" style={{ color: "#b91c1c" }}>{otpError}</p>}
+
+            <div className="pt-1">
+              <BackBtn onClick={() => setStep(1)} />
+            </div>
+          </div>
         )}
 
         {/* ── STEP 2 — Details ── */}
@@ -450,7 +578,7 @@ export default function Register() {
             </div>
 
             <div className="flex justify-between items-center pt-5">
-              <BackBtn onClick={() => setStep(1)} />
+              <BackBtn onClick={() => setStep("otp")} />
               <Btn testId="reg-step2-next" disabled={isSubmitting}>
                 {selectedRole !== "parent" && isSubmitting
                   ? <><Loader2 className="w-4 h-4 animate-spin" /> Processing...</>
