@@ -6,7 +6,7 @@ import { eq } from "drizzle-orm";
 import { db, usersTable } from "@workspace/db";
 import { LoginBody, RegisterBody } from "@workspace/api-zod";
 import { generateToken, authMiddleware } from "../middlewares/auth";
-import { smsWelcome, smsPendingApproval, smsPasswordResetCode, sendOtp, verifyOtp } from "../services/sms";
+import { smsWelcome, smsPendingApproval, smsPasswordResetCode, sendOtp, verifyOtp, emailWelcome, emailPendingApproval, emailPasswordResetCode } from "../services/sms";
 
 const VALID_ROLES = ["super_admin", "admin", "teacher", "attendant", "parent"] as const;
 type UserRole = typeof VALID_ROLES[number];
@@ -136,6 +136,7 @@ router.post("/auth/register", async (req, res): Promise<void> => {
 
   if (requiresApproval) {
     smsPendingApproval(user.phone, user.firstName, req.log).catch(() => {});
+    emailPendingApproval(user.email, user.firstName, req.log).catch(() => {});
     res.status(201).json({
       pending: true,
       message: "Registration successful. Your account is pending admin approval. You will be notified once approved.",
@@ -152,6 +153,7 @@ router.post("/auth/register", async (req, res): Promise<void> => {
   }
 
   smsWelcome(user.phone, user.firstName, req.log).catch(() => {});
+  emailWelcome(user.email, user.firstName, req.log).catch(() => {});
 
   const token = generateToken({
     userId: user.id,
@@ -235,6 +237,7 @@ router.post("/auth/forgot-password", async (req, res): Promise<void> => {
     .where(eq(usersTable.id, user.id));
 
   smsPasswordResetCode(user.phone, code, req.log).catch(() => {});
+  emailPasswordResetCode(user.email, user.firstName, code, req.log).catch(() => {});
 
   res.json({ success: true, code, expiresInMinutes: 15, message: "Reset code generated successfully." });
 });

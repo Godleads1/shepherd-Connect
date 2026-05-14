@@ -1,8 +1,9 @@
 import { Router } from "express";
 import { eq, and } from "drizzle-orm";
-import { db, childAppraisalsTable, childrenTable, teachersTable } from "@workspace/db";
+import { db, childAppraisalsTable, childrenTable, teachersTable, familiesTable, usersTable } from "@workspace/db";
 import { CreateAppraisalBody, ListAppraisalsQueryParams } from "@workspace/api-zod";
 import { authMiddleware, requireRoles } from "../middlewares/auth";
+import { emailShepherdsReport } from "../services/sms";
 
 const router = Router();
 
@@ -34,6 +35,31 @@ router.post("/appraisals", authMiddleware, requireRoles("teacher"), async (req, 
     ...parsed.data,
     teacherId: teacher.id,
   }).returning();
+
+  // Send Shepherd's Report email to parents (fire-and-forget)
+  Promise.all([
+    db.select().from(childrenTable).where(eq(childrenTable.id, appraisal.childId)),
+    db.select().from(usersTable).where(eq(usersTable.id, req.user!.userId)),
+  ]).then(async ([[child], [teacherUser]]) => {
+    if (!child) return;
+    const [family] = await db.select().from(familiesTable).where(eq(familiesTable.id, child.familyId));
+    if (!family) return;
+    const parentIds = [family.parent1Id, family.parent2Id].filter(Boolean) as number[];
+    const parents = await Promise.all(
+      parentIds.map(id => db.select({ email: usersTable.email, firstName: usersTable.firstName }).from(usersTable).where(eq(usersTable.id, id)))
+    );
+    const parentRows = parents.flat();
+    const childName = `${child.firstName} ${child.lastName}`;
+    const teacherName = teacherUser ? `${teacherUser.firstName} ${teacherUser.lastName}` : "Your child's teacher";
+    const parentFirstName = parentRows[0]?.firstName ?? "Parent";
+    const emails = parentRows.map(p => p.email);
+    await emailShepherdsReport(
+      emails, parentFirstName, childName, teacherName,
+      appraisal.participationLevel, appraisal.scriptureEngagement, appraisal.socialInteraction,
+      appraisal.milestoneNote, appraisal.personalNoteToParent, appraisal.serviceDate, req.log,
+    );
+  }).catch(() => {});
+
   res.status(201).json(await formatAppraisal(appraisal));
 });
 
