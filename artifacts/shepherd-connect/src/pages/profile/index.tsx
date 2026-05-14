@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
-import { User, Phone, Briefcase, Bell, Save, CheckCircle, MessageSquare, Smartphone, ShieldCheck, ShieldOff, QrCode, Loader2, KeyRound } from "lucide-react";
+import { User, Phone, Briefcase, Bell, Save, CheckCircle, MessageSquare, Smartphone, ShieldCheck, ShieldOff, QrCode, Loader2, KeyRound, Mail } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { PhotoUploader, resolvePhotoUrl } from "@/components/PhotoUploader";
 
@@ -436,27 +436,36 @@ export default function Profile() {
         </h2>
         <p className="text-xs text-gray-500 mb-4">Choose how you'd like to receive notifications from Shepherd Connect</p>
         <div className="space-y-3">
-          {[
-            { key: "inApp", label: "In-App Notifications", icon: Bell, desc: "Alerts within the Shepherd Connect app" },
-            { key: "whatsapp", label: "WhatsApp Messages", icon: MessageSquare, desc: "Notifications via WhatsApp (coming soon)" },
-            { key: "sms", label: "SMS Text Messages", icon: Smartphone, desc: "Text message alerts (coming soon)" },
-          ].map(({ key, label, icon: Icon, desc }) => (
-            <div key={key} className={`flex items-center justify-between p-3 rounded-xl border cursor-pointer transition-all ${prefs[key as keyof CommPrefs] ? "bg-blue-50 border-blue-200" : "bg-gray-50 border-gray-200"}`}
-              onClick={() => editing && setPrefs(p => ({ ...p, [key]: !p[key as keyof CommPrefs] }))}>
-              <div className="flex items-center gap-3">
-                <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${prefs[key as keyof CommPrefs] ? "bg-[#1e3a8a]" : "bg-gray-200"}`}>
-                  <Icon className={`w-4 h-4 ${prefs[key as keyof CommPrefs] ? "text-white" : "text-gray-400"}`} />
+          {([
+            { key: "inApp",    label: "In-App Notifications", icon: Bell,         desc: "Alerts within the Shepherd Connect app",   live: true },
+            { key: "email",    label: "Email Notifications",  icon: Mail,         desc: "Notifications sent to your email address", live: true },
+            { key: "sms",      label: "SMS Text Messages",    icon: Smartphone,   desc: "Text message alerts to your phone",        live: true },
+            { key: "whatsapp", label: "WhatsApp Messages",    icon: MessageSquare, desc: "Notifications via WhatsApp",              live: false },
+          ] as { key: keyof CommPrefs; label: string; icon: React.ElementType; desc: string; live: boolean }[]).map(({ key, label, icon: Icon, desc, live }) => {
+            const active = prefs[key];
+            const clickable = editing && live;
+            return (
+              <div key={key}
+                className={`flex items-center justify-between p-3 rounded-xl border transition-all ${!live ? "opacity-50 cursor-not-allowed" : clickable ? "cursor-pointer" : "cursor-default"} ${active && live ? "bg-blue-50 border-blue-200" : "bg-gray-50 border-gray-200"}`}
+                onClick={() => clickable && setPrefs(p => ({ ...p, [key]: !p[key] }))}>
+                <div className="flex items-center gap-3">
+                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${active && live ? "bg-[#1e3a8a]" : "bg-gray-200"}`}>
+                    <Icon className={`w-4 h-4 ${active && live ? "text-white" : "text-gray-400"}`} />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-medium text-gray-900">{label}</p>
+                      {!live && <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">Coming soon</span>}
+                    </div>
+                    <p className="text-xs text-gray-500">{desc}</p>
+                  </div>
                 </div>
-                <div>
-                  <p className="text-sm font-medium text-gray-900">{label}</p>
-                  <p className="text-xs text-gray-500">{desc}</p>
+                <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${active && live ? "border-[#1e3a8a] bg-[#1e3a8a]" : "border-gray-300"}`}>
+                  {active && live && <CheckCircle className="w-3 h-3 text-white" />}
                 </div>
               </div>
-              <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${prefs[key as keyof CommPrefs] ? "border-[#1e3a8a] bg-[#1e3a8a]" : "border-gray-300"}`}>
-                {prefs[key as keyof CommPrefs] && <CheckCircle className="w-3 h-3 text-white" />}
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
         {!editing && <p className="text-xs text-gray-400 text-center mt-3">Click "Edit Profile" to change your preferences</p>}
       </div>
