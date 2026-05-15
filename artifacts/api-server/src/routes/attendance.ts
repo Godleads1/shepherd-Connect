@@ -189,7 +189,12 @@ router.post("/attendance/scan-qr", authMiddleware, async (req, res): Promise<voi
       const [cls] = await db.select().from(classesTable).where(eq(classesTable.id, child.currentClassId));
       currentClass = cls || null;
     }
-    return { ...child, age, currentClass, teacher: null, lastAttendance: null, attendanceHistory: [] };
+    const recentAttendance = await db.select().from(attendanceTable)
+      .where(eq(attendanceTable.childId, child.id))
+      .orderBy(attendanceTable.serviceDate)
+      .limit(5);
+    const lastAttendance = recentAttendance.length > 0 ? recentAttendance[recentAttendance.length - 1] : null;
+    return { ...child, age, currentClass, teacher: null, lastAttendance, attendanceHistory: recentAttendance };
   }));
   res.json({ family, children: childrenWithDetails, hasAlerts: alerts.length > 0, alerts });
 });
@@ -237,7 +242,12 @@ router.post("/attendance/scan-face", authMiddleware, async (req, res): Promise<v
       const [cls] = await db.select().from(classesTable).where(eq(classesTable.id, child.currentClassId));
       currentClass = cls || null;
     }
-    return { ...child, age, currentClass, teacher: null, lastAttendance: null, attendanceHistory: [] };
+    const recentAttendance = await db.select().from(attendanceTable)
+      .where(eq(attendanceTable.childId, child.id))
+      .orderBy(attendanceTable.serviceDate)
+      .limit(5);
+    const lastAttendance = recentAttendance.length > 0 ? recentAttendance[recentAttendance.length - 1] : null;
+    return { ...child, age, currentClass, teacher: null, lastAttendance, attendanceHistory: recentAttendance };
   }));
 
   res.json({ family, children: childrenWithDetails, hasAlerts: alerts.length > 0, alerts, matchedChildId: bestMatch.id, confidence: Math.max(0, Math.round((1 - bestDist / 0.6) * 100)) });

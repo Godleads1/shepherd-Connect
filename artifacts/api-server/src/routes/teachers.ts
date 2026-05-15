@@ -3,6 +3,14 @@ import { eq } from "drizzle-orm";
 import { db, teachersTable, usersTable } from "@workspace/db";
 import { CreateTeacherBody } from "@workspace/api-zod";
 import { authMiddleware, requireRoles } from "../middlewares/auth";
+import { z } from "zod";
+
+const UpdateTeacherUserBody = z.object({
+  firstName: z.string().min(1).optional(),
+  lastName:  z.string().min(1).optional(),
+  phone:     z.string().optional(),
+  photoUrl:  z.string().optional(),
+});
 
 const router = Router();
 
@@ -38,6 +46,12 @@ router.put("/teachers/:id", authMiddleware, requireRoles("super_admin", "admin")
   if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
   const [teacher] = await db.select().from(teachersTable).where(eq(teachersTable.id, id));
   if (!teacher) { res.status(404).json({ error: "Not found", message: "Teacher not found" }); return; }
+  const parsed = UpdateTeacherUserBody.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: "Bad request", message: parsed.error.message }); return; }
+  const updates = parsed.data;
+  if (Object.keys(updates).length > 0) {
+    await db.update(usersTable).set(updates).where(eq(usersTable.id, teacher.userId));
+  }
   res.json(await formatTeacher(teacher));
 });
 

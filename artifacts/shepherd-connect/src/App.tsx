@@ -9,6 +9,7 @@ import { Layout } from "@/components/layout";
 import "@/lib/api-setup";
 
 import { ThemeProvider } from "@/components/theme-provider";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 
 // Pages
 import Login from "@/pages/login";
@@ -116,21 +117,25 @@ function Router() {
 
 function App() {
   return (
-    <QueryClientProvider client={queryClient}>
-      <ThemeProvider defaultTheme="light" storageKey="shepherd-theme">
-        <LanguageProvider>
-          <TooltipProvider>
-            <AuthProvider>
-              <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
-                <Router />
-              </WouterRouter>
-              <Toaster />
-              <PWABanner />
-            </AuthProvider>
-          </TooltipProvider>
-        </LanguageProvider>
-      </ThemeProvider>
-    </QueryClientProvider>
+    <ErrorBoundary>
+      <QueryClientProvider client={queryClient}>
+        <ThemeProvider defaultTheme="light" storageKey="shepherd-theme">
+          <LanguageProvider>
+            <TooltipProvider>
+              <AuthProvider>
+                <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
+                  <ErrorBoundary>
+                    <Router />
+                  </ErrorBoundary>
+                </WouterRouter>
+                <Toaster />
+                <PWABanner />
+              </AuthProvider>
+            </TooltipProvider>
+          </LanguageProvider>
+        </ThemeProvider>
+      </QueryClientProvider>
+    </ErrorBoundary>
   );
 }
 
