@@ -7,7 +7,34 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Playfair+Display:wght@700&display=swap" rel="stylesheet">
+
+    <!-- Prevent flash of unstyled / wrong-theme content -->
+    <style>
+      html, body {
+        margin: 0;
+        padding: 0;
+        /* matches the login page base colour so no white flash on load */
+        background: #f8fafc;
+        min-height: 100dvh;
+      }
+      /* dark-mode base so the dark theme doesn't flash light before JS runs */
+      html.dark body { background: #0f172a; }
+    </style>
+
+    <!-- Apply theme class synchronously before first paint to prevent flicker -->
+    <script>
+      (function () {
+        try {
+          var stored = localStorage.getItem('shepherd-theme');
+          var theme = stored === 'dark' || stored === 'light' ? stored
+            : (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+          document.documentElement.classList.add(theme);
+        } catch (e) {
+          document.documentElement.classList.add('light');
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
