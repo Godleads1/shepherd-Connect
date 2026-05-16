@@ -75,13 +75,27 @@ export default function Classes() {
   const form = useForm<ClassFormValues>({
     resolver: zodResolver(classSchema),
     defaultValues: {
-      name: "", ageMin: 0, ageMax: 5, capacity: 20, roomLocation: "", serviceSlot: "7am", description: ""
+      name: "", ageMin: 0, ageMax: 0, capacity: 20, roomLocation: "", serviceSlot: "7am", description: ""
     }
   });
 
+  const watchedName = form.watch("name");
+  const derivedAge = (() => {
+    const m = watchedName.trim().match(/^class\s+(\d+)$/i);
+    return m ? parseInt(m[1], 10) : null;
+  })();
+
+  // Auto-set service slot when age is detected
+  if (derivedAge !== null) {
+    const autoSlot = derivedAge <= 6 ? "7am" : "10:30am";
+    if (form.getValues("serviceSlot") !== autoSlot) {
+      form.setValue("serviceSlot", autoSlot);
+    }
+  }
+
   const handleOpenNew = () => {
     setEditingId(null);
-    form.reset({ name: "", ageMin: 0, ageMax: 5, capacity: 20, roomLocation: "", serviceSlot: "7am", description: "" });
+    form.reset({ name: "", ageMin: 0, ageMax: 0, capacity: 20, roomLocation: "", serviceSlot: "7am", description: "" });
     setIsOpen(true);
   };
 
@@ -234,8 +248,18 @@ export default function Classes() {
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
               <FormField control={form.control} name="name" render={({ field }) => (
-                <FormItem><FormLabel>Class Name</FormLabel><FormControl><Input className="rounded-xl" {...field} /></FormControl><FormMessage /></FormItem>
+                <FormItem><FormLabel>Class Name</FormLabel><FormControl><Input className="rounded-xl" placeholder="e.g. Class 5" {...field} /></FormControl><FormMessage /></FormItem>
               )} />
+
+              {derivedAge !== null && (
+                <div className="flex items-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold border"
+                  style={{ background: "#eff6ff", borderColor: "#bfdbfe", color: "#1e3a8a" }}>
+                  <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" />
+                  </svg>
+                  Age {derivedAge} · Auto-assigned for all {derivedAge}-year-old children · Service: {derivedAge <= 6 ? "1st (7:00 AM)" : "2nd (10:30 AM)"}
+                </div>
+              )}
               
               <div className="grid grid-cols-2 gap-4">
                 <FormField control={form.control} name="capacity" render={({ field }) => (

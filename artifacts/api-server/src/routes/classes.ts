@@ -25,10 +25,17 @@ router.get("/classes", authMiddleware, async (req, res): Promise<void> => {
   res.json(formatted);
 });
 
+function deriveAgeFromName(name: string): number | null {
+  const m = name.trim().match(/^class\s+(\d+)$/i);
+  return m ? parseInt(m[1], 10) : null;
+}
+
 router.post("/classes", authMiddleware, requireRoles("super_admin", "admin"), async (req, res): Promise<void> => {
   const parsed = CreateClassBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: "Bad request", message: parsed.error.message }); return; }
-  const [cls] = await db.insert(classesTable).values(parsed.data).returning();
+  const age = deriveAgeFromName(parsed.data.name);
+  const data = age !== null ? { ...parsed.data, ageMin: age, ageMax: age } : parsed.data;
+  const [cls] = await db.insert(classesTable).values(data).returning();
   res.status(201).json(await formatClass(cls));
 });
 
@@ -60,7 +67,9 @@ router.put("/classes/:id", authMiddleware, requireRoles("super_admin", "admin"),
   if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
   const parsed = CreateClassBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: "Bad request", message: parsed.error.message }); return; }
-  const [cls] = await db.update(classesTable).set(parsed.data).where(eq(classesTable.id, id)).returning();
+  const age = deriveAgeFromName(parsed.data.name);
+  const data = age !== null ? { ...parsed.data, ageMin: age, ageMax: age } : parsed.data;
+  const [cls] = await db.update(classesTable).set(data).where(eq(classesTable.id, id)).returning();
   if (!cls) { res.status(404).json({ error: "Not found", message: "Class not found" }); return; }
   res.json(await formatClass(cls));
 });
