@@ -155,21 +155,33 @@ export async function notifyTeachersChildDroppedOff(
   const childName = `${child.firstName} ${child.lastName}`;
   const now = new Date().toLocaleTimeString("en-NG", { hour: "2-digit", minute: "2-digit" });
 
-  // Build allocation filter
-  const conditions = [
-    eq(teacherAllocationsTable.classId, classId),
-    eq(teacherAllocationsTable.serviceSlot, serviceSlot as "7am" | "10:30am"),
-  ];
-  if (serviceDate) {
-    conditions.push(eq(teacherAllocationsTable.serviceDate, serviceDate));
-  }
-
-  const allocations = await db
+  // Find teachers allocated to this class for this date (any slot).
+  // If no date-specific allocation found, fall back to any allocation for this class.
+  const today = serviceDate ?? new Date().toISOString().slice(0, 10);
+  let allocations = await db
     .select()
     .from(teacherAllocationsTable)
-    .where(and(...conditions));
+    .where(and(
+      eq(teacherAllocationsTable.classId, classId),
+      eq(teacherAllocationsTable.serviceDate, today),
+    ));
 
+  // Fallback: use any allocation for this class if none found for today
+  if (allocations.length === 0) {
+    allocations = await db
+      .select()
+      .from(teacherAllocationsTable)
+      .where(eq(teacherAllocationsTable.classId, classId))
+      .orderBy(teacherAllocationsTable.serviceDate)
+      .limit(5);
+  }
+
+  // Deduplicate by teacherId so a teacher scheduled for both slots only gets one notification
+  const seenTeacherIds = new Set<number>();
   for (const alloc of allocations) {
+    if (seenTeacherIds.has(alloc.teacherId)) continue;
+    seenTeacherIds.add(alloc.teacherId);
+
     const [teacher] = await db
       .select()
       .from(teachersTable)
