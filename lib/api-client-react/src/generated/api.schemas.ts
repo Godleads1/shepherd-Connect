@@ -400,6 +400,10 @@ export const UpdateTeacherAllocationBodyStatus = {
 
 export interface UpdateTeacherAllocationBody {
   status?: UpdateTeacherAllocationBodyStatus;
+  teacherId?: number;
+  classId?: number;
+  serviceDate?: string;
+  serviceSlot?: string;
 }
 
 export interface CheckInBody {
@@ -457,7 +461,6 @@ export interface CreatePickupDelegateBody {
 }
 
 export interface VerifyOtpBody {
-  childId: number;
   otpCode: string;
 }
 

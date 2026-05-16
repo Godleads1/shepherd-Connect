@@ -10,7 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { format } from "date-fns";
-import { Zap, BarChart3, RefreshCw, Calendar, AlertTriangle, UserMinus, UserCheck, ArrowLeftRight } from "lucide-react";
+import { Zap, BarChart3, RefreshCw, Calendar, AlertTriangle, UserMinus, UserCheck, ArrowLeftRight, Pencil } from "lucide-react";
 import { apiGet, apiPost, apiPut } from "@/lib/api-call";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/auth";
@@ -49,6 +49,12 @@ export default function TeacherAllocations() {
   const [newTeacherId, setNewTeacherId] = useState("");
   const [swapReason, setSwapReason] = useState("");
 
+  // Edit allocation (change class)
+  const [showEditDialog, setShowEditDialog] = useState(false);
+  const [editAlloc, setEditAlloc] = useState<Allocation | null>(null);
+  const [editClassId, setEditClassId] = useState("");
+  const [editTeacherId, setEditTeacherId] = useState("");
+
   const { toast } = useToast();
   const qc = useQueryClient();
 
@@ -63,7 +69,26 @@ export default function TeacherAllocations() {
   const { data: teachers } = useQuery({
     queryKey: ["teachers-list-alloc"],
     queryFn: () => apiGet<Teacher[]>("/teachers"),
-    enabled: showSubstituteDialog,
+    enabled: showSubstituteDialog || showEditDialog,
+  });
+
+  type ClassItem = { id: number; name: string };
+  const { data: classes } = useQuery({
+    queryKey: ["classes-list-alloc"],
+    queryFn: () => apiGet<ClassItem[]>("/classes"),
+    enabled: showEditDialog,
+  });
+
+  const editAllocation = useMutation({
+    mutationFn: ({ id, classId, teacherId }: { id: number; classId?: number; teacherId?: number }) =>
+      apiPut(`/teacher-allocations/${id}`, { ...(classId ? { classId } : {}), ...(teacherId ? { teacherId } : {}) }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["listTeacherAllocations"] });
+      setShowEditDialog(false);
+      setEditClassId(""); setEditTeacherId("");
+      toast({ title: "Allocation updated", description: "The class assignment has been changed." });
+    },
+    onError: () => toast({ variant: "destructive", title: "Failed to update allocation" }),
   });
 
   const cancelledAllocations = (allocations || []).filter(a => a.status === "cancelled") as unknown as Allocation[];
@@ -223,20 +248,27 @@ export default function TeacherAllocations() {
                     </TableCell>
                     {isAdmin && (
                       <TableCell>
-                        {alloc.status === "cancelled" && (
+                        <div className="flex items-center gap-1.5">
                           <button
-                            onClick={() => { setSubstituteAlloc(alloc); setShowSubstituteDialog(true); }}
-                            className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-amber-700 border border-amber-200 bg-amber-50 hover:bg-amber-100 rounded-lg transition-colors whitespace-nowrap">
-                            <UserCheck className="h-3.5 w-3.5" /> Assign Sub
+                            onClick={() => { setEditAlloc(alloc); setEditClassId(String(alloc.classId)); setEditTeacherId(String(alloc.teacherId)); setShowEditDialog(true); }}
+                            className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-blue-700 border border-blue-200 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors whitespace-nowrap">
+                            <Pencil className="h-3.5 w-3.5" /> Edit
                           </button>
-                        )}
-                        {(alloc.status === "scheduled" || alloc.status === "confirmed") && (
-                          <button
-                            onClick={() => { setSubstituteAlloc(alloc); setShowSubstituteDialog(true); }}
-                            className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-gray-500 border border-gray-200 hover:bg-gray-50 rounded-lg transition-colors whitespace-nowrap">
-                            <ArrowLeftRight className="h-3.5 w-3.5" /> Swap
-                          </button>
-                        )}
+                          {alloc.status === "cancelled" && (
+                            <button
+                              onClick={() => { setSubstituteAlloc(alloc); setShowSubstituteDialog(true); }}
+                              className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-amber-700 border border-amber-200 bg-amber-50 hover:bg-amber-100 rounded-lg transition-colors whitespace-nowrap">
+                              <UserCheck className="h-3.5 w-3.5" /> Assign Sub
+                            </button>
+                          )}
+                          {(alloc.status === "scheduled" || alloc.status === "confirmed") && (
+                            <button
+                              onClick={() => { setSubstituteAlloc(alloc); setShowSubstituteDialog(true); }}
+                              className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-gray-500 border border-gray-200 hover:bg-gray-50 rounded-lg transition-colors whitespace-nowrap">
+                              <ArrowLeftRight className="h-3.5 w-3.5" /> Swap
+                            </button>
+                          )}
+                        </div>
                       </TableCell>
                     )}
                   </TableRow>
@@ -471,6 +503,64 @@ export default function TeacherAllocations() {
                 reason: swapReason,
               })}>
               {assignSubstitute.isPending ? "Assigning..." : "Confirm Assignment"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Allocation dialog */}
+      <Dialog open={showEditDialog} onOpenChange={v => { setShowEditDialog(v); if (!v) { setEditClassId(""); setEditTeacherId(""); } }}>
+        <DialogContent className="sm:max-w-md rounded-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-blue-700">
+              <Pencil className="h-5 w-5" /> Edit Allocation
+            </DialogTitle>
+            <DialogDescription>
+              {editAlloc && (
+                <span>
+                  {format(new Date(editAlloc.serviceDate), "MMM d, yyyy")} · {editAlloc.serviceSlot}
+                </span>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div>
+              <label className="text-sm font-medium text-gray-700 block mb-1.5">Teacher</label>
+              <Select value={editTeacherId} onValueChange={setEditTeacherId}>
+                <SelectTrigger className="h-10"><SelectValue placeholder="Select teacher..." /></SelectTrigger>
+                <SelectContent>
+                  {(teachers || []).map((t: any) => (
+                    <SelectItem key={t.id} value={String(t.id)}>
+                      {t.user?.firstName} {t.user?.lastName}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="text-sm font-medium text-gray-700 block mb-1.5">Class</label>
+              <Select value={editClassId} onValueChange={setEditClassId}>
+                <SelectTrigger className="h-10"><SelectValue placeholder="Select class..." /></SelectTrigger>
+                <SelectContent>
+                  {(classes || []).map((c) => (
+                    <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div className="flex gap-3 pt-2">
+            <Button variant="outline" className="flex-1" onClick={() => setShowEditDialog(false)}>Cancel</Button>
+            <Button
+              className="flex-1"
+              style={{ background: "linear-gradient(135deg, #1e3a8a, #1d4ed8)" }}
+              disabled={(!editClassId && !editTeacherId) || editAllocation.isPending}
+              onClick={() => editAlloc && editAllocation.mutate({
+                id: editAlloc.id,
+                classId: editClassId ? parseInt(editClassId, 10) : undefined,
+                teacherId: editTeacherId ? parseInt(editTeacherId, 10) : undefined,
+              })}>
+              {editAllocation.isPending ? "Saving..." : "Save Changes"}
             </Button>
           </div>
         </DialogContent>

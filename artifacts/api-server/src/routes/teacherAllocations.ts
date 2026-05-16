@@ -45,6 +45,10 @@ router.put("/teacher-allocations/:id", authMiddleware, requireRoles("super_admin
   if (!parsed.success) { res.status(400).json({ error: "Bad request", message: parsed.error.message }); return; }
   const updates: Partial<typeof teacherAllocationsTable.$inferInsert> = {};
   if (parsed.data.status) updates.status = parsed.data.status as "scheduled" | "confirmed" | "completed" | "cancelled";
+  if (parsed.data.teacherId) updates.teacherId = parsed.data.teacherId;
+  if (parsed.data.classId) updates.classId = parsed.data.classId;
+  if (parsed.data.serviceDate) updates.serviceDate = parsed.data.serviceDate;
+  if (parsed.data.serviceSlot) updates.serviceSlot = parsed.data.serviceSlot as "7am" | "10:30am";
   const [allocation] = await db.update(teacherAllocationsTable).set(updates).where(eq(teacherAllocationsTable.id, id)).returning();
   if (!allocation) { res.status(404).json({ error: "Not found", message: "Allocation not found" }); return; }
   res.json(await formatAllocation(allocation));

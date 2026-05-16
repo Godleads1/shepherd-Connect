@@ -2581,6 +2581,15 @@ components:
         status:
           type: string
           enum: [scheduled, confirmed, completed, cancelled]
+        teacherId:
+          type: integer
+        classId:
+          type: integer
+        serviceDate:
+          type: string
+          format: date
+        serviceSlot:
+          type: string
 
     # ATTENDANCE
     Attendance:

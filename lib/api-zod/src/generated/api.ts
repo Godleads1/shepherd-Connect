@@ -1587,6 +1587,10 @@ export const UpdateTeacherAllocationBody = zod.object({
   status: zod
     .enum(["scheduled", "confirmed", "completed", "cancelled"])
     .optional(),
+  teacherId: zod.number().optional(),
+  classId: zod.number().optional(),
+  serviceDate: zod.string().date().optional(),
+  serviceSlot: zod.string().optional(),
 });
 
 export const UpdateTeacherAllocationResponse = zod.object({
