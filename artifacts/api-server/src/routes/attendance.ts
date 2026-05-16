@@ -199,6 +199,14 @@ router.post("/attendance/scan-qr", authMiddleware, async (req, res): Promise<voi
       .where(eq(attendanceTable.childId, child.id))
       .orderBy(attendanceTable.serviceDate)
       .limit(5);
+    // Auto-heal: if still unassigned, assign by age now and persist
+    if (!currentClass && age >= 1 && age <= 12) {
+      const [matched] = await db.select().from(classesTable).where(eq(classesTable.ageMin, age));
+      if (matched) {
+        await db.update(childrenTable).set({ currentClassId: matched.id }).where(eq(childrenTable.id, child.id));
+        currentClass = matched;
+      }
+    }
     const lastAttendance = recentAttendance.length > 0 ? recentAttendance[recentAttendance.length - 1] : null;
     return { ...child, age, currentClass, teacher: null, lastAttendance, attendanceHistory: recentAttendance };
   }));
