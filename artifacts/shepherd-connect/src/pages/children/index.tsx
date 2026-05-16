@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useListChildren, useListFamilies, useCreateChild, useListClasses } from "@workspace/api-client-react";
+import { useListChildren, useListFamilies, useCreateChild } from "@workspace/api-client-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { Input } from "@/components/ui/input";
@@ -113,20 +113,35 @@ function BulkImportModal({ open, onClose }: { open: boolean; onClose: () => void
   );
 }
 
+function calcAgeFromDob(dob: string): number | null {
+  if (!dob) return null;
+  const d = new Date(dob);
+  if (isNaN(d.getTime())) return null;
+  const now = new Date();
+  let age = now.getFullYear() - d.getFullYear();
+  if (now < new Date(now.getFullYear(), d.getMonth(), d.getDate())) age--;
+  return age;
+}
+
 function AddChildModal({ open, onClose, onCreated }: { open: boolean; onClose: () => void; onCreated: () => void }) {
   const { toast } = useToast();
   const createChild = useCreateChild();
   const { data: familiesData } = useListFamilies({ limit: 200 } as any, { query: { enabled: open, queryKey: ["families-for-child-add"] } });
-  const { data: classesData } = useListClasses({}, { query: { enabled: open, queryKey: ["classes-for-child-add"] } });
   const families = familiesData?.data ?? [];
-  const classes = (classesData as any[]) ?? [];
 
   const [form, setForm] = useState({
     familyId: "", firstName: "", lastName: "", dob: "",
-    gender: "male" as "male" | "female", allergies: "", medicalNotes: "", currentClassId: "", photoUrl: "",
+    gender: "male" as "male" | "female", allergies: "", medicalNotes: "", photoUrl: "",
   });
 
-  const reset = () => setForm({ familyId: "", firstName: "", lastName: "", dob: "", gender: "male", allergies: "", medicalNotes: "", currentClassId: "", photoUrl: "" });
+  const detectedAge = calcAgeFromDob(form.dob);
+  const autoClass = detectedAge !== null && detectedAge >= 1 && detectedAge <= 12
+    ? `Class ${detectedAge}`
+    : detectedAge !== null
+      ? `Age ${detectedAge} — no class available`
+      : null;
+
+  const reset = () => setForm({ familyId: "", firstName: "", lastName: "", dob: "", gender: "male", allergies: "", medicalNotes: "", photoUrl: "" });
 
   const handleClose = () => { reset(); onClose(); };
 
@@ -146,7 +161,6 @@ function AddChildModal({ open, onClose, onCreated }: { open: boolean; onClose: (
           gender: form.gender,
           allergies: form.allergies || undefined,
           medicalNotes: form.medicalNotes || undefined,
-          currentClassId: form.currentClassId ? Number(form.currentClassId) : undefined,
           photoUrl: form.photoUrl || undefined,
         } as any,
       });
@@ -217,18 +231,15 @@ function AddChildModal({ open, onClose, onCreated }: { open: boolean; onClose: (
             </Select>
           </div>
 
-          <div>
-            <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide mb-1.5">Class <span className="text-gray-400 font-normal">(optional)</span></label>
-            <Select value={form.currentClassId || "unassigned"} onValueChange={v => setForm(p => ({ ...p, currentClassId: v === "unassigned" ? "" : v }))}>
-              <SelectTrigger><SelectValue placeholder="Unassigned" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="unassigned">Unassigned</SelectItem>
-                {classes.map((c: any) => (
-                  <SelectItem key={c.id} value={String(c.id)}>{c.name} (Age {c.ageMin}–{c.ageMax})</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          {autoClass && (
+            <div className="flex items-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold border"
+              style={{ background: "#eff6ff", borderColor: "#bfdbfe", color: "#1e3a8a" }}>
+              <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" />
+              </svg>
+              Auto-assigned: <span className="ml-1">{autoClass}</span>
+            </div>
+          )}
 
           <div>
             <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide mb-1.5">Allergies <span className="text-gray-400 font-normal">(optional)</span></label>

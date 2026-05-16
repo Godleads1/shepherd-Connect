@@ -100,48 +100,24 @@ async function seed() {
 
   console.log("Users seeded");
 
-  // Classes
-  const [toddlers] = await db.insert(classesTable).values({
-    name: "Toddlers (1-3yrs)",
-    ageMin: 1,
-    ageMax: 3,
-    capacity: 20,
-    roomLocation: "Room A1",
-    serviceSlot: "9am",
-    description: "Nurturing class for our youngest worshippers",
-  }).onConflictDoNothing().returning();
+  // Classes — one per age year (Class 1 = age 1, Class 2 = age 2 … Class 12 = age 12)
+  const rooms = ["Room A1","Room A2","Room A3","Room B1","Room B2","Room B3","Room C1","Room C2","Room C3","Room D1","Room D2","Room D3"];
+  const classRecords: Array<{ id: number }> = [];
+  for (let age = 1; age <= 12; age++) {
+    const slot: "7am" | "10:30am" = age <= 6 ? "7am" : "10:30am";
+    const [cls] = await db.insert(classesTable).values({
+      name: `Class ${age}`,
+      ageMin: age,
+      ageMax: age,
+      capacity: 30,
+      roomLocation: rooms[age - 1],
+      serviceSlot: slot,
+      description: `For children who are ${age} year${age !== 1 ? "s" : ""} old`,
+    }).onConflictDoNothing().returning();
+    if (cls) classRecords.push(cls);
+  }
 
-  const [beginners] = await db.insert(classesTable).values({
-    name: "Beginners (4-6yrs)",
-    ageMin: 4,
-    ageMax: 6,
-    capacity: 25,
-    roomLocation: "Room A2",
-    serviceSlot: "9am",
-    description: "Foundation of faith for early learners",
-  }).onConflictDoNothing().returning();
-
-  const [primary] = await db.insert(classesTable).values({
-    name: "Primary (7-9yrs)",
-    ageMin: 7,
-    ageMax: 9,
-    capacity: 30,
-    roomLocation: "Room B1",
-    serviceSlot: "11am",
-    description: "Interactive Bible stories and activities",
-  }).onConflictDoNothing().returning();
-
-  const [juniors] = await db.insert(classesTable).values({
-    name: "Juniors (10-12yrs)",
-    ageMin: 10,
-    ageMax: 12,
-    capacity: 25,
-    roomLocation: "Room B2",
-    serviceSlot: "11am",
-    description: "Deeper engagement with scripture",
-  }).onConflictDoNothing().returning();
-
-  console.log("Classes seeded");
+  console.log("Classes seeded (Class 1-12)");
 
   // Teachers
   let teacher1: { id: number } | undefined;
@@ -166,7 +142,10 @@ async function seed() {
       emergencyContactPhone: "+2348090123456",
     }).onConflictDoNothing().returning();
 
-    if (family1 && toddlers && beginners) {
+    // Helper: find seeded class by age
+    const cls = (age: number) => classRecords.find(c => (c as any).ageMin === age);
+
+    if (family1) {
       // Children for family 1
       const [child1] = await db.insert(childrenTable).values({
         familyId: family1.id,
@@ -176,7 +155,7 @@ async function seed() {
         gender: "female",
         allergies: "Peanuts",
         medicalNotes: "Carries EpiPen",
-        currentClassId: toddlers.id,
+        currentClassId: cls(4)?.id,
       }).onConflictDoNothing().returning();
 
       const [child2] = await db.insert(childrenTable).values({
@@ -185,21 +164,21 @@ async function seed() {
         lastName: "Mensah",
         dob: "2019-07-22",
         gender: "male",
-        currentClassId: beginners.id,
+        currentClassId: cls(5)?.id,
       }).onConflictDoNothing().returning();
 
-      if (child1 && toddlers) {
+      if (child1) {
         await db.insert(classAssignmentsTable).values({
           childId: child1.id,
-          classId: toddlers.id,
+          classId: cls(4)?.id ?? 0,
           assignedBy: admin?.id,
           status: "active",
         }).onConflictDoNothing();
       }
-      if (child2 && beginners) {
+      if (child2) {
         await db.insert(classAssignmentsTable).values({
           childId: child2.id,
-          classId: beginners.id,
+          classId: cls(5)?.id ?? 0,
           assignedBy: admin?.id,
           status: "active",
         }).onConflictDoNothing();
@@ -216,24 +195,24 @@ async function seed() {
       emergencyContactPhone: "+2348091234567",
     }).onConflictDoNothing().returning();
 
-    if (family2 && primary && juniors) {
-      const [child3] = await db.insert(childrenTable).values({
+    if (family2) {
+      await db.insert(childrenTable).values({
         familyId: family2.id,
         firstName: "Tolu",
         lastName: "Bello",
         dob: "2017-11-05",
         gender: "male",
-        currentClassId: primary.id,
-      }).onConflictDoNothing().returning();
+        currentClassId: cls(8)?.id,
+      }).onConflictDoNothing();
 
-      const [child4] = await db.insert(childrenTable).values({
+      await db.insert(childrenTable).values({
         familyId: family2.id,
         firstName: "Amaka",
         lastName: "Bello",
         dob: "2014-02-14",
         gender: "female",
-        currentClassId: juniors.id,
-      }).onConflictDoNothing().returning();
+        currentClassId: cls(12)?.id,
+      }).onConflictDoNothing();
     }
   }
 
@@ -246,14 +225,14 @@ async function seed() {
       emergencyContactPhone: "+2348092345678",
     }).onConflictDoNothing().returning();
 
-    if (family3 && toddlers) {
+    if (family3) {
       await db.insert(childrenTable).values({
         familyId: family3.id,
         firstName: "Halima",
         lastName: "Suleiman",
         dob: "2023-06-20",
         gender: "female",
-        currentClassId: toddlers.id,
+        currentClassId: cls(2)?.id,
       }).onConflictDoNothing();
     }
   }

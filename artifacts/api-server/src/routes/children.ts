@@ -55,7 +55,12 @@ router.get("/children", authMiddleware, async (req, res): Promise<void> => {
 router.post("/children", authMiddleware, async (req, res): Promise<void> => {
   const parsed = CreateChildBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: "Bad request", message: parsed.error.message }); return; }
-  const [child] = await db.insert(childrenTable).values(parsed.data).returning();
+  // Auto-assign class based on age calculated from DOB
+  const age = calcAge(parsed.data.dob);
+  const [matchedClass] = await db.select().from(classesTable)
+    .where(and(eq(classesTable.ageMin, age), eq(classesTable.ageMax, age)));
+  const dataWithClass = { ...parsed.data, currentClassId: matchedClass?.id ?? null };
+  const [child] = await db.insert(childrenTable).values(dataWithClass).returning();
   res.status(201).json(await formatChild(child));
 });
 

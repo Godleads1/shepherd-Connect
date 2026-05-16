@@ -38,6 +38,7 @@ const classSchema = z.object({
   serviceSlot: z.enum(["7am", "10:30am"]),
   description: z.string().optional()
 });
+// ageMin/ageMax kept in schema for API compatibility but hidden from UI (auto-derived from class number)
 
 type ClassFormValues = z.infer<typeof classSchema>;
 
@@ -237,15 +238,6 @@ export default function Classes() {
               )} />
               
               <div className="grid grid-cols-2 gap-4">
-                <FormField control={form.control} name="ageMin" render={({ field }) => (
-                  <FormItem><FormLabel>Min Age</FormLabel><FormControl><Input type="number" className="rounded-xl" {...field} /></FormControl><FormMessage /></FormItem>
-                )} />
-                <FormField control={form.control} name="ageMax" render={({ field }) => (
-                  <FormItem><FormLabel>Max Age</FormLabel><FormControl><Input type="number" className="rounded-xl" {...field} /></FormControl><FormMessage /></FormItem>
-                )} />
-              </div>
-              
-              <div className="grid grid-cols-2 gap-4">
                 <FormField control={form.control} name="capacity" render={({ field }) => (
                   <FormItem><FormLabel>Capacity</FormLabel><FormControl><Input type="number" className="rounded-xl" {...field} /></FormControl><FormMessage /></FormItem>
                 )} />
@@ -302,7 +294,7 @@ export default function Classes() {
                 <div className="flex justify-between items-start mb-4">
                   <div>
                     <h3 className="font-bold text-gray-900 text-xl">{cls.name}</h3>
-                    <p className="text-xs font-semibold uppercase tracking-wider text-[#1a237e] mt-1">Ages {cls.ageMin}-{cls.ageMax}</p>
+                    <p className="text-xs font-semibold uppercase tracking-wider text-[#1a237e] mt-1">Age {cls.ageMin}</p>
                   </div>
                   <div className="w-10 h-10 rounded-full bg-blue-50 flex items-center justify-center text-blue-800">
                     <Users className="w-5 h-5" />
