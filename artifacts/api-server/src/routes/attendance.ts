@@ -3,7 +3,7 @@ import { eq, and, ne } from "drizzle-orm";
 import { db, attendanceTable, childrenTable, classesTable, familiesTable, usersTable, notificationsTable } from "@workspace/db";
 import { CheckInBody, CheckOutBody, ListAttendanceQueryParams, ScanQrCodeBody } from "@workspace/api-zod";
 import { authMiddleware, requireRoles } from "../middlewares/auth";
-import { notifyChildCheckedIn, notifyChildInTransit, notifyChildArrivedInClass, notifyChildPickedUp } from "../lib/notify";
+import { notifyChildCheckedIn, notifyChildInTransit, notifyChildArrivedInClass, notifyChildPickedUp, notifyTeachersChildDroppedOff } from "../lib/notify";
 import { smsChildCheckedIn, smsChildCheckedOut, smsPreDismissal, emailChildCheckedIn, emailChildCheckedOut } from "../services/sms";
 import { pushToUsers } from "../services/push";
 
@@ -78,6 +78,7 @@ router.post("/attendance", authMiddleware, async (req, res): Promise<void> => {
   }).returning();
 
   notifyChildCheckedIn(childId, classId, serviceSlot).catch(() => {});
+  notifyTeachersChildDroppedOff(childId, classId, serviceSlot, serviceDate).catch(() => {});
 
   getParentContacts(childId).then(({ phones, emails, parentIds, childName, className }) => {
     smsChildCheckedIn(phones, childName, className, serviceSlot, req.log).catch(() => {});

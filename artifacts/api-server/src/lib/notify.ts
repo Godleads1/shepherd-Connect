@@ -134,6 +134,58 @@ export async function notifyChildArrivedInClass(childId: number, classId: number
   }
 }
 
+/**
+ * Notify every teacher allocated to a class when a child is dropped off.
+ * Matches on classId + serviceSlot. If a serviceDate is provided it also
+ * filters by date, otherwise it is omitted (useful for walk-in check-ins
+ * where the date is today and already correct on the allocation).
+ */
+export async function notifyTeachersChildDroppedOff(
+  childId: number,
+  classId: number,
+  serviceSlot: string,
+  serviceDate?: string,
+) {
+  const [child] = await db.select().from(childrenTable).where(eq(childrenTable.id, childId));
+  if (!child) return;
+
+  const [cls] = await db.select().from(classesTable).where(eq(classesTable.id, classId));
+  const className = cls?.name ?? "your class";
+
+  const childName = `${child.firstName} ${child.lastName}`;
+  const now = new Date().toLocaleTimeString("en-NG", { hour: "2-digit", minute: "2-digit" });
+
+  // Build allocation filter
+  const conditions = [
+    eq(teacherAllocationsTable.classId, classId),
+    eq(teacherAllocationsTable.serviceSlot, serviceSlot as "7am" | "10:30am"),
+  ];
+  if (serviceDate) {
+    conditions.push(eq(teacherAllocationsTable.serviceDate, serviceDate));
+  }
+
+  const allocations = await db
+    .select()
+    .from(teacherAllocationsTable)
+    .where(and(...conditions));
+
+  for (const alloc of allocations) {
+    const [teacher] = await db
+      .select()
+      .from(teachersTable)
+      .where(eq(teachersTable.id, alloc.teacherId));
+    if (!teacher) continue;
+
+    await sendNotification({
+      userId: teacher.userId,
+      type: "child_dropped_off",
+      title: "Child Dropped Off",
+      message: `${childName} has just been dropped off for the ${serviceSlot} service and will be heading to ${className} shortly. Checked in at ${now}.`,
+      metadata: { childId, classId, serviceSlot, serviceDate },
+    });
+  }
+}
+
 export async function notifyChildPickedUp(childId: number) {
   const [child] = await db.select().from(childrenTable).where(eq(childrenTable.id, childId));
   if (!child) return;
