@@ -38,7 +38,6 @@ import MyFamily from "@/pages/my-family/index";
 import MyChildren from "@/pages/my-children/index";
 import MyClass from "@/pages/my-class/index";
 import Reports from "@/pages/reports/index";
-import ClassChangeRequests from "@/pages/class-change-requests/index";
 import Profile from "@/pages/profile/index";
 import Waitlist from "@/pages/waitlist/index";
 import Messages from "@/pages/messages/index";
@@ -97,7 +96,6 @@ function Router() {
               <Route path="/my-children" component={MyChildren} />
               <Route path="/my-class" component={MyClass} />
               <Route path="/reports" component={Reports} />
-              <Route path="/class-change-requests" component={ClassChangeRequests} />
               <Route path="/profile" component={Profile} />
               <Route path="/waitlist" component={Waitlist} />
               <Route path="/messages" component={Messages} />
