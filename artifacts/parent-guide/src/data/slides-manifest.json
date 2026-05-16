@@ -1,1 +1,74 @@
-[]
+[
+  {
+    "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567801",
+    "position": 1,
+    "filepath": "src/pages/slides/Slide1Welcome.tsx",
+    "title": "Welcome",
+    "description": "Title slide — Welcome to Shepherd Connect",
+    "speakerNotes": ""
+  },
+  {
+    "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567802",
+    "position": 2,
+    "filepath": "src/pages/slides/Slide2Register.tsx",
+    "title": "Create Your Account",
+    "description": "Three-step registration walkthrough",
+    "speakerNotes": ""
+  },
+  {
+    "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567803",
+    "position": 3,
+    "filepath": "src/pages/slides/Slide3AddChildren.tsx",
+    "title": "Add Your Children",
+    "description": "How to add a child profile — name, class, allergies",
+    "speakerNotes": ""
+  },
+  {
+    "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567804",
+    "position": 4,
+    "filepath": "src/pages/slides/Slide4CheckIn.tsx",
+    "title": "QR Code Check-In",
+    "description": "How the QR-based check-in kiosk works",
+    "speakerNotes": ""
+  },
+  {
+    "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567805",
+    "position": 5,
+    "filepath": "src/pages/slides/Slide5Journey.tsx",
+    "title": "Your Child's Journey",
+    "description": "Drop-off → In class → In transit → Picked up timeline",
+    "speakerNotes": ""
+  },
+  {
+    "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567806",
+    "position": 6,
+    "filepath": "src/pages/slides/Slide6Delegate.tsx",
+    "title": "Delegate Pickup",
+    "description": "Adding a trusted delegate and sharing the OTP",
+    "speakerNotes": ""
+  },
+  {
+    "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567807",
+    "position": 7,
+    "filepath": "src/pages/slides/Slide7Notifications.tsx",
+    "title": "Notifications",
+    "description": "Real-time alerts at every step of the child's day",
+    "speakerNotes": ""
+  },
+  {
+    "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567808",
+    "position": 8,
+    "filepath": "src/pages/slides/Slide8Profile.tsx",
+    "title": "Your Profile",
+    "description": "Managing personal details, communication preferences, and feedback",
+    "speakerNotes": ""
+  },
+  {
+    "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567809",
+    "position": 9,
+    "filepath": "src/pages/slides/Slide9Closing.tsx",
+    "title": "Safe. Known. Celebrated.",
+    "description": "Closing slide with tagline and contact info",
+    "speakerNotes": ""
+  }
+]

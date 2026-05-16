@@ -39,6 +39,10 @@ externalPort = 3003
 localPort = 21734
 externalPort = 3000
 
+[[ports]]
+localPort = 23018
+externalPort = 3002
+
 [nix]
 channel = "stable-25_05"
 packages = ["freetype", "glibcLocales"]
