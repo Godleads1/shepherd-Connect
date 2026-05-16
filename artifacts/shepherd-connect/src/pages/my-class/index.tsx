@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useListAttendance, useMarkArrived } from "@workspace/api-client-react";
+import { useListAttendance, useMarkArrived, useListTeachers, useListTeacherAllocations } from "@workspace/api-client-react";
 import { useQuery } from "@tanstack/react-query";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -43,7 +43,28 @@ export default function MyClass() {
     enabled: activeTab === "schedule" && !!user?.id,
   });
 
-  const { data: allAttendance, isLoading, refetch } = useListAttendance({ serviceDate: today });
+  // Resolve: current user → teacher record → today's allocated class
+  const { data: allTeachers } = useListTeachers();
+  const myTeacher = Array.isArray(allTeachers)
+    ? (allTeachers as any[]).find((t) => t.userId === user?.id)
+    : null;
+
+  const { data: myAllocations } = useListTeacherAllocations(
+    { serviceDate: today, teacherId: myTeacher?.id },
+    { query: { enabled: !!myTeacher?.id, queryKey: ["myTeacherAllocations", myTeacher?.id, today] } },
+  );
+  // Use the first allocation's classId (deduplicated: same class appears for both slots)
+  const myClassId: number | undefined = Array.isArray(myAllocations) && (myAllocations as any[]).length > 0
+    ? (myAllocations as any[])[0].classId
+    : undefined;
+  const myClassName: string | undefined = Array.isArray(myAllocations) && (myAllocations as any[]).length > 0
+    ? (myAllocations as any[])[0].class?.name ?? undefined
+    : undefined;
+
+  const { data: allAttendance, isLoading, refetch } = useListAttendance(
+    { serviceDate: today, classId: myClassId },
+    { query: { enabled: myClassId !== undefined, queryKey: ["myClassAttendance", myClassId, today] } },
+  );
   const arriveMutation = useMarkArrived();
 
   const attendance = Array.isArray(allAttendance) ? allAttendance : [];
@@ -92,11 +113,14 @@ export default function MyClass() {
           <div>
             <h1 className="text-2xl font-bold flex items-center gap-2"
               style={{ fontFamily: "'Playfair Display', serif" }}>
-              <School className="w-7 h-7" /> My Class
+              <School className="w-7 h-7" /> {myClassName ?? "My Class"}
             </h1>
             <p className="text-blue-200 text-sm mt-1">
               {format(new Date(), "EEEE, d MMMM yyyy")}
             </p>
+            {!myClassId && !myTeacher && (
+              <p className="text-amber-300 text-xs mt-1">No allocation found for today</p>
+            )}
           </div>
           <div className="text-right">
             <p className="text-4xl font-bold">{allPresent.length}</p>
