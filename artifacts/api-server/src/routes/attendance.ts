@@ -67,10 +67,28 @@ router.post("/attendance", authMiddleware, async (req, res): Promise<void> => {
   const [existing] = await db.select().from(attendanceTable)
     .where(and(eq(attendanceTable.childId, childId), eq(attendanceTable.serviceDate, serviceDate), eq(attendanceTable.serviceSlot, serviceSlot)));
   if (existing) {
-    // Re-notify the teacher if the child is still waiting to be received
-    // (status = dropped_off). This handles the case where the attendant
-    // checks in a child who was already registered from a previous attempt
-    // but the teacher notification was never seen or triggered.
+    if (existing.status === "picked_up") {
+      // Child was already picked up — reset for a new drop-off (e.g. second service,
+      // or correcting a premature checkout). Treat this as a fresh check-in.
+      const [reset] = await db.update(attendanceTable).set({
+        status: "dropped_off",
+        checkInTime: new Date(),
+        checkedInBy: req.user!.userId,
+        checkOutTime: null,
+        escortTime: null,
+        classArrivalTime: null,
+        confirmedByTeacherId: null,
+      }).where(eq(attendanceTable.id, existing.id)).returning();
+      notifyChildCheckedIn(childId, reset.classId, serviceSlot).catch((err) => {
+        req.log.error({ err, childId, classId: reset.classId }, "notifyChildCheckedIn failed (re-checkin after pickup)");
+      });
+      notifyTeachersChildDroppedOff(childId, reset.classId, serviceSlot, serviceDate).catch((err) => {
+        req.log.error({ err, childId, classId: reset.classId, serviceSlot, serviceDate }, "notifyTeachersChildDroppedOff failed (re-checkin after pickup)");
+      });
+      res.json(await formatAttendance(reset));
+      return;
+    }
+    // Child is dropped_off or in_transit/in_class — re-notify teacher if still waiting
     if (existing.status === "dropped_off") {
       notifyTeachersChildDroppedOff(childId, existing.classId, serviceSlot, serviceDate).catch((err) => {
         req.log.error({ err, childId, classId: existing.classId }, "notifyTeachersChildDroppedOff failed (re-checkin)");
