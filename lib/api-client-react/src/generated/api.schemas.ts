@@ -122,6 +122,16 @@ export interface PaginatedUsers {
   limit: number;
 }
 
+export type ChildServicePreference =
+  | (typeof ChildServicePreference)[keyof typeof ChildServicePreference]
+  | null;
+
+export const ChildServicePreference = {
+  "7am": "7am",
+  "10:30am": "10:30am",
+  both: "both",
+} as const;
+
 export type ClassServiceSlot =
   (typeof ClassServiceSlot)[keyof typeof ClassServiceSlot];
 
@@ -155,6 +165,7 @@ export interface Child {
   medicalNotes?: string | null;
   photoUrl?: string | null;
   faceDescriptorJson?: string | null;
+  servicePreference?: ChildServicePreference;
   currentClassId?: number | null;
   currentClass?: Class | null;
   createdAt: string;
@@ -244,6 +255,16 @@ export const CreateChildBodyGender = {
   female: "female",
 } as const;
 
+export type CreateChildBodyServicePreference =
+  | (typeof CreateChildBodyServicePreference)[keyof typeof CreateChildBodyServicePreference]
+  | null;
+
+export const CreateChildBodyServicePreference = {
+  "7am": "7am",
+  "10:30am": "10:30am",
+  both: "both",
+} as const;
+
 export interface CreateChildBody {
   familyId: number;
   firstName: string;
@@ -254,6 +275,7 @@ export interface CreateChildBody {
   medicalNotes?: string | null;
   photoUrl?: string | null;
   faceDescriptorJson?: string | null;
+  servicePreference?: CreateChildBodyServicePreference;
   currentClassId?: number | null;
 }
 

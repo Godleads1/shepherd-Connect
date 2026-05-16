@@ -2284,6 +2284,10 @@ components:
         faceDescriptorJson:
           type: string
           nullable: true
+        servicePreference:
+          type: string
+          enum: ["7am", "10:30am", "both"]
+          nullable: true
         currentClassId:
           type: integer
           nullable: true
@@ -2329,6 +2333,10 @@ components:
           nullable: true
         faceDescriptorJson:
           type: string
+          nullable: true
+        servicePreference:
+          type: string
+          enum: ["7am", "10:30am", "both"]
           nullable: true
         currentClassId:
           type: integer

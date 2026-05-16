@@ -5,6 +5,7 @@ import { familiesTable } from "./families";
 import { classesTable } from "./classes";
 
 export const genderEnum = pgEnum("gender", ["male", "female"]);
+export const servicePreferenceEnum = pgEnum("service_preference", ["7am", "10:30am", "both"]);
 
 export const childrenTable = pgTable("children", {
   id: serial("id").primaryKey(),
@@ -13,6 +14,7 @@ export const childrenTable = pgTable("children", {
   lastName: text("last_name").notNull(),
   dob: date("dob").notNull(),
   gender: genderEnum("gender").notNull(),
+  servicePreference: servicePreferenceEnum("service_preference"),
   allergies: text("allergies"),
   medicalNotes: text("medical_notes"),
   photoUrl: text("photo_url"),

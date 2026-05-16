@@ -131,7 +131,9 @@ function AddChildModal({ open, onClose, onCreated }: { open: boolean; onClose: (
 
   const [form, setForm] = useState({
     familyId: "", firstName: "", lastName: "", dob: "",
-    gender: "male" as "male" | "female", allergies: "", medicalNotes: "", photoUrl: "",
+    gender: "male" as "male" | "female",
+    servicePreference: "" as "" | "7am" | "10:30am" | "both",
+    allergies: "", medicalNotes: "", photoUrl: "",
   });
 
   const detectedAge = calcAgeFromDob(form.dob);
@@ -141,7 +143,7 @@ function AddChildModal({ open, onClose, onCreated }: { open: boolean; onClose: (
       ? `Age ${detectedAge} — no class available`
       : null;
 
-  const reset = () => setForm({ familyId: "", firstName: "", lastName: "", dob: "", gender: "male", allergies: "", medicalNotes: "", photoUrl: "" });
+  const reset = () => setForm({ familyId: "", firstName: "", lastName: "", dob: "", gender: "male", servicePreference: "", allergies: "", medicalNotes: "", photoUrl: "" });
 
   const handleClose = () => { reset(); onClose(); };
 
@@ -159,6 +161,7 @@ function AddChildModal({ open, onClose, onCreated }: { open: boolean; onClose: (
           lastName: form.lastName,
           dob: form.dob,
           gender: form.gender,
+          servicePreference: form.servicePreference || undefined,
           allergies: form.allergies || undefined,
           medicalNotes: form.medicalNotes || undefined,
           photoUrl: form.photoUrl || undefined,
@@ -240,6 +243,18 @@ function AddChildModal({ open, onClose, onCreated }: { open: boolean; onClose: (
               Auto-assigned: <span className="ml-1">{autoClass}</span>
             </div>
           )}
+
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide mb-1.5">Service Preference</label>
+            <Select value={form.servicePreference} onValueChange={v => setForm(p => ({ ...p, servicePreference: v as any }))}>
+              <SelectTrigger><SelectValue placeholder="Which service will they attend?" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="7am">1st Service · 7:00 AM</SelectItem>
+                <SelectItem value="10:30am">2nd Service · 10:30 AM</SelectItem>
+                <SelectItem value="both">Both Services</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
 
           <div>
             <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide mb-1.5">Allergies <span className="text-gray-400 font-normal">(optional)</span></label>
