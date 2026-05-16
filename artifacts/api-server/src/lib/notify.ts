@@ -1,5 +1,6 @@
 import { db, notificationsTable, usersTable, familiesTable, childrenTable, classesTable, teachersTable, teacherAllocationsTable, attendanceTable } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
+import { logger } from "./logger";
 
 type Channel = "in_app" | "whatsapp" | "sms" | "email";
 
@@ -166,6 +167,8 @@ export async function notifyTeachersChildDroppedOff(
       eq(teacherAllocationsTable.serviceDate, today),
     ));
 
+  logger.info({ classId, today, count: allocations.length }, "notifyTeachersChildDroppedOff: allocations found for date");
+
   // Fallback: use any allocation for this class if none found for today
   if (allocations.length === 0) {
     allocations = await db
@@ -174,6 +177,12 @@ export async function notifyTeachersChildDroppedOff(
       .where(eq(teacherAllocationsTable.classId, classId))
       .orderBy(teacherAllocationsTable.serviceDate)
       .limit(5);
+    logger.info({ classId, count: allocations.length }, "notifyTeachersChildDroppedOff: fallback allocations found");
+  }
+
+  if (allocations.length === 0) {
+    logger.warn({ classId, today }, "notifyTeachersChildDroppedOff: no allocations found for class — no teacher notified");
+    return;
   }
 
   // Deduplicate by teacherId so a teacher scheduled for both slots only gets one notification
@@ -186,7 +195,12 @@ export async function notifyTeachersChildDroppedOff(
       .select()
       .from(teachersTable)
       .where(eq(teachersTable.id, alloc.teacherId));
-    if (!teacher) continue;
+    if (!teacher) {
+      logger.warn({ teacherId: alloc.teacherId }, "notifyTeachersChildDroppedOff: teacher record not found");
+      continue;
+    }
+
+    logger.info({ teacherId: alloc.teacherId, userId: teacher.userId, childId, classId }, "notifyTeachersChildDroppedOff: sending notification");
 
     await sendNotification({
       userId: teacher.userId,

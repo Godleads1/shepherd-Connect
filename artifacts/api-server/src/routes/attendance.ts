@@ -72,7 +72,9 @@ router.post("/attendance", authMiddleware, async (req, res): Promise<void> => {
     // checks in a child who was already registered from a previous attempt
     // but the teacher notification was never seen or triggered.
     if (existing.status === "dropped_off") {
-      notifyTeachersChildDroppedOff(childId, existing.classId, serviceSlot, serviceDate).catch(() => {});
+      notifyTeachersChildDroppedOff(childId, existing.classId, serviceSlot, serviceDate).catch((err) => {
+        req.log.error({ err, childId, classId: existing.classId }, "notifyTeachersChildDroppedOff failed (re-checkin)");
+      });
     }
     res.json(await formatAttendance(existing));
     return;
@@ -84,8 +86,12 @@ router.post("/attendance", authMiddleware, async (req, res): Promise<void> => {
     status: "dropped_off",
   }).returning();
 
-  notifyChildCheckedIn(childId, classId, serviceSlot).catch(() => {});
-  notifyTeachersChildDroppedOff(childId, classId, serviceSlot, serviceDate).catch(() => {});
+  notifyChildCheckedIn(childId, classId, serviceSlot).catch((err) => {
+    req.log.error({ err, childId, classId }, "notifyChildCheckedIn failed");
+  });
+  notifyTeachersChildDroppedOff(childId, classId, serviceSlot, serviceDate).catch((err) => {
+    req.log.error({ err, childId, classId, serviceSlot, serviceDate }, "notifyTeachersChildDroppedOff failed");
+  });
 
   getParentContacts(childId).then(({ phones, emails, parentIds, childName, className }) => {
     smsChildCheckedIn(phones, childName, className, serviceSlot, req.log).catch(() => {});
