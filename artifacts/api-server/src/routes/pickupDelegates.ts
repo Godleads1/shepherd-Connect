@@ -39,18 +39,19 @@ router.post("/pickup-delegates", authMiddleware, async (req, res): Promise<void>
 router.post("/pickup-delegates/verify-otp", async (req, res): Promise<void> => {
   const parsed = VerifyDelegateOtpBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: "Bad request", message: parsed.error.message }); return; }
-  const { childId, otpCode } = parsed.data;
+  const { otpCode } = parsed.data;
   const [delegate] = await db.select().from(pickupDelegatesTable)
-    .where(and(eq(pickupDelegatesTable.childId, childId), eq(pickupDelegatesTable.otpCode, otpCode)));
+    .where(eq(pickupDelegatesTable.otpCode, otpCode));
   if (!delegate) {
-    res.json({ valid: false, delegate: null, message: "Invalid OTP" });
+    res.json({ valid: false, delegate: null, child: null, message: "Invalid OTP" });
     return;
   }
   if (delegate.otpExpiresAt && new Date() > delegate.otpExpiresAt) {
-    res.json({ valid: false, delegate: null, message: "OTP expired" });
+    res.json({ valid: false, delegate: null, child: null, message: "OTP has expired" });
     return;
   }
-  res.json({ valid: true, delegate: { ...delegate, otpCode: undefined }, message: "OTP verified" });
+  const [child] = await db.select().from(childrenTable).where(eq(childrenTable.id, delegate.childId));
+  res.json({ valid: true, delegate: { ...delegate, otpCode: undefined }, child: child ?? null, message: "OTP verified" });
 });
 
 router.put("/pickup-delegates/:id/approve", authMiddleware, async (req, res): Promise<void> => {

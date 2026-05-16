@@ -2480,7 +2480,6 @@ export const CreatePickupDelegateBody = zod.object({
  * @summary Verify delegate OTP for pickup
  */
 export const VerifyDelegateOtpBody = zod.object({
-  childId: zod.number(),
   otpCode: zod.string(),
 });
 

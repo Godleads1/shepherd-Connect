@@ -2775,12 +2775,9 @@ components:
     VerifyOtpBody:
       type: object
       properties:
-        childId:
-          type: integer
         otpCode:
           type: string
       required:
-        - childId
         - otpCode
 
     OtpVerifyResult:
