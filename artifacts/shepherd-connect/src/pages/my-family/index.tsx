@@ -124,9 +124,10 @@ function AttendanceHistory({ children }: { children: any[] }) {
   );
 }
 
-function WaitlistSection({ familyId, classes }: { familyId?: number; classes: any[] }) {
+function WaitlistSection({ familyId }: { familyId?: number }) {
   const [selectedClassId, setSelectedClassId] = useState("");
   const [notes, setNotes] = useState("");
+  const { data: classesData } = useListClasses({});
   const { toast } = useToast();
   const qc = useQueryClient();
 
@@ -198,7 +199,7 @@ function WaitlistSection({ familyId, classes }: { familyId?: number; classes: an
           <Select value={selectedClassId} onValueChange={setSelectedClassId}>
             <SelectTrigger className="flex-1 text-sm h-9"><SelectValue placeholder="Select class" /></SelectTrigger>
             <SelectContent>
-              {classes.filter((c: any) => c.enrollmentCount >= c.capacity).map((c: any) => (
+              {(classesData || []).filter((c: any) => c.enrollmentCount >= c.capacity).map((c: any) => (
                 <SelectItem key={c.id} value={String(c.id)}>{c.name} (Full)</SelectItem>
               ))}
             </SelectContent>
@@ -420,7 +421,6 @@ function ChildCard({ child, onRefetch }: { child: any; onRefetch: () => void }) 
 export default function MyFamily() {
   const { user } = useAuth();
   const { data: family, isLoading, refetch } = useGetMyFamily();
-  const { data: classesData } = useListClasses({});
   const createChildMutation = useCreateChild();
   const { toast } = useToast();
 
@@ -429,8 +429,24 @@ export default function MyFamily() {
   const [showWelcome, setShowWelcome] = useState(false);
   const [childForm, setChildForm] = useState({
     firstName: "", lastName: "", dob: "", gender: "male" as "male" | "female",
-    allergies: "", medicalNotes: "", currentClassId: "", photoUrl: "",
+    allergies: "", medicalNotes: "", photoUrl: "",
   });
+
+  const detectedAge = (() => {
+    if (!childForm.dob) return null;
+    const today = new Date();
+    const birth = new Date(childForm.dob);
+    if (isNaN(birth.getTime())) return null;
+    let age = today.getFullYear() - birth.getFullYear();
+    const m = today.getMonth() - birth.getMonth();
+    if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) age--;
+    return age;
+  })();
+  const autoClass = detectedAge !== null && detectedAge >= 1 && detectedAge <= 12
+    ? `Class ${detectedAge}`
+    : detectedAge !== null
+      ? `Age ${detectedAge} — no class available`
+      : null;
 
   useEffect(() => {
     if (!isLoading && shouldShowWelcome(user?.role, false)) {
@@ -460,13 +476,12 @@ export default function MyFamily() {
           gender: childForm.gender,
           allergies: childForm.allergies || null,
           medicalNotes: childForm.medicalNotes || null,
-          currentClassId: childForm.currentClassId ? Number(childForm.currentClassId) : null,
           photoUrl: childForm.photoUrl || null,
         } as any,
       });
       toast({ title: "Child added successfully!" });
       setAddChildOpen(false);
-      setChildForm({ firstName: "", lastName: "", dob: "", gender: "male", allergies: "", medicalNotes: "", currentClassId: "", photoUrl: "" });
+      setChildForm({ firstName: "", lastName: "", dob: "", gender: "male", allergies: "", medicalNotes: "", photoUrl: "" });
       refetch();
     } catch (e: any) {
       toast({ variant: "destructive", title: e.message || "Failed to add child" });
@@ -609,7 +624,7 @@ export default function MyFamily() {
       {children.length > 0 && <AttendanceHistory children={children} />}
 
       {/* Class Waitlist */}
-      <WaitlistSection familyId={family?.id} classes={classesData || []} />
+      <WaitlistSection familyId={family?.id} />
 
       {/* Family QR Modal */}
       {family && <FamilyQRModal family={family} open={qrModalOpen} onClose={() => setQrModalOpen(false)} />}
@@ -660,18 +675,15 @@ export default function MyFamily() {
                 </SelectContent>
               </Select>
             </div>
-            <div>
-              <label className="text-sm font-medium text-gray-700 block mb-1">Class (optional)</label>
-              <Select value={childForm.currentClassId || "unassigned"} onValueChange={v => setChildForm(p => ({ ...p, currentClassId: v === "unassigned" ? "" : v }))}>
-                <SelectTrigger><SelectValue placeholder="Auto-suggest by age" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="unassigned">Unassigned</SelectItem>
-                  {(classesData || []).map((c: any) => (
-                    <SelectItem key={c.id} value={String(c.id)}>{c.name} (Age {c.ageMin}–{c.ageMax})</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            {autoClass && (
+              <div className="flex items-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold border"
+                style={{ background: "#eff6ff", borderColor: "#bfdbfe", color: "#1e3a8a" }}>
+                <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" />
+                </svg>
+                Auto-assigned: <span className="ml-1">{autoClass}</span>
+              </div>
+            )}
             <div>
               <label className="text-sm font-medium text-gray-700 block mb-1">Allergies</label>
               <Input value={childForm.allergies} onChange={e => setChildForm(p => ({ ...p, allergies: e.target.value }))} placeholder="e.g. Peanuts, Dairy" />
