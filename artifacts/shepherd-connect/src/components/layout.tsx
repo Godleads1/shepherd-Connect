@@ -243,7 +243,6 @@ export function Layout({ children }: { children: ReactNode }) {
       items.push({ href: "/families",           label: t.nav.families,     icon: Users });
       items.push({ href: "/children",           label: t.nav.children,     icon: Baby });
       items.push({ href: "/classes",            label: t.nav.classes,      icon: School });
-      items.push({ href: "/class-assignments",  label: t.nav.assignments,  icon: ClipboardCheck });
       items.push({ href: "/teachers",           label: t.nav.teachers,     icon: UserCog });
       items.push({ href: "/teacher-allocations",label: t.nav.allocations,  icon: Clock });
       items.push({ href: "/attendance",         label: t.nav.attendance,   icon: CheckSquare });
