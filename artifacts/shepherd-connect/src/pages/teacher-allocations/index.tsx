@@ -60,7 +60,7 @@ export default function TeacherAllocations() {
   const [addTeacherId, setAddTeacherId] = useState("");
   const [addClassId, setAddClassId] = useState("");
   const [addDate, setAddDate] = useState(format(new Date(), "yyyy-MM-dd"));
-  const [addSlot, setAddSlot] = useState<"7am" | "10:30am">("7am");
+  const [addSlot, setAddSlot] = useState<"7am" | "10:30am" | "both">("7am");
 
   const { toast } = useToast();
   const qc = useQueryClient();
@@ -99,17 +99,23 @@ export default function TeacherAllocations() {
   });
 
   const addAllocation = useMutation({
-    mutationFn: () => apiPost("/teacher-allocations", {
-      teacherId: parseInt(addTeacherId, 10),
-      classId: parseInt(addClassId, 10),
-      serviceDate: addDate,
-      serviceSlot: addSlot,
-    }),
+    mutationFn: async () => {
+      const slots = addSlot === "both" ? ["7am", "10:30am"] : [addSlot];
+      for (const slot of slots) {
+        await apiPost("/teacher-allocations", {
+          teacherId: parseInt(addTeacherId, 10),
+          classId: parseInt(addClassId, 10),
+          serviceDate: addDate,
+          serviceSlot: slot,
+        });
+      }
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["listTeacherAllocations"] });
       setShowAddDialog(false);
       setAddTeacherId(""); setAddClassId(""); setAddSlot("7am");
-      toast({ title: "Allocation added", description: "Teacher has been scheduled." });
+      const desc = addSlot === "both" ? "Teacher scheduled for both services." : "Teacher has been scheduled.";
+      toast({ title: "Allocation added", description: desc });
     },
     onError: () => toast({ variant: "destructive", title: "Failed to add allocation" }),
   });
@@ -577,11 +583,12 @@ export default function TeacherAllocations() {
             </div>
             <div>
               <label className="text-sm font-medium text-gray-700 block mb-1.5">Service Slot</label>
-              <Select value={addSlot} onValueChange={v => setAddSlot(v as "7am" | "10:30am")}>
+              <Select value={addSlot} onValueChange={v => setAddSlot(v as "7am" | "10:30am" | "both")}>
                 <SelectTrigger className="h-10"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="7am">7:00 AM — 1st Service</SelectItem>
                   <SelectItem value="10:30am">10:30 AM — 2nd Service</SelectItem>
+                  <SelectItem value="both">Both Services</SelectItem>
                 </SelectContent>
               </Select>
             </div>
