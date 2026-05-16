@@ -95,6 +95,66 @@ export async function notifyChildInTransit(childId: number, classId: number) {
   }
 }
 
+/**
+ * Notify every teacher allocated to a class when a child is being escorted there (in_transit).
+ */
+export async function notifyTeachersChildInTransit(
+  childId: number,
+  classId: number,
+  serviceDate?: string,
+) {
+  const [child] = await db.select().from(childrenTable).where(eq(childrenTable.id, childId));
+  if (!child) return;
+
+  const [cls] = await db.select().from(classesTable).where(eq(classesTable.id, classId));
+  const className = cls?.name ?? "your class";
+
+  const childName = `${child.firstName} ${child.lastName}`;
+  const now = new Date().toLocaleTimeString("en-NG", { hour: "2-digit", minute: "2-digit" });
+  const today = serviceDate ?? new Date().toISOString().slice(0, 10);
+
+  let allocations = await db
+    .select()
+    .from(teacherAllocationsTable)
+    .where(and(
+      eq(teacherAllocationsTable.classId, classId),
+      eq(teacherAllocationsTable.serviceDate, today),
+    ));
+
+  if (allocations.length === 0) {
+    allocations = await db
+      .select()
+      .from(teacherAllocationsTable)
+      .where(eq(teacherAllocationsTable.classId, classId))
+      .orderBy(teacherAllocationsTable.serviceDate)
+      .limit(5);
+  }
+
+  if (allocations.length === 0) {
+    logger.warn({ classId, today }, "notifyTeachersChildInTransit: no allocations found — no teacher notified");
+    return;
+  }
+
+  const seenTeacherIds = new Set<number>();
+  for (const alloc of allocations) {
+    if (seenTeacherIds.has(alloc.teacherId)) continue;
+    seenTeacherIds.add(alloc.teacherId);
+
+    const [teacher] = await db.select().from(teachersTable).where(eq(teachersTable.id, alloc.teacherId));
+    if (!teacher) continue;
+
+    logger.info({ teacherId: alloc.teacherId, userId: teacher.userId, childId, classId }, "notifyTeachersChildInTransit: sending notification");
+
+    await sendNotification({
+      userId: teacher.userId,
+      type: "child_in_transit",
+      title: "Child En Route to Your Class",
+      message: `${childName} is being escorted to ${className} right now — expect them shortly (${now}).`,
+      metadata: { childId, classId, serviceDate },
+    });
+  }
+}
+
 export async function notifyChildArrivedInClass(childId: number, classId: number) {
   const [child] = await db.select().from(childrenTable).where(eq(childrenTable.id, childId));
   if (!child) return;

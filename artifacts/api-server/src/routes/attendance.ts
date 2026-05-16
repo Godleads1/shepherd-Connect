@@ -3,7 +3,7 @@ import { eq, and, ne } from "drizzle-orm";
 import { db, attendanceTable, childrenTable, classesTable, familiesTable, usersTable, notificationsTable } from "@workspace/db";
 import { CheckInBody, CheckOutBody, ListAttendanceQueryParams, ScanQrCodeBody } from "@workspace/api-zod";
 import { authMiddleware, requireRoles } from "../middlewares/auth";
-import { notifyChildCheckedIn, notifyChildInTransit, notifyChildArrivedInClass, notifyChildPickedUp, notifyTeachersChildDroppedOff } from "../lib/notify";
+import { notifyChildCheckedIn, notifyChildInTransit, notifyChildArrivedInClass, notifyChildPickedUp, notifyTeachersChildDroppedOff, notifyTeachersChildInTransit } from "../lib/notify";
 import { smsChildCheckedIn, smsChildCheckedOut, smsPreDismissal, emailChildCheckedIn, emailChildCheckedOut } from "../services/sms";
 import { pushToUsers } from "../services/push";
 
@@ -136,6 +136,9 @@ router.put("/attendance/:id/escort", authMiddleware, async (req, res): Promise<v
   if (!record) { res.status(404).json({ error: "Not found", message: "Attendance record not found or not in dropped_off state" }); return; }
 
   notifyChildInTransit(record.childId, record.classId).catch(() => {});
+  notifyTeachersChildInTransit(record.childId, record.classId).catch((err) => {
+    req.log.error({ err, childId: record.childId, classId: record.classId }, "notifyTeachersChildInTransit failed");
+  });
 
   res.json(await formatAttendance(record));
 });
