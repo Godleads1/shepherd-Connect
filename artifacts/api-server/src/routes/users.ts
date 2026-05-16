@@ -249,14 +249,20 @@ router.delete("/users/:id", authMiddleware, requireRoles("super_admin", "admin")
   if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
   const requesterRole = req.user!.role;
   const requesterId = req.user!.userId;
-  if (requesterId === id) { res.status(400).json({ error: "Bad request", message: "Cannot deactivate your own account" }); return; }
+  if (requesterId === id) { res.status(400).json({ error: "Bad request", message: "Cannot delete your own account" }); return; }
   const [target] = await db.select().from(usersTable).where(eq(usersTable.id, id));
   if (!target) { res.status(404).json({ error: "Not found", message: "User not found" }); return; }
   if (requesterRole === "admin" && (target.role === "super_admin" || target.role === "admin")) {
-    res.status(403).json({ error: "Forbidden", message: "Admins cannot deactivate super admins or other admins" }); return;
+    res.status(403).json({ error: "Forbidden", message: "Admins cannot delete super admins or other admins" }); return;
   }
-  await db.update(usersTable).set({ isActive: false, status: "suspended" }).where(eq(usersTable.id, id));
-  res.json({ success: true, message: "User deactivated" });
+  // Super admin: permanently delete. Admin: deactivate only.
+  if (requesterRole === "super_admin") {
+    await db.delete(usersTable).where(eq(usersTable.id, id));
+    res.json({ success: true, message: "User permanently deleted" });
+  } else {
+    await db.update(usersTable).set({ isActive: false, status: "suspended" }).where(eq(usersTable.id, id));
+    res.json({ success: true, message: "User deactivated" });
+  }
 });
 
 export default router;

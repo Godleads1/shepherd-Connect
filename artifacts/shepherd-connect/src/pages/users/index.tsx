@@ -61,8 +61,8 @@ function DeleteConfirmDialog({ user, onConfirm, onCancel, loading }: {
         </DialogHeader>
         <div className="space-y-4">
           <p className="text-gray-700 text-sm">
-            Are you sure you want to remove <strong>{user.firstName} {user.lastName}</strong>?
-            Their account will be deactivated and they will lose access to Shepherd Connect.
+            Are you sure you want to <strong>permanently delete</strong> <strong>{user.firstName} {user.lastName}</strong>?
+            This cannot be undone — all their data will be removed from the system.
           </p>
           <div className="p-3 bg-gray-50 rounded-xl border text-sm flex items-center gap-3">
             <div className="w-9 h-9 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
@@ -370,7 +370,7 @@ export default function Users() {
 
   const canDeleteUser = (user: any) => {
     if (user.id === currentUser?.id) return false;
-    if (isSuperAdmin) return user.role !== "super_admin";
+    if (isSuperAdmin) return true;
     if (isAdmin) return user.role === "parent" || user.role === "teacher";
     return false;
   };

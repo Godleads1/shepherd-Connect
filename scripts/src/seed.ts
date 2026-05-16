@@ -52,6 +52,26 @@ async function seed() {
     isActive: true,
   }).onConflictDoNothing().returning();
 
+  // Teachers 3–13
+  const extraTeachers = [
+    { email: "teacher3@shepherd.com",  firstName: "Chioma",  lastName: "Obi",      phone: "+2348111111103" },
+    { email: "teacher4@shepherd.com",  firstName: "Daniel",  lastName: "Adeyemi",  phone: "+2348111111104" },
+    { email: "teacher5@shepherd.com",  firstName: "Faith",   lastName: "Okonkwo",  phone: "+2348111111105" },
+    { email: "teacher6@shepherd.com",  firstName: "Gideon",  lastName: "Eze",      phone: "+2348111111106" },
+    { email: "teacher7@shepherd.com",  firstName: "Hannah",  lastName: "Bello",    phone: "+2348111111107" },
+    { email: "teacher8@shepherd.com",  firstName: "Isaac",   lastName: "Musa",     phone: "+2348111111108" },
+    { email: "teacher9@shepherd.com",  firstName: "Joy",     lastName: "Afolabi",  phone: "+2348111111109" },
+    { email: "teacher10@shepherd.com", firstName: "Kolade",  lastName: "Suleiman", phone: "+2348111111110" },
+    { email: "teacher11@shepherd.com", firstName: "Lydia",   lastName: "Yakubu",   phone: "+2348111111111" },
+    { email: "teacher12@shepherd.com", firstName: "Moses",   lastName: "Olawale",  phone: "+2348111111112" },
+    { email: "teacher13@shepherd.com", firstName: "Naomi",   lastName: "Adebayo",  phone: "+2348111111113" },
+  ];
+  const extraTeacherUsers = [];
+  for (const t of extraTeachers) {
+    const [u] = await db.insert(usersTable).values({ ...t, passwordHash: teacherHash, role: "teacher", isActive: true }).onConflictDoNothing().returning();
+    if (u) extraTeacherUsers.push(u);
+  }
+
   // Attendant
   const attendantHash = await bcrypt.hash("attend123", 12);
   const [attendant] = await db.insert(usersTable).values({
