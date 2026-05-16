@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useState, useRef, useCallback, ReactNode } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { User, useGetCurrentUser } from "@workspace/api-client-react";
 
 const SESSION_TIMEOUT_MS = 30 * 60 * 1000;
@@ -18,6 +19,7 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
+  const queryClient = useQueryClient();
   const [token, setToken] = useState<string | null>(() => localStorage.getItem("token"));
   const [user, setUser] = useState<User | null>(null);
   const [sessionWarning, setSessionWarning] = useState(false);
@@ -43,7 +45,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setSessionWarning(false);
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
     if (warningRef.current) clearTimeout(warningRef.current);
-  }, []);
+    // Clear all cached query data so the next user always sees their own fresh data
+    queryClient.clear();
+  }, [queryClient]);
 
   const resetSessionTimer = useCallback(() => {
     if (!token) return;
