@@ -7,14 +7,47 @@ import { format } from "date-fns";
 import FaceCapture from "@/components/FaceCapture";
 
 type Tab = "qr" | "face";
+type SlotChoice = "7am" | "10:30am" | "both";
 
 const SERVICE_SLOTS = [
   { value: "7am",     label: "1st Service", time: "7:00 – 10:00 AM" },
   { value: "10:30am", label: "2nd Service", time: "10:30 AM onwards" },
 ];
 
+const SLOT_OPTIONS: { value: SlotChoice; label: string }[] = [
+  { value: "7am",     label: "1st" },
+  { value: "10:30am", label: "2nd" },
+  { value: "both",    label: "Both" },
+];
+
 function isSunday() {
   return new Date().getDay() === 0;
+}
+
+function ChildSlotPicker({
+  value,
+  onChange,
+}: {
+  value: SlotChoice;
+  onChange: (v: SlotChoice) => void;
+}) {
+  return (
+    <div className="flex gap-1 rounded-lg p-0.5 mb-4" style={{ background: "#f3f4f6" }}>
+      {SLOT_OPTIONS.map(opt => (
+        <button
+          key={opt.value}
+          type="button"
+          onClick={() => onChange(opt.value)}
+          className="flex-1 py-1.5 rounded-md text-xs font-bold transition-all"
+          style={value === opt.value
+            ? { background: "#1e3a8a", color: "white", boxShadow: "0 1px 4px rgba(30,58,138,.35)" }
+            : { color: "#6b7280" }}
+        >
+          {opt.label}
+        </button>
+      ))}
+    </div>
+  );
 }
 
 export default function CheckIn() {
@@ -23,6 +56,7 @@ export default function CheckIn() {
   const [serviceSlot, setServiceSlot] = useState("7am");
   const [scanResult, setScanResult] = useState<any>(null);
   const [faceMatched, setFaceMatched] = useState(false);
+  const [childSlots, setChildSlots] = useState<Record<number, SlotChoice>>({});
   const { toast } = useToast();
 
   const scanMutation = useScanQrCode();
@@ -35,6 +69,17 @@ export default function CheckIn() {
   const { data: todayAttendance, refetch: refetchAttendance } = useListAttendance({ serviceDate: today, serviceSlot });
   const attendanceList: any[] = Array.isArray(todayAttendance) ? todayAttendance : [];
 
+  const getChildSlot = (child: any): SlotChoice => {
+    if (childSlots[child.id] !== undefined) return childSlots[child.id];
+    const pref = child.servicePreference as SlotChoice | undefined;
+    if (pref === "7am" || pref === "10:30am" || pref === "both") return pref;
+    return serviceSlot as SlotChoice;
+  };
+
+  const setChildSlot = (childId: number, slot: SlotChoice) => {
+    setChildSlots(prev => ({ ...prev, [childId]: slot }));
+  };
+
   const handleScan = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!qrCode) return;
@@ -43,6 +88,7 @@ export default function CheckIn() {
         data: { qrCode, serviceDate: today, serviceSlot }
       });
       setScanResult(result);
+      setChildSlots({});
       setQrCode("");
       refetchAttendance();
     } catch {
@@ -54,6 +100,7 @@ export default function CheckIn() {
     try {
       const result = await scanFaceMutation.mutateAsync({ data: { descriptor } });
       setScanResult(result);
+      setChildSlots({});
       setFaceMatched(true);
       refetchAttendance();
       toast({ title: "Face Matched!", description: `Family found · confidence ${(result as any).confidence ?? "—"}%` });
@@ -69,14 +116,23 @@ export default function CheckIn() {
   const isAlreadyCheckedIn = (childId: number) =>
     (todayAttendance as any)?.data?.some((a: any) => a.childId === childId) ?? false;
 
-  const handleCheckIn = async (childId: number, classId: number | undefined) => {
-    if (!classId) {
+  const checkInForSlots = async (childId: number, classId: number, slots: SlotChoice) => {
+    const slotsToBook = slots === "both" ? ["7am", "10:30am"] : [slots];
+    for (const s of slotsToBook) {
+      await checkInMutation.mutateAsync({ data: { childId, classId, serviceDate: today, serviceSlot: s } });
+    }
+  };
+
+  const handleCheckIn = async (child: any) => {
+    if (!child.currentClass) {
       toast({ variant: "destructive", title: "Cannot Check In", description: "Child is not assigned to a class" });
       return;
     }
+    const slot = getChildSlot(child);
     try {
-      await checkInMutation.mutateAsync({ data: { childId, classId, serviceDate: today, serviceSlot } });
-      toast({ title: "Dropped Off", description: "Child checked in. Assign an escort to take them to class." });
+      await checkInForSlots(child.id, child.currentClass.id, slot);
+      const label = slot === "both" ? "both services" : slot === "7am" ? "1st service" : "2nd service";
+      toast({ title: "Checked In", description: `${child.firstName} checked in for ${label}. Assign an escort to take them to class.` });
       refetchAttendance();
     } catch {
       toast({ variant: "destructive", title: "Check In Failed" });
@@ -96,8 +152,9 @@ export default function CheckIn() {
     setCheckingInAll(true);
     let done = 0;
     for (const child of eligible) {
+      const slot = getChildSlot(child);
       try {
-        await checkInMutation.mutateAsync({ data: { childId: child.id, classId: child.currentClass.id, serviceDate: today, serviceSlot } });
+        await checkInForSlots(child.id, child.currentClass.id, slot);
         done++;
       } catch { /* skip individual failures */ }
     }
@@ -116,7 +173,7 @@ export default function CheckIn() {
     }
   };
 
-  const clearScan = () => { setScanResult(null); setFaceMatched(false); };
+  const clearScan = () => { setScanResult(null); setFaceMatched(false); setChildSlots({}); };
 
   const printBadge = (child: any, familyCode?: string) => {
     const win = window.open("", "_blank", "width=400,height=300");
@@ -141,7 +198,6 @@ export default function CheckIn() {
     setTimeout(() => { win.print(); win.close(); }, 400);
   };
 
-  // Children currently dropped off (waiting escort) or in transit — pulled from live attendance
   const droppedOff = attendanceList.filter((a: any) => a.status === "dropped_off");
   const inTransit  = attendanceList.filter((a: any) => a.status === "in_transit");
 
@@ -163,7 +219,7 @@ export default function CheckIn() {
         </div>
       </div>
 
-      {/* Transit/dropped-off live strip (visible when children are waiting) */}
+      {/* Transit/dropped-off live strip */}
       {(droppedOff.length > 0 || inTransit.length > 0) && (
         <div className="w-full bg-white rounded-2xl border border-amber-200 mb-6 overflow-hidden shadow-sm">
           <div className="px-4 py-2.5 bg-amber-50 border-b border-amber-100 flex items-center justify-between">
@@ -222,9 +278,9 @@ export default function CheckIn() {
         </div>
       )}
 
-      {/* Service slot selector */}
+      {/* Global service slot selector (used as default for children without a saved preference) */}
       <div className="w-full bg-white rounded-2xl p-4 shadow-sm border border-gray-100 mb-4">
-        <p className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-2">Select Service</p>
+        <p className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-2">Default Service</p>
         <div className="flex gap-2">
           {SERVICE_SLOTS.map(slot => (
             <button key={slot.value} onClick={() => setServiceSlot(slot.value)}
@@ -338,7 +394,7 @@ export default function CheckIn() {
             </div>
           )}
 
-          {/* Check In All button — shown when 2+ children and at least one can be checked in */}
+          {/* Check In All button */}
           {scanResult.children.length > 1 && scanResult.children.some((c: any) => c.currentClass && !isAlreadyCheckedIn(c.id)) && (
             <button
               onClick={handleCheckInAll}
@@ -355,6 +411,7 @@ export default function CheckIn() {
           <div className="grid gap-5 md:grid-cols-2">
             {scanResult.children.map((child: any) => {
               const alreadyIn = isAlreadyCheckedIn(child.id);
+              const slot = getChildSlot(child);
               return (
                 <div key={child.id} className={`bg-white rounded-2xl overflow-hidden border shadow-sm flex flex-col transition-all ${alreadyIn ? "border-green-200 opacity-80" : "border-gray-100"}`}>
                   {alreadyIn && (
@@ -378,7 +435,7 @@ export default function CheckIn() {
                       </div>
                     </div>
 
-                    <div className="mb-5 flex-1">
+                    <div className="mb-3">
                       <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold bg-gray-50 border border-gray-200 text-gray-700">
                         {child.currentClass
                           ? <><CheckCircle className="w-4 h-4 text-green-600" /> {child.currentClass.name}</>
@@ -389,19 +446,30 @@ export default function CheckIn() {
                       )}
                     </div>
 
-                    <div className="flex gap-2">
+                    {/* Per-child service selector */}
+                    {!alreadyIn && child.currentClass && (
+                      <div>
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">Service</p>
+                        <ChildSlotPicker value={slot} onChange={v => setChildSlot(child.id, v)} />
+                      </div>
+                    )}
+
+                    <div className="flex gap-2 mt-auto">
                       {alreadyIn ? (
                         <div className="flex-1 h-14 rounded-xl font-bold text-base flex items-center justify-center gap-2 bg-green-50 text-green-700 border border-green-200">
                           <CheckCircle className="w-5 h-5" /> Checked In
                         </div>
                       ) : (
                         <button
-                          onClick={() => handleCheckIn(child.id, child.currentClass?.id)}
+                          onClick={() => handleCheckIn(child)}
                           disabled={!child.currentClass || checkInMutation.isPending || checkingInAll}
                           data-testid={`button-checkin-${child.id}`}
-                          className="flex-1 h-14 rounded-xl font-bold text-lg transition-all active:scale-95 disabled:opacity-50"
+                          className="flex-1 h-14 rounded-xl font-bold text-base transition-all active:scale-95 disabled:opacity-50 flex flex-col items-center justify-center leading-tight"
                           style={{ background: "#1e3a8a", color: "white" }}>
-                          Check In Child
+                          <span>Check In Child</span>
+                          <span className="text-[10px] font-medium opacity-75 mt-0.5">
+                            {slot === "both" ? "Both services" : slot === "7am" ? "1st service · 7 AM" : "2nd service · 10:30 AM"}
+                          </span>
                         </button>
                       )}
                       <button
