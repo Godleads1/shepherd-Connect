@@ -10,8 +10,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { format } from "date-fns";
-import { Zap, BarChart3, RefreshCw, Calendar, AlertTriangle, UserMinus, UserCheck, ArrowLeftRight, Pencil } from "lucide-react";
-import { apiGet, apiPost, apiPut } from "@/lib/api-call";
+import { Zap, BarChart3, RefreshCw, Calendar, AlertTriangle, UserMinus, UserCheck, ArrowLeftRight, Pencil, Trash2 } from "lucide-react";
+import { apiGet, apiPost, apiPut, apiDelete } from "@/lib/api-call";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/auth";
 
@@ -96,6 +96,15 @@ export default function TeacherAllocations() {
       toast({ title: "Allocation updated", description: "The class assignment has been changed." });
     },
     onError: () => toast({ variant: "destructive", title: "Failed to update allocation" }),
+  });
+
+  const deleteAllocation = useMutation({
+    mutationFn: (id: number) => apiDelete(`/teacher-allocations/${id}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["listTeacherAllocations"] });
+      toast({ title: "Removed", description: "Allocation removed from schedule." });
+    },
+    onError: () => toast({ variant: "destructive", title: "Failed to remove allocation" }),
   });
 
   const addAllocation = useMutation({
@@ -288,6 +297,11 @@ export default function TeacherAllocations() {
                             onClick={() => { setEditAlloc(alloc); setEditClassId(String(alloc.classId)); setEditTeacherId(String(alloc.teacherId)); setShowEditDialog(true); }}
                             className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-blue-700 border border-blue-200 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors whitespace-nowrap">
                             <Pencil className="h-3.5 w-3.5" /> Edit
+                          </button>
+                          <button
+                            onClick={() => { if (confirm("Remove this allocation from the schedule?")) deleteAllocation.mutate(alloc.id); }}
+                            className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-red-700 border border-red-200 bg-red-50 hover:bg-red-100 rounded-lg transition-colors whitespace-nowrap">
+                            <Trash2 className="h-3.5 w-3.5" /> Remove
                           </button>
                           {alloc.status === "cancelled" && (
                             <button
