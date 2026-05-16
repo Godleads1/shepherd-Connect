@@ -86,8 +86,7 @@ router.post("/teacher-allocations/auto-schedule", authMiddleware, requireRoles("
   let teacherIdx = 0;
 
   for (const slot of serviceSlots) {
-    const slotClasses = classes.filter(c => c.serviceSlot === slot || slot === c.serviceSlot);
-    for (const cls of slotClasses) {
+    for (const cls of classes) {
       const existing = await db.select().from(teacherAllocationsTable)
         .where(and(eq(teacherAllocationsTable.classId, cls.id), eq(teacherAllocationsTable.serviceDate, serviceDate), eq(teacherAllocationsTable.serviceSlot, slot)));
       if (existing.length > 0) continue;
