@@ -163,14 +163,20 @@ router.post("/attendance/scan-qr", authMiddleware, async (req, res): Promise<voi
   const { qrCode, serviceDate, serviceSlot } = parsed.data;
   let family = null;
   let children: typeof childrenTable.$inferSelect[] = [];
-  const qrParts = qrCode.split(":");
+  const qrParts = qrCode.trim().split(":");
   if (qrParts[0] === "QR" && qrParts.length >= 2) {
     const familyId = parseInt(qrParts[1], 10);
     if (!isNaN(familyId)) {
       const [f] = await db.select().from(familiesTable).where(eq(familiesTable.id, familyId));
-      family = f;
-      children = await db.select().from(childrenTable).where(eq(childrenTable.familyId, familyId));
+      family = f ?? null;
+      if (family) children = await db.select().from(childrenTable).where(eq(childrenTable.familyId, familyId));
     }
+  }
+  if (!family && qrCode.trim().toUpperCase().startsWith("FAM-")) {
+    const code = qrCode.trim().toUpperCase();
+    const [f] = await db.select().from(familiesTable).where(eq(familiesTable.familyCode, code));
+    family = f ?? null;
+    if (family) children = await db.select().from(childrenTable).where(eq(childrenTable.familyId, family.id));
   }
   if (!family) {
     res.status(404).json({ error: "Not found", message: "QR code not recognized" });
