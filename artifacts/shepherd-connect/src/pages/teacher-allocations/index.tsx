@@ -55,6 +55,13 @@ export default function TeacherAllocations() {
   const [editClassId, setEditClassId] = useState("");
   const [editTeacherId, setEditTeacherId] = useState("");
 
+  // Add allocation manually
+  const [showAddDialog, setShowAddDialog] = useState(false);
+  const [addTeacherId, setAddTeacherId] = useState("");
+  const [addClassId, setAddClassId] = useState("");
+  const [addDate, setAddDate] = useState(format(new Date(), "yyyy-MM-dd"));
+  const [addSlot, setAddSlot] = useState<"7am" | "10:30am">("7am");
+
   const { toast } = useToast();
   const qc = useQueryClient();
 
@@ -69,14 +76,14 @@ export default function TeacherAllocations() {
   const { data: teachers } = useQuery({
     queryKey: ["teachers-list-alloc"],
     queryFn: () => apiGet<Teacher[]>("/teachers"),
-    enabled: showSubstituteDialog || showEditDialog,
+    enabled: showSubstituteDialog || showEditDialog || showAddDialog,
   });
 
   type ClassItem = { id: number; name: string };
   const { data: classes } = useQuery({
     queryKey: ["classes-list-alloc"],
     queryFn: () => apiGet<ClassItem[]>("/classes"),
-    enabled: showEditDialog,
+    enabled: showEditDialog || showAddDialog,
   });
 
   const editAllocation = useMutation({
@@ -89,6 +96,22 @@ export default function TeacherAllocations() {
       toast({ title: "Allocation updated", description: "The class assignment has been changed." });
     },
     onError: () => toast({ variant: "destructive", title: "Failed to update allocation" }),
+  });
+
+  const addAllocation = useMutation({
+    mutationFn: () => apiPost("/teacher-allocations", {
+      teacherId: parseInt(addTeacherId, 10),
+      classId: parseInt(addClassId, 10),
+      serviceDate: addDate,
+      serviceSlot: addSlot,
+    }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["listTeacherAllocations"] });
+      setShowAddDialog(false);
+      setAddTeacherId(""); setAddClassId(""); setAddSlot("7am");
+      toast({ title: "Allocation added", description: "Teacher has been scheduled." });
+    },
+    onError: () => toast({ variant: "destructive", title: "Failed to add allocation" }),
   });
 
   const cancelledAllocations = (allocations || []).filter(a => a.status === "cancelled") as unknown as Allocation[];
@@ -153,11 +176,17 @@ export default function TeacherAllocations() {
           <p className="text-gray-500 text-sm mt-1">Manage teacher schedules, service hours, rotation, and substitutes.</p>
         </div>
         {isAdmin && (
-          <button onClick={() => setShowAutoDialog(true)}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-white text-sm font-bold transition-colors"
-            style={{ background: "linear-gradient(135deg, #1e3a8a, #1d4ed8)" }}>
-            <Zap className="h-4 w-4" /> Auto-Schedule
-          </button>
+          <div className="flex items-center gap-2">
+            <button onClick={() => { setAddDate(format(new Date(), "yyyy-MM-dd")); setAddTeacherId(""); setAddClassId(""); setAddSlot("7am"); setShowAddDialog(true); }}
+              className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold border border-blue-200 text-blue-700 bg-blue-50 hover:bg-blue-100 transition-colors">
+              <Pencil className="h-4 w-4" /> Add Allocation
+            </button>
+            <button onClick={() => setShowAutoDialog(true)}
+              className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-white text-sm font-bold transition-colors"
+              style={{ background: "linear-gradient(135deg, #1e3a8a, #1d4ed8)" }}>
+              <Zap className="h-4 w-4" /> Auto-Schedule
+            </button>
+          </div>
         )}
       </div>
 
@@ -503,6 +532,68 @@ export default function TeacherAllocations() {
                 reason: swapReason,
               })}>
               {assignSubstitute.isPending ? "Assigning..." : "Confirm Assignment"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add Allocation dialog */}
+      <Dialog open={showAddDialog} onOpenChange={v => { setShowAddDialog(v); if (!v) { setAddTeacherId(""); setAddClassId(""); } }}>
+        <DialogContent className="sm:max-w-md rounded-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-blue-700">
+              <Pencil className="h-5 w-5" /> Add Allocation
+            </DialogTitle>
+            <DialogDescription>Manually schedule a teacher for a class and service.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div>
+              <label className="text-sm font-medium text-gray-700 block mb-1.5">Teacher</label>
+              <Select value={addTeacherId} onValueChange={setAddTeacherId}>
+                <SelectTrigger className="h-10"><SelectValue placeholder="Select teacher..." /></SelectTrigger>
+                <SelectContent>
+                  {(teachers || []).map((t: any) => (
+                    <SelectItem key={t.id} value={String(t.id)}>
+                      {t.user?.firstName} {t.user?.lastName}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="text-sm font-medium text-gray-700 block mb-1.5">Class</label>
+              <Select value={addClassId} onValueChange={setAddClassId}>
+                <SelectTrigger className="h-10"><SelectValue placeholder="Select class..." /></SelectTrigger>
+                <SelectContent>
+                  {(classes || []).map((c) => (
+                    <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="text-sm font-medium text-gray-700 block mb-1.5">Service Date</label>
+              <Input type="date" value={addDate} onChange={e => setAddDate(e.target.value)} />
+            </div>
+            <div>
+              <label className="text-sm font-medium text-gray-700 block mb-1.5">Service Slot</label>
+              <Select value={addSlot} onValueChange={v => setAddSlot(v as "7am" | "10:30am")}>
+                <SelectTrigger className="h-10"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="7am">7:00 AM — 1st Service</SelectItem>
+                  <SelectItem value="10:30am">10:30 AM — 2nd Service</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div className="flex gap-3 pt-2">
+            <Button variant="outline" className="flex-1" onClick={() => setShowAddDialog(false)}>Cancel</Button>
+            <Button
+              className="flex-1"
+              style={{ background: "linear-gradient(135deg, #1e3a8a, #1d4ed8)" }}
+              disabled={!addTeacherId || !addClassId || !addDate || addAllocation.isPending}
+              onClick={() => addAllocation.mutate()}>
+              {addAllocation.isPending ? "Scheduling..." : "Schedule Teacher"}
             </Button>
           </div>
         </DialogContent>
