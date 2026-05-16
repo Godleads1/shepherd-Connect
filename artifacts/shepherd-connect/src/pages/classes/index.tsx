@@ -34,7 +34,7 @@ const classSchema = z.object({
   ageMin: z.coerce.number().min(0),
   ageMax: z.coerce.number().min(0),
   capacity: z.coerce.number().min(1),
-  roomLocation: z.string().min(1, "Room location is required"),
+  roomLocation: z.string().optional().default(""),
   serviceSlot: z.enum(["7am", "10:30am"]),
   description: z.string().optional()
 });
@@ -256,10 +256,6 @@ export default function Classes() {
                 )} />
               </div>
               
-              <FormField control={form.control} name="roomLocation" render={({ field }) => (
-                <FormItem><FormLabel>Room Location</FormLabel><FormControl><Input className="rounded-xl" {...field} /></FormControl><FormMessage /></FormItem>
-              )} />
-              
               <FormField control={form.control} name="description" render={({ field }) => (
                 <FormItem><FormLabel>Description (Optional)</FormLabel><FormControl><Input className="rounded-xl" {...field} /></FormControl><FormMessage /></FormItem>
               )} />
@@ -302,10 +298,6 @@ export default function Classes() {
                 </div>
                 
                 <div className="space-y-2 mb-6">
-                  <div className="flex items-center gap-2 text-sm text-gray-600 bg-gray-50 rounded-lg px-3 py-2">
-                    <MapPin className="w-4 h-4 text-blue-800 flex-shrink-0" /> 
-                    <span className="font-medium truncate">{cls.roomLocation}</span>
-                  </div>
                   <div className="flex items-center gap-2 text-sm text-gray-600 bg-gray-50 rounded-lg px-3 py-2">
                     <Clock className="w-4 h-4 text-blue-800 flex-shrink-0" /> 
                     <span className="font-medium">{cls.serviceSlot === "7am" ? "1st Service · 7:00–10:00 AM" : cls.serviceSlot === "10:30am" ? "2nd Service · 10:30 AM" : `${cls.serviceSlot} Service`}</span>

@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { QrCode, FileText, Users, MapPin, ShieldCheck, Star, PlusCircle, AlertCircle, Download, X, ListOrdered, Trash2, Camera, Loader2, Cake, ChevronDown, ChevronUp, Calendar, CheckCircle } from "lucide-react";
+import { QrCode, Users, MapPin, ShieldCheck, Star, PlusCircle, AlertCircle, Download, X, ListOrdered, Trash2, Camera, Loader2, Cake, ChevronDown, ChevronUp, Calendar, CheckCircle } from "lucide-react";
 import { useAuth } from "@/contexts/auth";
 import { QRCodeSVG } from "qrcode.react";
 import { apiGet, apiPost, apiDelete } from "@/lib/api-call";
@@ -295,9 +295,6 @@ function FamilyQRModal({ family, open, onClose }: { family: any; open: boolean; 
 }
 
 function ChildCard({ child, onRefetch }: { child: any; onRefetch: () => void }) {
-  const statusColor = child.currentClass ? "#16a34a" : "#1a237e";
-  const statusBg = child.currentClass ? "#dcfce7" : "#eff6ff";
-  const statusText = child.currentClass ? "In Class" : "Unassigned";
   const borderColor = child.currentClass ? "#16a34a" : "#1a237e";
   const hasAllergy = !!child.allergies;
   const { toast } = useToast();
@@ -397,18 +394,12 @@ function ChildCard({ child, onRefetch }: { child: any; onRefetch: () => void }) 
               <h3 className="font-semibold text-gray-900 text-base leading-tight">{child.firstName} {child.lastName}</h3>
               <p className="text-sm text-gray-500 mt-0.5">Age {child.age}</p>
             </div>
-            <span className="px-2.5 py-1 rounded-full text-xs font-semibold flex-shrink-0"
-              style={{ background: statusBg, color: statusColor }}>
-              {statusText}
-            </span>
           </div>
 
           {child.currentClass && (
             <div className="mt-3 flex items-center gap-2 text-xs text-gray-600 bg-gray-50 rounded-lg px-3 py-2">
               <MapPin className="w-3.5 h-3.5 text-[#1e3a8a] flex-shrink-0" />
               <span className="font-medium">{child.currentClass.name}</span>
-              <span className="text-gray-300">·</span>
-              <span>{child.currentClass.roomLocation}</span>
             </div>
           )}
 
@@ -417,12 +408,6 @@ function ChildCard({ child, onRefetch }: { child: any; onRefetch: () => void }) 
               <button className="w-full py-2.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-all hover:opacity-90"
                 style={{ background: "#1e3a8a", color: "white" }}>
                 <QrCode className="w-3.5 h-3.5" /> View Profile
-              </button>
-            </Link>
-            <Link href={`/class-change-requests`} className="flex-1">
-              <button className="w-full py-2.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 border transition-all hover:bg-blue-50"
-                style={{ background: "#f8faff", borderColor: "#1a237e", color: "#1a237e" }}>
-                <FileText className="w-3.5 h-3.5" /> Class Change
               </button>
             </Link>
           </div>
@@ -558,11 +543,10 @@ export default function MyFamily() {
       )}
 
       {/* Quick Actions */}
-      <div className="grid grid-cols-4 gap-3">
+      <div className="grid grid-cols-3 gap-3">
         {[
           { href: "/pickup-delegates", label: "Delegates", icon: ShieldCheck, color: "#1e3a8a" },
           { href: "/feedback", label: "Feedback", icon: Star, color: "#1a237e" },
-          { href: "/class-change-requests", label: "Class Change", icon: FileText, color: "#16a34a" },
           { href: "/notifications", label: "Alerts", icon: Users, color: "#dc2626" },
         ].map(action => {
           const Icon = action.icon;

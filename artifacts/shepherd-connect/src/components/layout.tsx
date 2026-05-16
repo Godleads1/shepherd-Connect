@@ -257,12 +257,11 @@ export function Layout({ children }: { children: ReactNode }) {
       items.push({ href: "/messages",              label: "Messages",            icon: MessageSquare, badge: msgUnreadCount });
       if (role === "super_admin") items.push({ href: "/users", label: t.nav.users, icon: ShieldCheck });
     } else if (role === "parent") {
-      items.push({ href: "/my-family",             label: t.nav.myFamily,   icon: Home });
-      items.push({ href: "/my-children",           label: t.nav.myChildren, icon: Baby });
-      items.push({ href: "/pickup-delegates",      label: t.nav.delegates,  icon: UserCog });
-      items.push({ href: "/class-change-requests", label: "Class Changes",  icon: ArrowLeftRight });
-      items.push({ href: "/messages",              label: "Messages",       icon: MessageSquare, badge: msgUnreadCount });
-      items.push({ href: "/feedback",              label: t.nav.feedback,   icon: Star });
+      items.push({ href: "/my-family",        label: t.nav.myFamily,   icon: Home });
+      items.push({ href: "/my-children",      label: t.nav.myChildren, icon: Baby });
+      items.push({ href: "/pickup-delegates", label: t.nav.delegates,  icon: UserCog });
+      items.push({ href: "/messages",         label: "Messages",       icon: MessageSquare, badge: msgUnreadCount });
+      items.push({ href: "/feedback",         label: t.nav.feedback,   icon: Star });
     } else if (role === "teacher") {
       items.push({ href: "/my-class",              label: t.nav.myClass,        icon: School });
       items.push({ href: "/attendance",            label: t.nav.attendance,     icon: CheckSquare });
