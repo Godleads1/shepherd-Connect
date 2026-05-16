@@ -90,7 +90,7 @@ export default function TeacherAllocations() {
     mutationFn: ({ id, classId, teacherId }: { id: number; classId?: number; teacherId?: number }) =>
       apiPut(`/teacher-allocations/${id}`, { ...(classId ? { classId } : {}), ...(teacherId ? { teacherId } : {}) }),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["listTeacherAllocations"] });
+      qc.invalidateQueries({ queryKey: allocQueryKey });
       setShowEditDialog(false);
       setEditClassId(""); setEditTeacherId("");
       toast({ title: "Allocation updated", description: "The class assignment has been changed." });
@@ -101,7 +101,7 @@ export default function TeacherAllocations() {
   const deleteAllocation = useMutation({
     mutationFn: (id: number) => apiDelete(`/teacher-allocations/${id}`),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["listTeacherAllocations"] });
+      qc.invalidateQueries({ queryKey: allocQueryKey });
       toast({ title: "Removed", description: "Allocation removed from schedule." });
     },
     onError: () => toast({ variant: "destructive", title: "Failed to remove allocation" }),
@@ -120,7 +120,7 @@ export default function TeacherAllocations() {
       }
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["listTeacherAllocations"] });
+      qc.invalidateQueries({ queryKey: allocQueryKey });
       setShowAddDialog(false);
       setAddTeacherId(""); setAddClassId(""); setAddSlot("7am");
       const desc = addSlot === "both" ? "Teacher scheduled for both services." : "Teacher has been scheduled.";
@@ -137,13 +137,15 @@ export default function TeacherAllocations() {
     return (myAlloc as any)?.teacher?.id ?? null;
   })();
 
+  const allocQueryKey = ["/api/teacher-allocations"];
+
   const autoSchedule = useMutation({
     mutationFn: () => apiPost<any>("/teacher-allocations/auto-schedule", {
       serviceDate: autoDate,
       serviceSlots: autoSlots.split(",").map(s => s.trim()).filter(Boolean),
     }),
     onSuccess: (data) => {
-      qc.invalidateQueries({ queryKey: ["listTeacherAllocations"] });
+      qc.invalidateQueries({ queryKey: allocQueryKey });
       setShowAutoDialog(false);
       toast({ title: "Auto-schedule complete", description: `${data.created} allocation(s) created for ${autoDate}.` });
     },
@@ -154,7 +156,7 @@ export default function TeacherAllocations() {
     mutationFn: ({ id, reason }: { id: number; reason: string }) =>
       apiPost(`/teacher-allocations/${id}/mark-unavailable`, { reason }),
     onSuccess: (data: any) => {
-      qc.invalidateQueries({ queryKey: ["listTeacherAllocations"] });
+      qc.invalidateQueries({ queryKey: allocQueryKey });
       setShowUnavailDialog(false);
       setUnavailReason("");
       toast({ title: "Marked Unavailable", description: `${data.adminNotified} admin(s) notified to assign a substitute.` });
@@ -166,7 +168,7 @@ export default function TeacherAllocations() {
     mutationFn: ({ id, teacherId, reason }: { id: number; teacherId: number; reason: string }) =>
       apiPost(`/teacher-allocations/${id}/swap`, { newTeacherId: teacherId, reason }),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["listTeacherAllocations"] });
+      qc.invalidateQueries({ queryKey: allocQueryKey });
       setShowSubstituteDialog(false);
       setNewTeacherId(""); setSwapReason("");
       toast({ title: "Substitute assigned", description: "Teacher swapped and both parties notified." });
