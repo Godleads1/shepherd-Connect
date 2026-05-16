@@ -1,7 +1,7 @@
 import { Router } from "express";
 import bcrypt from "bcryptjs";
 import { eq, ilike, or, and, sql } from "drizzle-orm";
-import { db, usersTable } from "@workspace/db";
+import { db, usersTable, pool } from "@workspace/db";
 import { CreateUserBody, UpdateUserBody, ListUsersQueryParams } from "@workspace/api-zod";
 import { authMiddleware, requireRoles } from "../middlewares/auth";
 import { smsAccountApproved, smsAccountRejected, emailAccountApproved, emailAccountRejected } from "../services/sms";
@@ -257,7 +257,43 @@ router.delete("/users/:id", authMiddleware, requireRoles("super_admin", "admin")
   }
   // Super admin: permanently delete. Admin: deactivate only.
   if (requesterRole === "super_admin") {
-    await db.delete(usersTable).where(eq(usersTable.id, id));
+    // Nullify / remove all FK references before deleting the user row.
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const stmts = [
+        "UPDATE attendance SET checked_in_by = NULL WHERE checked_in_by = $1",
+        "UPDATE attendance SET escorted_by = NULL WHERE escorted_by = $1",
+        "UPDATE attendance SET confirmed_by_teacher_id = NULL WHERE confirmed_by_teacher_id = $1",
+        "UPDATE attendance SET checked_out_by = NULL WHERE checked_out_by = $1",
+        "UPDATE class_assignments SET assigned_by = NULL WHERE assigned_by = $1",
+        "UPDATE class_change_requests SET requested_by = NULL WHERE requested_by = $1",
+        "UPDATE class_change_requests SET reviewed_by = NULL WHERE reviewed_by = $1",
+        "UPDATE emergencies SET triggered_by = NULL WHERE triggered_by = $1",
+        "UPDATE emergency_updates SET user_id = NULL WHERE user_id = $1",
+        "UPDATE safeguarding_records SET teacher_user_id = NULL WHERE teacher_user_id = $1",
+        "UPDATE safeguarding_records SET created_by = NULL WHERE created_by = $1",
+        "UPDATE substitute_requests SET requesting_teacher_id = NULL WHERE requesting_teacher_id = $1",
+        "UPDATE substitute_requests SET substitute_teacher_id = NULL WHERE substitute_teacher_id = $1",
+        "UPDATE families SET parent_1_id = NULL WHERE parent_1_id = $1",
+        "UPDATE families SET parent_2_id = NULL WHERE parent_2_id = $1",
+        "DELETE FROM teachers WHERE user_id = $1",
+        "DELETE FROM notifications WHERE user_id = $1",
+        "DELETE FROM audit_logs WHERE user_id = $1",
+        "DELETE FROM parent_feedback WHERE parent_id = $1",
+        "DELETE FROM consent_forms WHERE parent_id = $1",
+        "DELETE FROM messages WHERE sender_id = $1 OR recipient_id = $1",
+        "DELETE FROM push_subscriptions WHERE user_id = $1",
+        "DELETE FROM users WHERE id = $1",
+      ];
+      for (const stmt of stmts) await client.query(stmt, [id]);
+      await client.query("COMMIT");
+    } catch (err) {
+      await client.query("ROLLBACK");
+      throw err;
+    } finally {
+      client.release();
+    }
     res.json({ success: true, message: "User permanently deleted" });
   } else {
     await db.update(usersTable).set({ isActive: false, status: "suspended" }).where(eq(usersTable.id, id));
