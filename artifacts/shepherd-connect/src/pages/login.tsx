@@ -203,20 +203,6 @@ export default function Login() {
         return;
       }
 
-      if (!roleMatchesTab(response.user.role, selectedRole)) {
-        // Check if the role is in their secondary roles — then allow it
-        const allRoles: string[] = response.user.allRoles ?? [response.user.role];
-        const tabRole = selectedRole === "admin" ? ["admin", "super_admin"] : [selectedRole];
-        const hasAccess = allRoles.some(r => tabRole.includes(r));
-        if (!hasAccess) {
-          const correct = response.user.role === "super_admin" ? "admin" : response.user.role;
-          form.setError("root", {
-            message: `These credentials belong to a ${tabLabel[correct] ?? response.user.role} account. Please select the correct portal above.`,
-          });
-          return;
-        }
-      }
-
       localLogin(response.token, response.user);
       navigateForRole(response.user.role);
     } catch {
