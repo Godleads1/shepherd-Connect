@@ -67,6 +67,13 @@ router.post("/attendance", authMiddleware, async (req, res): Promise<void> => {
   const [existing] = await db.select().from(attendanceTable)
     .where(and(eq(attendanceTable.childId, childId), eq(attendanceTable.serviceDate, serviceDate), eq(attendanceTable.serviceSlot, serviceSlot)));
   if (existing) {
+    // Re-notify the teacher if the child is still waiting to be received
+    // (status = dropped_off). This handles the case where the attendant
+    // checks in a child who was already registered from a previous attempt
+    // but the teacher notification was never seen or triggered.
+    if (existing.status === "dropped_off") {
+      notifyTeachersChildDroppedOff(childId, existing.classId, serviceSlot, serviceDate).catch(() => {});
+    }
     res.json(await formatAttendance(existing));
     return;
   }
