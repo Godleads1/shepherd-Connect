@@ -1,0 +1,31 @@
+kind = "slides"
+previewPath = "/parent-guide/"
+title = "Shepherd Connect — Parent Guide"
+version = "1.0.0"
+id = "artifacts/parent-guide"
+router = "path"
+
+[[integratedSkills]]
+name = "slides"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/parent-guide/" ]
+localPort = 23018
+
+[services.development]
+run = "pnpm --filter @workspace/parent-guide run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/parent-guide", "run", "build" ]
+publicDir = "artifacts/parent-guide/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "23018"
+BASE_PATH = "/parent-guide/"
