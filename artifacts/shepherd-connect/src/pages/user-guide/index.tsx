@@ -7,7 +7,7 @@ import {
   Clock, ShieldCheck, Home, ArrowLeftRight, UserCircle, BarChart3,
   ChevronRight, ChevronDown, Info, Lightbulb, TriangleAlert, BookOpen,
   ListOrdered, CalendarClock, QrCode, Phone, KeyRound, Eye, Upload,
-  CheckCircle2, XCircle, ArrowRight, Settings, BadgeCheck, Hash,
+  CheckCircle2, XCircle, ArrowRight, Settings, BadgeCheck, Hash, Printer,
 } from "lucide-react";
 
 type RoleTab = "admin" | "teacher" | "attendant" | "parent";
@@ -593,25 +593,74 @@ export default function UserGuide() {
 
   const [activeTab, setActiveTab] = useState<RoleTab>(defaultTab);
 
+  const handlePrint = () => {
+    window.print();
+  };
+
   return (
     <div className="space-y-6 max-w-4xl mx-auto">
+      {/* Print-specific styles */}
+      <style>{`
+        @media print {
+          /* Hide everything except the guide content */
+          nav, header, aside, [data-no-print], .no-print { display: none !important; }
+          body { background: white !important; }
+          .print-page-break { page-break-before: always; }
+          .print-section-heading {
+            font-size: 18pt;
+            font-weight: bold;
+            color: #1e3a8a;
+            border-bottom: 2pt solid #1e3a8a;
+            padding-bottom: 6pt;
+            margin-top: 24pt;
+            margin-bottom: 12pt;
+          }
+          /* Make all role sections visible when printing */
+          .role-section { display: block !important; }
+          /* Expand all collapsed sections */
+          .section-body { display: block !important; }
+          /* Remove shadows and rounded corners for cleaner print */
+          * { box-shadow: none !important; border-radius: 4px !important; }
+          /* Ensure text is dark */
+          p, span, li { color: #1a1a1a !important; }
+          a { text-decoration: none !important; color: #1e3a8a !important; }
+          /* Print footer */
+          @page {
+            margin: 18mm 15mm;
+            size: A4;
+          }
+        }
+      `}</style>
+
       {/* Header */}
       <div className="rounded-2xl p-6 text-white relative overflow-hidden"
         style={{ background: "linear-gradient(135deg, #172554 0%, #1e3a8a 60%, #1d4ed8 100%)" }}>
         <div className="absolute -top-6 -right-6 w-36 h-36 rounded-full bg-white/5" />
         <div className="absolute -bottom-8 right-10 w-24 h-24 rounded-full bg-white/5" />
-        <div className="relative z-10 flex items-start gap-4">
-          <div className="w-12 h-12 rounded-xl bg-white/10 flex items-center justify-center flex-shrink-0">
-            <BookOpen className="w-6 h-6 text-white" />
+        <div className="relative z-10 flex items-start justify-between gap-4">
+          <div className="flex items-start gap-4">
+            <div className="w-12 h-12 rounded-xl bg-white/10 flex items-center justify-center flex-shrink-0">
+              <BookOpen className="w-6 h-6 text-white" />
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold" style={{ fontFamily: "'Playfair Display', serif" }}>
+                User Guide
+              </h1>
+              <p className="text-white/70 text-sm mt-1">
+                Step-by-step instructions for every role on Shepherd Connect
+              </p>
+            </div>
           </div>
-          <div>
-            <h1 className="text-2xl font-bold" style={{ fontFamily: "'Playfair Display', serif" }}>
-              User Guide
-            </h1>
-            <p className="text-white/70 text-sm mt-1">
-              Step-by-step instructions for every role on Shepherd Connect
-            </p>
-          </div>
+          <button
+            onClick={handlePrint}
+            data-no-print
+            className="no-print flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all flex-shrink-0"
+            style={{ background: "rgba(255,255,255,0.15)", color: "white", border: "1px solid rgba(255,255,255,0.3)" }}
+            title="Download as PDF — use your browser's Save as PDF option"
+          >
+            <Printer className="w-4 h-4" />
+            <span className="hidden sm:inline">Download PDF</span>
+          </button>
         </div>
       </div>
 
@@ -658,11 +707,23 @@ export default function UserGuide() {
         </div>
       </div>
 
-      {/* Role-specific content */}
-      {activeTab === "admin"     && <AdminGuide />}
-      {activeTab === "teacher"   && <TeacherGuide />}
-      {activeTab === "attendant" && <AttendantGuide />}
-      {activeTab === "parent"    && <ParentGuide />}
+      {/* Role-specific content — on screen shows active tab only; on print shows all */}
+      <div className={activeTab === "admin" ? "" : "hidden print:block"}>
+        <div className="print-section-heading" style={{ display: "none" }}>Admin &amp; Super Admin Guide</div>
+        <AdminGuide />
+      </div>
+      <div className={activeTab === "teacher" ? "" : "hidden print:block"}>
+        <div className="print-section-heading print-page-break" style={{ display: "none" }}>Teacher Guide</div>
+        <TeacherGuide />
+      </div>
+      <div className={activeTab === "attendant" ? "" : "hidden print:block"}>
+        <div className="print-section-heading print-page-break" style={{ display: "none" }}>Attendant Guide</div>
+        <AttendantGuide />
+      </div>
+      <div className={activeTab === "parent" ? "" : "hidden print:block"}>
+        <div className="print-section-heading print-page-break" style={{ display: "none" }}>Parent Guide</div>
+        <ParentGuide />
+      </div>
 
       {/* Demo accounts quick ref */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">

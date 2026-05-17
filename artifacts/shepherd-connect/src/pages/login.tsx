@@ -203,6 +203,15 @@ export default function Login() {
         return;
       }
 
+      // Enforce tab selection: user must have chosen the correct role tab
+      if (!roleMatchesTab(response.user.role, selectedRole)) {
+        const correctTab = response.user.role === "super_admin" ? "admin" : response.user.role;
+        form.setError("root", {
+          message: `These credentials belong to a ${tabLabel[correctTab] ?? response.user.role} account. Please select the "${tabLabel[correctTab] ?? response.user.role}" tab above and try again.`,
+        });
+        return;
+      }
+
       localLogin(response.token, response.user);
       navigateForRole(response.user.role);
     } catch {
