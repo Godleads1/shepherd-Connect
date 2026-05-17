@@ -22,6 +22,7 @@ function ServiceClock() {
   const [showSet, setShowSet] = useState(false);
   const [now, setNow] = useState(new Date());
   const [predismissalSent, setPredismissalSent] = useState(false);
+  const [feedbackSent, setFeedbackSent] = useState(false);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -51,13 +52,29 @@ function ServiceClock() {
     }
   }, [minsLeft, predismissalSent, endTime, toast]);
 
+  useEffect(() => {
+    if (isPast && !feedbackSent && endTime) {
+      setFeedbackSent(true);
+      apiPost("/notifications/broadcast", {
+        title: "How was today's service? 💬",
+        message: "Service has ended! We'd love to hear your thoughts. Please take a moment to share your feedback through the app.",
+        targetRole: "parent",
+        type: "feedback_prompt",
+        channel: "in_app",
+      }).then(() => {
+        toast({ title: "Feedback Prompt Sent", description: "Parents have been invited to rate today's service." });
+      }).catch(() => {});
+    }
+  }, [isPast, feedbackSent, endTime, toast]);
+
   const handleSet = () => {
     if (!inputTime) return;
     setEndTime(inputTime);
     localStorage.setItem(SERVICE_CLOCK_KEY, inputTime);
     setPredismissalSent(false);
+    setFeedbackSent(false);
     setShowSet(false);
-    toast({ title: "Service end time set", description: `Pre-dismissal alert will auto-send at 10 min before ${inputTime}.` });
+    toast({ title: "Service end time set", description: `Pre-dismissal alert at 10 min, feedback prompt at service end.` });
   };
 
   const handleClear = () => {
@@ -65,6 +82,7 @@ function ServiceClock() {
     setInputTime("");
     localStorage.removeItem(SERVICE_CLOCK_KEY);
     setPredismissalSent(false);
+    setFeedbackSent(false);
   };
 
   if (!endTime && !isAdmin) return null;

@@ -25,6 +25,7 @@ import messagesRouter from "./messages";
 import consentFormsRouter from "./consentForms";
 import safeguardingRouter from "./safeguarding";
 import pushRouter from "./push";
+import webhooksRouter from "./webhooks";
 
 const router: IRouter = Router();
 
@@ -54,5 +55,6 @@ router.use(messagesRouter);
 router.use(consentFormsRouter);
 router.use(safeguardingRouter);
 router.use(pushRouter);
+router.use(webhooksRouter);
 
 export default router;
