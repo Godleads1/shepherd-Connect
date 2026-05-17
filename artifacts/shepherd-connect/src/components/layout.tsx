@@ -4,11 +4,12 @@ import { useAuth } from "@/contexts/auth";
 import { useLogout } from "@workspace/api-client-react";
 import { useLang, LANGUAGES, LangCode } from "@/contexts/language";
 import { useToast } from "@/hooks/use-toast";
+import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import {
   LayoutDashboard, Users, Baby, School, ClipboardCheck, CheckSquare,
   LogOut, Menu, Bell, MessageSquare, AlertTriangle, UserCog, FileText, Star,
   Clock, ShieldCheck, QrCode, Home, Grid3x3, X, ChevronRight, Globe,
-  BarChart3, UserCircle, Search, ListOrdered, CalendarClock, BookOpen,
+  BarChart3, UserCircle, Search, ListOrdered, CalendarClock, BookOpen, WifiOff,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api-call";
@@ -249,6 +250,7 @@ export function Layout({ children }: { children: ReactNode }) {
       items.push({ href: "/emergencies",        label: t.nav.emergencies,  icon: AlertTriangle });
       items.push({ href: "/audit",              label: t.nav.auditLogs,    icon: FileText });
       items.push({ href: "/reports",               label: "Reports",             icon: BarChart3 });
+      items.push({ href: "/error-logs",            label: "Error Logs",          icon: AlertTriangle });
       items.push({ href: "/waitlist",              label: "Waitlist",            icon: ListOrdered });
       items.push({ href: "/substitute-requests",   label: "Substitute Requests", icon: CalendarClock });
       items.push({ href: "/safeguarding",          label: "Safeguarding & DBS",  icon: ShieldCheck });
@@ -382,6 +384,8 @@ export function Layout({ children }: { children: ReactNode }) {
     </div>
   );
 
+  const isOnline = useOnlineStatus();
+
   return (
     <div className="flex min-h-screen w-full bg-background">
 
@@ -480,6 +484,15 @@ export function Layout({ children }: { children: ReactNode }) {
             </Link>
           </div>
         </header>
+
+        {/* Offline banner */}
+        {!isOnline && (
+          <div className="flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white"
+            style={{ background: "#b45309" }}>
+            <WifiOff className="w-4 h-4 flex-shrink-0" />
+            You are offline. Check-ins will be queued and synced when connectivity is restored.
+          </div>
+        )}
 
         {/* Page Content */}
         <main className="flex-1 p-4 md:p-6 lg:p-8 pb-24 md:pb-8">

@@ -88,6 +88,7 @@
     "@uppy/dashboard": "^5.1.1",
     "@uppy/react": "^5.2.0",
     "face-api.js": "^0.22.2",
+    "jsqr": "^1.4.0",
     "qrcode.react": "^4.2.0"
   }
 }

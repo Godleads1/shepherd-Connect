@@ -1,10 +1,13 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useScanQrCode, useCheckIn, useEscortToClass, useScanFace, useListAttendance } from "@workspace/api-client-react";
 import { Input } from "@/components/ui/input";
-import { AlertTriangle, CheckCircle, QrCode, Scan, Truck, ShieldCheck, Users } from "lucide-react";
+import { AlertTriangle, CheckCircle, QrCode, Scan, Truck, ShieldCheck, Users, Camera, WifiOff, Upload } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import FaceCapture from "@/components/FaceCapture";
+import QrCameraScanner from "@/components/QrCameraScanner";
+import { useOnlineStatus } from "@/hooks/useOnlineStatus";
+import { enqueueCheckIn, getQueue, removeFromQueue, type QueuedCheckIn } from "@/lib/offline-queue";
 
 type Tab = "qr" | "face";
 type SlotChoice = "7am" | "10:30am" | "both";
@@ -57,6 +60,11 @@ export default function CheckIn() {
   const [scanResult, setScanResult] = useState<any>(null);
   const [faceMatched, setFaceMatched] = useState(false);
   const [childSlots, setChildSlots] = useState<Record<number, SlotChoice>>({});
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const [checkingInAll, setCheckingInAll] = useState(false);
+  const [syncingQueue, setSyncingQueue] = useState(false);
+  const [queueCount, setQueueCount] = useState(() => getQueue().length);
+  const isOnline = useOnlineStatus();
   const { toast } = useToast();
 
   const scanMutation = useScanQrCode();
@@ -123,12 +131,56 @@ export default function CheckIn() {
     }
   };
 
+  const processOfflineQueue = useCallback(async () => {
+    const queue = getQueue();
+    if (queue.length === 0) return;
+    setSyncingQueue(true);
+    let synced = 0;
+    for (const item of queue) {
+      try {
+        await checkInMutation.mutateAsync({
+          data: { childId: item.childId, classId: item.classId, serviceDate: item.serviceDate, serviceSlot: item.serviceSlot },
+        });
+        removeFromQueue(item.id);
+        synced++;
+      } catch { /* leave in queue */ }
+    }
+    setQueueCount(getQueue().length);
+    setSyncingQueue(false);
+    if (synced > 0) {
+      toast({ title: `Synced ${synced} offline check-in${synced > 1 ? "s" : ""}` });
+      refetchAttendance();
+    }
+  }, [checkInMutation, toast, refetchAttendance]);
+
+  useEffect(() => {
+    if (isOnline && getQueue().length > 0) {
+      processOfflineQueue();
+    }
+  }, [isOnline, processOfflineQueue]);
+
   const handleCheckIn = async (child: any) => {
     if (!child.currentClass) {
       toast({ variant: "destructive", title: "Cannot Check In", description: "Child is not assigned to a class" });
       return;
     }
     const slot = getChildSlot(child);
+
+    if (!isOnline) {
+      enqueueCheckIn({
+        type: "checkin",
+        childId: child.id,
+        classId: child.currentClass.id,
+        serviceDate: today,
+        serviceSlot: slot === "both" ? "7am" : slot,
+        childName: `${child.firstName} ${child.lastName}`,
+      });
+      setQueueCount(getQueue().length);
+      const label = slot === "both" ? "both services" : slot === "7am" ? "1st service" : "2nd service";
+      toast({ title: "Queued Offline", description: `${child.firstName} will be checked in for ${label} when you reconnect.` });
+      return;
+    }
+
     try {
       await checkInForSlots(child.id, child.currentClass.id, slot);
       const label = slot === "both" ? "both services" : slot === "7am" ? "1st service" : "2nd service";
@@ -139,7 +191,6 @@ export default function CheckIn() {
     }
   };
 
-  const [checkingInAll, setCheckingInAll] = useState(false);
   const handleCheckInAll = async () => {
     if (!scanResult?.children) return;
     const eligible = scanResult.children.filter(
@@ -314,6 +365,32 @@ export default function CheckIn() {
         })}
       </div>
 
+      {/* Offline / queue status strip */}
+      {!isOnline && (
+        <div className="w-full flex items-center gap-2 px-4 py-2.5 rounded-xl mb-4 text-sm font-semibold"
+          style={{ background: "#fef3c7", color: "#92400e", border: "1px solid #fde68a" }}>
+          <WifiOff className="w-4 h-4 flex-shrink-0" />
+          Offline mode — check-ins will be queued and synced on reconnect.
+          {queueCount > 0 && <span className="ml-1 px-2 py-0.5 rounded-full text-xs" style={{ background: "#d97706", color: "white" }}>{queueCount} queued</span>}
+        </div>
+      )}
+      {isOnline && queueCount > 0 && (
+        <div className="w-full flex items-center justify-between gap-2 px-4 py-2.5 rounded-xl mb-4 text-sm font-semibold"
+          style={{ background: "#ecfdf5", color: "#065f46", border: "1px solid #a7f3d0" }}>
+          <div className="flex items-center gap-2">
+            <Upload className="w-4 h-4" />
+            {queueCount} offline check-in{queueCount > 1 ? "s" : ""} ready to sync
+          </div>
+          <button
+            onClick={processOfflineQueue}
+            disabled={syncingQueue}
+            className="px-3 py-1 rounded-lg text-xs font-bold"
+            style={{ background: "#059669", color: "white" }}>
+            {syncingQueue ? "Syncing…" : "Sync Now"}
+          </button>
+        </div>
+      )}
+
       {/* QR tab */}
       {activeTab === "qr" && !scanResult && (
         <div className="w-full bg-white rounded-3xl p-6 shadow-sm border border-gray-100 mb-8">
@@ -330,6 +407,14 @@ export default function CheckIn() {
               />
             </div>
             <button
+              type="button"
+              onClick={() => setCameraOpen(true)}
+              title="Use camera to scan QR"
+              className="h-16 px-5 rounded-2xl font-bold text-lg transition-all active:scale-95 border-2 flex items-center justify-center"
+              style={{ borderColor: "#1e3a8a", color: "#1e3a8a" }}>
+              <Camera className="w-6 h-6" />
+            </button>
+            <button
               type="submit"
               disabled={scanMutation.isPending}
               data-testid="button-scan"
@@ -339,6 +424,19 @@ export default function CheckIn() {
             </button>
           </form>
         </div>
+      )}
+
+      {cameraOpen && (
+        <QrCameraScanner
+          onScan={(code) => {
+            setCameraOpen(false);
+            setQrCode(code);
+            setTimeout(() => {
+              document.querySelector<HTMLButtonElement>("[data-testid='button-scan']")?.click();
+            }, 50);
+          }}
+          onClose={() => setCameraOpen(false)}
+        />
       )}
 
       {/* Face tab */}
