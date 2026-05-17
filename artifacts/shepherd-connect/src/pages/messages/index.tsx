@@ -38,7 +38,7 @@ function MessageThread({ message, onBack }: { message: any; onBack: () => void }
 
   const sendMutation = useMutation({
     mutationFn: (body: string) =>
-      apiPost("/messages", { recipientId: other?.id, childId: message.childId, subject: message.subject, body }),
+      apiPost("/messages", { recipientId: other?.id, ...(message.childId ? { childId: message.childId } : {}), subject: message.subject, body }),
     onSuccess: () => {
       setReply("");
       qc.invalidateQueries({ queryKey: ["messages"] });
