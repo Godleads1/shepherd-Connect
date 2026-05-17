@@ -32,6 +32,7 @@ export const usersTable = pgTable("users", {
   gender: text("gender"),
   placeOfWork: text("place_of_work"),
   communicationPrefs: text("communication_prefs"),
+  hideContactFromAdmin: boolean("hide_contact_from_admin").notNull().default(false),
   mfaSecret: text("mfa_secret"),
   mfaEnabled: boolean("mfa_enabled").notNull().default(false),
   secondaryRoles: text("secondary_roles"),

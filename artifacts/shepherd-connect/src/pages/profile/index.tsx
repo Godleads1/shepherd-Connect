@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
-import { User, Phone, Briefcase, Bell, Save, CheckCircle, MessageSquare, Smartphone, ShieldCheck, ShieldOff, QrCode, Loader2, KeyRound, Mail, BellRing } from "lucide-react";
+import { User, Phone, Briefcase, Bell, Save, CheckCircle, MessageSquare, Smartphone, ShieldCheck, ShieldOff, QrCode, Loader2, KeyRound, Mail, BellRing, EyeOff } from "lucide-react";
 import { usePushNotifications } from "@/hooks/usePushNotifications";
 import { QRCodeSVG } from "qrcode.react";
 import { PhotoUploader, resolvePhotoUrl } from "@/components/PhotoUploader";
@@ -332,6 +332,8 @@ export default function Profile() {
     dob: "", gender: "", placeOfWork: "", photoUrl: "",
   });
   const [prefs, setPrefs] = useState<CommPrefs>({ inApp: true, whatsapp: false, sms: false, email: false });
+  const [hideContact, setHideContact] = useState(false);
+  const [savingPrivacy, setSavingPrivacy] = useState(false);
   const [editing, setEditing] = useState(false);
   const [savingPref, setSavingPref] = useState<string | null>(null);
 
@@ -349,6 +351,9 @@ export default function Profile() {
       if (profile.communicationPrefs) {
         try { setPrefs(JSON.parse(profile.communicationPrefs)); } catch {}
       }
+      if (typeof profile.hideContactFromAdmin === "boolean") {
+        setHideContact(profile.hideContactFromAdmin);
+      }
     }
   }, [profile]);
 
@@ -364,6 +369,21 @@ export default function Profile() {
 
   const handleSave = () => {
     saveMutation.mutate({ ...form, communicationPrefs: JSON.stringify(prefs) });
+  };
+
+  const togglePrivacy = async () => {
+    const next = !hideContact;
+    setHideContact(next);
+    setSavingPrivacy(true);
+    try {
+      await apiPut(`/users/${authUser!.id}`, { hideContactFromAdmin: next });
+      toast({ title: next ? "Contact details hidden from admins" : "Contact details visible to admins" });
+    } catch {
+      setHideContact(!next);
+      toast({ variant: "destructive", title: "Failed to save privacy setting" });
+    } finally {
+      setSavingPrivacy(false);
+    }
   };
 
   const togglePref = async (key: keyof CommPrefs) => {
@@ -543,6 +563,42 @@ export default function Profile() {
             );
           })}
         </div>
+      </div>
+
+      {/* Privacy */}
+      <div className="bg-white border rounded-2xl p-5">
+        <h2 className="font-semibold text-gray-900 mb-1 flex items-center gap-2">
+          <EyeOff className="w-4 h-4 text-[#1e3a8a]" /> Privacy
+        </h2>
+        <p className="text-xs text-gray-500 mb-4">Control what admins can see about your account</p>
+        <div
+          className={`flex items-center justify-between p-3 rounded-xl border transition-all select-none cursor-pointer active:scale-[0.98] ${hideContact ? "bg-blue-50 border-blue-200" : "bg-gray-50 border-gray-200"}`}
+          onClick={() => !savingPrivacy && togglePrivacy()}
+        >
+          <div className="flex items-center gap-3">
+            <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${hideContact ? "bg-[#1e3a8a]" : "bg-gray-200"}`}>
+              <EyeOff className={`w-4 h-4 ${hideContact ? "text-white" : "text-gray-400"}`} />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-gray-900">Hide contact details from admins</p>
+              <p className="text-xs text-gray-500">
+                {hideContact
+                  ? "Your email and phone number are hidden from admins"
+                  : "Admins can currently see your email and phone number"}
+              </p>
+            </div>
+          </div>
+          <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all ${hideContact ? "border-[#1e3a8a] bg-[#1e3a8a]" : "border-gray-300"}`}>
+            {savingPrivacy
+              ? <Loader2 className="w-3 h-3 text-white animate-spin" />
+              : hideContact && <CheckCircle className="w-3 h-3 text-white" />}
+          </div>
+        </div>
+        {hideContact && (
+          <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mt-3">
+            Note: Super admins retain the ability to contact you in genuine emergencies regardless of this setting.
+          </p>
+        )}
       </div>
 
       {/* Push Notifications */}
