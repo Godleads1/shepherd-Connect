@@ -50,16 +50,22 @@ export default function MyClass() {
     : null;
 
   const { data: myAllocations } = useListTeacherAllocations(
-    { serviceDate: today, teacherId: myTeacher?.id },
-    { query: { enabled: !!myTeacher?.id, queryKey: ["myTeacherAllocations", myTeacher?.id, today] } },
+    { teacherId: myTeacher?.id },
+    { query: { enabled: !!myTeacher?.id, queryKey: ["myTeacherAllocations", myTeacher?.id] } },
   );
-  // Use the first allocation's classId (deduplicated: same class appears for both slots)
-  const myClassId: number | undefined = Array.isArray(myAllocations) && (myAllocations as any[]).length > 0
-    ? (myAllocations as any[])[0].classId
-    : undefined;
-  const myClassName: string | undefined = Array.isArray(myAllocations) && (myAllocations as any[]).length > 0
-    ? (myAllocations as any[])[0].class?.name ?? undefined
-    : undefined;
+  // Sort all allocations by date descending and pick the most recent class.
+  // This means the page works even when admins haven't created today's allocations yet.
+  const allocList: any[] = Array.isArray(myAllocations) ? (myAllocations as any[]) : [];
+  const sortedAllocs = [...allocList].sort(
+    (a, b) => new Date(b.serviceDate).getTime() - new Date(a.serviceDate).getTime()
+  );
+  const todayAlloc = sortedAllocs.find((a) => a.serviceDate === today);
+  const mostRecentAlloc = sortedAllocs[0];
+  const activeAlloc = todayAlloc ?? mostRecentAlloc;
+  const hasAllocationToday = !!todayAlloc;
+
+  const myClassId: number | undefined = activeAlloc?.classId;
+  const myClassName: string | undefined = activeAlloc?.class?.name ?? undefined;
 
   const { data: allAttendance, isLoading, refetch } = useListAttendance(
     { serviceDate: today, classId: myClassId },
@@ -118,6 +124,11 @@ export default function MyClass() {
             <p className="text-blue-200 text-sm mt-1">
               {format(new Date(), "EEEE, d MMMM yyyy")}
             </p>
+            {myClassId && !hasAllocationToday && (
+              <p className="text-amber-300 text-xs mt-1">
+                No allocation for today — showing your most recent class
+              </p>
+            )}
             {!myClassId && !myTeacher && (
               <p className="text-amber-300 text-xs mt-1">No allocation found for today</p>
             )}
