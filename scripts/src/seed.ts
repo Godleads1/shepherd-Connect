@@ -153,6 +153,9 @@ async function seed() {
   console.log("Teachers seeded");
 
   // Families
+  // Helper: find seeded class by age
+  const cls = (age: number) => classRecords.find(c => (c as any).ageMin === age);
+
   if (parent1) {
     const [family1] = await db.insert(familiesTable).values({
       familyCode: "FAM-MENS01",
@@ -161,9 +164,6 @@ async function seed() {
       emergencyContactName: "Uncle Kwame Mensah",
       emergencyContactPhone: "+2348090123456",
     }).onConflictDoNothing().returning();
-
-    // Helper: find seeded class by age
-    const cls = (age: number) => classRecords.find(c => (c as any).ageMin === age);
 
     if (family1) {
       // Children for family 1

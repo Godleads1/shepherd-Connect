@@ -114,7 +114,8 @@ function step(n: number, title: string, detail: string) {
 function tip(text: string) {
   checkSpace(36);
   const x = doc.x; const y = doc.y;
-  const boxH = Math.max(32, doc.heightOfString(text, { width: W - 36, fontSize: 9 }) + 16);
+  doc.fontSize(9);
+  const boxH = Math.max(32, doc.heightOfString(text, { width: W - 36 }) + 16);
   doc.roundedRect(x, y, W, boxH, 6).fill("#eff6ff");
   doc.roundedRect(x, y, W, boxH, 6).strokeColor("#bfdbfe").lineWidth(0.8).stroke();
   doc.fontSize(9).font("Helvetica-Bold").fillColor("#1d4ed8").text("💡 Tip", x + 10, y + 9, { continued: true });
@@ -126,7 +127,8 @@ function tip(text: string) {
 function warn(text: string) {
   checkSpace(36);
   const x = doc.x; const y = doc.y;
-  const boxH = Math.max(32, doc.heightOfString(text, { width: W - 36, fontSize: 9 }) + 16);
+  doc.fontSize(9);
+  const boxH = Math.max(32, doc.heightOfString(text, { width: W - 36 }) + 16);
   doc.roundedRect(x, y, W, boxH, 6).fill("#fffbeb");
   doc.roundedRect(x, y, W, boxH, 6).strokeColor("#fcd34d").lineWidth(0.8).stroke();
   doc.fontSize(9).font("Helvetica-Bold").fillColor(AMBER).text("⚠ Warning", x + 10, y + 9, { continued: true });
@@ -138,7 +140,8 @@ function warn(text: string) {
 function note(text: string) {
   checkSpace(30);
   const x = doc.x; const y = doc.y;
-  const boxH = Math.max(28, doc.heightOfString(text, { width: W - 36, fontSize: 9 }) + 14);
+  doc.fontSize(9);
+  const boxH = Math.max(28, doc.heightOfString(text, { width: W - 36 }) + 14);
   doc.roundedRect(x, y, W, boxH, 6).fill("#f9fafb");
   doc.roundedRect(x, y, W, boxH, 6).strokeColor(BORDER).lineWidth(0.8).stroke();
   doc.fontSize(9).font("Helvetica-Bold").fillColor(GRAY).text("ℹ Note", x + 10, y + 8, { continued: true });
@@ -150,7 +153,8 @@ function note(text: string) {
 function tableRow(cols: string[], widths: number[], isHeader: boolean, isAlt: boolean) {
   checkSpace(20);
   const x = doc.x; const y = doc.y;
-  const rowH = Math.max(20, ...cols.map((c, i) => doc.heightOfString(c, { width: widths[i] - 10, fontSize: 9 }) + 10));
+  doc.fontSize(9);
+  const rowH = Math.max(20, ...cols.map((c, i) => doc.heightOfString(c, { width: widths[i] - 10 }) + 10));
   if (isHeader) {
     doc.rect(x, y, W, rowH).fill(BLUE);
   } else if (isAlt) {

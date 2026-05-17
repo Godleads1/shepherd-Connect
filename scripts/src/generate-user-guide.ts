@@ -128,7 +128,7 @@ function coverPage() {
     .text(`Version 2.0  ·  May 2026  ·  Confidential Ministry Document`, M, 362, { align: "center", width: CW });
 
   // Feature pill row
-  const pills = ["Check-in / Check-out", "Messaging", "Reports", "Safeguarding", "Consent Forms\"];
+  const pills = ["Check-in / Check-out", "Messaging", "Reports", "Safeguarding", "Consent Forms"];
   let pillX = M;
   const pillY = 410;
   pills.forEach(label => {
@@ -221,48 +221,48 @@ function tableOfContents() {
   let y = 110;
 
   const entries: [string, string, boolean, string][] = [
-    ["1.",  "Getting Started",                    false, "4\"],
-    ["1.1", "System Overview",                    true,  "4\"],
-    ["1.2", "Logging In",                         true,  "4\"],
-    ["1.3", "Registering an Account",             true,  "5\"],
-    ["1.4", "Navigation & Interface",             true,  "5\"],
-    ["2.",  "Super Admin",                        false, "6\"],
-    ["2.1", "User Management & Approvals",        true,  "6\"],
-    ["2.2", "Audit Logs",                         true,  "7\"],
-    ["3.",  "Admin",                              false, "7\"],
-    ["3.1", "Dashboard",                          true,  "7\"],
-    ["3.2", "Families",                           true,  "8\"],
-    ["3.3", "Children",                           true,  "8\"],
-    ["3.4", "Classes & Assignments",              true,  "9\"],
-    ["3.5", "Teachers & Allocations",             true,  "9\"],
-    ["3.6", "Emergencies",                        true,  "10\"],
-    ["3.7", "Safeguarding & DBS",                 true,  "10\"],
-    ["3.8", "Substitute Requests",               true,  "11\"],
-    ["3.9", "Waitlist",                           true,  "11\"],
-    ["3.10","Reports & Analytics",               true,  "12\"],
-    ["4.",  "Teacher",                            false, "13\"],
-    ["4.1", "My Class",                          true,  "13\"],
-    ["4.2", "Attendance & Arrivals",             true,  "14\"],
-    ["4.3", "Child Appraisals",                  true,  "14\"],
-    ["4.4", "Class Change Requests",             true,  "15\"],
-    ["4.5", "Birthday Widget",                   true,  "15\"],
-    ["4.6", "Substitute Requests",              true,  "15\"],
-    ["5.",  "Attendant",                         false, "16\"],
-    ["5.1", "Check-In Kiosk",                    true,  "16\"],
-    ["5.2", "Standard Check-Out",                true,  "17\"],
-    ["5.3", "Delegate OTP Check-Out",           true,  "17\"],
-    ["6.",  "Parent",                            false, "18\"],
-    ["6.1", "My Family",                         true,  "18\"],
-    ["6.2", "My Children & Consent Forms",       true,  "19\"],
-    ["6.3", "Pickup Delegates & OTP",            true,  "19\"],
-    ["6.4", "Class Change Requests",             true,  "20\"],
-    ["6.5", "Messages",                          true,  "20\"],
-    ["6.6", "Feedback",                          true,  "20\"],
-    ["7.",  "Messaging System",                  false, "21\"],
-    ["8.",  "Notifications",                     false, "22\"],
-    ["9.",  "Profile & Settings",               false, "22\"],
-    ["10.", "Security & Safeguarding",           false, "23\"],
-    ["11.", "Frequently Asked Questions",        false, "24\"],
+    ["1.",  "Getting Started",                    false, "4"],
+    ["1.1", "System Overview",                    true,  "4"],
+    ["1.2", "Logging In",                         true,  "4"],
+    ["1.3", "Registering an Account",             true,  "5"],
+    ["1.4", "Navigation & Interface",             true,  "5"],
+    ["2.",  "Super Admin",                        false, "6"],
+    ["2.1", "User Management & Approvals",        true,  "6"],
+    ["2.2", "Audit Logs",                         true,  "7"],
+    ["3.",  "Admin",                              false, "7"],
+    ["3.1", "Dashboard",                          true,  "7"],
+    ["3.2", "Families",                           true,  "8"],
+    ["3.3", "Children",                           true,  "8"],
+    ["3.4", "Classes & Assignments",              true,  "9"],
+    ["3.5", "Teachers & Allocations",             true,  "9"],
+    ["3.6", "Emergencies",                        true,  "10"],
+    ["3.7", "Safeguarding & DBS",                 true,  "10"],
+    ["3.8", "Substitute Requests",               true,  "11"],
+    ["3.9", "Waitlist",                           true,  "11"],
+    ["3.10","Reports & Analytics",               true,  "12"],
+    ["4.",  "Teacher",                            false, "13"],
+    ["4.1", "My Class",                          true,  "13"],
+    ["4.2", "Attendance & Arrivals",             true,  "14"],
+    ["4.3", "Child Appraisals",                  true,  "14"],
+    ["4.4", "Class Change Requests",             true,  "15"],
+    ["4.5", "Birthday Widget",                   true,  "15"],
+    ["4.6", "Substitute Requests",              true,  "15"],
+    ["5.",  "Attendant",                         false, "16"],
+    ["5.1", "Check-In Kiosk",                    true,  "16"],
+    ["5.2", "Standard Check-Out",                true,  "17"],
+    ["5.3", "Delegate OTP Check-Out",           true,  "17"],
+    ["6.",  "Parent",                            false, "18"],
+    ["6.1", "My Family",                         true,  "18"],
+    ["6.2", "My Children & Consent Forms",       true,  "19"],
+    ["6.3", "Pickup Delegates & OTP",            true,  "19"],
+    ["6.4", "Class Change Requests",             true,  "20"],
+    ["6.5", "Messages",                          true,  "20"],
+    ["6.6", "Feedback",                          true,  "20"],
+    ["7.",  "Messaging System",                  false, "21"],
+    ["8.",  "Notifications",                     false, "22"],
+    ["9.",  "Profile & Settings",               false, "22"],
+    ["10.", "Security & Safeguarding",           false, "23"],
+    ["11.", "Frequently Asked Questions",        false, "24"],
   ];
 
   entries.forEach(([num, title, sub, pg]) => {
@@ -351,17 +351,17 @@ function step(ctx: SubCtx, number: number, text: string) {
   ctx.y += Math.max(24, doc.heightOfString(text, { width: CW - 30 }) + 14);
 }
 
-function callout(ctx: SubCtx, type: "info\" | \"warning\" | \"tip\" | \"important", text: string) {
+function callout(ctx: SubCtx, type: "info" | "warning" | "tip" | "important", text: string) {
   if (ctx.y > H - 100) {
     doc.addPage();
     addPageFooter();
     ctx.y = 40;
   }
   const configs = {
-    info:      { bg: "#eff6ff", border: MID_BLUE,  icon: "ℹ",  label: "Note",      textC: "#1e40af\" },
-    warning:   { bg: "#fff7ed", border: AMBER,      icon: "⚠",  label: "Warning",   textC: "#92400e\" },
-    tip:       { bg: "#f0fdf4", border: GREEN,      icon: "✓",  label: "Tip",       textC: "#14532d\" },
-    important: { bg: "#fef2f2", border: RED,        icon: "!",  label: "Important", textC: "#991b1b\" },
+    info:      { bg: "#eff6ff", border: MID_BLUE,  icon: "ℹ",  label: "Note",      textC: "#1e40af" },
+    warning:   { bg: "#fff7ed", border: AMBER,      icon: "⚠",  label: "Warning",   textC: "#92400e" },
+    tip:       { bg: "#f0fdf4", border: GREEN,      icon: "✓",  label: "Tip",       textC: "#14532d" },
+    important: { bg: "#fef2f2", border: RED,        icon: "!",  label: "Important", textC: "#991b1b" },
   };
   const cfg = configs[type];
   const h = doc.heightOfString(text, { width: CW - 50 }) + 28;
@@ -395,7 +395,7 @@ function twoColInfo(ctx: SubCtx, pairs: [string, string][]) {
 
 function roleTag(ctx: SubCtx, roles: string[]) {
   const colorMap: Record<string, string> = {
-    "Super Admin\": RED, \"Admin\": ROYAL_BLUE, \"Teacher\": GREEN,
+    "Super Admin": RED, "Admin": ROYAL_BLUE, "Teacher": GREEN,
     "Attendant": AMBER, "Parent": MID_BLUE,
   };
   let x = M;
@@ -453,10 +453,10 @@ function section1() {
 
   subSection(ctx, "1.3", "Registering an Account");
   para(ctx, "New users who are not yet in the system can self-register from the login screen.");
-  step(ctx, 1, "Tap "Register here" on the login page.");
+  step(ctx, 1, "Tap \"Register here\" on the login page.");
   step(ctx, 2, "Fill in your first name, last name, email address, and a strong password.");
   step(ctx, 3, "Select your role from the dropdown (Parent, Teacher, or Attendant).");
-  step(ctx, 4, "Tap "Create Account".");
+  step(ctx, 4, "Tap \"Create Account\".");
   callout(ctx, "info", "Parents are activated immediately. Teachers and Admin accounts are placed in \"Pending Approval\" status and cannot log in until approved by the Super Admin.");
 
   subSection(ctx, "1.4", "Navigation & Interface");
@@ -494,7 +494,7 @@ function section2() {
     "View profile: Click a user row to see their full profile details.",
   ]);
   step(ctx, 1, "Navigate to Users in the sidebar.");
-  step(ctx, 2, "Click the "Pending Approval" tab.");
+  step(ctx, 2, "Click the \"Pending Approval\" tab.");
   step(ctx, 3, "Review the applicant's details — name, role, email, and registration date.");
   step(ctx, 4, "Click \"Approve\" to activate the account, or \"Reject\" to deny it.");
   step(ctx, 5, "The user receives an in-app notification of the outcome.");
@@ -551,7 +551,7 @@ function section3() {
   bullet(ctx, [
     "Search and filter by name, class, or age group.",
     "Click any child to open their full profile.",
-    "Add a new child using the "Add Child" button (also available from the family profile).",
+    "Add a new child using the \"Add Child\" button (also available from the family profile).",
   ]);
   para(ctx, "The Child Profile contains:");
   bullet(ctx, [
@@ -591,29 +591,29 @@ function section3() {
   step(ctx, 1, "Navigate to Teacher Allocations.");
   step(ctx, 2, "Select the service date using the date picker.");
   step(ctx, 3, "Review allocation rows — each row shows: teacher, class, room, slot, and status (Pending / Confirmed).");
-  step(ctx, 4, "Use the "Add Allocation" button to schedule a teacher for a new slot.");
+  step(ctx, 4, "Use the \"Add Allocation\" button to schedule a teacher for a new slot.");
   step(ctx, 5, "Teachers can confirm their own allocations from their My Class page.");
 
   subSection(ctx, "3.6", "Emergencies");
   para(ctx, "The Emergencies page is used to log and track any safeguarding incident, medical event, or other urgent situation that occurs during a service.");
-  step(ctx, 1, "Click "Report Emergency" (red button in the header).");
+  step(ctx, 1, "Click \"Report Emergency\" (red button in the header).");
   step(ctx, 2, "Select the affected child from the dropdown.");
   step(ctx, 3, "Choose the incident type (Medical, Safeguarding, Fire, Security, Other).");
   step(ctx, 4, "Enter a detailed description of the incident.");
   step(ctx, 5, "Set the severity level (Low, Medium, High, Critical).");
-  step(ctx, 6, "Click "Submit Emergency Report".");
+  step(ctx, 6, "Click \"Submit Emergency Report\".");
   para(ctx, "Once submitted, the emergency appears in the live feed. Admins can add follow-up updates, mark it as resolved, and export the full log as CSV or PDF.");
   callout(ctx, "important", "All emergency reports are retained permanently in the audit log regardless of resolution status. Never delete an emergency record.");
 
   subSection(ctx, "3.7", "Safeguarding & DBS");
   para(ctx, "The Safeguarding & DBS page maintains a centralised record of all background checks and safeguarding certifications for every teacher and volunteer.");
   step(ctx, 1, "Navigate to Safeguarding & DBS in the sidebar.");
-  step(ctx, 2, "Click "Add Record" to create a new entry.");
+  step(ctx, 2, "Click \"Add Record\" to create a new entry.");
   step(ctx, 3, "Select the teacher from the dropdown.");
   step(ctx, 4, "Choose the check type: DBS Enhanced, DBS Standard, DBS Basic, Safeguarding Training, or First Aid.");
   step(ctx, 5, "Enter the reference number, issued date, and expiry date.");
   step(ctx, 6, "Set the status: Clear, Pending, Expired, or Not Submitted.");
-  step(ctx, 7, "Click "Add Record" to save.");
+  step(ctx, 7, "Click \"Add Record\" to save.");
   para(ctx, "Status indicators:");
   bullet(ctx, [
     "Clear (green) — DBS is valid and active.",
@@ -628,19 +628,19 @@ function section3() {
   para(ctx, "Admin workflow:");
   step(ctx, 1, "Navigate to Substitute Requests in the sidebar.");
   step(ctx, 2, "Review pending requests — each shows the requesting teacher, their class, the service date, and their reason.");
-  step(ctx, 3, "Click "Assign Cover" to open the assignment panel.");
+  step(ctx, 3, "Click \"Assign Cover\" to open the assignment panel.");
   step(ctx, 4, "Select a substitute teacher from the dropdown.");
   step(ctx, 5, "Optionally add admin notes for the substitute.");
   step(ctx, 6, "Click \"Assign\". The status changes to \"Assigned\".");
-  step(ctx, 7, "Once the substitute confirms attendance, click "Confirm" to finalise.");
+  step(ctx, 7, "Once the substitute confirms attendance, click \"Confirm\" to finalise.");
   callout(ctx, "tip", "A pending count badge on the header shows how many requests need attention. Check this each week before the service date.");
 
   subSection(ctx, "3.9", "Waitlist");
   para(ctx, "The Waitlist manages children whose preferred class is at capacity. Admins can view, approve, reject, or promote children from the waitlist to the class.");
   bullet(ctx, [
     "Each entry shows the child's name, preferred class, family, and date added.",
-    ""Promote" moves the child off the waitlist and into a Class Assignment.",
-    ""Reject" removes the child from the waitlist and sends a parent notification.",
+    "\"Promote\" moves the child off the waitlist and into a Class Assignment.",
+    "\"Reject\" removes the child from the waitlist and sends a parent notification.",
     "The waitlist is sorted by date added — oldest requests first (first in, first out).",
   ]);
 
@@ -670,14 +670,14 @@ function section4() {
   subSection(ctx, "4.1", "My Class");
   para(ctx, "My Class is the teacher's home page. It has four tabs:");
   bullet(ctx, [
-    "Awaiting Confirmation — Children who have been checked in at the front desk but not yet confirmed as arrived in the classroom. Tap "Confirm Arrival" for each child as they come through the door.",
+    "Awaiting Confirmation — Children who have been checked in at the front desk but not yet confirmed as arrived in the classroom. Tap \"Confirm Arrival\" for each child as they come through the door.",
     "Roster — All children currently in class (confirmed arrivals who have not been picked up yet). Shows check-in time and pickup time for each child.",
     "Birthdays — Children from your class celebrating a birthday in the next 30 days, ordered by date. Today's birthdays appear with a special 🎂 badge.",
     "Schedule — Your upcoming teacher allocations — which dates, classes, rooms, and slots you are assigned to.",
   ]);
   step(ctx, 1, "When a child arrives in your classroom, go to My Class → Awaiting tab.");
   step(ctx, 2, "Find the child's card in the list.");
-  step(ctx, 3, "Tap "Confirm Arrival" — this records the classroom arrival time separately from the front-desk drop-off time.");
+  step(ctx, 3, "Tap \"Confirm Arrival\" — this records the classroom arrival time separately from the front-desk drop-off time.");
   callout(ctx, "info", "The time gap between front-desk drop-off and your classroom arrival confirmation is measured and reported in the \"Class Arrivals\" report. Try to confirm arrivals promptly to keep this data accurate.");
 
   subSection(ctx, "4.2", "Attendance & Arrivals");
@@ -692,18 +692,18 @@ function section4() {
   subSection(ctx, "4.3", "Child Appraisals");
   para(ctx, "Appraisals are weekly written assessments of each child's participation, Scripture engagement, and social behaviour. Regular appraisals build a developmental record that is visible to parents and admins.");
   step(ctx, 1, "Navigate to Appraisals in the sidebar.");
-  step(ctx, 2, "Click "New Appraisal".");
+  step(ctx, 2, "Click \"New Appraisal\".");
   step(ctx, 3, "Select the child from the dropdown.");
   step(ctx, 4, "Choose the service date.");
   step(ctx, 5, "Set ratings for: Participation Level, Scripture Engagement, and Social Interaction (each has options: Excellent, Good, Developing, Needs Support).");
   step(ctx, 6, "Optionally add a Milestone Note — e.g., \"Memorised John 3:16 today!\" or \"Helped a new child settle in.\"");
-  step(ctx, 7, "Click "Submit Appraisal".");
+  step(ctx, 7, "Click \"Submit Appraisal\".");
   callout(ctx, "tip", "Milestone notes are highlighted specially on the child's profile and are visible to parents. Use them to celebrate achievements and encourage families.");
 
   subSection(ctx, "4.4", "Class Change Requests");
   para(ctx, "If a parent asks for their child to move to a different class — or if you as a teacher feel a child would be better suited to another class — submit a Class Change Request.");
   step(ctx, 1, "Go to Class Changes in the sidebar.");
-  step(ctx, 2, "Click "New Request".");
+  step(ctx, 2, "Click \"New Request\".");
   step(ctx, 3, "Select the child and the desired target class.");
   step(ctx, 4, "Write a clear reason for the request.");
   step(ctx, 5, "Submit. An admin will review and approve or reject with notes.");
@@ -720,10 +720,10 @@ function section4() {
   subSection(ctx, "4.6", "Substitute Requests");
   para(ctx, "If you are unable to attend a scheduled service, submit a Substitute Request so admin can arrange cover in advance.");
   step(ctx, 1, "Go to Substitute Requests in the sidebar.");
-  step(ctx, 2, "Click "New Request".");
+  step(ctx, 2, "Click \"New Request\".");
   step(ctx, 3, "Select the service date you need cover for.");
   step(ctx, 4, "Write a reason (e.g., travel, illness, family commitment).");
-  step(ctx, 5, "Click "Submit Request".");
+  step(ctx, 5, "Click \"Submit Request\".");
   step(ctx, 6, "The admin will assign a substitute and you will see the status update to \"Assigned\" or \"Confirmed\".");
   callout(ctx, "warning", "Submit substitute requests as early as possible — ideally at least one week before the service date — to give admin enough time to arrange cover.");
   addPageFooter();
@@ -741,13 +741,13 @@ function section5() {
   para(ctx, "Three check-in methods are supported:");
   bullet(ctx, [
     "QR Code Scan: The parent presents their family QR code (from their Shepherd Connect app or printed from the child's profile). The system checks in all children linked to that family for the current service.",
-    "Manual Search: Search for a child by name and click "Check In" on their card.",
+    "Manual Search: Search for a child by name and click \"Check In\" on their card.",
     "Face Recognition: Position the child in front of the camera. The system identifies the child from their enrolled face descriptor and checks them in automatically.",
   ]);
   step(ctx, 1, "Open the Check-In page from the sidebar or bottom tab bar.");
   step(ctx, 2, "Select the service slot (7am, 9am, 11am, or 1pm).");
   step(ctx, 3, "Choose a check-in method: QR, Manual, or Face Recognition.");
-  step(ctx, 4, "For QR: Point the camera at the parent's QR code. For Manual: type the child's name in the search box and tap "Check In".");
+  step(ctx, 4, "For QR: Point the camera at the parent's QR code. For Manual: type the child's name in the search box and tap \"Check In\".");
   step(ctx, 5, "A success confirmation card appears with the child's name, class, and any allergy alerts.");
   callout(ctx, "important", "If an allergy alert appears (shown in red), verbally confirm the allergy with the parent and ensure the class teacher is notified. Allergy alerts are also shown on the child's profile visible to teachers.");
 
@@ -756,20 +756,20 @@ function section5() {
   step(ctx, 1, "Open the Check-Out page → Standard Checkout tab.");
   step(ctx, 2, "Search for the child by name using the search box.");
   step(ctx, 3, "Verify the identity of the adult collecting the child visually or by asking for a name.");
-  step(ctx, 4, "Click "Check Out" on the correct child record.");
-  step(ctx, 5, "The child's status updates to "Picked Up" and the parent receives a notification.");
+  step(ctx, 4, "Click \"Check Out\" on the correct child record.");
+  step(ctx, 5, "The child's status updates to \"Picked Up\" and the parent receives a notification.");
   para(ctx, "The Service Clock at the top of the page shows countdown to service end. At T−10 minutes, all parents of checked-in children are automatically notified via a pre-dismissal alert.");
   callout(ctx, "tip", "Set the service end time at the beginning of the service using the clock icon in the Service Clock bar. This enables the automatic pre-dismissal notification.");
 
   subSection(ctx, "5.3", "Delegate OTP Check-Out");
   para(ctx, "When a child is being collected by someone other than their registered parent, the Delegate OTP system is used to verify authority.");
   step(ctx, 1, "Ask the delegate for their 6-digit OTP code (provided by the parent in their Shepherd Connect app).");
-  step(ctx, 2, "Open the Check-Out page → "Delegate OTP Checkout" tab.");
+  step(ctx, 2, "Open the Check-Out page → \"Delegate OTP Checkout\" tab.");
   step(ctx, 3, "Enter the 6-digit OTP in the input field.");
-  step(ctx, 4, "Click "Verify OTP".");
+  step(ctx, 4, "Click \"Verify OTP\".");
   step(ctx, 5, "The system confirms which child the OTP belongs to and who the delegate is.");
   step(ctx, 6, "Visually verify the delegate's identity matches the name shown.");
-  step(ctx, 7, "Click "Check Out" to release the child.");
+  step(ctx, 7, "Click \"Check Out\" to release the child.");
   callout(ctx, "important", "OTP codes are single-use and valid for 24 hours only. If an OTP fails verification, do NOT release the child. Contact the parent directly via phone before taking any action. Never release a child to an unverified individual.");
   addPageFooter();
 }
@@ -789,13 +789,13 @@ function section6() {
     "Parent 1 and Parent 2 information.",
     "All children linked to your family with their current class and a quick view of their last attendance.",
     "Family check-in QR code — tap to enlarge and present this at the check-in kiosk each Sunday.",
-    ""Add Child" button — to register a new child under your family.",
+    "\"Add Child\" button — to register a new child under your family.",
   ]);
-  step(ctx, 1, "Tap "Add Child" on the My Family page.");
+  step(ctx, 1, "Tap \"Add Child\" on the My Family page.");
   step(ctx, 2, "Enter the child's first name, last name, date of birth, and gender.");
   step(ctx, 3, "Select the appropriate class from the dropdown.");
   step(ctx, 4, "Optionally add allergy information and medical notes.");
-  step(ctx, 5, "Tap "Add Child" to save.");
+  step(ctx, 5, "Tap \"Add Child\" to save.");
   callout(ctx, "info", "The class selected when adding a child is a request. An admin may adjust the placement based on age and capacity.");
 
   subSection(ctx, "6.2", "My Children & Consent Forms");
@@ -820,17 +820,17 @@ function section6() {
   subSection(ctx, "6.3", "Pickup Delegates & OTP");
   para(ctx, "If someone other than yourself (spouse, grandparent, older sibling, trusted friend) will collect your child, you must register them as a Pickup Delegate before the service.");
   step(ctx, 1, "Navigate to Pickup Delegates in the sidebar.");
-  step(ctx, 2, "Tap "Add Delegate".");
+  step(ctx, 2, "Tap \"Add Delegate\".");
   step(ctx, 3, "Enter the delegate's full name, their relationship to your child, and their phone number.");
   step(ctx, 4, "Select which child(ren) the delegate is authorised to collect.");
-  step(ctx, 5, "Tap "Add Delegate". A 6-digit OTP is generated and shown ONCE — copy it immediately.");
+  step(ctx, 5, "Tap \"Add Delegate\". A 6-digit OTP is generated and shown ONCE — copy it immediately.");
   step(ctx, 6, "Share the OTP with your delegate. They must present this code at the check-out kiosk.");
   callout(ctx, "important", "The OTP is displayed only once at the moment of creation. If your delegate loses it, you must delete the delegate entry and add them again to generate a new OTP. OTPs expire after 24 hours.");
 
   subSection(ctx, "6.4", "Class Change Requests");
   para(ctx, "If you feel your child would be better placed in a different class — for example, due to age progression, learning needs, or a sibling connection — submit a Class Change Request.");
   step(ctx, 1, "Navigate to Class Changes in the sidebar.");
-  step(ctx, 2, "Tap "New Request".");
+  step(ctx, 2, "Tap \"New Request\".");
   step(ctx, 3, "Select your child and the desired class.");
   step(ctx, 4, "Provide a clear reason for the request.");
   step(ctx, 5, "Submit — an admin will review and notify you of the outcome via in-app notification.");
@@ -838,11 +838,11 @@ function section6() {
   subSection(ctx, "6.5", "Messages");
   para(ctx, "The Messages feature enables direct private communication between parents and teachers or ministry staff.");
   step(ctx, 1, "Navigate to Messages in the sidebar.");
-  step(ctx, 2, "Tap "New Message".");
+  step(ctx, 2, "Tap \"New Message\".");
   step(ctx, 3, "Select the recipient (a teacher, admin, or attendant) from the dropdown.");
   step(ctx, 4, "Optionally tag a specific child the message relates to.");
   step(ctx, 5, "Write your subject and message body.");
-  step(ctx, 6, "Tap "Send Message".");
+  step(ctx, 6, "Tap \"Send Message\".");
   para(ctx, "Your inbox shows all messages received. Unread messages appear with a blue dot. Tap a message to read it in full and reply.");
 
   subSection(ctx, "6.6", "Feedback");
@@ -862,24 +862,24 @@ function section6() {
 // ════════════════════════════════════════════════════════════════════════════
 function section7() {
   const ctx: SubCtx = { y: sectionHeader("7", "Messaging System") };
-  roleTag(ctx, ["Super Admin", "Admin", "Teacher", "Parent\"]);
+  roleTag(ctx, ["Super Admin", "Admin", "Teacher", "Parent"]);
   para(ctx, "The Messaging System provides secure, two-way private messaging between parents, teachers, and ministry staff. All messages are stored in the platform and only visible to the sender and recipient.");
 
   bullet(ctx, [
     "Inbox: All messages received, sorted by date. Unread messages are shown in bold with a blue indicator dot.",
     "Sent: All messages you have sent.",
     "Unread count badge: Shown on the Messages nav link so you never miss a message.",
-    "Reply: Open any message and tap "Reply" to send a response — the subject is pre-filled.",
+    "Reply: Open any message and tap \"Reply\" to send a response — the subject is pre-filled.",
     "Trash: Delete messages you no longer need from either tab.",
   ]);
 
   para(ctx, "Composing a message:");
-  step(ctx, 1, "Tap "New Message" from the Messages page header.");
+  step(ctx, 1, "Tap \"New Message\" from the Messages page header.");
   step(ctx, 2, "Select a recipient — the list shows all users you are permitted to message.");
   step(ctx, 3, "Optionally link the message to a specific child (useful when discussing a child's progress).");
   step(ctx, 4, "Enter an optional subject line.");
   step(ctx, 5, "Write your message in the body field.");
-  step(ctx, 6, "Tap "Send Message".");
+  step(ctx, 6, "Tap \"Send Message\".");
 
   callout(ctx, "info", "Messages are not yet pushed as SMS or email — they are in-app only. Recipients see a notification badge when a new message arrives. Remind recipients to check the app if urgent.");
   callout(ctx, "important", "All messages are logged in the audit trail. Use professional, respectful language at all times. Do not share sensitive personal information (e.g., home addresses, financial details) via the messaging system.");
@@ -908,7 +908,7 @@ function section8() {
 
   step(ctx, 1, "Tap the bell icon in the top-right header.");
   step(ctx, 2, "A dropdown panel shows your most recent unread notifications.");
-  step(ctx, 3, "Click "View All" to go to the full Notifications page.");
+  step(ctx, 3, "Click \"View All\" to go to the full Notifications page.");
   step(ctx, 4, "Click a notification to mark it as read.");
   step(ctx, 5, "Use the filter to show only Unread notifications.");
 
@@ -921,7 +921,7 @@ function section8() {
 // ════════════════════════════════════════════════════════════════════════════
 function section9() {
   const ctx: SubCtx = { y: sectionHeader("9", "Profile & Settings") };
-  para(ctx, "Every user has a personal profile accessible from the "My Profile" link at the bottom of the sidebar, or by tapping the avatar circle in the top-right corner.");
+  para(ctx, "Every user has a personal profile accessible from the \"My Profile\" link at the bottom of the sidebar, or by tapping the avatar circle in the top-right corner.");
 
   para(ctx, "Your profile contains:");
   bullet(ctx, [
@@ -933,9 +933,9 @@ function section9() {
   ]);
 
   step(ctx, 1, "Go to My Profile in the sidebar.");
-  step(ctx, 2, "Click "Edit Profile".");
+  step(ctx, 2, "Click \"Edit Profile\".");
   step(ctx, 3, "Update any fields you wish to change.");
-  step(ctx, 4, "Click "Save Changes".");
+  step(ctx, 4, "Click \"Save Changes\".");
 
   para(ctx, "Communication preferences:");
   twoColInfo(ctx, [
@@ -1006,7 +1006,7 @@ function section11() {
     ],
     [
       "My child's allergy information is not showing. How do I add it?",
-      "Go to My Family, tap the child's name to open their profile, and then tap "Edit". Add the allergy in the Allergies field. The allergy alert will appear prominently on the check-in confirmation and on the child's profile for all staff.",
+      "Go to My Family, tap the child's name to open their profile, and then tap \"Edit\". Add the allergy in the Allergies field. The allergy alert will appear prominently on the check-in confirmation and on the child's profile for all staff.",
     ],
     [
       "I forgot to give the delegate their OTP. Can I retrieve it?",
@@ -1030,7 +1030,7 @@ function section11() {
     ],
     [
       "The pre-dismissal notification didn't send automatically. Why?",
-      "The automatic pre-dismissal alert only fires if a service end time has been set in the Service Clock bar on the Check-Out page. If no end time is set, the automatic alert does not trigger. Use the manual "Notify Parents Now" button instead.",
+      "The automatic pre-dismissal alert only fires if a service end time has been set in the Service Clock bar on the Check-Out page. If no end time is set, the automatic alert does not trigger. Use the manual \"Notify Parents Now\" button instead.",
     ],
     [
       "How do I export attendance data for a specific class only?",
