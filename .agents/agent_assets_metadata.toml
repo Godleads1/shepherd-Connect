@@ -53,3 +53,9 @@ id = "PBPo1jukqYq1KHmrfCQoi"
 uri = "file://Shepherd_Connect_Cost_Report_2025.docx"
 type = "word_document"
 title = "Shepherd Connect — Annual Cost Report 2025 (Word)"
+
+[[outputs]]
+id = "iCYum2_ayqm2xithyfEvq"
+uri = "file://.local/outputs/Shepherd-Connect.pptx"
+type = "slides"
+title = "Shepherd Connect.pptx"
