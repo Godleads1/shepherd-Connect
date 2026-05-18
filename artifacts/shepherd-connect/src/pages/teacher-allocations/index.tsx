@@ -38,6 +38,10 @@ export default function TeacherAllocations() {
   const [autoSlots, setAutoSlots] = useState("7am,10:30am");
   const [showAutoDialog, setShowAutoDialog] = useState(false);
 
+  // Delete confirmation
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [deleteAllocId, setDeleteAllocId] = useState<number | null>(null);
+
   // Mark unavailable
   const [showUnavailDialog, setShowUnavailDialog] = useState(false);
   const [unavailAlloc, setUnavailAlloc] = useState<Allocation | null>(null);
@@ -301,7 +305,7 @@ export default function TeacherAllocations() {
                             <Pencil className="h-3.5 w-3.5" /> Edit
                           </button>
                           <button
-                            onClick={() => { if (confirm("Remove this allocation from the schedule?")) deleteAllocation.mutate(alloc.id); }}
+                            onClick={() => { setDeleteAllocId(alloc.id); setShowDeleteDialog(true); }}
                             className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-red-700 border border-red-200 bg-red-50 hover:bg-red-100 rounded-lg transition-colors whitespace-nowrap">
                             <Trash2 className="h-3.5 w-3.5" /> Remove
                           </button>
@@ -675,6 +679,31 @@ export default function TeacherAllocations() {
                 teacherId: editTeacherId ? parseInt(editTeacherId, 10) : undefined,
               })}>
               {editAllocation.isPending ? "Saving..." : "Save Changes"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete confirmation dialog */}
+      <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Remove Allocation</DialogTitle>
+            <DialogDescription>Are you sure you want to remove this allocation from the schedule? This cannot be undone.</DialogDescription>
+          </DialogHeader>
+          <div className="flex gap-3 pt-2">
+            <Button variant="outline" className="flex-1" onClick={() => setShowDeleteDialog(false)}>Cancel</Button>
+            <Button
+              className="flex-1 bg-red-600 hover:bg-red-700 text-white"
+              disabled={deleteAllocation.isPending}
+              onClick={() => {
+                if (deleteAllocId !== null) {
+                  deleteAllocation.mutate(deleteAllocId, {
+                    onSuccess: () => setShowDeleteDialog(false),
+                  });
+                }
+              }}>
+              {deleteAllocation.isPending ? "Removing..." : "Remove"}
             </Button>
           </div>
         </DialogContent>
