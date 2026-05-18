@@ -65,3 +65,9 @@ id = "iCYum2_ayqm2xithyfEvq"
 uri = "file://.local/outputs/Shepherd-Connect.pptx"
 type = "slides"
 title = "Shepherd Connect.pptx"
+
+[[outputs]]
+id = "_rSuD3V9-gO0xeUCumnar"
+uri = "file://ebook/shepherd-connect-build-guide.md"
+type = "text"
+title = "Building Shepherd Connect — Developer Ebook"
