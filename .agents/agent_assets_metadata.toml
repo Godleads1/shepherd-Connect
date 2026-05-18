@@ -71,3 +71,9 @@ id = "_rSuD3V9-gO0xeUCumnar"
 uri = "file://ebook/shepherd-connect-build-guide.md"
 type = "text"
 title = "Building Shepherd Connect — Developer Ebook"
+
+[[outputs]]
+id = "NPHNrxjckCfzVa5KzBut9"
+uri = "file://ebook/shepherd-connect-build-guide.docx"
+type = "word_document"
+title = "Building Shepherd Connect — Developer Ebook (.docx)"
