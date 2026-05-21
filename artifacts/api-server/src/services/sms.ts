@@ -318,3 +318,13 @@ export async function smsChildCheckedOut(phones: (string | null | undefined)[], 
 export async function smsPreDismissal(phones: (string | null | undefined)[], childName: string, logger?: Logger) {
   await sendToPhones(phones, `📢 Service ending soon. ${childName} is ready for pickup at the children's church exit. — Shepherd Connect`, logger);
 }
+
+export async function smsDelegateOtp(phone: string | null | undefined, delegateName: string, childName: string, otpCode: string, logger?: Logger) {
+  if (!phone) return;
+  await send(
+    phone,
+    `Hi ${delegateName}, you have been authorised to pick up ${childName} from Shepherd Connect. Your pickup code is: ${otpCode}. Valid for 24 hours. — RCCG City of David`,
+    "generic",
+    logger,
+  );
+}

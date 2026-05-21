@@ -3,6 +3,7 @@ import { eq, and } from "drizzle-orm";
 import { db, pickupDelegatesTable, childrenTable, familiesTable, usersTable, notificationsTable } from "@workspace/db";
 import { CreatePickupDelegateBody, VerifyDelegateOtpBody, ListPickupDelegatesQueryParams } from "@workspace/api-zod";
 import { authMiddleware } from "../middlewares/auth";
+import { smsDelegateOtp } from "../services/sms";
 
 const router = Router();
 
@@ -24,15 +25,25 @@ router.get("/pickup-delegates", authMiddleware, async (req, res): Promise<void> 
 router.post("/pickup-delegates", authMiddleware, async (req, res): Promise<void> => {
   const parsed = CreatePickupDelegateBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: "Bad request", message: parsed.error.message }); return; }
+
   const otp = generateOTP();
   const otpExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+
   const [delegate] = await db.insert(pickupDelegatesTable).values({
     ...parsed.data,
     otpCode: otp,
     otpExpiresAt,
     parentApproved: false,
   }).returning();
-  // Return with OTP for display to parent
+
+  // Fetch child name for the SMS message
+  const [child] = await db.select().from(childrenTable).where(eq(childrenTable.id, delegate.childId));
+  const childName = child ? `${child.firstName} ${child.lastName}` : "your child";
+
+  // Send OTP directly to the delegate's phone via Termii SMS
+  await smsDelegateOtp(delegate.phone, delegate.name, childName, otp, req.log);
+
+  // Return with OTP so the parent can also see it in the UI
   res.status(201).json(delegate);
 });
 
