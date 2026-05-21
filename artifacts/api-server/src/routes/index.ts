@@ -28,6 +28,7 @@ import pushRouter from "./push";
 import webhooksRouter from "./webhooks";
 import calendarRouter from "./calendar";
 import errorLogsRouter from "./errorLogs";
+import pickupRequestsRouter from "./pickupRequests";
 
 const router: IRouter = Router();
 
@@ -60,5 +61,6 @@ router.use(pushRouter);
 router.use(webhooksRouter);
 router.use(calendarRouter);
 router.use(errorLogsRouter);
+router.use(pickupRequestsRouter);
 
 export default router;

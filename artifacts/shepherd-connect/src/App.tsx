@@ -45,6 +45,7 @@ import SubstituteRequests from "@/pages/substitute-requests/index";
 import Safeguarding from "@/pages/safeguarding/index";
 import UserGuide from "@/pages/user-guide/index";
 import ErrorLogs from "@/pages/error-logs/index";
+import ClassroomDisplay from "@/pages/classroom-display/index";
 import { PWABanner } from "@/components/PWABanner";
 
 const queryClient = new QueryClient();
@@ -66,6 +67,7 @@ function Router() {
     <Switch>
       <Route path="/login" component={Login} />
       <Route path="/register" component={Register} />
+      <Route path="/classroom-display/:classId" component={ClassroomDisplay} />
       <Route path="/">
         <DefaultRedirect />
       </Route>

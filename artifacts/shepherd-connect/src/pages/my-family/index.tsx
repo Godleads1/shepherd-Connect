@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { QrCode, Users, MapPin, ShieldCheck, Star, PlusCircle, AlertCircle, Download, X, ListOrdered, Trash2, Camera, Loader2, Cake, ChevronDown, ChevronUp, Calendar, CheckCircle } from "lucide-react";
+import { QrCode, Users, MapPin, ShieldCheck, Star, PlusCircle, AlertCircle, Download, X, ListOrdered, Trash2, Camera, Loader2, Cake, ChevronDown, ChevronUp, Calendar, CheckCircle, BellRing } from "lucide-react";
 import { useAuth } from "@/contexts/auth";
 import { QRCodeSVG } from "qrcode.react";
 import { apiGet, apiPost, apiDelete } from "@/lib/api-call";
@@ -302,7 +302,34 @@ function ChildCard({ child, onRefetch }: { child: any; onRefetch: () => void }) 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [localPhoto, setLocalPhoto] = useState<string | null>(null);
+  const [pickupSent, setPickupSent] = useState(false);
+  const [pickupLoading, setPickupLoading] = useState(false);
   const updateChild = useUpdateChild();
+
+  // Check if child is currently checked in (today, not yet picked up)
+  const today = new Date().toISOString().split("T")[0];
+  const { data: attData } = useQuery({
+    queryKey: ["child-today-attendance", child.id, today],
+    queryFn: () => apiGet<any>(`/attendance?childId=${child.id}&limit=5`),
+    refetchInterval: 60000,
+  });
+  const latestRecord = (attData?.data ?? [])[0];
+  const isCheckedIn = latestRecord &&
+    latestRecord.serviceDate === today &&
+    latestRecord.status !== "picked_up";
+
+  const handleImHere = async () => {
+    setPickupLoading(true);
+    try {
+      await apiPost("/pickup-requests", { childId: child.id });
+      setPickupSent(true);
+      toast({ title: `Signal sent! 🚶 The teacher has been notified to bring ${child.firstName}.` });
+    } catch (e: any) {
+      toast({ variant: "destructive", title: e.message || "Could not send pickup signal" });
+    } finally {
+      setPickupLoading(false);
+    }
+  };
 
   const handlePhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -414,7 +441,26 @@ function ChildCard({ child, onRefetch }: { child: any; onRefetch: () => void }) 
             </div>
           )}
 
-          <div className="mt-4 flex gap-2">
+          <div className="mt-4 flex flex-col gap-2">
+            {/* I'm here to pick up — only shown when child is currently checked in */}
+            {isCheckedIn && (
+              <button
+                onClick={handleImHere}
+                disabled={pickupLoading || pickupSent}
+                className="w-full py-2.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-all hover:opacity-90 disabled:opacity-70"
+                style={pickupSent
+                  ? { background: "#16a34a", color: "white" }
+                  : { background: "#f59e0b", color: "#1a1a1a" }
+                }
+              >
+                {pickupLoading
+                  ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Sending...</>
+                  : pickupSent
+                    ? <><CheckCircle className="w-3.5 h-3.5" /> Teacher notified!</>
+                    : <><BellRing className="w-3.5 h-3.5" /> I'm here to pick up {child.firstName}</>
+                }
+              </button>
+            )}
             <Link href={`/children/${child.id}`} className="flex-1">
               <button className="w-full py-2.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-all hover:opacity-90"
                 style={{ background: "#1e3a8a", color: "white" }}>
