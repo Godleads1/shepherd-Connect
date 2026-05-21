@@ -239,17 +239,19 @@ router.post("/auth/forgot-password", async (req, res): Promise<void> => {
     res.json({ success: true, message: "If this email is registered, a reset code has been generated." });
     return;
   }
+  // App generates the code — Termii is only the delivery channel
   const code = Math.floor(100000 + Math.random() * 900000).toString();
   const expiry = new Date(Date.now() + 15 * 60 * 1000);
-  const hashedCode = await bcrypt.hash(code, 10);
+  // Store plaintext — verified by direct string comparison (same pattern as delegate OTP)
   await db.update(usersTable)
-    .set({ resetToken: hashedCode, resetTokenExpiry: expiry })
+    .set({ resetToken: code, resetTokenExpiry: expiry })
     .where(eq(usersTable.id, user.id));
 
   smsPasswordResetCode(user.phone, code, req.log).catch(() => {});
   emailPasswordResetCode(user.email, user.firstName, code, req.log).catch(() => {});
 
-  res.json({ success: true, code, expiresInMinutes: 15, message: "Reset code generated successfully." });
+  // Do NOT return the code in the response — the user must check their SMS / email
+  res.json({ success: true, expiresInMinutes: 15, message: "Reset code sent to your phone and email." });
 });
 
 router.post("/auth/reset-password", async (req, res): Promise<void> => {
@@ -271,8 +273,7 @@ router.post("/auth/reset-password", async (req, res): Promise<void> => {
     res.status(400).json({ error: "Bad request", message: "Reset code has expired. Please request a new one." });
     return;
   }
-  const valid = await bcrypt.compare(code, user.resetToken);
-  if (!valid) {
+  if (code.trim() !== user.resetToken) {
     res.status(400).json({ error: "Bad request", message: "Incorrect reset code. Please check and try again." });
     return;
   }

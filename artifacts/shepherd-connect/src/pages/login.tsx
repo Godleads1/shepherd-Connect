@@ -87,13 +87,11 @@ export default function Login() {
   const [forgotStep, setForgotStep] = useState<"off" | "request" | "reset">("off");
   const [forgotEmail, setForgotEmail] = useState("");
   const [forgotCode, setForgotCode] = useState("");
-  const [forgotResetCode, setForgotResetCode] = useState(""); // code returned from API
   const [forgotNewPw, setForgotNewPw] = useState("");
   const [forgotConfirmPw, setForgotConfirmPw] = useState("");
   const [forgotLoading, setForgotLoading] = useState(false);
   const [forgotError, setForgotError] = useState("");
   const [forgotSuccess, setForgotSuccess] = useState(false);
-  const [codeCopied, setCodeCopied] = useState(false);
   const [showForgotPw, setShowForgotPw] = useState(false);
 
   const handleForgotRequest = async () => {
@@ -102,8 +100,7 @@ export default function Login() {
     setForgotError("");
     try {
       const res = await apiPost<any>("/auth/forgot-password", { email: forgotEmail.trim() });
-      if (res.code) {
-        setForgotResetCode(res.code);
+      if (res.success) {
         setForgotStep("reset");
       } else {
         setForgotError("No account found with that email address.");
@@ -135,12 +132,10 @@ export default function Login() {
     setForgotStep("off");
     setForgotEmail("");
     setForgotCode("");
-    setForgotResetCode("");
     setForgotNewPw("");
     setForgotConfirmPw("");
     setForgotError("");
     setForgotSuccess(false);
-    setCodeCopied(false);
   };
 
   // Role picker step (multi-role users)
@@ -311,7 +306,7 @@ export default function Login() {
             <p className="text-sm text-gray-500 mt-2">
               {forgotStep === "request"
                 ? "Enter your registered email to receive a reset code."
-                : "Copy the code below, then enter it with your new password."}
+                : "Enter the 6-digit code sent to your phone (SMS) and email."}
             </p>
           </div>
 
@@ -358,18 +353,11 @@ export default function Login() {
             </div>
           ) : (
             <div className="space-y-4">
-              {/* Reset code display */}
+              {/* SMS/email delivery notice */}
               <div className="rounded-xl p-4 text-center" style={{ background: "rgba(245,158,11,0.08)", border: "1.5px solid rgba(245,158,11,0.30)" }}>
-                <p className="text-xs font-semibold text-amber-700 mb-1 uppercase tracking-wide">Your Reset Code</p>
-                <p className="text-3xl font-mono font-bold tracking-widest text-amber-800 my-1">{forgotResetCode}</p>
-                <p className="text-[10px] text-amber-600 mb-2">Valid for 15 minutes. Store it safely.</p>
-                <button
-                  type="button"
-                  onClick={() => { navigator.clipboard.writeText(forgotResetCode); setCodeCopied(true); setTimeout(() => setCodeCopied(false), 2000); }}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all"
-                  style={{ background: "rgba(245,158,11,0.15)", color: "#92400e" }}>
-                  {codeCopied ? <><Check className="w-3 h-3" /> Copied!</> : <><Copy className="w-3 h-3" /> Copy Code</>}
-                </button>
+                <p className="text-xs font-semibold text-amber-700 mb-1 uppercase tracking-wide">Code Sent</p>
+                <p className="text-sm text-amber-800 my-1">Check your phone (SMS) and email for your 6-digit reset code.</p>
+                <p className="text-[10px] text-amber-600">Valid for 15 minutes.</p>
               </div>
 
               <div className="space-y-3">
