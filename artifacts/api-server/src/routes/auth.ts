@@ -6,7 +6,17 @@ import { eq } from "drizzle-orm";
 import { db, usersTable } from "@workspace/db";
 import { LoginBody, RegisterBody } from "@workspace/api-zod";
 import { generateToken, authMiddleware } from "../middlewares/auth";
-import { smsWelcome, smsPendingApproval, smsPasswordResetCode, sendOtp, verifyOtp, emailWelcome, emailPendingApproval, emailPasswordResetCode } from "../services/sms";
+import { smsWelcome, smsPendingApproval, smsPasswordResetCode, smsRegistrationOtp, emailWelcome, emailPendingApproval, emailPasswordResetCode } from "../services/sms";
+
+// ── In-memory OTP sessions (phone verification during registration) ────────────
+// key: random session ID returned to client as "pinId"
+// value: { otp, phone, expiresAt }
+// For multi-instance deployments swap this for a Redis store or a DB table.
+const otpSessions = new Map<string, { otp: string; phone: string; expiresAt: Date }>();
+setInterval(() => {
+  const now = new Date();
+  for (const [key, s] of otpSessions) { if (s.expiresAt < now) otpSessions.delete(key); }
+}, 60_000); // prune expired sessions every minute
 
 const VALID_ROLES = ["super_admin", "admin", "teacher", "attendant", "parent"] as const;
 type UserRole = typeof VALID_ROLES[number];
@@ -276,17 +286,20 @@ router.post("/auth/reset-password", async (req, res): Promise<void> => {
 // ── OTP endpoints (phone verification) ───────────────────────────────────────
 
 router.post("/auth/send-otp", async (req, res): Promise<void> => {
-  const { phone, channel } = req.body as { phone?: string; channel?: "sms" | "whatsapp" };
+  const { phone } = req.body as { phone?: string; channel?: "sms" | "whatsapp" };
   if (!phone || typeof phone !== "string") {
     res.status(400).json({ error: "Bad request", message: "phone is required" });
     return;
   }
-  const result = await sendOtp(phone.trim(), channel ?? "sms", req.log);
-  if (!result) {
-    res.status(503).json({ error: "Service unavailable", message: "Could not send OTP. Please try again or use a different channel." });
-    return;
-  }
-  res.json({ pinId: result.pinId, message: "OTP sent successfully" });
+  // App generates the OTP — Termii is only the delivery channel
+  const otp = Math.floor(100000 + Math.random() * 900000).toString();
+  const pinId = crypto.randomUUID();
+  const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+  otpSessions.set(pinId, { otp, phone: phone.trim(), expiresAt });
+
+  await smsRegistrationOtp(phone.trim(), otp, req.log);
+
+  res.json({ pinId, message: "OTP sent successfully" });
 });
 
 router.post("/auth/verify-otp", async (req, res): Promise<void> => {
@@ -295,11 +308,12 @@ router.post("/auth/verify-otp", async (req, res): Promise<void> => {
     res.status(400).json({ error: "Bad request", message: "pinId and otp are required" });
     return;
   }
-  const verified = await verifyOtp(pinId, otp.trim(), req.log);
-  if (!verified) {
+  const session = otpSessions.get(pinId);
+  if (!session || session.expiresAt < new Date() || session.otp !== otp.trim()) {
     res.status(400).json({ error: "Bad request", message: "Incorrect or expired code. Please try again." });
     return;
   }
+  otpSessions.delete(pinId); // one-time use — invalidate immediately after verification
   res.json({ verified: true });
 });
 
