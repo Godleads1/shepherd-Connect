@@ -6,7 +6,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   School, CheckCircle2, AlertTriangle, Truck, Users,
   Clock, ArrowRight, UserCheck, CalendarCheck, ShieldCheck, Calendar,
-  Cake, CalendarClock, PartyPopper,
+  Cake, CalendarClock, PartyPopper, Tv,
 } from "lucide-react";
 import { apiGet } from "@/lib/api-call";
 import { useAuth } from "@/contexts/auth";
@@ -133,9 +133,23 @@ export default function MyClass() {
               <p className="text-amber-300 text-xs mt-1">No allocation found for today</p>
             )}
           </div>
-          <div className="text-right">
-            <p className="text-4xl font-bold">{allPresent.length}</p>
-            <p className="text-blue-200 text-xs">children present</p>
+          <div className="flex flex-col items-end gap-3">
+            <div className="text-right">
+              <p className="text-4xl font-bold">{allPresent.length}</p>
+              <p className="text-blue-200 text-xs">children present</p>
+            </div>
+            {myClassId && (
+              <a
+                href={`/classroom-display/${myClassId}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all hover:opacity-90 active:scale-95"
+                style={{ background: "#f59e0b", color: "#172554" }}
+              >
+                <Tv className="w-4 h-4" />
+                TV Display
+              </a>
+            )}
           </div>
         </div>
 
