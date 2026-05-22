@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and, sql, desc } from "drizzle-orm";
 import { db, notificationsTable, usersTable } from "@workspace/db";
 import { ListNotificationsQueryParams } from "@workspace/api-zod";
 import { authMiddleware, requireRoles } from "../middlewares/auth";

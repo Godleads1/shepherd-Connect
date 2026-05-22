@@ -57,7 +57,7 @@ async function sendEmail(to: string, subject: string, html: string, logger?: Log
         to,
         from: "Shepherd Connect",
         sms: html,
-        type: "plain",
+        type: "html",
         channel: "email",
         api_key: API_KEY,
         subject,
