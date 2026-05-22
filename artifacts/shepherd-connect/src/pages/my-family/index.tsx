@@ -310,13 +310,11 @@ function ChildCard({ child, onRefetch }: { child: any; onRefetch: () => void }) 
   const today = new Date().toISOString().split("T")[0];
   const { data: attData } = useQuery({
     queryKey: ["child-today-attendance", child.id, today],
-    queryFn: () => apiGet<any>(`/attendance?childId=${child.id}&limit=5`),
+    queryFn: () => apiGet<any>(`/attendance?childId=${child.id}&serviceDate=${today}`),
     refetchInterval: 60000,
   });
-  const latestRecord = (attData?.data ?? [])[0];
-  const isCheckedIn = latestRecord &&
-    latestRecord.serviceDate === today &&
-    latestRecord.status !== "picked_up";
+  const todayRecords: any[] = attData ?? [];
+  const isCheckedIn = todayRecords.some((r: any) => r.status !== "picked_up");
 
   const handleImHere = async () => {
     setPickupLoading(true);
@@ -432,24 +430,31 @@ function ChildCard({ child, onRefetch }: { child: any; onRefetch: () => void }) 
           )}
 
           <div className="mt-4 flex flex-col gap-2">
-            {/* I'm here to pick up — only shown when child is currently checked in */}
-            {isCheckedIn && (
-              <button
-                onClick={handleImHere}
-                disabled={pickupLoading || pickupSent}
-                className="w-full py-2.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-all hover:opacity-90 disabled:opacity-70"
-                style={pickupSent
+            {/* I'm here to pick up — always visible; active only when child is checked in */}
+            <button
+              onClick={isCheckedIn ? handleImHere : undefined}
+              disabled={!isCheckedIn || pickupLoading || pickupSent}
+              title={!isCheckedIn ? `${child.firstName} is not checked in yet` : undefined}
+              className="w-full py-2.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-all"
+              style={
+                pickupSent
                   ? { background: "#16a34a", color: "white" }
-                  : { background: "#f59e0b", color: "#1a1a1a" }
-                }
-              >
-                {pickupLoading
-                  ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Sending...</>
-                  : pickupSent
-                    ? <><CheckCircle className="w-3.5 h-3.5" /> Teacher notified!</>
+                  : isCheckedIn
+                    ? { background: "#f59e0b", color: "#1a1a1a", cursor: "pointer" }
+                    : { background: "#f1f5f9", color: "#94a3b8", cursor: "not-allowed", border: "1px solid #e2e8f0" }
+              }
+            >
+              {pickupLoading
+                ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Sending...</>
+                : pickupSent
+                  ? <><CheckCircle className="w-3.5 h-3.5" /> Teacher notified!</>
+                  : isCheckedIn
+                    ? <><BellRing className="w-3.5 h-3.5" /> I'm here to pick up {child.firstName}</>
                     : <><BellRing className="w-3.5 h-3.5" /> I'm here to pick up {child.firstName}</>
-                }
-              </button>
+              }
+            </button>
+            {!isCheckedIn && !pickupSent && (
+              <p className="text-center text-[10px] text-gray-400 -mt-1">Available once {child.firstName} is checked in</p>
             )}
             <Link href={`/children/${child.id}`} className="flex-1">
               <button className="w-full py-2.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-all hover:opacity-90"
