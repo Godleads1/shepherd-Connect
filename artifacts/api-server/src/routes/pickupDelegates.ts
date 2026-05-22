@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { eq, and } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
 import { db, pickupDelegatesTable, childrenTable, familiesTable, usersTable, notificationsTable } from "@workspace/db";
 import { CreatePickupDelegateBody, VerifyDelegateOtpBody, ListPickupDelegatesQueryParams } from "@workspace/api-zod";
 import { authMiddleware } from "../middlewares/auth";
@@ -11,14 +11,44 @@ function generateOTP(): string {
   return Math.floor(100000 + Math.random() * 900000).toString();
 }
 
+/** Returns the set of childIds belonging to the authenticated parent's family, or null if not a parent. */
+async function getParentChildIds(userId: number, role: string): Promise<number[] | null> {
+  if (role !== "parent") return null;
+  const [family] = await db.select().from(familiesTable)
+    .where(eq(familiesTable.parent1Id, userId));
+  // Also check parent2
+  const [family2] = await db.select().from(familiesTable)
+    .where(eq(familiesTable.parent2Id, userId));
+  const fam = family ?? family2;
+  if (!fam) return [];
+  const children = await db.select({ id: childrenTable.id }).from(childrenTable)
+    .where(eq(childrenTable.familyId, fam.id));
+  return children.map(c => c.id);
+}
+
 router.get("/pickup-delegates", authMiddleware, async (req, res): Promise<void> => {
   const params = ListPickupDelegatesQueryParams.safeParse(req.query);
   if (!params.success) { res.status(400).json({ error: "Bad request", message: params.error.message }); return; }
   const { childId } = params.data;
+
+  // Parents can only see delegates for their own children
+  const ownChildIds = await getParentChildIds(req.user!.userId, req.user!.role);
+  if (ownChildIds !== null) {
+    if (childId && !ownChildIds.includes(childId)) {
+      res.status(403).json({ error: "Forbidden", message: "Access denied" }); return;
+    }
+    const filterIds = childId ? [childId] : ownChildIds;
+    if (filterIds.length === 0) { res.json([]); return; }
+    const delegates = await db.select().from(pickupDelegatesTable)
+      .where(inArray(pickupDelegatesTable.childId, filterIds));
+    res.json(delegates.map(d => ({ ...d, otpCode: undefined })));
+    return;
+  }
+
+  // Admin / attendant: normal filter
   const conditions = childId ? [eq(pickupDelegatesTable.childId, childId)] : [];
   const delegates = await db.select().from(pickupDelegatesTable)
     .where(conditions.length ? and(...conditions) : undefined);
-  // Don't expose OTP in list
   res.json(delegates.map(d => ({ ...d, otpCode: undefined })));
 });
 
@@ -65,17 +95,37 @@ router.post("/pickup-delegates/verify-otp", async (req, res): Promise<void> => {
   res.json({ valid: true, delegate: { ...delegate, otpCode: undefined }, child: child ?? null, message: "OTP verified" });
 });
 
+/** Checks if the authenticated parent owns the delegate (i.e. the delegate's child belongs to their family). Returns 403 if denied, false if the check does not apply (non-parent role). */
+async function assertParentOwnsDelegateOrAdmin(
+  delegateChildId: number,
+  userId: number,
+  role: string,
+  res: import("express").Response,
+): Promise<boolean> {
+  const ownChildIds = await getParentChildIds(userId, role);
+  if (ownChildIds === null) return true; // admin/attendant — allow
+  if (!ownChildIds.includes(delegateChildId)) {
+    res.status(403).json({ error: "Forbidden", message: "Access denied" });
+    return false;
+  }
+  return true;
+}
+
 router.get("/pickup-delegates/:id", authMiddleware, async (req, res): Promise<void> => {
   const id = parseInt(req.params.id as string, 10);
   if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
   const [delegate] = await db.select().from(pickupDelegatesTable).where(eq(pickupDelegatesTable.id, id));
   if (!delegate) { res.status(404).json({ error: "Not found", message: "Delegate not found" }); return; }
+  if (!await assertParentOwnsDelegateOrAdmin(delegate.childId, req.user!.userId, req.user!.role, res)) return;
   res.json({ ...delegate, otpCode: undefined });
 });
 
 router.put("/pickup-delegates/:id/approve", authMiddleware, async (req, res): Promise<void> => {
   const id = parseInt(req.params.id as string, 10);
   if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
+  const [existing] = await db.select().from(pickupDelegatesTable).where(eq(pickupDelegatesTable.id, id));
+  if (!existing) { res.status(404).json({ error: "Not found", message: "Delegate not found" }); return; }
+  if (!await assertParentOwnsDelegateOrAdmin(existing.childId, req.user!.userId, req.user!.role, res)) return;
   const [delegate] = await db.update(pickupDelegatesTable)
     .set({ parentApproved: true, approvalStatus: "approved" })
     .where(eq(pickupDelegatesTable.id, id)).returning();
@@ -123,6 +173,7 @@ router.post("/pickup-delegates/:id/approve", authMiddleware, async (req, res): P
 
   const [delegate] = await db.select().from(pickupDelegatesTable).where(eq(pickupDelegatesTable.id, id));
   if (!delegate) { res.status(404).json({ error: "Not found", message: "Delegate not found" }); return; }
+  if (!await assertParentOwnsDelegateOrAdmin(delegate.childId, req.user!.userId, req.user!.role, res)) return;
 
   const [updated] = await db.update(pickupDelegatesTable)
     .set({ parentApproved: true, approvalStatus: "approved" })
@@ -137,6 +188,7 @@ router.post("/pickup-delegates/:id/deny", authMiddleware, async (req, res): Prom
 
   const [delegate] = await db.select().from(pickupDelegatesTable).where(eq(pickupDelegatesTable.id, id));
   if (!delegate) { res.status(404).json({ error: "Not found", message: "Delegate not found" }); return; }
+  if (!await assertParentOwnsDelegateOrAdmin(delegate.childId, req.user!.userId, req.user!.role, res)) return;
 
   const [updated] = await db.update(pickupDelegatesTable)
     .set({ approvalStatus: "denied" })
@@ -149,11 +201,11 @@ router.delete("/pickup-delegates/:id", authMiddleware, async (req, res): Promise
   const id = parseInt(req.params.id as string, 10);
   if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
 
-  const [deleted] = await db.delete(pickupDelegatesTable)
-    .where(eq(pickupDelegatesTable.id, id))
-    .returning();
+  const [existing] = await db.select().from(pickupDelegatesTable).where(eq(pickupDelegatesTable.id, id));
+  if (!existing) { res.status(404).json({ error: "Not found", message: "Delegate not found" }); return; }
+  if (!await assertParentOwnsDelegateOrAdmin(existing.childId, req.user!.userId, req.user!.role, res)) return;
 
-  if (!deleted) { res.status(404).json({ error: "Not found", message: "Delegate not found" }); return; }
+  await db.delete(pickupDelegatesTable).where(eq(pickupDelegatesTable.id, id));
 
   res.json({ success: true, message: "Delegate removed successfully" });
 });

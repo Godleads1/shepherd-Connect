@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { eq, and, ne } from "drizzle-orm";
+import { eq, and, ne, inArray } from "drizzle-orm";
 import { db, attendanceTable, childrenTable, classesTable, familiesTable, usersTable, notificationsTable } from "@workspace/db";
 import { CheckInBody, CheckOutBody, ListAttendanceQueryParams, ScanQrCodeBody } from "@workspace/api-zod";
 import { authMiddleware, requireRoles } from "../middlewares/auth";
@@ -22,26 +22,37 @@ async function getParentContacts(childId: number): Promise<{ phones: (string | n
   const [family] = await db.select().from(familiesTable).where(eq(familiesTable.id, child.familyId));
   if (!family) return { phones: [], emails: [], parentIds: [], childName, className };
 
+  // Batch both parents in one query instead of two separate queries
   const parentIds = [family.parent1Id, family.parent2Id].filter(Boolean) as number[];
   const parents = parentIds.length
     ? await db.select({ phone: usersTable.phone, email: usersTable.email }).from(usersTable)
-        .where(eq(usersTable.id, parentIds[0]))
+        .where(inArray(usersTable.id, parentIds))
     : [];
-
-  if (parentIds.length === 2) {
-    const [p2] = await db.select({ phone: usersTable.phone, email: usersTable.email }).from(usersTable).where(eq(usersTable.id, parentIds[1]));
-    if (p2) parents.push(p2);
-  }
 
   return { phones: parents.map(p => p.phone), emails: parents.map(p => p.email), parentIds, childName, className };
 }
 
 const router = Router();
 
+// Single-record formatter (for mutation responses — only 1 record, so no N+1)
 async function formatAttendance(a: typeof attendanceTable.$inferSelect) {
   const [child] = await db.select().from(childrenTable).where(eq(childrenTable.id, a.childId));
   const [cls] = await db.select().from(classesTable).where(eq(classesTable.id, a.classId));
   return { ...a, child: child || null, class: cls || null };
+}
+
+// Batch formatter for lists — avoids N+1 queries
+async function formatAttendanceBatch(records: (typeof attendanceTable.$inferSelect)[]) {
+  if (records.length === 0) return [];
+  const childIds = [...new Set(records.map(r => r.childId))];
+  const classIds = [...new Set(records.map(r => r.classId))];
+  const [children, classes] = await Promise.all([
+    db.select().from(childrenTable).where(inArray(childrenTable.id, childIds)),
+    db.select().from(classesTable).where(inArray(classesTable.id, classIds)),
+  ]);
+  const childMap = Object.fromEntries(children.map(c => [c.id, c]));
+  const classMap = Object.fromEntries(classes.map(c => [c.id, c]));
+  return records.map(a => ({ ...a, child: childMap[a.childId] ?? null, class: classMap[a.classId] ?? null }));
 }
 
 router.get("/attendance", authMiddleware, async (req, res): Promise<void> => {
@@ -56,7 +67,7 @@ router.get("/attendance", authMiddleware, async (req, res): Promise<void> => {
   if (status) conditions.push(eq(attendanceTable.status, status as "dropped_off" | "in_transit" | "in_class" | "picked_up"));
   const records = await db.select().from(attendanceTable)
     .where(conditions.length ? and(...conditions) : undefined);
-  const formatted = await Promise.all(records.map(formatAttendance));
+  const formatted = await formatAttendanceBatch(records);
   res.json(formatted);
 });
 

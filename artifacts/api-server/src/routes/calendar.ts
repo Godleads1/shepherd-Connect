@@ -10,7 +10,8 @@ function toICalDate(date: Date): string {
 
 function getNextSunday(serviceHour: number): Date {
   const now = new Date();
-  const daysUntilSunday = (7 - now.getDay()) % 7 || 7;
+  // If today IS Sunday, use today; otherwise advance to the next Sunday
+  const daysUntilSunday = now.getDay() === 0 ? 0 : (7 - now.getDay()) % 7;
   const d = new Date(now);
   d.setDate(d.getDate() + daysUntilSunday);
   d.setHours(serviceHour, 0, 0, 0);
