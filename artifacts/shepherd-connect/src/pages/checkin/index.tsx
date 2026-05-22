@@ -1,15 +1,17 @@
 import { useState, useCallback, useEffect } from "react";
 import { useScanQrCode, useCheckIn, useEscortToClass, useScanFace, useListAttendance } from "@workspace/api-client-react";
 import { Input } from "@/components/ui/input";
-import { AlertTriangle, CheckCircle, QrCode, Scan, Truck, ShieldCheck, Users, Camera, WifiOff, Upload } from "lucide-react";
+import { AlertTriangle, CheckCircle, QrCode, Scan, Truck, ShieldCheck, Users, Camera, WifiOff, Upload, HandHelping } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import FaceCapture from "@/components/FaceCapture";
 import QrCameraScanner from "@/components/QrCameraScanner";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import { enqueueCheckIn, getQueue, removeFromQueue, type QueuedCheckIn } from "@/lib/offline-queue";
+import { useAuth } from "@/contexts/auth";
+import FamilyAssist from "./FamilyAssist";
 
-type Tab = "qr" | "face";
+type Tab = "qr" | "face" | "assist";
 type SlotChoice = "7am" | "10:30am" | "both";
 
 const SERVICE_SLOTS = [
@@ -54,6 +56,8 @@ function ChildSlotPicker({
 }
 
 export default function CheckIn() {
+  const { user } = useAuth();
+  const canAssist = user?.role === "attendant" || user?.role === "admin" || user?.role === "super_admin";
   const [qrCode, setQrCode] = useState("");
   const [activeTab, setActiveTab] = useState<Tab>("qr");
   const [serviceSlot, setServiceSlot] = useState("7am");
@@ -349,17 +353,18 @@ export default function CheckIn() {
       {/* Tab switcher */}
       <div className="w-full flex gap-1 bg-gray-100 rounded-xl p-1 mb-6">
         {([
-          { key: "qr",   label: "QR / Code Scan",    icon: QrCode },
-          { key: "face", label: "Face Recognition",  icon: Scan },
+          { key: "qr",   label: "QR / Code",        icon: QrCode },
+          { key: "face", label: "Face Scan",         icon: Scan },
+          ...(canAssist ? [{ key: "assist", label: "Family Assist", icon: HandHelping }] : []),
         ] as { key: Tab; label: string; icon: typeof QrCode }[]).map(tab => {
           const Icon = tab.icon;
           return (
             <button key={tab.key} onClick={() => { setActiveTab(tab.key); clearScan(); }}
-              className="flex-1 py-3 px-4 rounded-lg text-sm font-semibold transition-all flex items-center justify-center gap-2"
+              className="flex-1 py-3 px-2 rounded-lg text-xs font-semibold transition-all flex items-center justify-center gap-1.5"
               style={activeTab === tab.key
-                ? { background: "#1e3a8a", color: "white", boxShadow: "0 2px 8px rgba(30,58,138,.3)" }
+                ? { background: tab.key === "assist" ? "#f59e0b" : "#1e3a8a", color: "white", boxShadow: "0 2px 8px rgba(30,58,138,.3)" }
                 : { color: "#6b7280" }}>
-              <Icon className="w-4 h-4" /> {tab.label}
+              <Icon className="w-4 h-4 flex-shrink-0" /> {tab.label}
             </button>
           );
         })}
@@ -388,6 +393,13 @@ export default function CheckIn() {
             style={{ background: "#059669", color: "white" }}>
             {syncingQueue ? "Syncing…" : "Sync Now"}
           </button>
+        </div>
+      )}
+
+      {/* Family Assist tab */}
+      {activeTab === "assist" && (
+        <div className="w-full bg-white rounded-3xl p-6 shadow-sm border border-amber-100 mb-8">
+          <FamilyAssist />
         </div>
       )}
 
