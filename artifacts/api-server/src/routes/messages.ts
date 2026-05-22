@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { eq, or, and, desc } from "drizzle-orm";
+import { eq, or, and, desc, inArray } from "drizzle-orm";
 import { db, messagesTable, usersTable, childrenTable } from "@workspace/db";
 import { authMiddleware } from "../middlewares/auth";
 import { z } from "zod";
@@ -13,20 +13,39 @@ const SendMessageBody = z.object({
   body: z.string().min(1),
 });
 
-async function formatMessage(m: typeof messagesTable.$inferSelect) {
-  const [sender] = await db.select().from(usersTable).where(eq(usersTable.id, m.senderId));
-  const [recipient] = await db.select().from(usersTable).where(eq(usersTable.id, m.recipientId));
-  let child = null;
-  if (m.childId) {
-    const [c] = await db.select().from(childrenTable).where(eq(childrenTable.id, m.childId));
-    child = c ? { id: c.id, firstName: c.firstName, lastName: c.lastName } : null;
-  }
-  return {
-    ...m,
-    sender: sender ? { id: sender.id, firstName: sender.firstName, lastName: sender.lastName, role: sender.role, photoUrl: sender.photoUrl } : null,
-    recipient: recipient ? { id: recipient.id, firstName: recipient.firstName, lastName: recipient.lastName, role: recipient.role } : null,
-    child,
-  };
+type RawMessage = typeof messagesTable.$inferSelect;
+
+async function attachParticipants(messages: RawMessage[]) {
+  if (messages.length === 0) return [];
+
+  const userIds = [...new Set(messages.flatMap(m => [m.senderId, m.recipientId]))];
+  const childIds = [...new Set(messages.map(m => m.childId).filter((id): id is number => id != null))];
+
+  const [users, children] = await Promise.all([
+    db.select().from(usersTable).where(inArray(usersTable.id, userIds)),
+    childIds.length > 0
+      ? db.select().from(childrenTable).where(inArray(childrenTable.id, childIds))
+      : Promise.resolve([]),
+  ]);
+
+  const userMap = new Map(users.map(u => [u.id, u]));
+  const childMap = new Map(children.map(c => [c.id, c]));
+
+  return messages.map(m => {
+    const sender = userMap.get(m.senderId);
+    const recipient = userMap.get(m.recipientId);
+    const child = m.childId != null ? (childMap.get(m.childId) ?? null) : null;
+    return {
+      ...m,
+      sender: sender
+        ? { id: sender.id, firstName: sender.firstName, lastName: sender.lastName, role: sender.role, photoUrl: sender.photoUrl }
+        : null,
+      recipient: recipient
+        ? { id: recipient.id, firstName: recipient.firstName, lastName: recipient.lastName, role: recipient.role }
+        : null,
+      child: child ? { id: child.id, firstName: child.firstName, lastName: child.lastName } : null,
+    };
+  });
 }
 
 router.get("/messages", authMiddleware, async (req, res): Promise<void> => {
@@ -34,8 +53,7 @@ router.get("/messages", authMiddleware, async (req, res): Promise<void> => {
   const messages = await db.select().from(messagesTable)
     .where(or(eq(messagesTable.senderId, userId), eq(messagesTable.recipientId, userId)))
     .orderBy(desc(messagesTable.createdAt));
-  const formatted = await Promise.all(messages.map(formatMessage));
-  res.json(formatted);
+  res.json(await attachParticipants(messages));
 });
 
 router.get("/messages/inbox", authMiddleware, async (req, res): Promise<void> => {
@@ -43,8 +61,7 @@ router.get("/messages/inbox", authMiddleware, async (req, res): Promise<void> =>
   const messages = await db.select().from(messagesTable)
     .where(eq(messagesTable.recipientId, userId))
     .orderBy(desc(messagesTable.createdAt));
-  const formatted = await Promise.all(messages.map(formatMessage));
-  res.json(formatted);
+  res.json(await attachParticipants(messages));
 });
 
 router.get("/messages/sent", authMiddleware, async (req, res): Promise<void> => {
@@ -52,8 +69,7 @@ router.get("/messages/sent", authMiddleware, async (req, res): Promise<void> => 
   const messages = await db.select().from(messagesTable)
     .where(eq(messagesTable.senderId, userId))
     .orderBy(desc(messagesTable.createdAt));
-  const formatted = await Promise.all(messages.map(formatMessage));
-  res.json(formatted);
+  res.json(await attachParticipants(messages));
 });
 
 router.get("/messages/unread-count", authMiddleware, async (req, res): Promise<void> => {
@@ -88,7 +104,8 @@ router.post("/messages", authMiddleware, async (req, res): Promise<void> => {
     body: parsed.data.body,
     isRead: false,
   }).returning();
-  res.status(201).json(await formatMessage(message));
+  const [formatted] = await attachParticipants([message]);
+  res.status(201).json(formatted);
 });
 
 router.put("/messages/:id/read", authMiddleware, async (req, res): Promise<void> => {
@@ -97,7 +114,8 @@ router.put("/messages/:id/read", authMiddleware, async (req, res): Promise<void>
   const [message] = await db.update(messagesTable).set({ isRead: true })
     .where(and(eq(messagesTable.id, id), eq(messagesTable.recipientId, req.user!.userId))).returning();
   if (!message) { res.status(404).json({ error: "Not found" }); return; }
-  res.json(await formatMessage(message));
+  const [formatted] = await attachParticipants([message]);
+  res.json(formatted);
 });
 
 router.delete("/messages/:id", authMiddleware, async (req, res): Promise<void> => {

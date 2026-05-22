@@ -17,7 +17,7 @@ router.get("/notifications", authMiddleware, async (req, res): Promise<void> => 
   const offset = (page - 1) * limit;
   const notifications = await db.select().from(notificationsTable)
     .where(and(...conditions))
-    .orderBy(notificationsTable.createdAt)
+    .orderBy(desc(notificationsTable.createdAt))
     .limit(limit).offset(offset);
   const [{ total }] = await db.select({ total: sql<number>`count(*)` }).from(notificationsTable)
     .where(and(...conditions));
