@@ -14,8 +14,20 @@ interface PickupRequest {
   requestedAt: string;
 }
 
-function formatTime(iso: string) {
-  return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+function extractYouTubeId(url: string): string | null {
+  try {
+    const u = new URL(url);
+    if (u.hostname.includes("youtu.be")) return u.pathname.slice(1).split("?")[0];
+    if (u.hostname.includes("youtube.com")) {
+      const v = u.searchParams.get("v");
+      if (v) return v;
+      const parts = u.pathname.split("/");
+      const embedIdx = parts.indexOf("embed");
+      if (embedIdx !== -1) return parts[embedIdx + 1];
+    }
+  } catch {}
+  if (/^[a-zA-Z0-9_-]{11}$/.test(url.trim())) return url.trim();
+  return null;
 }
 
 function Clock() {
@@ -31,94 +43,86 @@ function Clock() {
   );
 }
 
-function extractYouTubeId(url: string): string | null {
-  try {
-    const u = new URL(url);
-    if (u.hostname.includes("youtu.be")) return u.pathname.slice(1).split("?")[0];
-    if (u.hostname.includes("youtube.com")) {
-      const v = u.searchParams.get("v");
-      if (v) return v;
-      const parts = u.pathname.split("/");
-      const embedIdx = parts.indexOf("embed");
-      if (embedIdx !== -1) return parts[embedIdx + 1];
-    }
-  } catch {}
-  // bare video ID (11 chars)
-  if (/^[a-zA-Z0-9_-]{11}$/.test(url.trim())) return url.trim();
-  return null;
-}
+// ── TV-style lower-third news bar ──────────────────────────────────────────────
+function NewsBar({ queue, className }: { queue: PickupRequest[]; className: string }) {
+  const hasPickups = queue.length > 0;
 
-// Scrolling ticker at the bottom when there are pickup requests
-function PickupTicker({ queue }: { queue: PickupRequest[] }) {
-  if (queue.length === 0) return null;
-  const items = [...queue, ...queue, ...queue];
+  // Build ticker items — triplicate for seamless loop
+  const baseItems: string[] = hasPickups
+    ? queue.map(r => `📣  ${r.childName}'s parent is here for pickup`)
+    : [`Welcome to Children's Church  ·  ${className || "Shepherd Connect"}  ·  RCCG City of David`];
+
+  const items = [...baseItems, ...baseItems, ...baseItems];
+  const duration = Math.max(items.length * 6, 20);
+
   return (
-    <div className="overflow-hidden w-full flex-shrink-0" style={{ background: GOLD, borderTop: `4px solid ${NAVY}` }}>
+    <div
+      className="absolute bottom-0 left-0 right-0 flex items-stretch z-20 select-none"
+      style={{ height: 72 }}
+    >
+      {/* Left badge — "SHEPHERD NEWS" branding */}
       <div
-        className="flex items-center gap-0 whitespace-nowrap"
-        style={{ animation: `ticker ${Math.max(items.length * 8, 20)}s linear infinite` }}
+        className="flex flex-col items-center justify-center flex-shrink-0 px-6 gap-0.5"
+        style={{
+          background: hasPickups ? GOLD : NAVY,
+          minWidth: 180,
+          transition: "background 0.6s ease",
+        }}
       >
-        {items.map((r, i) => (
-          <span key={`${r.id}-${i}`} className="inline-flex items-center gap-3 px-10 py-4 text-2xl font-bold" style={{ color: NAVY }}>
-            <span className="text-3xl">📣</span>
-            <span>{r.parentName}</span>
-            <span className="opacity-60 text-xl font-normal">is here to pick up</span>
-            <span className="underline underline-offset-4">{r.childName}</span>
-            <span className="opacity-40 text-lg font-normal ml-2">{formatTime(r.requestedAt)}</span>
-            <span className="mx-8 opacity-30 text-4xl">·</span>
-          </span>
-        ))}
-      </div>
-      <style>{`@keyframes ticker { 0% { transform: translateX(0); } 100% { transform: translateX(-33.333%); } }`}</style>
-    </div>
-  );
-}
-
-// Overlay pickup alert cards (slide in from right)
-function PickupOverlay({ queue }: { queue: PickupRequest[] }) {
-  if (queue.length === 0) return null;
-  return (
-    <div className="absolute top-24 right-8 flex flex-col gap-4 z-20" style={{ maxWidth: 420, width: "100%" }}>
-      {queue.slice(0, 4).map((r, i) => (
-        <div
-          key={r.id}
-          className="rounded-2xl p-5 flex items-center gap-4"
-          style={{
-            background: "rgba(255,255,255,0.97)",
-            border: `3px solid ${GOLD}`,
-            boxShadow: "0 12px 40px rgba(0,0,0,0.35)",
-            animation: `slideIn 0.4s ease ${i * 0.1}s both`,
-          }}
+        <span className="text-2xl leading-none">🐑</span>
+        <span
+          className="text-xs font-black tracking-widest uppercase leading-none"
+          style={{ color: hasPickups ? NAVY : GOLD, letterSpacing: "0.15em" }}
         >
-          <div className="w-16 h-16 rounded-xl flex items-center justify-center flex-shrink-0 text-3xl font-bold text-white"
-            style={{ background: `linear-gradient(135deg, ${NAVY}, #3b82f6)` }}>
-            {r.childName[0]}
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-2xl font-extrabold text-gray-900 leading-tight truncate" style={{ fontFamily: "'Playfair Display', serif" }}>
-              {r.childName}
-            </p>
-            <p className="text-sm text-gray-500 mt-0.5 truncate">
-              Parent: <span className="font-semibold text-gray-700">{r.parentName}</span>
-            </p>
-            <div className="mt-1.5 inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold"
-              style={{ background: `${GOLD}33`, color: "#92400e", border: `1px solid ${GOLD}` }}>
-              <span className="animate-pulse">🚶</span> Ready for pickup · {formatTime(r.requestedAt)}
-            </div>
-          </div>
+          Shepherd
+        </span>
+        <span
+          className="text-xs font-black tracking-widest uppercase leading-none"
+          style={{ color: hasPickups ? NAVY : "white", letterSpacing: "0.15em" }}
+        >
+          News
+        </span>
+      </div>
+
+      {/* Scrolling ticker */}
+      <div
+        className="flex-1 overflow-hidden flex items-center"
+        style={{
+          background: hasPickups
+            ? "rgba(245,158,11,0.92)"
+            : "rgba(15,23,42,0.88)",
+          backdropFilter: "blur(4px)",
+        }}
+      >
+        <div
+          key={hasPickups ? "pickups" : "idle"}
+          className="flex items-center whitespace-nowrap"
+          style={{ animation: `newsScroll ${duration}s linear infinite` }}
+        >
+          {items.map((text, i) => (
+            <span
+              key={i}
+              className="inline-flex items-center text-2xl font-bold tracking-wide px-12"
+              style={{ color: hasPickups ? NAVY : "rgba(255,255,255,0.6)" }}
+            >
+              {text}
+              <span className="mx-10 opacity-40">◆</span>
+            </span>
+          ))}
         </div>
-      ))}
-      {queue.length > 4 && (
-        <div className="text-center text-white/70 text-lg font-semibold bg-white/10 rounded-xl py-3">
-          +{queue.length - 4} more waiting
-        </div>
-      )}
-      <style>{`@keyframes slideIn { from { opacity:0; transform:translateX(40px); } to { opacity:1; transform:translateX(0); } }`}</style>
+      </div>
+
+      <style>{`
+        @keyframes newsScroll {
+          0%   { transform: translateX(0); }
+          100% { transform: translateX(-33.333%); }
+        }
+      `}</style>
     </div>
   );
 }
 
-// Video set panel
+// ── Set Video panel ─────────────────────────────────────────────────────────────
 function VideoPanel({ videoId, onSet }: { videoId: string | null; onSet: (id: string | null) => void }) {
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState("");
@@ -127,32 +131,35 @@ function VideoPanel({ videoId, onSet }: { videoId: string | null; onSet: (id: st
   const handleApply = () => {
     if (!input.trim()) { onSet(null); setOpen(false); return; }
     const id = extractYouTubeId(input.trim());
-    if (!id) { setError("Couldn't find a YouTube video ID in that URL. Paste the full YouTube link."); return; }
+    if (!id) { setError("Couldn't recognise that YouTube link. Paste the full URL."); return; }
     onSet(id);
     setOpen(false);
     setInput("");
     setError("");
   };
 
-  const handleClear = () => { onSet(null); setOpen(false); setInput(""); setError(""); };
-
   return (
     <>
-      {/* Toggle button — sits in header */}
       <button
         onClick={() => setOpen(o => !o)}
         className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all hover:opacity-80"
-        style={{ background: videoId ? "rgba(245,158,11,0.2)" : "rgba(255,255,255,0.12)", color: "white", border: "1px solid rgba(255,255,255,0.2)" }}
+        style={{
+          background: videoId ? `${GOLD}33` : "rgba(255,255,255,0.12)",
+          color: "white",
+          border: `1px solid ${videoId ? GOLD + "66" : "rgba(255,255,255,0.2)"}`,
+        }}
       >
-        <span className="text-lg">🎬</span>
+        <span>🎬</span>
         {videoId ? "Change Video" : "Set Video"}
       </button>
 
-      {/* Panel */}
       {open && (
-        <div className="absolute top-20 left-1/2 -translate-x-1/2 z-30 rounded-2xl p-6 shadow-2xl" style={{ background: "#0f172a", border: "1px solid rgba(255,255,255,0.15)", minWidth: 420 }}>
+        <div
+          className="absolute top-20 left-1/2 z-30 rounded-2xl p-6 shadow-2xl"
+          style={{ background: "#0f172a", border: "1px solid rgba(255,255,255,0.15)", minWidth: 440, transform: "translateX(-50%)" }}
+        >
           <h2 className="text-white font-bold text-lg mb-1">Play a YouTube Video</h2>
-          <p className="text-white/50 text-sm mb-4">Paste a YouTube link below. The video will play on this screen.</p>
+          <p className="text-white/50 text-sm mb-4">Paste any YouTube link. The video plays full screen on this TV.</p>
           <input
             className="w-full rounded-xl px-4 py-3 text-sm bg-white/10 text-white placeholder:text-white/30 border border-white/20 focus:outline-none focus:border-amber-400"
             placeholder="https://www.youtube.com/watch?v=..."
@@ -163,15 +170,25 @@ function VideoPanel({ videoId, onSet }: { videoId: string | null; onSet: (id: st
           />
           {error && <p className="text-red-400 text-xs mt-2">{error}</p>}
           <div className="flex gap-3 mt-4">
-            <button onClick={handleApply} className="flex-1 py-2.5 rounded-xl font-bold text-sm" style={{ background: GOLD, color: NAVY }}>
+            <button
+              onClick={handleApply}
+              className="flex-1 py-2.5 rounded-xl font-bold text-sm"
+              style={{ background: GOLD, color: NAVY }}
+            >
               Play Video
             </button>
             {videoId && (
-              <button onClick={handleClear} className="px-4 py-2.5 rounded-xl font-semibold text-sm text-white/60 hover:text-white border border-white/20 hover:border-white/40 transition-colors">
+              <button
+                onClick={() => { onSet(null); setOpen(false); }}
+                className="px-4 py-2.5 rounded-xl font-semibold text-sm border border-white/20 text-white/60 hover:text-white hover:border-white/40 transition-colors"
+              >
                 Clear
               </button>
             )}
-            <button onClick={() => setOpen(false)} className="px-4 py-2.5 rounded-xl font-semibold text-sm text-white/60 hover:text-white border border-white/20 hover:border-white/40 transition-colors">
+            <button
+              onClick={() => setOpen(false)}
+              className="px-4 py-2.5 rounded-xl font-semibold text-sm border border-white/20 text-white/60 hover:text-white hover:border-white/40 transition-colors"
+            >
               Cancel
             </button>
           </div>
@@ -181,23 +198,23 @@ function VideoPanel({ videoId, onSet }: { videoId: string | null; onSet: (id: st
   );
 }
 
-// Idle screen when no video is set
-function IdleScreen({ pickupCount }: { pickupCount: number }) {
+// ── Idle screen (no video set) ───────────────────────────────────────────────────
+function IdleScreen() {
   return (
-    <div className="flex flex-col items-center justify-center h-full gap-8 text-center select-none">
-      <div className="text-9xl opacity-20">🎬</div>
+    <div className="flex flex-col items-center justify-center h-full gap-6 text-center select-none"
+      style={{ background: "linear-gradient(160deg, #0f172a 0%, #1e3a8a 100%)" }}>
+      <div style={{ fontSize: 100, opacity: 0.15 }}>🐑</div>
       <div>
-        <p className="text-4xl font-bold text-white/30 mb-3">No video playing</p>
-        <p className="text-xl text-white/20">
-          {pickupCount > 0
-            ? `${pickupCount} pickup request${pickupCount !== 1 ? "s" : ""} are waiting →`
-            : `Tap "Set Video" in the top bar to play a YouTube video for the children`}
+        <p className="text-5xl font-extrabold text-white/20 mb-3" style={{ fontFamily: "'Playfair Display', serif" }}>
+          Shepherd Connect
         </p>
+        <p className="text-xl text-white/20">Tap <strong className="text-white/30">Set Video</strong> in the top bar to play a YouTube video</p>
       </div>
     </div>
   );
 }
 
+// ── Main component ───────────────────────────────────────────────────────────────
 const STORAGE_KEY = "classroom-display-video-id";
 
 export default function ClassroomDisplay() {
@@ -207,7 +224,6 @@ export default function ClassroomDisplay() {
   const [queue, setQueue] = useState<PickupRequest[]>([]);
   const [className, setClassName] = useState<string>("");
   const [connected, setConnected] = useState(false);
-  const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
   const [videoId, setVideoId] = useState<string | null>(() => {
     try { return localStorage.getItem(STORAGE_KEY) || null; } catch { return null; }
   });
@@ -220,8 +236,6 @@ export default function ClassroomDisplay() {
     } catch {}
   }, []);
 
-  const esRef = useRef<EventSource | null>(null);
-
   useEffect(() => {
     if (!classIdNum) return;
     const base = (import.meta.env.BASE_URL ?? "/").replace(/\/$/, "");
@@ -230,7 +244,6 @@ export default function ClassroomDisplay() {
 
     function connect() {
       const es = new EventSource(url);
-      esRef.current = es;
       es.onopen = () => setConnected(true);
       es.onmessage = (e) => {
         try {
@@ -238,7 +251,6 @@ export default function ClassroomDisplay() {
           if (data.type === "init" || data.type === "pickup" || data.type === "dismissed") {
             setQueue(data.queue ?? []);
             if (data.className) setClassName(data.className);
-            setLastUpdate(new Date());
           }
         } catch {}
       };
@@ -247,32 +259,47 @@ export default function ClassroomDisplay() {
         es.close();
         retryTimeout = setTimeout(connect, 4000);
       };
+      return es;
     }
 
-    connect();
-    return () => {
-      esRef.current?.close();
-      clearTimeout(retryTimeout);
-      setConnected(false);
-    };
+    const es = connect();
+    return () => { es.close(); clearTimeout(retryTimeout); setConnected(false); };
   }, [classIdNum]);
 
-  const today = new Date().toLocaleDateString([], { weekday: "long", year: "numeric", month: "long", day: "numeric" });
   const embedUrl = videoId
     ? `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&loop=1&playlist=${videoId}&controls=0&modestbranding=1&rel=0&iv_load_policy=3`
     : null;
 
-  return (
-    <div className="h-screen flex flex-col overflow-hidden relative"
-      style={{ background: "linear-gradient(160deg, #0f172a 0%, #1e3a8a 100%)", fontFamily: "Inter, sans-serif" }}>
+  const today = new Date().toLocaleDateString([], { weekday: "long", month: "long", day: "numeric", year: "numeric" });
 
-      {/* Header */}
-      <div className="flex items-center justify-between px-8 py-4 flex-shrink-0 relative z-10"
-        style={{ borderBottom: "2px solid rgba(255,255,255,0.08)", background: "rgba(0,0,0,0.4)" }}>
+  return (
+    <div className="h-screen w-screen overflow-hidden relative" style={{ background: "#0f172a", fontFamily: "Inter, sans-serif" }}>
+
+      {/* ── Video / Idle ── */}
+      <div className="absolute inset-0" style={{ bottom: 72 }}>
+        {embedUrl ? (
+          <iframe
+            key={videoId}
+            src={embedUrl}
+            className="w-full h-full"
+            allow="autoplay; encrypted-media"
+            allowFullScreen
+            style={{ border: "none", display: "block" }}
+          />
+        ) : (
+          <IdleScreen />
+        )}
+      </div>
+
+      {/* ── Top bar (header) — semi-transparent overlay ── */}
+      <div
+        className="absolute top-0 left-0 right-0 flex items-center justify-between px-8 py-4 z-10"
+        style={{ background: "linear-gradient(to bottom, rgba(0,0,0,0.65) 0%, transparent 100%)" }}
+      >
         <div className="flex items-center gap-4">
-          <div className="w-12 h-12 rounded-xl flex items-center justify-center text-xl flex-shrink-0" style={{ background: GOLD }}>🐑</div>
+          <div className="w-11 h-11 rounded-xl flex items-center justify-center text-xl flex-shrink-0" style={{ background: GOLD }}>🐑</div>
           <div>
-            <p className="text-white/40 text-xs font-medium tracking-widest uppercase">Shepherd Connect</p>
+            <p className="text-white/40 text-xs font-semibold tracking-widest uppercase">Shepherd Connect</p>
             <h1 className="text-2xl font-extrabold text-white leading-tight" style={{ fontFamily: "'Playfair Display', serif" }}>
               {className || `Classroom ${classId}`}
             </h1>
@@ -281,53 +308,21 @@ export default function ClassroomDisplay() {
 
         <div className="flex items-center gap-4">
           <VideoPanel videoId={videoId} onSet={handleSetVideo} />
-          {queue.length > 0 && (
-            <div className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold animate-pulse"
-              style={{ background: `${GOLD}22`, color: GOLD, border: `1px solid ${GOLD}55` }}>
-              <span>📣</span> {queue.length} pickup{queue.length !== 1 ? "s" : ""} waiting
-            </div>
-          )}
           <div className="text-right">
-            <p className="text-4xl font-bold text-white tabular-nums"><Clock /></p>
+            <p className="text-3xl font-bold text-white tabular-nums"><Clock /></p>
             <p className="text-white/40 text-xs mt-0.5">{today}</p>
           </div>
         </div>
       </div>
 
-      {/* Main content — video or idle */}
-      <div className="flex-1 relative overflow-hidden">
-        {embedUrl ? (
-          <iframe
-            key={videoId}
-            src={embedUrl}
-            className="absolute inset-0 w-full h-full"
-            allow="autoplay; encrypted-media"
-            allowFullScreen
-            style={{ border: "none" }}
-          />
-        ) : (
-          <IdleScreen pickupCount={queue.length} />
-        )}
-
-        {/* Pickup request overlay — appears on top of video */}
-        <PickupOverlay queue={queue} />
+      {/* ── Connection dot (bottom-left, above news bar) ── */}
+      <div className="absolute z-30 flex items-center gap-1.5" style={{ bottom: 80, left: 16 }}>
+        <div className={`w-2 h-2 rounded-full ${connected ? "bg-green-400 animate-pulse" : "bg-red-500"}`} />
+        <span className="text-xs text-white/30">{connected ? "Live" : "Reconnecting…"}</span>
       </div>
 
-      {/* Scrolling ticker */}
-      <PickupTicker queue={queue} />
-
-      {/* Status bar */}
-      <div className="flex items-center justify-between px-8 py-2 flex-shrink-0"
-        style={{ background: "rgba(0,0,0,0.5)", borderTop: "1px solid rgba(255,255,255,0.06)" }}>
-        <div className="flex items-center gap-2">
-          <div className={`w-2 h-2 rounded-full ${connected ? "bg-green-400 animate-pulse" : "bg-red-400"}`} />
-          <span className="text-xs text-white/40">{connected ? "Live" : "Reconnecting..."}</span>
-        </div>
-        <span className="text-xs text-white/30">
-          {lastUpdate ? `Last update: ${formatTime(lastUpdate.toISOString())}` : "Waiting for updates..."}
-        </span>
-        <span className="text-xs text-white/30">RCCG City of David · Children's Ministry</span>
-      </div>
+      {/* ── TV news lower-third bar ── */}
+      <NewsBar queue={queue} className={className} />
     </div>
   );
 }
