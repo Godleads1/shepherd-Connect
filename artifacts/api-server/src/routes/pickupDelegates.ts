@@ -65,10 +65,20 @@ router.post("/pickup-delegates/verify-otp", async (req, res): Promise<void> => {
   res.json({ valid: true, delegate: { ...delegate, otpCode: undefined }, child: child ?? null, message: "OTP verified" });
 });
 
+router.get("/pickup-delegates/:id", authMiddleware, async (req, res): Promise<void> => {
+  const id = parseInt(req.params.id as string, 10);
+  if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
+  const [delegate] = await db.select().from(pickupDelegatesTable).where(eq(pickupDelegatesTable.id, id));
+  if (!delegate) { res.status(404).json({ error: "Not found", message: "Delegate not found" }); return; }
+  res.json({ ...delegate, otpCode: undefined });
+});
+
 router.put("/pickup-delegates/:id/approve", authMiddleware, async (req, res): Promise<void> => {
   const id = parseInt(req.params.id as string, 10);
   if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
-  const [delegate] = await db.update(pickupDelegatesTable).set({ parentApproved: true }).where(eq(pickupDelegatesTable.id, id)).returning();
+  const [delegate] = await db.update(pickupDelegatesTable)
+    .set({ parentApproved: true, approvalStatus: "approved" })
+    .where(eq(pickupDelegatesTable.id, id)).returning();
   if (!delegate) { res.status(404).json({ error: "Not found", message: "Delegate not found" }); return; }
   res.json({ ...delegate, otpCode: undefined });
 });
