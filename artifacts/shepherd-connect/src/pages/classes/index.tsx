@@ -10,7 +10,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import { Users, MapPin, Clock, Edit2, Trash2, ListOrdered, Zap, RefreshCw, CheckCircle, ArrowRight, Tv2 } from "lucide-react";
+import { Users, MapPin, Edit2, Trash2, ListOrdered, Zap, RefreshCw, CheckCircle, ArrowRight, Tv2 } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiGet, apiPost } from "@/lib/api-call";
 
@@ -35,7 +35,7 @@ const classSchema = z.object({
   ageMax: z.coerce.number().min(0),
   capacity: z.coerce.number().min(1),
   roomLocation: z.string().optional().default(""),
-  serviceSlot: z.enum(["7am", "10:30am"]),
+  serviceSlot: z.enum(["7am", "10:30am"]).default("7am"),
   description: z.string().optional()
 });
 // ageMin/ageMax kept in schema for API compatibility but hidden from UI (auto-derived from class number)
@@ -84,14 +84,6 @@ export default function Classes() {
     const m = watchedName.trim().match(/^class\s+(\d+)$/i);
     return m ? parseInt(m[1], 10) : null;
   })();
-
-  // Auto-set service slot when age is detected
-  if (derivedAge !== null) {
-    const autoSlot = derivedAge <= 6 ? "7am" : "10:30am";
-    if (form.getValues("serviceSlot") !== autoSlot) {
-      form.setValue("serviceSlot", autoSlot);
-    }
-  }
 
   const handleOpenNew = () => {
     setEditingId(null);
@@ -257,28 +249,13 @@ export default function Classes() {
                   <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" />
                   </svg>
-                  Age {derivedAge} · Auto-assigned for all {derivedAge}-year-old children · Service: {derivedAge <= 6 ? "1st (7:00 AM)" : "2nd (10:30 AM)"}
+                  Age {derivedAge} · Auto-assigned for all {derivedAge}-year-old children
                 </div>
               )}
               
-              <div className="grid grid-cols-2 gap-4">
-                <FormField control={form.control} name="capacity" render={({ field }) => (
-                  <FormItem><FormLabel>Capacity</FormLabel><FormControl><Input type="number" className="rounded-xl" {...field} /></FormControl><FormMessage /></FormItem>
-                )} />
-                <FormField control={form.control} name="serviceSlot" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Service Slot</FormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value}>
-                      <FormControl><SelectTrigger className="rounded-xl"><SelectValue /></SelectTrigger></FormControl>
-                      <SelectContent>
-                        <SelectItem value="7am">1st Service · 7:00 – 10:00 AM</SelectItem>
-                        <SelectItem value="10:30am">2nd Service · 10:30 AM onwards</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )} />
-              </div>
+              <FormField control={form.control} name="capacity" render={({ field }) => (
+                <FormItem><FormLabel>Capacity</FormLabel><FormControl><Input type="number" className="rounded-xl" {...field} /></FormControl><FormMessage /></FormItem>
+              )} />
               
               <FormField control={form.control} name="description" render={({ field }) => (
                 <FormItem><FormLabel>Description (Optional)</FormLabel><FormControl><Input className="rounded-xl" {...field} /></FormControl><FormMessage /></FormItem>
@@ -321,12 +298,6 @@ export default function Classes() {
                   </div>
                 </div>
                 
-                <div className="space-y-2 mb-6">
-                  <div className="flex items-center gap-2 text-sm text-gray-600 bg-gray-50 rounded-lg px-3 py-2">
-                    <Clock className="w-4 h-4 text-blue-800 flex-shrink-0" /> 
-                    <span className="font-medium">{cls.serviceSlot === "7am" ? "1st Service · 7:00–10:00 AM" : cls.serviceSlot === "10:30am" ? "2nd Service · 10:30 AM" : `${cls.serviceSlot} Service`}</span>
-                  </div>
-                </div>
                 
                 <WaitlistBadge classId={cls.id} />
                 <div className="mt-auto space-y-2">
