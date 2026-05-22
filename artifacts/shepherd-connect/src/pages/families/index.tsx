@@ -4,10 +4,11 @@ import { Link } from "wouter";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Search, Eye, Users } from "lucide-react";
+import { QueryError } from "@/components/QueryError";
 
 export default function Families() {
   const [search, setSearch] = useState("");
-  const { data, isLoading } = useListFamilies({ search });
+  const { data, isLoading, isError, refetch } = useListFamilies({ search });
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto">
@@ -27,7 +28,11 @@ export default function Families() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {isLoading ? (
+        {isError ? (
+          <div className="col-span-full">
+            <QueryError message="Could not load families." onRetry={() => refetch()} />
+          </div>
+        ) : isLoading ? (
           <>
             <Skeleton className="h-32 w-full rounded-2xl" />
             <Skeleton className="h-32 w-full rounded-2xl" />

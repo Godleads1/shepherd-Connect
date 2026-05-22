@@ -14,6 +14,7 @@ import { Zap, BarChart3, RefreshCw, Calendar, AlertTriangle, UserMinus, UserChec
 import { apiGet, apiPost, apiPut, apiDelete } from "@/lib/api-call";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/auth";
+import { QueryError } from "@/components/QueryError";
 
 type ServiceHour = {
   teacherId: number; teacherName: string;
@@ -69,7 +70,7 @@ export default function TeacherAllocations() {
   const { toast } = useToast();
   const qc = useQueryClient();
 
-  const { data: allocations, isLoading } = useListTeacherAllocations();
+  const { data: allocations, isLoading, isError } = useListTeacherAllocations();
 
   const { data: serviceHours, isLoading: hoursLoading } = useQuery({
     queryKey: ["teacher-service-hours"],
@@ -275,7 +276,11 @@ export default function TeacherAllocations() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {isLoading ? (
+                {isError ? (
+                  <TableRow><TableCell colSpan={isAdmin ? 6 : 5}>
+                    <QueryError message="Could not load allocations." />
+                  </TableCell></TableRow>
+                ) : isLoading ? (
                   Array(5).fill(0).map((_, i) => (
                     <TableRow key={i}><TableCell colSpan={isAdmin ? 6 : 5}><Skeleton className="h-10 w-full" /></TableCell></TableRow>
                   ))

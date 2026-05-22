@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { useGetMyFamily, useListClasses, useCreateChild, useUpdateChild } from "@workspace/api-client-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Skeleton } from "@/components/ui/skeleton";
+import { QueryError } from "@/components/QueryError";
 import { Badge } from "@/components/ui/badge";
 import { Link } from "wouter";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -471,7 +472,7 @@ function ChildCard({ child, onRefetch }: { child: any; onRefetch: () => void }) 
 
 export default function MyFamily() {
   const { user } = useAuth();
-  const { data: family, isLoading, refetch } = useGetMyFamily();
+  const { data: family, isLoading, isError, refetch } = useGetMyFamily();
   const createChildMutation = useCreateChild();
   const { toast } = useToast();
 
@@ -539,6 +540,7 @@ export default function MyFamily() {
     }
   };
 
+  if (isError) return <QueryError message="Could not load your family." onRetry={() => refetch()} />;
   if (isLoading) {
     return (
       <div className="space-y-4 max-w-2xl mx-auto">

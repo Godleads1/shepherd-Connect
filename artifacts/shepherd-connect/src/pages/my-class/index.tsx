@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useListAttendance, useMarkArrived, useListTeachers, useListTeacherAllocations } from "@workspace/api-client-react";
+import { QueryError } from "@/components/QueryError";
 import { useQuery } from "@tanstack/react-query";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -67,7 +68,7 @@ export default function MyClass() {
   const myClassId: number | undefined = activeAlloc?.classId;
   const myClassName: string | undefined = activeAlloc?.class?.name ?? undefined;
 
-  const { data: allAttendance, isLoading, refetch } = useListAttendance(
+  const { data: allAttendance, isLoading, isError, refetch } = useListAttendance(
     { serviceDate: today, classId: myClassId },
     { query: { enabled: myClassId !== undefined, queryKey: ["myClassAttendance", myClassId, today] } },
   );
@@ -203,7 +204,9 @@ export default function MyClass() {
       </div>
 
       {/* ── Content ── */}
-      {isLoading ? (
+      {isError ? (
+        <QueryError message="Could not load class attendance." onRetry={() => refetch()} />
+      ) : isLoading ? (
         <div className="grid gap-4 md:grid-cols-2">
           {[1,2,3,4].map(i => <Skeleton key={i} className="h-48 w-full rounded-2xl" />)}
         </div>

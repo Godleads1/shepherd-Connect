@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiGet, apiPost } from "@/lib/api-call";
+import { QueryError } from "@/components/QueryError";
 import { useAuth } from "@/contexts/auth";
 import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -31,7 +32,7 @@ export default function SubstituteRequests() {
   const [subTeacherId, setSubTeacherId] = useState("");
   const [adminNotes, setAdminNotes] = useState("");
 
-  const { data: requests, isLoading } = useQuery({
+  const { data: requests, isLoading, isError } = useQuery({
     queryKey: ["substitute-requests"],
     queryFn: () => apiGet<any[]>("/substitute-requests"),
   });
@@ -111,7 +112,9 @@ export default function SubstituteRequests() {
       </div>
 
       {/* List */}
-      {isLoading ? (
+      {isError ? (
+        <QueryError message="Could not load substitute requests." />
+      ) : isLoading ? (
         <div className="space-y-3">{[1,2,3].map(i => <Skeleton key={i} className="h-28 w-full rounded-2xl" />)}</div>
       ) : (requests || []).length === 0 ? (
         <div className="text-center py-20 bg-white rounded-2xl border border-dashed">

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useGetMyFamily, useListPickupDelegates, useCreatePickupDelegate, useApprovePickupDelegate } from "@workspace/api-client-react";
+import { QueryError } from "@/components/QueryError";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -24,7 +25,7 @@ const formSchema = z.object({
 export default function PickupDelegates() {
   const { user } = useAuth();
   const { data: family } = useGetMyFamily();
-  const { data: delegates, refetch } = useListPickupDelegates();
+  const { data: delegates, refetch, isError: delegatesError } = useListPickupDelegates();
   const createMutation = useCreatePickupDelegate();
   const approveMutation = useApprovePickupDelegate();
   const { toast } = useToast();
@@ -201,6 +202,9 @@ export default function PickupDelegates() {
         </Dialog>
       </div>
 
+      {delegatesError ? (
+        <QueryError message="Could not load your pickup delegates." onRetry={() => refetch()} />
+      ) : (
       <div className="grid gap-4 sm:grid-cols-2">
         {delegates?.map((delegate: any) => (
           <Card key={delegate.id} className="border rounded-2xl overflow-hidden">
@@ -263,6 +267,7 @@ export default function PickupDelegates() {
           </div>
         )}
       </div>
+      )}
     </div>
   );
 }

@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Trash2, RefreshCw, ChevronLeft, ChevronRight } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiGet, apiDelete } from "@/lib/api-call";
+import { QueryError } from "@/components/QueryError";
 
 interface ErrorLog {
   id: number;
@@ -30,7 +31,7 @@ export default function ErrorLogs() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const { data, isLoading, refetch } = useQuery<ErrorLogsResponse>({
+  const { data, isLoading, isError, refetch } = useQuery<ErrorLogsResponse>({
     queryKey: ["error-logs", page],
     queryFn: () =>
       apiGet<ErrorLogsResponse>(`/error-logs?page=${page}&limit=${PAGE_SIZE}`),
@@ -91,7 +92,9 @@ export default function ErrorLogs() {
         </div>
       </div>
 
-      {isLoading ? (
+      {isError ? (
+        <QueryError message="Could not load error logs." onRetry={() => refetch()} />
+      ) : isLoading ? (
         <div className="text-center py-16 text-gray-500">Loading…</div>
       ) : logs.length === 0 ? (
         <div className="text-center py-16">

@@ -1,9 +1,27 @@
 import { Router } from "express";
 import { eq, and, inArray } from "drizzle-orm";
+import rateLimit from "express-rate-limit";
 import { db, pickupDelegatesTable, childrenTable, familiesTable, usersTable, notificationsTable } from "@workspace/db";
 import { CreatePickupDelegateBody, VerifyDelegateOtpBody, ListPickupDelegatesQueryParams } from "@workspace/api-zod";
 import { authMiddleware } from "../middlewares/auth";
 import { smsDelegateOtp } from "../services/sms";
+
+const createDelegateLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many requests", message: "Too many delegate OTPs created. Please try again later." },
+  keyGenerator: (req) => String(req.user?.userId ?? req.ip),
+});
+
+const verifyOtpLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many requests", message: "Too many OTP attempts. Please wait 15 minutes before trying again." },
+});
 
 const router = Router();
 
@@ -52,7 +70,7 @@ router.get("/pickup-delegates", authMiddleware, async (req, res): Promise<void> 
   res.json(delegates.map(d => ({ ...d, otpCode: undefined })));
 });
 
-router.post("/pickup-delegates", authMiddleware, async (req, res): Promise<void> => {
+router.post("/pickup-delegates", authMiddleware, createDelegateLimiter, async (req, res): Promise<void> => {
   const parsed = CreatePickupDelegateBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: "Bad request", message: parsed.error.message }); return; }
 
@@ -77,7 +95,7 @@ router.post("/pickup-delegates", authMiddleware, async (req, res): Promise<void>
   res.status(201).json(delegate);
 });
 
-router.post("/pickup-delegates/verify-otp", async (req, res): Promise<void> => {
+router.post("/pickup-delegates/verify-otp", verifyOtpLimiter, async (req, res): Promise<void> => {
   const parsed = VerifyDelegateOtpBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: "Bad request", message: parsed.error.message }); return; }
   const { otpCode } = parsed.data;

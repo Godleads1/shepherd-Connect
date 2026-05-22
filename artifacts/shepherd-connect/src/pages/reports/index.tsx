@@ -1,6 +1,7 @@
 import { useState, useCallback } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api-call";
+import { QueryError } from "@/components/QueryError";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -283,6 +284,7 @@ export default function Reports() {
   const {
     data: builderData,
     isLoading: builderLoading,
+    isError: builderError,
     refetch: refetchBuilder,
     isFetching: builderFetching,
   } = useQuery({
@@ -1593,7 +1595,9 @@ export default function Reports() {
             </div>
 
             {/* Table */}
-            {builderLoading || builderFetching ? (
+            {builderError ? (
+              <div className="p-6"><QueryError message="Could not load report data." onRetry={() => refetchBuilder()} /></div>
+            ) : builderLoading || builderFetching ? (
               <div className="p-6 space-y-2">
                 {[1,2,3,4,5].map(i => <Skeleton key={i} className="h-8 w-full rounded" />)}
               </div>

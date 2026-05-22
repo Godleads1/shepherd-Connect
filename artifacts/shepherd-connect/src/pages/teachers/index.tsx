@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { UserCog, Pencil, Phone, Mail, Calendar, CheckCircle2, XCircle, ShieldCheck } from "lucide-react";
 import { resolvePhotoUrl } from "@/components/PhotoUploader";
+import { QueryError } from "@/components/QueryError";
 
 function TeacherAvatar({ teacher }: { teacher: any }) {
   const photo = resolvePhotoUrl(teacher?.user?.photoUrl);
@@ -106,7 +107,7 @@ export default function Teachers() {
 
   const canEdit = user?.role === "super_admin" || user?.role === "admin";
 
-  const { data: teachers = [], isLoading } = useQuery({
+  const { data: teachers = [], isLoading, isError } = useQuery({
     queryKey: ["teachers"],
     queryFn: () => apiGet<any[]>("/teachers"),
   });
@@ -212,6 +213,8 @@ export default function Teachers() {
     dbsClear: (teachers as any[]).filter((t: any) => getDbsStatus(t.user?.id) === "clear").length,
     dbsIssue: (teachers as any[]).filter((t: any) => ["expired","expiring","none"].includes(getDbsStatus(t.user?.id))).length,
   };
+
+  if (isError) return <QueryError message="Could not load teachers." />;
 
   return (
     <div className="max-w-5xl mx-auto space-y-5">

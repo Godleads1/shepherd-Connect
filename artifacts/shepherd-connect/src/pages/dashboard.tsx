@@ -9,6 +9,7 @@ import { apiGet } from "@/lib/api-call";
 import { useAuth } from "@/contexts/auth";
 import { format } from "date-fns";
 import { Badge } from "@/components/ui/badge";
+import { QueryError } from "@/components/QueryError";
 
 function BirthdayAndAbsenceRow() {
   const { data: bdays, isLoading: bdayLoading } = useQuery({
@@ -302,13 +303,14 @@ function TeacherDashboard() {
 }
 
 function AdminDashboard() {
-  const { data: stats, isLoading: statsLoading } = useGetDashboardStats();
+  const { data: stats, isLoading: statsLoading, isError: statsError } = useGetDashboardStats();
   const { data: liveView, isLoading: liveLoading } = useGetLiveView();
   const { data: trends, isLoading: trendsLoading } = useGetAttendanceTrends({ period: "weekly" });
   const { data: utilization, isLoading: utilLoading } = useGetClassUtilization();
   const { data: exceptions, isLoading: excLoading } = useGetExceptions();
   const { data: feedback, isLoading: feedbackLoading } = useGetFeedbackAnalytics();
 
+  if (statsError) return <QueryError message="Could not load dashboard stats." />;
   if (statsLoading) return (
     <div className="p-8 space-y-4 max-w-7xl mx-auto">
       <Skeleton className="h-32 w-full rounded-2xl" />

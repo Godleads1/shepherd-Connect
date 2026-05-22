@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useGetFamilyTree, useListAttendance } from "@workspace/api-client-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiPatch, apiGet, apiDelete } from "@/lib/api-call";
+import { QueryError } from "@/components/QueryError";
 import { useParams, Link, useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -345,7 +346,7 @@ export default function FamilyProfile() {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const isAdmin = user && ["super_admin", "admin"].includes(user.role);
 
-  const { data: tree, isLoading } = useGetFamilyTree(familyId, {
+  const { data: tree, isLoading, isError } = useGetFamilyTree(familyId, {
     query: { enabled: !!familyId, queryKey: ["getFamilyTree", familyId] }
   });
 
@@ -364,6 +365,7 @@ export default function FamilyProfile() {
     onError: () => toast({ variant: "destructive", title: "Delete failed", description: "Could not delete this family." }),
   });
 
+  if (isError) return <QueryError message="Could not load family profile." />;
   if (isLoading) return (
     <div className="space-y-4 p-6 max-w-5xl mx-auto">
       {[1, 2, 3].map(i => <Skeleton key={i} className="h-48 w-full rounded-2xl" />)}

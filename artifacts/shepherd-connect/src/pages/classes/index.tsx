@@ -13,6 +13,7 @@ import * as z from "zod";
 import { Users, MapPin, Edit2, Trash2, ListOrdered, Zap, RefreshCw, CheckCircle, ArrowRight, Tv2 } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiGet, apiPost } from "@/lib/api-call";
+import { QueryError } from "@/components/QueryError";
 
 function WaitlistBadge({ classId }: { classId: number }) {
   const { data } = useQuery({
@@ -43,7 +44,7 @@ const classSchema = z.object({
 type ClassFormValues = z.infer<typeof classSchema>;
 
 export default function Classes() {
-  const { data: classes, isLoading, refetch } = useListClasses();
+  const { data: classes, isLoading, isError, refetch } = useListClasses();
   const createMutation = useCreateClass();
   const updateMutation = useUpdateClass();
   const deleteMutation = useDeleteClass();
@@ -133,6 +134,8 @@ export default function Classes() {
     if (percent >= 80) return "bg-[#1a237e]";
     return "bg-green-500";
   };
+
+  if (isError) return <QueryError message="Could not load classes." onRetry={() => refetch()} />;
 
   return (
     <div className="space-y-6 max-w-6xl mx-auto">

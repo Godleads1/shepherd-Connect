@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiGet, apiPost, apiDelete } from "@/lib/api-call";
 import { useAuth } from "@/contexts/auth";
+import { QueryError } from "@/components/QueryError";
 import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -30,7 +31,7 @@ export default function Safeguarding() {
   const [status, setStatus] = useState("pending");
   const [notes, setNotes] = useState("");
 
-  const { data: records, isLoading } = useQuery({
+  const { data: records, isLoading, isError } = useQuery({
     queryKey: ["safeguarding"],
     queryFn: () => apiGet<any[]>("/safeguarding"),
   });
@@ -125,7 +126,9 @@ export default function Safeguarding() {
       )}
 
       {/* Records */}
-      {isLoading ? (
+      {isError ? (
+        <QueryError message="Could not load safeguarding records." />
+      ) : isLoading ? (
         <div className="space-y-3">{[1,2,3].map(i => <Skeleton key={i} className="h-28 w-full rounded-2xl" />)}</div>
       ) : (records || []).length === 0 ? (
         <div className="text-center py-20 bg-white rounded-2xl border border-dashed">

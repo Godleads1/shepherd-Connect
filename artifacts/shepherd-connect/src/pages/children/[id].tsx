@@ -11,6 +11,7 @@ import { format } from "date-fns";
 import { QRCodeSVG } from "qrcode.react";
 import FaceEnrollment from "@/components/FaceEnrollment";
 import { apiGet, apiDelete, apiPost } from "@/lib/api-call";
+import { QueryError } from "@/components/QueryError";
 import { useAuth } from "@/contexts/auth";
 import { useToast } from "@/hooks/use-toast";
 
@@ -168,7 +169,7 @@ export default function ChildProfile() {
   const { toast } = useToast();
   const [confirmDelete, setConfirmDelete] = useState(false);
 
-  const { data: child, isLoading: childLoading } = useGetChild(childId, { query: { enabled: !!childId, queryKey: ["getChild", childId] } });
+  const { data: child, isLoading: childLoading, isError: childError } = useGetChild(childId, { query: { enabled: !!childId, queryKey: ["getChild", childId] } });
   const { data: qrData, isLoading: qrLoading } = useGetChildQrCode(childId, { query: { enabled: !!childId, queryKey: ["getChildQrCode", childId] } });
   const { data: attendance, isLoading: attLoading } = useListAttendance({ childId }, { query: { enabled: !!childId, queryKey: ["listAttendance", childId] } });
   const { data: appraisals, isLoading: appLoading } = useListAppraisals({ childId }, { query: { enabled: !!childId, queryKey: ["listAppraisals", childId] } });
@@ -199,6 +200,7 @@ export default function ChildProfile() {
     (user.role === "parent" && family && (family.parent1Id === user.id || family.parent2Id === user.id))
   );
 
+  if (childError) return <QueryError message="Could not load child profile." />;
   if (childLoading) return <div className="p-8 space-y-4"><Skeleton className="h-32 w-full" /><Skeleton className="h-64 w-full" /></div>;
   if (!child) return <div>Child not found</div>;
 

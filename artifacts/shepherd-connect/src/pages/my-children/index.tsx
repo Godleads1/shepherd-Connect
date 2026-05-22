@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useGetMyFamily, useListAppraisals } from "@workspace/api-client-react";
+import { QueryError } from "@/components/QueryError";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -177,7 +178,7 @@ function ChildCard({ child, onSignalPickup, pickupSent }: {
 }
 
 export default function MyChildren() {
-  const { data: family, isLoading } = useGetMyFamily();
+  const { data: family, isLoading, isError } = useGetMyFamily();
   const { toast } = useToast();
   const [pickupSent, setPickupSent] = useState<Set<number>>(new Set());
 
@@ -191,6 +192,7 @@ export default function MyChildren() {
     }
   };
 
+  if (isError) return <QueryError message="Could not load your children." />;
   if (isLoading) return (
     <div className="max-w-2xl mx-auto space-y-4">
       {[1,2,3].map(i => <Skeleton key={i} className="h-48 rounded-2xl" />)}

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useListClasses } from "@workspace/api-client-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiGet, apiPost, apiDelete } from "@/lib/api-call";
+import { QueryError } from "@/components/QueryError";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
@@ -23,7 +24,7 @@ export default function Waitlist() {
 
   const classId = selectedClassId ? parseInt(selectedClassId, 10) : null;
 
-  const { data: waitlist, isLoading } = useQuery({
+  const { data: waitlist, isLoading, isError } = useQuery({
     queryKey: ["class-waitlist-admin", classId],
     queryFn: () => apiGet<any[]>(`/classes/${classId}/waitlist`),
     enabled: !!classId,
@@ -100,7 +101,10 @@ export default function Waitlist() {
         </div>
       )}
 
-      {classId && isLoading && (
+      {classId && isError && (
+        <QueryError message="Could not load waitlist." />
+      )}
+      {classId && !isError && isLoading && (
         <div className="space-y-3">
           <Skeleton className="h-20 rounded-2xl" />
           <Skeleton className="h-20 rounded-2xl" />

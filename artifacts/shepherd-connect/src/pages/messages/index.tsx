@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiGet, apiPost, apiPut } from "@/lib/api-call";
+import { QueryError } from "@/components/QueryError";
 import { useAuth } from "@/contexts/auth";
 import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -113,11 +114,11 @@ export default function Messages() {
   const [composeOpen, setComposeOpen] = useState(false);
   const [form, setForm] = useState({ recipientId: "", childId: "", subject: "", body: "" });
 
-  const { data: inbox = [], isLoading: inboxLoading } = useQuery({
+  const { data: inbox = [], isLoading: inboxLoading, isError: inboxError } = useQuery({
     queryKey: ["messages", "inbox"],
     queryFn: () => apiGet<any[]>("/messages/inbox"),
   });
-  const { data: sent = [], isLoading: sentLoading } = useQuery({
+  const { data: sent = [], isLoading: sentLoading, isError: sentError } = useQuery({
     queryKey: ["messages", "sent"],
     queryFn: () => apiGet<any[]>("/messages/sent"),
   });
@@ -157,6 +158,7 @@ export default function Messages() {
   const unreadCount = (inbox as any[]).filter((m: any) => !m.isRead).length;
   const list: any[] = tab === "inbox" ? (inbox as any[]) : (sent as any[]);
   const loading = tab === "inbox" ? inboxLoading : sentLoading;
+  const fetchError = tab === "inbox" ? inboxError : sentError;
 
   if (selectedMsg) {
     return (
@@ -209,7 +211,9 @@ export default function Messages() {
       {/* Message list */}
       <div className="bg-white rounded-2xl border overflow-hidden"
         style={{ boxShadow: "0 2px 8px rgba(30,58,138,.06)" }}>
-        {loading ? (
+        {fetchError ? (
+          <div className="p-4"><QueryError message="Could not load messages." /></div>
+        ) : loading ? (
           <div className="p-4 space-y-3">
             {[1,2,3].map(i => <Skeleton key={i} className="h-16 rounded-xl" />)}
           </div>

@@ -12,6 +12,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { CheckCircle, XCircle, Plus, ArrowRight, Clock } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { QueryError } from "@/components/QueryError";
 
 function statusBadge(status: string) {
   if (status === "approved") return <Badge className="bg-green-100 text-green-800 border-green-200">Approved</Badge>;
@@ -32,7 +33,7 @@ export default function ClassChangeRequests() {
   const [adminNotes, setAdminNotes] = useState("");
   const [reviewingId, setReviewingId] = useState<number | null>(null);
 
-  const { data: requestsData, isLoading, refetch } = useQuery({
+  const { data: requestsData, isLoading, isError, refetch } = useQuery({
     queryKey: ["class-change-requests"],
     queryFn: () => apiGet<{ data: any[]; total: number }>("/class-change-requests"),
   });
@@ -168,6 +169,9 @@ export default function ClassChangeRequests() {
         </Dialog>
       )}
 
+      {isError ? (
+        <QueryError message="Could not load class change requests." onRetry={() => refetch()} />
+      ) : (
       <Tabs defaultValue="pending">
         <TabsList>
           <TabsTrigger value="pending" className="flex items-center gap-2">
@@ -239,6 +243,7 @@ export default function ClassChangeRequests() {
           ))}
         </TabsContent>
       </Tabs>
+      )}
     </div>
   );
 }

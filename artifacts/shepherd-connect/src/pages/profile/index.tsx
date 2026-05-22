@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { apiGet, apiPut, apiPost } from "@/lib/api-call";
+import { QueryError } from "@/components/QueryError";
 import { useAuth } from "@/contexts/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -321,7 +322,7 @@ export default function Profile() {
   const { user: authUser } = useAuth();
   const { toast } = useToast();
 
-  const { data: profile, isLoading, refetch } = useQuery({
+  const { data: profile, isLoading, isError, refetch } = useQuery({
     queryKey: ["profile", authUser?.id],
     queryFn: () => apiGet<any>(`/users/${authUser?.id}`),
     enabled: !!authUser?.id,
@@ -407,6 +408,7 @@ export default function Profile() {
 
   const isMfaRole = authUser?.role === "admin" || authUser?.role === "super_admin" || authUser?.role === "teacher";
 
+  if (isError) return <QueryError message="Could not load your profile." onRetry={() => refetch()} />;
   if (isLoading) return (
     <div className="max-w-2xl mx-auto space-y-4">
       <Skeleton className="h-40 rounded-2xl" />

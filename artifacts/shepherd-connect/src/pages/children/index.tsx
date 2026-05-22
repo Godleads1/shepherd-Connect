@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Search, Eye, AlertCircle, Baby, MapPin, Trash2, Upload, FileSpreadsheet, CheckCircle, XCircle, Plus, ArrowUpCircle } from "lucide-react";
+import { QueryError } from "@/components/QueryError";
 import { PhotoUploader } from "@/components/PhotoUploader";
 import { useAuth } from "@/contexts/auth";
 import { useToast } from "@/hooks/use-toast";
@@ -386,7 +387,7 @@ export default function Children() {
   const [importOpen, setImportOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [ageOutOpen, setAgeOutOpen] = useState(false);
-  const { data, isLoading, refetch } = useListChildren({ search: search || undefined, unassigned: unassignedOnly || undefined });
+  const { data, isLoading, isError, refetch } = useListChildren({ search: search || undefined, unassigned: unassignedOnly || undefined });
   const { user: currentUser } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -468,7 +469,9 @@ export default function Children() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {isLoading ? (
+        {isError ? (
+          <div className="col-span-3"><QueryError message="Could not load children." onRetry={() => refetch()} /></div>
+        ) : isLoading ? (
           <>
             <Skeleton className="h-40 w-full rounded-2xl" />
             <Skeleton className="h-40 w-full rounded-2xl" />

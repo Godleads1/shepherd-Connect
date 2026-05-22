@@ -17,6 +17,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { Edit2, Trash2, CheckCircle, XCircle, Clock, UserCheck, Users as UsersIcon, Search, RefreshCw, AlertTriangle, Plus, X } from "lucide-react";
 import { apiGet, apiPut, apiPost, apiDelete } from "@/lib/api-call";
+import { QueryError } from "@/components/QueryError";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 const userSchema = z.object({
@@ -268,7 +269,7 @@ export default function Users() {
   const isSuperAdmin = currentRole === "super_admin";
   const isAdmin = currentRole === "admin";
 
-  const { data, isLoading, refetch } = useListUsers();
+  const { data, isLoading, isError, refetch } = useListUsers();
   const createMutation = useCreateUser();
   const updateMutation = useUpdateUser();
   const { toast } = useToast();
@@ -391,6 +392,8 @@ export default function Users() {
     const matchSearch = !search || `${u.firstName} ${u.lastName} ${u.email}`.toLowerCase().includes(search.toLowerCase());
     return matchRole && matchSearch;
   });
+
+  if (isError) return <QueryError message="Could not load users." onRetry={() => refetch()} />;
 
   return (
     <div className="space-y-6">
