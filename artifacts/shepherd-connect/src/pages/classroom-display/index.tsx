@@ -214,6 +214,36 @@ function IdleScreen() {
   );
 }
 
+// ── Notification permission banner ───────────────────────────────────────────────
+function NotifBanner({ onRequest }: { onRequest: () => void }) {
+  return (
+    <div
+      className="absolute top-20 left-1/2 z-40 flex items-center gap-4 px-6 py-4 rounded-2xl shadow-2xl"
+      style={{
+        transform: "translateX(-50%)",
+        background: "rgba(245,158,11,0.97)",
+        border: "2px solid #1e3a8a",
+        minWidth: 480,
+      }}
+    >
+      <span className="text-3xl">🔔</span>
+      <div className="flex-1">
+        <p className="font-bold text-[#1e3a8a] text-base leading-tight">Allow pop-up alerts</p>
+        <p className="text-[#1e3a8a]/80 text-sm mt-0.5">
+          So pickup requests pop up even when the browser is minimised
+        </p>
+      </div>
+      <button
+        onClick={onRequest}
+        className="px-5 py-2.5 rounded-xl font-bold text-sm flex-shrink-0"
+        style={{ background: "#1e3a8a", color: "white" }}
+      >
+        Allow
+      </button>
+    </div>
+  );
+}
+
 // ── Main component ───────────────────────────────────────────────────────────────
 const STORAGE_KEY = "classroom-display-video-id";
 
@@ -227,6 +257,42 @@ export default function ClassroomDisplay() {
   const [videoId, setVideoId] = useState<string | null>(() => {
     try { return localStorage.getItem(STORAGE_KEY) || null; } catch { return null; }
   });
+  const [notifPerm, setNotifPerm] = useState<NotificationPermission>(() =>
+    typeof Notification !== "undefined" ? Notification.permission : "denied"
+  );
+  const [showNotifBanner, setShowNotifBanner] = useState(false);
+
+  // Track which pickup IDs we have already notified about
+  const notifiedIds = useRef<Set<string>>(new Set());
+  // On first SSE init, seed the set so we don't fire alerts for existing items
+  const initialised = useRef(false);
+
+  // Ask for permission on mount if not yet decided
+  useEffect(() => {
+    if (typeof Notification === "undefined") return;
+    if (Notification.permission === "default") {
+      setShowNotifBanner(true);
+    }
+  }, []);
+
+  const requestNotifPermission = useCallback(async () => {
+    if (typeof Notification === "undefined") return;
+    const result = await Notification.requestPermission();
+    setNotifPerm(result);
+    setShowNotifBanner(false);
+  }, []);
+
+  const fireNotification = useCallback((request: PickupRequest) => {
+    if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
+    try {
+      new Notification("📣 Shepherd Connect — Pickup Request", {
+        body: `${request.childName}'s parent is here for pickup`,
+        icon: "/pwa-192.png",
+        tag: `pickup-${request.id}`,
+        requireInteraction: true,
+      });
+    } catch {}
+  }, []);
 
   const handleSetVideo = useCallback((id: string | null) => {
     setVideoId(id);
@@ -248,8 +314,27 @@ export default function ClassroomDisplay() {
       es.onmessage = (e) => {
         try {
           const data = JSON.parse(e.data);
-          if (data.type === "init" || data.type === "pickup" || data.type === "dismissed") {
-            setQueue(data.queue ?? []);
+          if (data.type === "init") {
+            // Seed known IDs — don't pop-up for requests that were already there
+            const incomingQueue: PickupRequest[] = data.queue ?? [];
+            if (!initialised.current) {
+              incomingQueue.forEach(r => notifiedIds.current.add(r.id));
+              initialised.current = true;
+            }
+            setQueue(incomingQueue);
+            if (data.className) setClassName(data.className);
+          } else if (data.type === "pickup" || data.type === "dismissed") {
+            const incomingQueue: PickupRequest[] = data.queue ?? [];
+            // Fire OS notification only for brand-new arrivals
+            if (data.type === "pickup") {
+              incomingQueue.forEach(r => {
+                if (!notifiedIds.current.has(r.id)) {
+                  notifiedIds.current.add(r.id);
+                  fireNotification(r);
+                }
+              });
+            }
+            setQueue(incomingQueue);
             if (data.className) setClassName(data.className);
           }
         } catch {}
@@ -264,7 +349,7 @@ export default function ClassroomDisplay() {
 
     const es = connect();
     return () => { es.close(); clearTimeout(retryTimeout); setConnected(false); };
-  }, [classIdNum]);
+  }, [classIdNum, fireNotification]);
 
   const embedUrl = videoId
     ? `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&loop=1&playlist=${videoId}&controls=0&modestbranding=1&rel=0&iv_load_policy=3`
@@ -315,10 +400,21 @@ export default function ClassroomDisplay() {
         </div>
       </div>
 
-      {/* ── Connection dot (bottom-left, above news bar) ── */}
-      <div className="absolute z-30 flex items-center gap-1.5" style={{ bottom: 80, left: 16 }}>
-        <div className={`w-2 h-2 rounded-full ${connected ? "bg-green-400 animate-pulse" : "bg-red-500"}`} />
-        <span className="text-xs text-white/30">{connected ? "Live" : "Reconnecting…"}</span>
+      {/* ── Notification permission banner ── */}
+      {showNotifBanner && <NotifBanner onRequest={requestNotifPermission} />}
+
+      {/* ── Connection dot + notif status (bottom-left, above news bar) ── */}
+      <div className="absolute z-30 flex items-center gap-3" style={{ bottom: 80, left: 16 }}>
+        <div className="flex items-center gap-1.5">
+          <div className={`w-2 h-2 rounded-full ${connected ? "bg-green-400 animate-pulse" : "bg-red-500"}`} />
+          <span className="text-xs text-white/30">{connected ? "Live" : "Reconnecting…"}</span>
+        </div>
+        {notifPerm === "granted" && (
+          <span className="text-xs text-white/25 flex items-center gap-1">🔔 Alerts on</span>
+        )}
+        {notifPerm === "denied" && (
+          <span className="text-xs text-red-400/60 flex items-center gap-1">🔕 Alerts blocked</span>
+        )}
       </div>
 
       {/* ── TV news lower-third bar ── */}
