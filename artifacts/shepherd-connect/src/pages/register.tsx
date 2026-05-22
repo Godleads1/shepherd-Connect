@@ -34,7 +34,6 @@ const step2Schema = z.object({
   houseStreet:           z.string().min(1, "House # & street required"),
   nearestBusStop:        z.string().optional(),
   city:                  z.string().optional(),
-  serviceTime:           z.enum(["first", "second", "both"]),
   emergencyContactName:  z.string().min(1, "Required"),
   emergencyContactPhone: z.string().min(1, "Required"),
 });
@@ -195,7 +194,7 @@ export default function Register() {
     resolver: zodResolver(step2Schema),
     defaultValues: {
       hasSpouse: false, spouseFirstName: "", spouseLastName: "", spouseEmail: "", spousePhone: "",
-      houseStreet: "", nearestBusStop: "", city: "", serviceTime: "first",
+      houseStreet: "", nearestBusStop: "", city: "",
       emergencyContactName: "", emergencyContactPhone: "",
     },
   });
@@ -241,8 +240,6 @@ export default function Register() {
         const addrParts = [s2d.houseStreet];
         if (s2d.nearestBusStop) addrParts.push(`Near: ${s2d.nearestBusStop}`);
         if (s2d.city) addrParts.push(s2d.city);
-        const svcLabel = s2d.serviceTime === "first" ? "1st Service (7:00–10:00 AM)" : s2d.serviceTime === "second" ? "2nd Service (10:30 AM)" : "Both Services";
-        addrParts.push(`[${svcLabel}]`);
 
         const fam = await famMutation.mutateAsync({
           data: { parent1Id: authRes.user.id, parent2Id: null, address: addrParts.join(", "), emergencyContactName: s2d.emergencyContactName, emergencyContactPhone: s2d.emergencyContactPhone }
@@ -320,11 +317,6 @@ export default function Register() {
     { value: "attendant", label: "Attendant", emoji: "🎟️" },
   ];
 
-  const SVC = [
-    { value: "first",  label: "1st Service", sub: "7:00 – 10:00 AM (Sunday)" },
-    { value: "second", label: "2nd Service", sub: "10:30 AM onwards (Sunday)" },
-    { value: "both",   label: "Both",        sub: "Attend all Sunday services" },
-  ];
 
   const isSubmitting = regMutation.isPending || famMutation.isPending || childMutation.isPending;
 
@@ -538,27 +530,6 @@ export default function Register() {
                 <Field form={form2} name="city"           label="City / Area (e.g. Victoria Island)" icon={MapPin} data-testid="reg-city" />
               </div>
             </div>
-
-            {/* Service time — only shown for parents */}
-            {selectedRole === "parent" && (
-              <div>
-                <p className="text-[11px] font-bold mb-2 uppercase tracking-widest" style={{ color: "#64748b" }}>Which service do you attend?</p>
-                <div className="grid grid-cols-3 gap-2">
-                  {SVC.map(s => (
-                    <label key={s.value}
-                      className="flex flex-col items-center justify-center p-3 rounded-xl cursor-pointer text-center transition-all"
-                      style={form2.watch("serviceTime") === s.value
-                        ? { background: LOGO_NAVY, color: "#fff", boxShadow: "0 2px 8px rgba(26,35,126,0.25)" }
-                        : { background: "rgba(26,35,126,0.04)", color: "#374151", border: "1px solid rgba(26,35,126,0.12)" }}
-                    >
-                      <input type="radio" {...form2.register("serviceTime")} value={s.value} className="sr-only" />
-                      <span className="text-xs font-bold">{s.label}</span>
-                      <span className="text-[10px] mt-0.5 opacity-80">{s.sub}</span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-            )}
 
             {/* Emergency contact */}
             <div className="pt-1">

@@ -263,14 +263,6 @@ export default function ChildProfile() {
                 ) : (
                   <Badge variant="secondary">Unassigned</Badge>
                 )}
-                {(child as any).servicePreference && (
-                  <div className="text-xs font-semibold rounded-full px-3 py-1 inline-block"
-                    style={{ background: "#fef3c7", color: "#92400e" }}>
-                    {(child as any).servicePreference === "7am" ? "1st Service · 7:00 AM"
-                      : (child as any).servicePreference === "10:30am" ? "2nd Service · 10:30 AM"
-                      : "Both Services"}
-                  </div>
-                )}
                 <div><Link href={`/families/${child.familyId}`} className="text-sm text-primary hover:underline">View Family</Link></div>
                 {canDelete && (
                   <div>

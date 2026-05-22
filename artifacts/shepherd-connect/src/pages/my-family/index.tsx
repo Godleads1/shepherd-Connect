@@ -430,16 +430,6 @@ function ChildCard({ child, onRefetch }: { child: any; onRefetch: () => void }) 
               <span className="font-medium">{child.currentClass.name}</span>
             </div>
           )}
-          {child.servicePreference && (
-            <div className="mt-2 flex items-center gap-2 text-xs rounded-lg px-3 py-1.5"
-              style={{ background: "#fef3c7", color: "#92400e" }}>
-              <span className="font-semibold">
-                {child.servicePreference === "7am" ? "⏰ 1st Service · 7:00 AM"
-                  : child.servicePreference === "10:30am" ? "⏰ 2nd Service · 10:30 AM"
-                  : "⏰ Both Services"}
-              </span>
-            </div>
-          )}
 
           <div className="mt-4 flex flex-col gap-2">
             {/* I'm here to pick up — only shown when child is currently checked in */}
@@ -485,7 +475,6 @@ export default function MyFamily() {
   const [showWelcome, setShowWelcome] = useState(false);
   const [childForm, setChildForm] = useState({
     firstName: "", lastName: "", dob: "", gender: "male" as "male" | "female",
-    servicePreference: "" as "" | "7am" | "10:30am" | "both",
     allergies: "", medicalNotes: "", photoUrl: "",
   });
 
@@ -531,7 +520,6 @@ export default function MyFamily() {
           lastName: childForm.lastName,
           dob: childForm.dob,
           gender: childForm.gender,
-          servicePreference: childForm.servicePreference || null,
           allergies: childForm.allergies || null,
           medicalNotes: childForm.medicalNotes || null,
           photoUrl: childForm.photoUrl || null,
@@ -539,7 +527,7 @@ export default function MyFamily() {
       });
       toast({ title: "Child added successfully!" });
       setAddChildOpen(false);
-      setChildForm({ firstName: "", lastName: "", dob: "", gender: "male", servicePreference: "", allergies: "", medicalNotes: "", photoUrl: "" });
+      setChildForm({ firstName: "", lastName: "", dob: "", gender: "male", allergies: "", medicalNotes: "", photoUrl: "" });
       refetch();
     } catch (e: any) {
       toast({ variant: "destructive", title: e.message || "Failed to add child" });
@@ -742,17 +730,6 @@ export default function MyFamily() {
                 Auto-assigned: <span className="ml-1">{autoClass}</span>
               </div>
             )}
-            <div>
-              <label className="text-sm font-medium text-gray-700 block mb-1">Service Preference *</label>
-              <Select value={childForm.servicePreference} onValueChange={v => setChildForm(p => ({ ...p, servicePreference: v as any }))}>
-                <SelectTrigger><SelectValue placeholder="Which service will they attend?" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="7am">1st Service · 7:00 AM</SelectItem>
-                  <SelectItem value="10:30am">2nd Service · 10:30 AM</SelectItem>
-                  <SelectItem value="both">Both Services</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
             <div>
               <label className="text-sm font-medium text-gray-700 block mb-1">Allergies</label>
               <Input value={childForm.allergies} onChange={e => setChildForm(p => ({ ...p, allergies: e.target.value }))} placeholder="e.g. Peanuts, Dairy" />
