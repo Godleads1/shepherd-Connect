@@ -135,4 +135,17 @@ router.post("/pickup-delegates/:id/deny", authMiddleware, async (req, res): Prom
   res.json({ success: true, delegate: updated, message: "Pickup denied. Front desk has been notified." });
 });
 
+router.delete("/pickup-delegates/:id", authMiddleware, async (req, res): Promise<void> => {
+  const id = parseInt(req.params.id as string, 10);
+  if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
+
+  const [deleted] = await db.delete(pickupDelegatesTable)
+    .where(eq(pickupDelegatesTable.id, id))
+    .returning();
+
+  if (!deleted) { res.status(404).json({ error: "Not found", message: "Delegate not found" }); return; }
+
+  res.json({ success: true, message: "Delegate removed successfully" });
+});
+
 export default router;

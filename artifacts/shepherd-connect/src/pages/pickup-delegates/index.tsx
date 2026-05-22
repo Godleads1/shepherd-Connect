@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { ShieldCheck, Check, Copy, AlertCircle, User, Phone, Baby } from "lucide-react";
+import { ShieldCheck, Check, Copy, AlertCircle, User, Phone, Baby, Trash2 } from "lucide-react";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useForm } from "react-hook-form";
@@ -61,6 +61,22 @@ export default function PickupDelegates() {
       refetch();
     } catch (error) {
       toast({ variant: "destructive", title: "Failed to approve delegate" });
+    }
+  };
+
+  const handleDelete = async (id: number, name: string) => {
+    if (!confirm(`Remove ${name} as a pickup delegate?`)) return;
+    try {
+      const token = localStorage.getItem("token");
+      const res = await fetch(`/api/pickup-delegates/${id}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error("Failed to remove delegate");
+      toast({ title: `${name} removed as delegate` });
+      refetch();
+    } catch (error: any) {
+      toast({ variant: "destructive", title: error.message || "Failed to remove delegate" });
     }
   };
 
@@ -205,10 +221,19 @@ export default function PickupDelegates() {
                     <CardDescription className="text-xs">{delegate.phone}</CardDescription>
                   </div>
                 </div>
-                <Badge variant={delegate.parentApproved ? "default" : "secondary"}
-                  className={delegate.parentApproved ? "bg-green-100 text-green-800 border-green-200" : ""}>
-                  {delegate.parentApproved ? "Approved" : "Pending"}
-                </Badge>
+                <div className="flex items-center gap-2">
+                  <Badge variant={delegate.parentApproved ? "default" : "secondary"}
+                    className={delegate.parentApproved ? "bg-green-100 text-green-800 border-green-200" : ""}>
+                    {delegate.parentApproved ? "Approved" : "Pending"}
+                  </Badge>
+                  <button
+                    onClick={() => handleDelete(delegate.id, delegate.name)}
+                    className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                    title="Remove delegate"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
             </CardHeader>
             <CardContent className="pt-3 pb-4">
