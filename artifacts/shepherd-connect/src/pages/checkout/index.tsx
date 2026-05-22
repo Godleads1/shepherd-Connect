@@ -297,6 +297,7 @@ export default function Checkout() {
     }
     setOtpLoading(true);
     setOtpResult(null);
+    setApprovalState("idle");
     try {
       const res = await apiPost<any>("/pickup-delegates/verify-otp", { otpCode: otpInput.trim() });
       setOtpResult({ success: true, data: res });
@@ -467,7 +468,7 @@ export default function Checkout() {
                   placeholder="000000"
                   value={otpInput}
                   maxLength={6}
-                  onChange={(e) => { setOtpInput(e.target.value.replace(/\D/g, "")); setOtpResult(null); }}
+                  onChange={(e) => { setOtpInput(e.target.value.replace(/\D/g, "")); setOtpResult(null); setApprovalState("idle"); }}
                   data-testid="input-otp-code"
                 />
                 <Button
