@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { Input } from "@/components/ui/input";
-import { Search, UserPlus, ShieldCheck, Check, Copy, AlertCircle, Baby, Users2, CheckCircle, Printer } from "lucide-react";
+import { Search, UserPlus, ShieldCheck, Check, Copy, AlertCircle, Baby, Users2, CheckCircle, Printer, Plus, Trash2 } from "lucide-react";
 
 type SlotChoice = "7am" | "10:30am" | "both";
 
@@ -61,12 +61,21 @@ export default function FamilyAssist() {
   const [copiedOtp, setCopiedOtp] = useState(false);
   const [generatingDelegate, setGeneratingDelegate] = useState(false);
 
+  type GuestChildForm = { firstName: string; lastName: string; dob: string; gender: "male" | "female" };
+  const blankChild = (): GuestChildForm => ({ firstName: "", lastName: "", dob: "", gender: "male" });
+
   const [walkInForm, setWalkInForm] = useState({
-    parentName: "", parentPhone: "", childFirstName: "", childLastName: "",
-    dob: "", gender: "male" as "male" | "female", serviceSlot: "7am" as SlotChoice,
+    parentName: "", parentPhone: "",
+    children: [blankChild()] as GuestChildForm[],
+    serviceSlot: "7am" as SlotChoice,
   });
   const [guestResult, setGuestResult] = useState<any>(null);
   const [submittingGuest, setSubmittingGuest] = useState(false);
+
+  const addChild = () => setWalkInForm(p => ({ ...p, children: [...p.children, blankChild()] }));
+  const removeChild = (i: number) => setWalkInForm(p => ({ ...p, children: p.children.filter((_, idx) => idx !== i) }));
+  const updateChild = (i: number, field: keyof GuestChildForm, value: string) =>
+    setWalkInForm(p => ({ ...p, children: p.children.map((c, idx) => idx === i ? { ...c, [field]: value } : c) }));
 
   const resetFind = () => {
     setSearchQuery(""); setSearchResults([]); setSelectedFamily(null);
@@ -121,6 +130,12 @@ export default function FamilyAssist() {
 
   const handleGuestSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    for (const c of walkInForm.children) {
+      if (!c.firstName || !c.lastName || !c.dob) {
+        toast({ variant: "destructive", title: "Please fill in all child details" });
+        return;
+      }
+    }
     setSubmittingGuest(true);
     try {
       const res = await apiCall("/api/family-assist/guest", "POST", walkInForm);
@@ -132,13 +147,26 @@ export default function FamilyAssist() {
     }
   };
 
-  const printGuestBadge = (result: any) => {
-    const win = window.open("", "_blank", "width=400,height=300");
+  const printAllBadges = (result: any) => {
+    const dateStr = new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+    const badgePages = result.children.map((child: any) => `
+<div class="page">
+  <div class="guest">Walk-in Guest</div>
+  <div class="name">${child.firstName} ${child.lastName}</div>
+  <div class="class">${child.currentClass?.name ?? "Children's Church"}</div>
+  <div class="code">${result.guestCode}</div>
+  <div class="label">Checkout code — keep this safe</div>
+  <div class="date">${dateStr}</div>
+  <div class="logo">RCCG City of David · Shepherd Connect</div>
+</div>`).join("");
+
+    const win = window.open("", "_blank", "width=400,height=600");
     if (!win) return;
-    win.document.write(`<!DOCTYPE html><html><head><title>Guest Badge</title>
+    win.document.write(`<!DOCTYPE html><html><head><title>Guest Badges</title>
 <style>
-  @media print { @page { margin: 0; size: 100mm 70mm; } body { margin: 8mm; } }
-  body { font-family: Inter, Arial, sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; background: white; text-align: center; }
+  @media print { @page { margin: 0; size: 100mm 70mm; } .page { page-break-after: always; margin: 8mm; } }
+  body { font-family: Inter, Arial, sans-serif; background: white; }
+  .page { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 70mm; text-align: center; border-bottom: 1px dashed #e5e7eb; padding: 8mm 0; }
   .guest { font-size: 11px; font-weight: 700; color: #f59e0b; text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 4px; }
   .name { font-size: 28px; font-weight: 900; color: #1e3a8a; margin-bottom: 6px; }
   .class { font-size: 16px; color: #374151; margin-bottom: 8px; font-weight: 600; }
@@ -146,15 +174,7 @@ export default function FamilyAssist() {
   .label { font-size: 10px; color: #9ca3af; margin-top: 4px; }
   .date { font-size: 11px; color: #9ca3af; margin-top: 8px; }
   .logo { font-size: 11px; font-weight: 700; color: #1e3a8a; letter-spacing: 0.05em; border-top: 1px solid #e5e7eb; padding-top: 8px; margin-top: 10px; width: 100%; }
-</style></head><body>
-<div class="guest">Walk-in Guest</div>
-<div class="name">${result.child.firstName} ${result.child.lastName}</div>
-<div class="class">${result.child.currentClass?.name ?? "Children's Church"}</div>
-<div class="code">${result.guestCode}</div>
-<div class="label">Checkout code — keep this safe</div>
-<div class="date">${new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}</div>
-<div class="logo">RCCG City of David · Shepherd Connect</div>
-</body></html>`);
+</style></head><body>${badgePages}</body></html>`);
     win.document.close();
     setTimeout(() => { win.print(); win.close(); }, 400);
   };
@@ -349,6 +369,7 @@ export default function FamilyAssist() {
 
   if (path === "walkin") {
     if (guestResult) {
+      const childCount = guestResult.children.length;
       return (
         <div className="space-y-5">
           <div className="text-center space-y-4 py-2">
@@ -356,32 +377,45 @@ export default function FamilyAssist() {
               <CheckCircle className="w-8 h-8 text-green-600" />
             </div>
             <div>
-              <p className="text-lg font-bold text-gray-900">Guest Checked In!</p>
-              <p className="text-sm text-gray-500 mt-1">{guestResult.child.firstName} has been registered and checked in.</p>
+              <p className="text-lg font-bold text-gray-900">
+                {childCount === 1 ? "Guest Checked In!" : `${childCount} Guests Checked In!`}
+              </p>
+              <p className="text-sm text-gray-500 mt-1">
+                {childCount === 1
+                  ? `${guestResult.children[0].firstName} has been registered and checked in.`
+                  : `All ${childCount} children have been registered and checked in.`}
+              </p>
             </div>
 
             <div className="rounded-2xl p-6 text-white" style={{ background: "#1e3a8a" }}>
-              <p className="text-xs font-bold uppercase tracking-widest mb-1 text-blue-300">Child's Name Tag Code</p>
+              <p className="text-xs font-bold uppercase tracking-widest mb-1 text-blue-300">Family Name Tag Code</p>
               <p className="text-5xl font-mono font-bold tracking-widest">{guestResult.guestCode}</p>
-              <p className="text-xs text-blue-300 mt-2">Write this on the name tag — needed at checkout</p>
+              <p className="text-xs text-blue-300 mt-2">Write this on every child's name tag — needed at checkout</p>
             </div>
 
-            <div className="bg-gray-50 rounded-xl p-4 text-left space-y-1.5 text-sm">
-              <p><span className="text-gray-500">Child:</span> <strong>{guestResult.child.firstName} {guestResult.child.lastName}</strong></p>
-              <p><span className="text-gray-500">Class:</span> <strong>{guestResult.child.currentClass?.name ?? "Children's Church"}</strong></p>
+            <div className="bg-gray-50 rounded-xl p-4 text-left space-y-2 text-sm">
               <p><span className="text-gray-500">Parent:</span> <strong>{guestResult.parentName}</strong></p>
               {guestResult.parentPhone && <p><span className="text-gray-500">Phone:</span> <strong>{guestResult.parentPhone}</strong></p>}
+              <div className="pt-1 space-y-1">
+                {guestResult.children.map((child: any, i: number) => (
+                  <div key={i} className="flex justify-between items-center bg-white rounded-lg px-3 py-2 border border-gray-100">
+                    <span className="font-semibold">{child.firstName} {child.lastName}</span>
+                    <span className="text-xs text-gray-500">{child.currentClass?.name ?? "Children's Church"}</span>
+                  </div>
+                ))}
+              </div>
             </div>
 
-            <button onClick={() => printGuestBadge(guestResult)}
+            <button onClick={() => printAllBadges(guestResult)}
               className="w-full h-11 rounded-xl font-bold border-2 border-blue-800 text-blue-800 flex items-center justify-center gap-2 hover:bg-blue-50 transition-all">
-              <Printer className="w-4 h-4" /> Print Name Tag
+              <Printer className="w-4 h-4" />
+              {childCount === 1 ? "Print Name Tag" : `Print All ${childCount} Name Tags`}
             </button>
             <button
               onClick={() => {
                 setGuestResult(null);
                 setPath("choose");
-                setWalkInForm({ parentName: "", parentPhone: "", childFirstName: "", childLastName: "", dob: "", gender: "male", serviceSlot: "7am" });
+                setWalkInForm({ parentName: "", parentPhone: "", children: [blankChild()], serviceSlot: "7am" });
               }}
               className="w-full h-11 rounded-xl font-bold text-white hover:opacity-90 transition-all"
               style={{ background: "#1e3a8a" }}>
@@ -421,32 +455,57 @@ export default function FamilyAssist() {
               placeholder="+234…" className="rounded-xl" />
           </div>
 
-          <p className="text-xs font-bold uppercase tracking-wider text-gray-400 pt-2">Child</p>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide mb-1.5">First Name *</label>
-              <Input value={walkInForm.childFirstName} onChange={e => setWalkInForm(p => ({ ...p, childFirstName: e.target.value }))}
-                placeholder="First name" className="rounded-xl" required />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide mb-1.5">Last Name *</label>
-              <Input value={walkInForm.childLastName} onChange={e => setWalkInForm(p => ({ ...p, childLastName: e.target.value }))}
-                placeholder="Last name" className="rounded-xl" required />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide mb-1.5">Date of Birth *</label>
-              <Input type="date" value={walkInForm.dob} onChange={e => setWalkInForm(p => ({ ...p, dob: e.target.value }))}
-                className="rounded-xl" required />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide mb-1.5">Gender *</label>
-              <select value={walkInForm.gender} onChange={e => setWalkInForm(p => ({ ...p, gender: e.target.value as "male" | "female" }))}
-                className="w-full h-10 rounded-xl border border-input px-3 text-sm bg-white">
-                <option value="male">Male</option>
-                <option value="female">Female</option>
-              </select>
-            </div>
+          <div className="flex items-center justify-between pt-2">
+            <p className="text-xs font-bold uppercase tracking-wider text-gray-400">
+              {walkInForm.children.length === 1 ? "Child" : `Children (${walkInForm.children.length})`}
+            </p>
           </div>
+
+          {walkInForm.children.map((child, i) => (
+            <div key={i} className="bg-white border border-gray-100 rounded-2xl p-4 space-y-3 shadow-sm">
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-bold text-blue-800 uppercase tracking-wider">
+                  {walkInForm.children.length > 1 ? `Child ${i + 1}` : "Child details"}
+                </p>
+                {walkInForm.children.length > 1 && (
+                  <button type="button" onClick={() => removeChild(i)}
+                    className="p-1.5 rounded-lg text-red-400 hover:bg-red-50 hover:text-red-600 transition-all">
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide mb-1.5">First Name *</label>
+                  <Input value={child.firstName} onChange={e => updateChild(i, "firstName", e.target.value)}
+                    placeholder="First name" className="rounded-xl" />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide mb-1.5">Last Name *</label>
+                  <Input value={child.lastName} onChange={e => updateChild(i, "lastName", e.target.value)}
+                    placeholder="Last name" className="rounded-xl" />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide mb-1.5">Date of Birth *</label>
+                  <Input type="date" value={child.dob} onChange={e => updateChild(i, "dob", e.target.value)}
+                    className="rounded-xl" />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide mb-1.5">Gender *</label>
+                  <select value={child.gender} onChange={e => updateChild(i, "gender", e.target.value)}
+                    className="w-full h-10 rounded-xl border border-input px-3 text-sm bg-white">
+                    <option value="male">Male</option>
+                    <option value="female">Female</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+          ))}
+
+          <button type="button" onClick={addChild}
+            className="w-full h-10 rounded-xl border-2 border-dashed border-amber-300 text-amber-700 bg-amber-50 hover:bg-amber-100 font-semibold text-sm flex items-center justify-center gap-2 transition-all">
+            <Plus className="w-4 h-4" /> Add another child
+          </button>
 
           <div>
             <p className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-2">Service</p>

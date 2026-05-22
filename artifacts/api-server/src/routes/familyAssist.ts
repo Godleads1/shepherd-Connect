@@ -130,67 +130,79 @@ router.post("/family-assist/checkin", authMiddleware, requireRoles("super_admin"
   res.json({ success: true, attendance: results, childName: `${child.firstName} ${child.lastName}` });
 });
 
-router.post("/family-assist/guest", authMiddleware, requireRoles("super_admin", "admin", "attendant"), async (req, res): Promise<void> => {
-  const { parentName, parentPhone, childFirstName, childLastName, dob, gender, serviceSlot } =
-    req.body as { parentName?: string; parentPhone?: string; childFirstName?: string; childLastName?: string; dob?: string; gender?: string; serviceSlot?: string };
+type GuestChild = { firstName: string; lastName: string; dob: string; gender: string };
 
-  if (!parentName || !childFirstName || !childLastName || !dob || !gender || !serviceSlot) {
-    res.status(400).json({ error: "All required fields must be provided" });
+router.post("/family-assist/guest", authMiddleware, requireRoles("super_admin", "admin", "attendant"), async (req, res): Promise<void> => {
+  const { parentName, parentPhone, children, serviceSlot } =
+    req.body as { parentName?: string; parentPhone?: string; children?: GuestChild[]; serviceSlot?: string };
+
+  if (!parentName || !children || children.length === 0 || !serviceSlot) {
+    res.status(400).json({ error: "parentName, at least one child, and serviceSlot are required" });
     return;
+  }
+  for (const c of children) {
+    if (!c.firstName || !c.lastName || !c.dob || !c.gender) {
+      res.status(400).json({ error: "Each child must have firstName, lastName, dob and gender" });
+      return;
+    }
   }
 
   const guestCode = generateGuestCode();
-
   const [family] = await db.insert(familiesTable).values({
     familyCode: guestCode,
     notes: `Walk-in guest. Parent: ${parentName}${parentPhone ? `, Phone: ${parentPhone}` : ""}`,
     isGuest: true,
   }).returning();
 
-  const birthDate = new Date(dob);
-  const today = new Date();
-  const age = today.getFullYear() - birthDate.getFullYear() -
-    (today < new Date(today.getFullYear(), birthDate.getMonth(), birthDate.getDate()) ? 1 : 0);
-
   const allClasses = await db.select().from(classesTable);
-  const matchByAge = allClasses.find(c => c.name.toLowerCase() === `class ${age}`);
-  const assignedClassId = matchByAge?.id ?? (allClasses[0]?.id ?? null);
+  const serviceDate = todayString();
+  const slotsToBook = serviceSlot === "both" ? ["7am", "10:30am"] : [serviceSlot];
 
-  const [child] = await db.insert(childrenTable).values({
-    familyId: family.id,
-    firstName: childFirstName,
-    lastName: childLastName,
-    dob,
-    gender: gender as "male" | "female",
-    currentClassId: assignedClassId,
-  }).returning();
-
-  let attendance = null;
-  if (assignedClassId) {
-    const serviceDate = todayString();
-    const slotsToBook = serviceSlot === "both" ? ["7am", "10:30am"] : [serviceSlot];
-    for (const slot of slotsToBook) {
-      const [record] = await db.insert(attendanceTable).values({
-        childId: child.id,
-        classId: assignedClassId,
-        serviceDate,
-        serviceSlot: slot,
-        checkInTime: new Date(),
-        checkedInBy: req.user!.userId,
-        status: "dropped_off",
-      }).returning();
-      attendance = record;
-    }
+  function calcAge(dob: string): number {
+    const birth = new Date(dob);
+    const now = new Date();
+    return now.getFullYear() - birth.getFullYear() -
+      (now < new Date(now.getFullYear(), birth.getMonth(), birth.getDate()) ? 1 : 0);
   }
 
-  const assignedClass = assignedClassId ? allClasses.find(c => c.id === assignedClassId) ?? null : null;
+  const createdChildren = [];
+  for (const c of children) {
+    const age = calcAge(c.dob);
+    const matchByAge = allClasses.find(cls => cls.name.toLowerCase() === `class ${age}`);
+    const assignedClassId = matchByAge?.id ?? (allClasses[0]?.id ?? null);
+
+    const [child] = await db.insert(childrenTable).values({
+      familyId: family.id,
+      firstName: c.firstName,
+      lastName: c.lastName,
+      dob: c.dob,
+      gender: c.gender as "male" | "female",
+      currentClassId: assignedClassId,
+    }).returning();
+
+    if (assignedClassId) {
+      for (const slot of slotsToBook) {
+        await db.insert(attendanceTable).values({
+          childId: child.id,
+          classId: assignedClassId,
+          serviceDate,
+          serviceSlot: slot,
+          checkInTime: new Date(),
+          checkedInBy: req.user!.userId,
+          status: "dropped_off",
+        });
+      }
+    }
+
+    const assignedClass = assignedClassId ? allClasses.find(cls => cls.id === assignedClassId) ?? null : null;
+    createdChildren.push({ ...child, currentClass: assignedClass });
+  }
 
   res.status(201).json({
     success: true,
     guestCode,
     family,
-    child: { ...child, currentClass: assignedClass },
-    attendance,
+    children: createdChildren,
     parentName,
     parentPhone: parentPhone ?? null,
   });
