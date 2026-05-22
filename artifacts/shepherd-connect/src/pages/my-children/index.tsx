@@ -4,8 +4,10 @@ import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { AlertCircle, Eye, Award, ChevronDown, ChevronUp, Star, MessageSquare } from "lucide-react";
+import { AlertCircle, Eye, Award, ChevronDown, ChevronUp, Star, MessageSquare, HandHeart, CheckCircle2 } from "lucide-react";
 import { format } from "date-fns";
+import { useToast } from "@/hooks/use-toast";
+import { apiPost } from "@/lib/api-call";
 
 const LEVEL_STYLE: Record<string, string> = {
   excellent:           "bg-green-100 text-green-800",
@@ -84,12 +86,22 @@ function AppraisalHistory({ childId }: { childId: number }) {
   );
 }
 
-function ChildCard({ child }: { child: any }) {
+function ChildCard({ child, onSignalPickup, pickupSent }: {
+  child: any;
+  onSignalPickup: (childId: number) => Promise<void>;
+  pickupSent: boolean;
+}) {
   const [showAppraisals, setShowAppraisals] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  const handlePickup = async () => {
+    setLoading(true);
+    await onSignalPickup(child.id);
+    setLoading(false);
+  };
 
   return (
     <div className="bg-white rounded-2xl border overflow-hidden" style={{ boxShadow: "0 2px 8px rgba(30,58,138,.06)" }}>
-      {/* Header */}
       <div className="p-5">
         <div className="flex items-start gap-4">
           <div className="w-14 h-14 rounded-2xl flex-shrink-0 overflow-hidden">
@@ -137,6 +149,22 @@ function ChildCard({ child }: { child: any }) {
             {showAppraisals ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
           </Button>
         </div>
+
+        {pickupSent ? (
+          <div className="mt-3 w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-green-50 border border-green-200 text-green-800 text-sm font-semibold">
+            <CheckCircle2 className="w-4 h-4" />
+            Pickup signal sent — the teacher has been notified
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={handlePickup}
+            disabled={loading}
+            className="mt-3 w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border-2 border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-800 text-sm font-bold transition-all disabled:opacity-50">
+            <HandHeart className="w-4 h-4" />
+            {loading ? "Signalling…" : "I'm here to collect"}
+          </button>
+        )}
       </div>
 
       {showAppraisals && (
@@ -150,6 +178,18 @@ function ChildCard({ child }: { child: any }) {
 
 export default function MyChildren() {
   const { data: family, isLoading } = useGetMyFamily();
+  const { toast } = useToast();
+  const [pickupSent, setPickupSent] = useState<Set<number>>(new Set());
+
+  const handleSignalPickup = async (childId: number) => {
+    try {
+      await apiPost("/pickup-requests", { childId });
+      setPickupSent(prev => new Set([...prev, childId]));
+      toast({ title: "Pickup signal sent!", description: "The teacher has been notified. Head to the collection point." });
+    } catch (e: any) {
+      toast({ variant: "destructive", title: e.message || "Could not send pickup signal" });
+    }
+  };
 
   if (isLoading) return (
     <div className="max-w-2xl mx-auto space-y-4">
@@ -178,7 +218,12 @@ export default function MyChildren() {
       ) : (
         <div className="space-y-4">
           {children.map((child: any) => (
-            <ChildCard key={child.id} child={child} />
+            <ChildCard
+              key={child.id}
+              child={child}
+              onSignalPickup={handleSignalPickup}
+              pickupSent={pickupSent.has(child.id)}
+            />
           ))}
         </div>
       )}

@@ -5,9 +5,9 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Search, LogOut, CheckCircle, Clock, ShieldCheck, KeyRound, Bell, Timer, ChevronDown, ChevronUp, X } from "lucide-react";
+import { Search, LogOut, CheckCircle, Clock, ShieldCheck, KeyRound, Bell, Timer, ChevronDown, ChevronUp, X, HandHeart, RefreshCw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { format, differenceInMinutes, differenceInSeconds } from "date-fns";
+import { format, differenceInMinutes, differenceInSeconds, formatDistanceToNow } from "date-fns";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { apiPost, apiGet } from "@/lib/api-call";
 import { useAuth } from "@/contexts/auth";
@@ -155,6 +155,116 @@ function ServiceClock() {
   );
 }
 
+function PickupQueue({ activeRecords, onCheckout }: { activeRecords: any[]; onCheckout: () => void }) {
+  const [queue, setQueue] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [handingOver, setHandingOver] = useState<string | null>(null);
+  const { toast } = useToast();
+  const checkoutMutation = useCheckOut();
+
+  const fetchQueue = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await apiGet<{ queue: any[] }>("/pickup-requests");
+      setQueue(res.queue ?? []);
+    } catch {}
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => {
+    fetchQueue();
+    const iv = setInterval(fetchQueue, 15000);
+    return () => clearInterval(iv);
+  }, [fetchQueue]);
+
+  const handleHandOver = async (item: any) => {
+    const rec = activeRecords.find((r: any) => r.childId === item.childId);
+    setHandingOver(item.id);
+    try {
+      if (rec) {
+        await checkoutMutation.mutateAsync({ id: rec.id, data: {} });
+      }
+      await apiGet(`/pickup-requests/${item.id}`).catch(() => {});
+      await fetch(`/api/pickup-requests/${item.id}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
+      });
+      setQueue(prev => prev.filter(q => q.id !== item.id));
+      onCheckout();
+      toast({ title: "Child handed over", description: `${item.childName} checked out and removed from queue` });
+    } catch {
+      toast({ variant: "destructive", title: "Handover failed" });
+    } finally {
+      setHandingOver(null);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3">
+        <HandHeart className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+        <div>
+          <p className="text-sm font-semibold text-amber-900">Parent Pickup Queue</p>
+          <p className="text-xs text-amber-700 mt-0.5">Parents who have tapped "I'm here to collect" in their app appear here. Their child's teacher has also been notified. Refreshes every 15 seconds.</p>
+        </div>
+      </div>
+
+      <div className="flex justify-between items-center">
+        <p className="text-xs font-bold uppercase tracking-wider text-gray-400">
+          {queue.length} waiting{queue.length !== 1 ? "" : ""}
+        </p>
+        <button onClick={fetchQueue} disabled={loading}
+          className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-700 px-2 py-1 rounded-lg hover:bg-gray-100 transition-colors disabled:opacity-50">
+          <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} /> Refresh
+        </button>
+      </div>
+
+      {queue.length === 0 ? (
+        <div className="text-center py-14 border rounded-2xl bg-white text-gray-400">
+          <HandHeart className="w-10 h-10 mx-auto mb-2 text-gray-200" />
+          <p className="font-medium">No parents waiting</p>
+          <p className="text-sm mt-1">Queue will update automatically</p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {queue.map((item: any) => (
+            <Card key={item.id} className="border rounded-2xl overflow-hidden">
+              <CardContent className="p-5">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-11 h-11 rounded-xl flex items-center justify-center text-white font-bold flex-shrink-0"
+                      style={{ background: "linear-gradient(135deg, #f59e0b, #d97706)" }}>
+                      {item.childName?.[0]}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="font-bold text-gray-900 truncate">{item.childName}</p>
+                      <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                        <Badge variant="outline" className="text-xs border-blue-200 text-blue-700">{item.className}</Badge>
+                        <span className="text-xs text-gray-400">
+                          {formatDistanceToNow(new Date(item.requestedAt), { addSuffix: true })}
+                        </span>
+                      </div>
+                      <p className="text-xs text-gray-500 mt-1">Parent: <span className="font-medium">{item.parentName}</span></p>
+                    </div>
+                  </div>
+                  <Button
+                    size="sm"
+                    className="flex-shrink-0 gap-1.5 bg-green-600 hover:bg-green-700 text-white"
+                    onClick={() => handleHandOver(item)}
+                    disabled={handingOver === item.id}>
+                    <LogOut className="w-3.5 h-3.5" />
+                    {handingOver === item.id ? "…" : "Hand Over"}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Checkout() {
   const [search, setSearch] = useState("");
   const [otpInput, setOtpInput] = useState("");
@@ -269,6 +379,9 @@ export default function Checkout() {
           </TabsTrigger>
           <TabsTrigger value="otp" className="flex items-center gap-2">
             <KeyRound className="w-4 h-4" /> Delegate OTP Checkout
+          </TabsTrigger>
+          <TabsTrigger value="queue" className="flex items-center gap-2">
+            <HandHeart className="w-4 h-4" /> Pickup Queue
           </TabsTrigger>
         </TabsList>
 
@@ -451,6 +564,11 @@ export default function Checkout() {
               </div>
             )}
           </div>
+        </TabsContent>
+
+        {/* ── Pickup Queue ── */}
+        <TabsContent value="queue" className="mt-4">
+          <PickupQueue activeRecords={activeRecords} onCheckout={refetch} />
         </TabsContent>
       </Tabs>
     </div>

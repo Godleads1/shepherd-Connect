@@ -1,16 +1,15 @@
 import { Router } from "express";
-import { authMiddleware } from "../middlewares/auth";
+import { authMiddleware, requireRoles } from "../middlewares/auth";
 import { db } from "@workspace/db";
-import { attendanceTable, childrenTable, classesTable, usersTable } from "@workspace/db/schema";
-import { eq, and, inArray } from "drizzle-orm";
+import {
+  attendanceTable, childrenTable, classesTable, usersTable,
+  notificationsTable, teachersTable, teacherAllocationsTable,
+} from "@workspace/db/schema";
+import { eq, and } from "drizzle-orm";
 
 const router = Router();
 
-// In-memory store: classId → list of SSE response objects
 const classClients = new Map<number, Set<any>>();
-
-// In-memory pickup queue: classId → array of pickup request items
-// Each item: { id, childId, childName, parentName, classId, className, requestedAt }
 const pickupQueue = new Map<number, any[]>();
 
 function broadcastToClass(classId: number, data: any) {
@@ -22,7 +21,6 @@ function broadcastToClass(classId: number, data: any) {
   }
 }
 
-// SSE endpoint — TV screen connects here (no auth required, just needs classId)
 router.get("/pickup-requests/stream/:classId", async (req, res): Promise<void> => {
   const classId = Number(req.params.classId);
   if (isNaN(classId)) { res.status(400).end(); return; }
@@ -36,14 +34,10 @@ router.get("/pickup-requests/stream/:classId", async (req, res): Promise<void> =
   if (!classClients.has(classId)) classClients.set(classId, new Set());
   classClients.get(classId)!.add(res);
 
-  // Look up class name for the TV header (public, no auth needed here)
   const [cls] = await db.select({ name: classesTable.name }).from(classesTable).where(eq(classesTable.id, classId));
-
-  // Send current queue immediately on connect
   const queue = pickupQueue.get(classId) ?? [];
   res.write(`data: ${JSON.stringify({ type: "init", queue, className: cls?.name ?? null })}\n\n`);
 
-  // Keep-alive ping every 25s
   const ping = setInterval(() => {
     try { res.write(": ping\n\n"); } catch {}
   }, 25000);
@@ -54,7 +48,15 @@ router.get("/pickup-requests/stream/:classId", async (req, res): Promise<void> =
   });
 });
 
-// Parent calls this to signal "I'm here to pick up"
+router.get("/pickup-requests", authMiddleware, requireRoles("super_admin", "admin", "attendant"), async (req, res): Promise<void> => {
+  const all: any[] = [];
+  for (const queue of pickupQueue.values()) {
+    all.push(...queue);
+  }
+  all.sort((a, b) => new Date(a.requestedAt).getTime() - new Date(b.requestedAt).getTime());
+  res.json({ queue: all });
+});
+
 router.post("/pickup-requests", authMiddleware, async (req, res): Promise<void> => {
   const { childId } = req.body as { childId?: number };
   if (!childId || typeof childId !== "number") {
@@ -62,7 +64,6 @@ router.post("/pickup-requests", authMiddleware, async (req, res): Promise<void> 
     return;
   }
 
-  // Verify child belongs to this parent's family and is currently in class
   const [child] = await db
     .select()
     .from(childrenTable)
@@ -74,17 +75,14 @@ router.post("/pickup-requests", authMiddleware, async (req, res): Promise<void> 
     return;
   }
 
-  // Check child is currently checked in (status in_class or dropped_off or in_transit)
   const today = new Date().toISOString().split("T")[0];
   const [activeAttendance] = await db
     .select()
     .from(attendanceTable)
-    .where(
-      and(
-        eq(attendanceTable.childId, childId),
-        eq(attendanceTable.serviceDate, today)
-      )
-    )
+    .where(and(
+      eq(attendanceTable.childId, childId),
+      eq(attendanceTable.serviceDate, today)
+    ))
     .orderBy(attendanceTable.checkInTime);
 
   if (!activeAttendance || activeAttendance.status === "picked_up") {
@@ -101,7 +99,6 @@ router.post("/pickup-requests", authMiddleware, async (req, res): Promise<void> 
   const childName = `${child.children.firstName} ${child.children.lastName}`;
   const className = child.classes?.name ?? "Unknown Class";
 
-  // Get parent name
   const [parent] = await db
     .select({ firstName: usersTable.firstName, lastName: usersTable.lastName })
     .from(usersTable)
@@ -119,22 +116,39 @@ router.post("/pickup-requests", authMiddleware, async (req, res): Promise<void> 
     requestedAt: new Date().toISOString(),
   };
 
-  // Add to queue
   if (!pickupQueue.has(classId)) pickupQueue.set(classId, []);
   const queue = pickupQueue.get(classId)!;
-  // Avoid duplicates for same child
   const existingIdx = queue.findIndex(q => q.childId === childId);
   if (existingIdx !== -1) queue.splice(existingIdx, 1);
   queue.push(request);
 
-  // Broadcast to TV screen
   broadcastToClass(classId, { type: "pickup", request, queue });
+
+  const allocations = await db
+    .select({ userId: teachersTable.userId })
+    .from(teacherAllocationsTable)
+    .innerJoin(teachersTable, eq(teacherAllocationsTable.teacherId, teachersTable.id))
+    .where(and(
+      eq(teacherAllocationsTable.classId, classId),
+      eq(teacherAllocationsTable.serviceDate, today),
+    ));
+
+  if (allocations.length > 0) {
+    await db.insert(notificationsTable).values(
+      allocations.map(a => ({
+        userId: a.userId,
+        type: "pickup_request",
+        title: "Pickup Request",
+        message: `${parentName} is here to collect ${childName} from ${className}. Please prepare for handover.`,
+        channel: "in_app" as const,
+      }))
+    );
+  }
 
   req.log.info({ childId, classId, parentName }, "Parent signalled pickup");
   res.json({ success: true, message: "Pickup signal sent to classroom" });
 });
 
-// Remove from queue (teacher dismisses it or child is checked out)
 router.delete("/pickup-requests/:id", authMiddleware, async (req, res): Promise<void> => {
   const { id } = req.params;
   for (const [classId, queue] of pickupQueue.entries()) {
@@ -149,7 +163,6 @@ router.delete("/pickup-requests/:id", authMiddleware, async (req, res): Promise<
   res.status(404).json({ error: "Not found" });
 });
 
-// Get current queue for a class (REST fallback for TV initial load)
 router.get("/pickup-requests/:classId", async (req, res): Promise<void> => {
   const classId = Number(req.params.classId);
   if (isNaN(classId)) { res.status(400).json({ error: "Bad request" }); return; }
