@@ -10,7 +10,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import { Users, MapPin, Clock, Edit2, Trash2, ListOrdered, Zap, RefreshCw, CheckCircle, ArrowRight } from "lucide-react";
+import { Users, MapPin, Clock, Edit2, Trash2, ListOrdered, Zap, RefreshCw, CheckCircle, ArrowRight, Tv2 } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiGet, apiPost } from "@/lib/api-call";
 
@@ -343,8 +343,16 @@ export default function Classes() {
                 </div>
                 
                 <div className="flex gap-2 mt-5 pt-4 border-t border-gray-50">
+                  <button
+                    className="flex-1 py-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors"
+                    style={{ background: "#1e3a8a", color: "white" }}
+                    onClick={() => window.open(`${window.location.origin}/classroom-display/${cls.id}`, "_blank")}
+                    title="Open TV display for this classroom"
+                  >
+                    <Tv2 className="w-3.5 h-3.5" /> TV Display
+                  </button>
                   <button 
-                    className="flex-1 py-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 border border-gray-200 text-gray-700 hover:bg-gray-50 transition-colors" 
+                    className="py-2 px-3 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 border border-gray-200 text-gray-700 hover:bg-gray-50 transition-colors" 
                     onClick={() => handleOpenEdit(cls)} 
                     data-testid={`button-edit-class-${cls.id}`}
                   >
