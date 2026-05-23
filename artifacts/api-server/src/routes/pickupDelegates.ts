@@ -12,7 +12,7 @@ const createDelegateLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: "Too many requests", message: "Too many delegate OTPs created. Please try again later." },
-  keyGenerator: (req) => String(req.user?.userId ?? req.ip),
+  keyGenerator: (req) => req.user?.userId != null ? `user-${req.user.userId}` : "anonymous",
 });
 
 const verifyOtpLimiter = rateLimit({
