@@ -148,7 +148,7 @@ export default function Register() {
       const res = await fetch("/api/auth/send-otp", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone: step1Data.phone, channel }),
+        body: JSON.stringify({ phone: step1Data.phone, email: step1Data.email, channel }),
       });
       const data = await res.json() as { pinId?: string; message?: string; error?: string };
       if (!res.ok) throw new Error(data.message ?? "Failed to send OTP");
@@ -453,7 +453,7 @@ export default function Register() {
             ) : (
               <div className="space-y-4">
                 <div className="p-3 rounded-xl text-center text-sm" style={{ background: "rgba(26,35,126,0.06)", border: "1px solid rgba(26,35,126,0.15)", color: LOGO_NAVY }}>
-                  ✓ Code sent via SMS — check your messages
+                  ✓ Code sent via SMS and email — check your messages or inbox
                 </div>
 
                 <div className="relative">

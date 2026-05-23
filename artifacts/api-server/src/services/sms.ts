@@ -414,6 +414,26 @@ export async function smsRegistrationOtp(phone: string | null | undefined, otp: 
   );
 }
 
+export async function emailRegistrationOtp(email: string | null | undefined, otp: string, logger?: Logger) {
+  if (!email) return;
+  const html = `
+    <div style="font-family:Inter,Arial,sans-serif;max-width:480px;margin:0 auto;background:#fff;border-radius:12px;border:1px solid #e2e8f0;padding:32px 28px">
+      <div style="text-align:center;margin-bottom:24px">
+        <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/5/5e/RCCG_logo.png/120px-RCCG_logo.png" alt="RCCG" style="height:56px;margin-bottom:8px" />
+        <h2 style="color:#1e3a8a;margin:0;font-size:20px">Shepherd Connect</h2>
+        <p style="color:#64748b;font-size:13px;margin:4px 0 0">RCCG City of David · Children's Church</p>
+      </div>
+      <h3 style="color:#0f172a;font-size:17px;margin:0 0 8px">Your verification code</h3>
+      <p style="color:#475569;font-size:14px;margin:0 0 20px">Use the code below to verify your phone number and complete registration.</p>
+      <div style="background:#f1f5f9;border-radius:10px;padding:20px;text-align:center;margin-bottom:20px">
+        <span style="font-size:36px;font-weight:800;letter-spacing:10px;color:#1e3a8a">${otp}</span>
+      </div>
+      <p style="color:#94a3b8;font-size:12px;margin:0">This code expires in <strong>10 minutes</strong>. Do not share it with anyone.</p>
+    </div>
+  `;
+  await sendEmail(email, "Shepherd Connect — Your verification code", html, logger);
+}
+
 export async function smsDelegateOtp(phone: string | null | undefined, delegateName: string, childName: string, otpCode: string, logger?: Logger) {
   if (!phone) return;
   await send(

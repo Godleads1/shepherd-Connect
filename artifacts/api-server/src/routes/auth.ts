@@ -6,7 +6,7 @@ import { eq } from "drizzle-orm";
 import { db, usersTable } from "@workspace/db";
 import { LoginBody, RegisterBody } from "@workspace/api-zod";
 import { generateToken, authMiddleware } from "../middlewares/auth";
-import { smsWelcome, smsPendingApproval, smsPasswordResetCode, smsRegistrationOtp, emailWelcome, emailPendingApproval, emailPasswordResetCode } from "../services/sms";
+import { smsWelcome, smsPendingApproval, smsPasswordResetCode, smsRegistrationOtp, emailRegistrationOtp, emailWelcome, emailPendingApproval, emailPasswordResetCode } from "../services/sms";
 
 // ── In-memory OTP sessions (phone verification during registration) ────────────
 // key: random session ID returned to client as "pinId"
@@ -287,18 +287,23 @@ router.post("/auth/reset-password", async (req, res): Promise<void> => {
 // ── OTP endpoints (phone verification) ───────────────────────────────────────
 
 router.post("/auth/send-otp", async (req, res): Promise<void> => {
-  const { phone } = req.body as { phone?: string; channel?: "sms" | "whatsapp" };
+  const { phone, email } = req.body as { phone?: string; email?: string; channel?: "sms" | "whatsapp" };
   if (!phone || typeof phone !== "string") {
     res.status(400).json({ error: "Bad request", message: "phone is required" });
     return;
   }
-  // App generates the OTP — Termii is only the delivery channel
+  // App generates the OTP — Termii/Twilio are delivery channels, email is always the fallback
   const otp = Math.floor(100000 + Math.random() * 900000).toString();
   const pinId = crypto.randomUUID();
   const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
   otpSessions.set(pinId, { otp, phone: phone.trim(), expiresAt });
 
+  // Always attempt SMS delivery (Termii → Twilio chain)
   await smsRegistrationOtp(phone.trim(), otp, req.log);
+  // Always also send via email so at least one channel reaches the user
+  if (email && typeof email === "string") {
+    await emailRegistrationOtp(email.trim(), otp, req.log);
+  }
 
   res.json({ pinId, message: "OTP sent successfully" });
 });
