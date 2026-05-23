@@ -5,7 +5,42 @@ const BASE_URL = "https://v3.api.termii.com";
 const SENDER   = "talert"; // Termii built-in default; swap for your registered sender ID
 const APP_URL  = "https://shepherd-connect--egbuchulamchine.replit.app";
 
-function isConfigured() { return Boolean(API_KEY); }
+// ── Twilio fallback ───────────────────────────────────────────────────────────
+const TWILIO_SID   = process.env.TWILIO_ACCOUNT_SID;
+const TWILIO_TOKEN = process.env.TWILIO_AUTH_TOKEN;
+const TWILIO_FROM  = process.env.TWILIO_PHONE_NUMBER;
+
+function twilioConfigured() { return Boolean(TWILIO_SID && TWILIO_TOKEN && TWILIO_FROM); }
+
+function toE164(phone: string): string {
+  const s = phone.replace(/[\s\-().+]/g, "");
+  if (s.startsWith("0"))   return "+234" + s.slice(1);
+  if (s.startsWith("234")) return "+"    + s;
+  if (s.startsWith("+"))   return phone.replace(/[\s\-().]/g, "");
+  return "+" + s;
+}
+
+async function sendViaTwilio(to: string, body: string, logger?: Logger): Promise<boolean> {
+  if (!twilioConfigured()) return false;
+  const e164 = toE164(to);
+  try {
+    const creds = Buffer.from(`${TWILIO_SID}:${TWILIO_TOKEN}`).toString("base64");
+    const form  = new URLSearchParams({ From: TWILIO_FROM!, To: e164, Body: body });
+    const res   = await fetch(
+      `https://api.twilio.com/2010-04-01/Accounts/${TWILIO_SID}/Messages.json`,
+      { method: "POST", headers: { Authorization: `Basic ${creds}`, "Content-Type": "application/x-www-form-urlencoded" }, body: form },
+    );
+    const data = await res.json() as Record<string, unknown>;
+    if (!res.ok) { logger?.error({ to: e164, status: res.status, data }, "Twilio SMS send failed"); return false; }
+    logger?.info({ to: e164, sid: data.sid }, "SMS sent via Twilio");
+    return true;
+  } catch (err) {
+    logger?.error({ to: e164, err: String(err) }, "Twilio SMS request error");
+    return false;
+  }
+}
+
+function isConfigured() { return Boolean(API_KEY) || twilioConfigured(); }
 
 function normalisePhone(phone: string): string {
   const s = phone.replace(/[\s\-().+]/g, "");
@@ -79,20 +114,27 @@ async function sendToEmails(emails: (string | null | undefined)[], subject: stri
 // ── SMS send ─────────────────────────────────────────────────────────────────
 
 async function send(to: string, sms: string, channel: "generic" | "dnd" | "whatsapp" = "generic", logger?: Logger): Promise<void> {
-  if (!isConfigured()) { logger?.warn("Termii not configured — SMS skipped"); return; }
+  if (!isConfigured()) { logger?.warn("No SMS provider configured — SMS skipped"); return; }
   const normalised = normalisePhone(to);
-  try {
-    const res = await fetch(`${BASE_URL}/api/sms/send`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ to: normalised, from: SENDER, sms, type: "plain", channel, api_key: API_KEY }),
-    });
-    const data = await res.json() as Record<string, unknown>;
-    if (!res.ok) logger?.error({ to: normalised, status: res.status, data }, "Termii SMS send failed");
-    else logger?.info({ to: normalised }, "SMS sent via Termii");
-  } catch (err) {
-    logger?.error({ to: normalised, err: String(err) }, "Termii SMS request error");
+
+  // Try Termii first (if API key is present)
+  if (API_KEY) {
+    try {
+      const res = await fetch(`${BASE_URL}/api/sms/send`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ to: normalised, from: SENDER, sms, type: "plain", channel, api_key: API_KEY }),
+      });
+      const data = await res.json() as Record<string, unknown>;
+      if (res.ok) { logger?.info({ to: normalised }, "SMS sent via Termii"); return; }
+      logger?.warn({ to: normalised, status: res.status, data }, "Termii SMS failed — trying Twilio fallback");
+    } catch (err) {
+      logger?.warn({ to: normalised, err: String(err) }, "Termii SMS error — trying Twilio fallback");
+    }
   }
+
+  // Fallback: Twilio
+  await sendViaTwilio(to, sms, logger);
 }
 
 async function sendToPhones(phones: (string | null | undefined)[], msg: string, logger?: Logger) {
