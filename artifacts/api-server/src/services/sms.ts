@@ -1,9 +1,44 @@
 import type { Logger } from "pino";
+import nodemailer from "nodemailer";
 
 const API_KEY  = process.env.TERMII_API_KEY;
 const BASE_URL = "https://v3.api.termii.com";
 const SENDER   = "talert"; // Termii built-in default; swap for your registered sender ID
 const APP_URL  = "https://shepherd-connect--egbuchulamchine.replit.app";
+
+// ── Gmail fallback ────────────────────────────────────────────────────────────
+const GMAIL_USER = process.env.GMAIL_USER;
+const GMAIL_PASS = process.env.GMAIL_APP_PASSWORD;
+
+function gmailConfigured() { return Boolean(GMAIL_USER && GMAIL_PASS); }
+
+let _gmailTransport: ReturnType<typeof nodemailer.createTransport> | null = null;
+function gmailTransport() {
+  if (!_gmailTransport) {
+    _gmailTransport = nodemailer.createTransport({
+      service: "gmail",
+      auth: { user: GMAIL_USER, pass: GMAIL_PASS },
+    });
+  }
+  return _gmailTransport;
+}
+
+async function sendViaGmail(to: string, subject: string, html: string, logger?: Logger): Promise<boolean> {
+  if (!gmailConfigured()) return false;
+  try {
+    await gmailTransport().sendMail({
+      from: `"Shepherd Connect" <${GMAIL_USER}>`,
+      to,
+      subject,
+      html,
+    });
+    logger?.info({ to }, "Email sent via Gmail");
+    return true;
+  } catch (err) {
+    logger?.error({ to, err: String(err) }, "Gmail send error");
+    return false;
+  }
+}
 
 // ── Twilio fallback ───────────────────────────────────────────────────────────
 const TWILIO_SID   = process.env.TWILIO_ACCOUNT_SID;
@@ -82,27 +117,35 @@ function infoBox(html: string) { return `<div style="background:#f8fafc;border:1
 // ── Email send (Termii email channel) ─────────────────────────────────────────
 
 async function sendEmail(to: string, subject: string, html: string, logger?: Logger): Promise<void> {
-  if (!isConfigured()) { logger?.warn("Termii not configured — email skipped"); return; }
   if (!to || !to.includes("@")) { logger?.warn({ to }, "Invalid email address — skipped"); return; }
-  try {
-    const res = await fetch(`${BASE_URL}/api/sms/send`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        to,
-        from: "Shepherd Connect",
-        sms: html,
-        type: "html",
-        channel: "email",
-        api_key: API_KEY,
-        subject,
-      }),
-    });
-    const data = await res.json() as Record<string, unknown>;
-    if (!res.ok) logger?.error({ to, status: res.status, data }, "Termii email send failed");
-    else logger?.info({ to }, "Email sent via Termii");
-  } catch (err) {
-    logger?.error({ to, err: String(err) }, "Termii email request error");
+
+  // Try Termii email first (if API key present)
+  if (API_KEY) {
+    try {
+      const res = await fetch(`${BASE_URL}/api/sms/send`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          to,
+          from: "Shepherd Connect",
+          sms: html,
+          type: "html",
+          channel: "email",
+          api_key: API_KEY,
+          subject,
+        }),
+      });
+      const data = await res.json() as Record<string, unknown>;
+      if (res.ok) { logger?.info({ to }, "Email sent via Termii"); return; }
+      logger?.warn({ to, status: res.status, data }, "Termii email failed — trying Gmail fallback");
+    } catch (err) {
+      logger?.warn({ to, err: String(err) }, "Termii email error — trying Gmail fallback");
+    }
+  }
+
+  // Fallback: Gmail
+  if (!(await sendViaGmail(to, subject, html, logger))) {
+    logger?.error({ to }, "All email providers failed — email not delivered");
   }
 }
 
