@@ -207,7 +207,8 @@ export default function Register() {
 
   const onStep1 = (d: z.infer<typeof step1Schema>) => {
     setStep1Data(d);
-    setStep(2);
+    setOtpSent(false); setOtpCode(""); setOtpError(""); setOtpPinId("");
+    setStep("otp");
   };
   const onStep2 = (d: z.infer<typeof step2Schema>) => {
     setStep2Data(d);

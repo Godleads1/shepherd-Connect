@@ -1,41 +1,39 @@
 import type { Logger } from "pino";
-import nodemailer from "nodemailer";
+import { Resend } from "resend";
 
 const API_KEY  = process.env.TERMII_API_KEY;
 const BASE_URL = "https://v3.api.termii.com";
 const SENDER   = "talert"; // Termii built-in default; swap for your registered sender ID
 const APP_URL  = "https://shepherd-connect--egbuchulamchine.replit.app";
 
-// ── Gmail fallback ────────────────────────────────────────────────────────────
-const GMAIL_USER = process.env.GMAIL_USER;
-const GMAIL_PASS = process.env.GMAIL_APP_PASSWORD;
+// ── Resend fallback ───────────────────────────────────────────────────────────
+const RESEND_API_KEY = process.env.RESEND_API_KEY;
 
-function gmailConfigured() { return Boolean(GMAIL_USER && GMAIL_PASS); }
+function resendConfigured() { return Boolean(RESEND_API_KEY); }
 
-let _gmailTransport: ReturnType<typeof nodemailer.createTransport> | null = null;
-function gmailTransport() {
-  if (!_gmailTransport) {
-    _gmailTransport = nodemailer.createTransport({
-      service: "gmail",
-      auth: { user: GMAIL_USER, pass: GMAIL_PASS },
-    });
-  }
-  return _gmailTransport;
+let _resend: Resend | null = null;
+function getResend() {
+  if (!_resend) _resend = new Resend(RESEND_API_KEY);
+  return _resend;
 }
 
-async function sendViaGmail(to: string, subject: string, html: string, logger?: Logger): Promise<boolean> {
-  if (!gmailConfigured()) return false;
+async function sendViaResend(to: string, subject: string, html: string, logger?: Logger): Promise<boolean> {
+  if (!resendConfigured()) return false;
   try {
-    await gmailTransport().sendMail({
-      from: `"Shepherd Connect" <${GMAIL_USER}>`,
+    const { error } = await getResend().emails.send({
+      from: "Shepherd Connect <onboarding@resend.dev>",
       to,
       subject,
       html,
     });
-    logger?.info({ to }, "Email sent via Gmail");
+    if (error) {
+      logger?.error({ to, err: error.message }, "Resend email error");
+      return false;
+    }
+    logger?.info({ to }, "Email sent via Resend");
     return true;
   } catch (err) {
-    logger?.error({ to, err: String(err) }, "Gmail send error");
+    logger?.error({ to, err: String(err) }, "Resend email error");
     return false;
   }
 }
@@ -137,14 +135,14 @@ async function sendEmail(to: string, subject: string, html: string, logger?: Log
       });
       const data = await res.json() as Record<string, unknown>;
       if (res.ok) { logger?.info({ to }, "Email sent via Termii"); return; }
-      logger?.warn({ to, status: res.status, data }, "Termii email failed — trying Gmail fallback");
+      logger?.warn({ to, status: res.status, data }, "Termii email failed — trying Resend fallback");
     } catch (err) {
-      logger?.warn({ to, err: String(err) }, "Termii email error — trying Gmail fallback");
+      logger?.warn({ to, err: String(err) }, "Termii email error — trying Resend fallback");
     }
   }
 
-  // Fallback: Gmail
-  if (!(await sendViaGmail(to, subject, html, logger))) {
+  // Fallback: Resend
+  if (!(await sendViaResend(to, subject, html, logger))) {
     logger?.error({ to }, "All email providers failed — email not delivered");
   }
 }
