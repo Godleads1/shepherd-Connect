@@ -198,15 +198,6 @@ export default function Login() {
         return;
       }
 
-      // Enforce tab selection: user must have chosen the correct role tab
-      if (!roleMatchesTab(response.user.role, selectedRole)) {
-        const correctTab = response.user.role === "super_admin" ? "admin" : response.user.role;
-        form.setError("root", {
-          message: `These credentials belong to a ${tabLabel[correctTab] ?? response.user.role} account. Please select the "${tabLabel[correctTab] ?? response.user.role}" tab above and try again.`,
-        });
-        return;
-      }
-
       localLogin(response.token, response.user);
       navigateForRole(response.user.role);
     } catch {
@@ -220,11 +211,6 @@ export default function Login() {
     setMfaError("");
     try {
       const response = await apiPost<any>("/auth/mfa/verify-login", { mfaToken, totpCode });
-      if (!roleMatchesTab(response.user.role, selectedRole)) {
-        const correct = response.user.role === "super_admin" ? "admin" : response.user.role;
-        setMfaError(`These credentials belong to a ${tabLabel[correct] ?? response.user.role} account. Please go back and select the correct portal.`);
-        return;
-      }
       localLogin(response.token, response.user);
       const role = response.user.role;
       if (role === "parent") setLocation("/my-family");
