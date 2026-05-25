@@ -402,12 +402,12 @@ export async function smsPreDismissal(phones: (string | null | undefined)[], chi
   await sendToPhones(phones, `📢 Service ending soon. ${childName} is ready for pickup at the children's church exit. — Shepherd Connect`, logger);
 }
 
-export async function smsRegistrationOtp(phone: string | null | undefined, otp: string, logger?: Logger) {
+export async function smsRegistrationOtp(phone: string | null | undefined, otp: string, logger?: Logger, channel: "generic" | "whatsapp" = "generic") {
   if (!phone) return;
   await send(
     phone,
     `Your Shepherd Connect verification code is: ${otp}. Valid for 10 minutes. Do not share this code. — RCCG City of David`,
-    "generic",
+    channel,
     logger,
   );
 }

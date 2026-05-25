@@ -139,16 +139,17 @@ export default function Register() {
   const [otpVerifying, setOtpVerifying] = useState(false);
   const [otpSent, setOtpSent]       = useState(false);
   const [otpError, setOtpError]     = useState("");
-  const [otpChannel, setOtpChannel] = useState<"whatsapp" | "sms">("whatsapp");
+  const [otpChannel, setOtpChannel] = useState<"whatsapp" | "sms" | "email">("whatsapp");
 
-  const sendOtp = async (channel: "whatsapp" | "sms") => {
-    if (!step1Data?.phone) return;
+  const sendOtp = async (channel: "whatsapp" | "sms" | "email") => {
+    if (!step1Data?.phone && channel !== "email") return;
+    if (!step1Data?.email && channel === "email") return;
     setOtpSending(true); setOtpError(""); setOtpCode("");
     try {
       const res = await fetch("/api/auth/send-otp", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone: step1Data.phone, email: step1Data.email, channel }),
+        body: JSON.stringify({ phone: step1Data!.phone, email: step1Data!.email, channel }),
       });
       const data = await res.json() as { pinId?: string; message?: string; error?: string };
       if (!res.ok) throw new Error(data.message ?? "Failed to send OTP");
@@ -207,7 +208,7 @@ export default function Register() {
 
   const onStep1 = (d: z.infer<typeof step1Schema>) => {
     setStep1Data(d);
-    setStep(2);
+    setStep("otp");
   };
   const onStep2 = (d: z.infer<typeof step2Schema>) => {
     setStep2Data(d);
@@ -441,18 +442,27 @@ export default function Register() {
 
             {!otpSent ? (
               <div className="space-y-3">
-                <button type="button" onClick={() => sendOtp("sms")} disabled={otpSending}
-                  className="w-full flex items-center justify-center gap-3 py-3.5 rounded-2xl font-bold text-sm transition-all disabled:opacity-60"
-                  style={{ background: LOGO_NAVY, color: "#fff", boxShadow: "0 4px 14px rgba(26,35,126,0.28)" }}>
-                  {otpSending ? <Loader2 className="w-4 h-4 animate-spin" /> : <MessageCircle className="w-4 h-4" />}
-                  Send verification code via SMS
-                </button>
-                <p className="text-center text-xs" style={{ color: "#94a3b8" }}>You'll receive a 6-digit code by text message</p>
+                <p className="text-[11px] font-bold uppercase tracking-widest text-center" style={{ color: "#94a3b8" }}>Choose how to receive your code</p>
+                {[
+                  { ch: "whatsapp" as const, icon: "💬", label: "Send via WhatsApp",   sub: "Recommended · instant delivery" },
+                  { ch: "sms"      as const, icon: "📱", label: "Send via SMS",         sub: "Standard text message" },
+                  { ch: "email"    as const, icon: "✉️",  label: "Send via Email",       sub: step1Data?.email ?? "" },
+                ].map(({ ch, icon, label, sub }) => (
+                  <button key={ch} type="button" onClick={() => sendOtp(ch)} disabled={otpSending}
+                    className="w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl font-semibold text-sm transition-all disabled:opacity-60 text-left"
+                    style={{ background: "rgba(26,35,126,0.05)", border: "1.5px solid rgba(26,35,126,0.14)", color: "#0f172a" }}>
+                    {otpSending ? <Loader2 className="w-5 h-5 animate-spin flex-shrink-0" style={{ color: LOGO_NAVY }} /> : <span className="text-xl flex-shrink-0">{icon}</span>}
+                    <span>
+                      <span className="block font-bold" style={{ color: LOGO_NAVY }}>{label}</span>
+                      <span className="block text-xs font-normal" style={{ color: "#94a3b8" }}>{sub}</span>
+                    </span>
+                  </button>
+                ))}
               </div>
             ) : (
               <div className="space-y-4">
                 <div className="p-3 rounded-xl text-center text-sm" style={{ background: "rgba(26,35,126,0.06)", border: "1px solid rgba(26,35,126,0.15)", color: LOGO_NAVY }}>
-                  ✓ Code sent via SMS and email — check your messages or inbox
+                  ✓ Code sent via {otpChannel === "whatsapp" ? "WhatsApp" : otpChannel === "email" ? "email" : "SMS"} — check your {otpChannel === "email" ? "inbox" : "messages"}
                 </div>
 
                 <div className="relative">

@@ -287,20 +287,35 @@ router.post("/auth/reset-password", async (req, res): Promise<void> => {
 // ── OTP endpoints (phone verification) ───────────────────────────────────────
 
 router.post("/auth/send-otp", async (req, res): Promise<void> => {
-  const { phone, email } = req.body as { phone?: string; email?: string; channel?: "sms" | "whatsapp" };
+  const { phone, email, channel } = req.body as { phone?: string; email?: string; channel?: "sms" | "whatsapp" | "email" };
+
+  // Email-only delivery: phone not required
+  if (channel === "email") {
+    if (!email || typeof email !== "string") {
+      res.status(400).json({ error: "Bad request", message: "email is required for email delivery" });
+      return;
+    }
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const pinId = crypto.randomUUID();
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+    otpSessions.set(pinId, { otp, phone: email.trim(), expiresAt });
+    await emailRegistrationOtp(email.trim(), otp, req.log);
+    res.json({ pinId, message: "OTP sent to your email" });
+    return;
+  }
+
   if (!phone || typeof phone !== "string") {
     res.status(400).json({ error: "Bad request", message: "phone is required" });
     return;
   }
-  // App generates the OTP — Termii/Twilio are delivery channels, email is always the fallback
   const otp = Math.floor(100000 + Math.random() * 900000).toString();
   const pinId = crypto.randomUUID();
-  const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+  const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
   otpSessions.set(pinId, { otp, phone: phone.trim(), expiresAt });
 
-  // Always attempt SMS delivery (Termii → Twilio chain)
-  await smsRegistrationOtp(phone.trim(), otp, req.log);
-  // Always also send via email so at least one channel reaches the user
+  // Deliver via the requested channel (WhatsApp or SMS), plus always email as backup
+  const smsChannel = channel === "whatsapp" ? "whatsapp" : "generic";
+  await smsRegistrationOtp(phone.trim(), otp, req.log, smsChannel);
   if (email && typeof email === "string") {
     await emailRegistrationOtp(email.trim(), otp, req.log);
   }
