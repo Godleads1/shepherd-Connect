@@ -266,11 +266,28 @@ export default function CheckIn() {
         <div className="absolute top-0 left-0 w-full h-full opacity-10"
           style={{ backgroundImage: "radial-gradient(circle at 2px 2px, white 1px, transparent 0)", backgroundSize: "32px 32px" }} />
         <div className="relative z-10">
-          <div style={{ width: 120, height: 120, margin: "0 auto 24px" }}>
+          <div style={{ width: 96, height: 96, margin: "0 auto 16px" }}>
             <img src="/rccg-logo-new.png" alt="RCCG" style={{ width: "100%", height: "100%", objectFit: "contain" }} />
           </div>
-          <h1 className="text-4xl sm:text-5xl font-bold mb-3" style={{ fontFamily: "'Playfair Display', serif" }}>Shepherd Connect</h1>
-          <p className="text-lg sm:text-xl text-blue-100 font-medium">Child Check-In Gateway</p>
+          <h1 className="text-3xl sm:text-4xl font-bold mb-1" style={{ fontFamily: "'Playfair Display', serif" }}>Shepherd Connect</h1>
+          <p className="text-base text-blue-200 font-medium mb-6">Child Check-In Gateway</p>
+
+          {/* Service selector — inside the hero so it's the first decision */}
+          <div className="mt-2">
+            <p className="text-xs font-bold uppercase tracking-widest text-blue-300 mb-3">Select Service</p>
+            <div className="flex gap-3 justify-center">
+              {SERVICE_SLOTS.map(slot => (
+                <button key={slot.value} onClick={() => setServiceSlot(slot.value)}
+                  className="flex-1 max-w-[180px] py-3 px-4 rounded-2xl text-left transition-all duration-200 active:scale-95"
+                  style={serviceSlot === slot.value
+                    ? { background: "rgba(255,255,255,0.95)", color: "#1e3a8a", boxShadow: "0 4px 16px rgba(0,0,0,0.25)" }
+                    : { background: "rgba(255,255,255,0.12)", color: "white", border: "1.5px solid rgba(255,255,255,0.25)" }}>
+                  <p className="text-sm font-bold leading-tight">{slot.label}</p>
+                  <p className="text-xs leading-tight mt-0.5 opacity-80">{slot.time}</p>
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
       </div>
 
@@ -332,23 +349,6 @@ export default function CheckIn() {
           Services are held on Sundays only — today is {new Date().toLocaleDateString("en-GB", { weekday: "long" })}.
         </div>
       )}
-
-      {/* Global service slot selector (used as default for children without a saved preference) */}
-      <div className="w-full bg-white rounded-2xl p-4 shadow-sm border border-gray-100 mb-4">
-        <p className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-2">Default Service</p>
-        <div className="flex gap-2">
-          {SERVICE_SLOTS.map(slot => (
-            <button key={slot.value} onClick={() => setServiceSlot(slot.value)}
-              className="flex-1 py-2.5 px-3 rounded-xl text-left transition-all"
-              style={serviceSlot === slot.value
-                ? { background: "#1e3a8a", color: "white", boxShadow: "0 2px 8px rgba(30,58,138,0.3)" }
-                : { background: "#f3f4f6", color: "#374151" }}>
-              <p className="text-xs font-bold leading-tight">{slot.label}</p>
-              <p className="text-[10px] opacity-75 leading-tight mt-0.5">{slot.time}</p>
-            </button>
-          ))}
-        </div>
-      </div>
 
       {/* Tab switcher */}
       <div className="w-full flex gap-1 bg-gray-100 rounded-xl p-1 mb-6">
