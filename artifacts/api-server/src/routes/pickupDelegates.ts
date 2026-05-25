@@ -185,13 +185,32 @@ router.post("/pickup-delegates/:id/notify-parent", authMiddleware, async (req, r
   res.json({ success: true, requiresApproval: true, message: `Parent notified. Waiting for their approval before releasing ${child.firstName}.` });
 });
 
+/** Returns true if the user is authorised to approve/deny this delegate pickup.
+ *  Authorised if: admin/attendant, OR parent owns the child, OR the system sent them
+ *  a delegate_approval_request notification for this specific delegate. */
+async function canActOnDelegateApproval(delegateId: number, childId: number, userId: number, role: string): Promise<boolean> {
+  // Admins and attendants: always allowed
+  if (role !== "parent") return true;
+  // Parent owns the child: allowed
+  const ownChildIds = await getParentChildIds(userId, role);
+  if (ownChildIds && ownChildIds.includes(childId)) return true;
+  // Parent was specifically notified about this delegate: allowed
+  const notifs = await db.select().from(notificationsTable)
+    .where(and(eq(notificationsTable.userId, userId), eq(notificationsTable.type, "delegate_approval_request")));
+  return notifs.some(n => {
+    try { return JSON.parse(n.metadataJson || "{}").delegateId === delegateId; } catch { return false; }
+  });
+}
+
 router.post("/pickup-delegates/:id/approve", authMiddleware, async (req, res): Promise<void> => {
   const id = parseInt(req.params.id as string, 10);
   if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
 
   const [delegate] = await db.select().from(pickupDelegatesTable).where(eq(pickupDelegatesTable.id, id));
   if (!delegate) { res.status(404).json({ error: "Not found", message: "Delegate not found" }); return; }
-  if (!await assertParentOwnsDelegateOrAdmin(delegate.childId, req.user!.userId, req.user!.role, res)) return;
+  if (!await canActOnDelegateApproval(id, delegate.childId, req.user!.userId, req.user!.role)) {
+    res.status(403).json({ error: "Forbidden", message: "Access denied" }); return;
+  }
 
   const [updated] = await db.update(pickupDelegatesTable)
     .set({ parentApproved: true, approvalStatus: "approved" })
@@ -206,7 +225,9 @@ router.post("/pickup-delegates/:id/deny", authMiddleware, async (req, res): Prom
 
   const [delegate] = await db.select().from(pickupDelegatesTable).where(eq(pickupDelegatesTable.id, id));
   if (!delegate) { res.status(404).json({ error: "Not found", message: "Delegate not found" }); return; }
-  if (!await assertParentOwnsDelegateOrAdmin(delegate.childId, req.user!.userId, req.user!.role, res)) return;
+  if (!await canActOnDelegateApproval(id, delegate.childId, req.user!.userId, req.user!.role)) {
+    res.status(403).json({ error: "Forbidden", message: "Access denied" }); return;
+  }
 
   const [updated] = await db.update(pickupDelegatesTable)
     .set({ approvalStatus: "denied" })
