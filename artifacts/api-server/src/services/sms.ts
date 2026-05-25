@@ -4,7 +4,7 @@ import { Resend } from "resend";
 const API_KEY  = process.env.TERMII_API_KEY;
 const BASE_URL = "https://v3.api.termii.com";
 const SENDER   = "talert"; // Termii built-in default; swap for your registered sender ID
-const APP_URL  = "https://shepherd-connect--egbuchulamchine.replit.app";
+const APP_URL  = "https://shepherdconnect.name.ng";
 
 // ── Resend fallback ───────────────────────────────────────────────────────────
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
