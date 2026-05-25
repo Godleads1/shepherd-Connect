@@ -15,7 +15,8 @@ async function formatClass(cls: typeof classesTable.$inferSelect) {
   return { ...cls, enrollmentCount: enrollment, waitlistCount: Number(waitCount), isAtCapacity: enrollment >= cls.capacity, utilizationPercent: cls.capacity > 0 ? Math.round((enrollment / cls.capacity) * 100) : 0 };
 }
 
-router.get("/classes", authMiddleware, async (req, res): Promise<void> => {
+// Public — class list is needed during registration for age-based auto-assignment
+router.get("/classes", async (req, res): Promise<void> => {
   const params = ListClassesQueryParams.safeParse(req.query);
   if (!params.success) { res.status(400).json({ error: "Bad request", message: params.error.message }); return; }
   const { serviceSlot } = params.data;
