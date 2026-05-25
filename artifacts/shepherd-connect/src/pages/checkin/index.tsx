@@ -15,8 +15,9 @@ type Tab = "qr" | "face" | "assist";
 type SlotChoice = "7am" | "10:30am" | "both";
 
 const SERVICE_SLOTS = [
-  { value: "7am",     label: "1st Service", time: "7:00 – 10:00 AM" },
-  { value: "10:30am", label: "2nd Service", time: "10:30 AM onwards" },
+  { value: "7am",     label: "1st Service",   time: "7:00 – 10:00 AM" },
+  { value: "10:30am", label: "2nd Service",   time: "10:30 AM onwards" },
+  { value: "both",    label: "Both Services", time: "All day" },
 ];
 
 const SLOT_OPTIONS: { value: SlotChoice; label: string }[] = [
@@ -60,7 +61,7 @@ export default function CheckIn() {
   const canAssist = user?.role === "attendant" || user?.role === "admin" || user?.role === "super_admin";
   const [qrCode, setQrCode] = useState("");
   const [activeTab, setActiveTab] = useState<Tab>("qr");
-  const [serviceSlot, setServiceSlot] = useState("7am");
+  const [serviceSlot, setServiceSlot] = useState<SlotChoice>("7am");
   const [scanResult, setScanResult] = useState<any>(null);
   const [faceMatched, setFaceMatched] = useState(false);
   const [childSlots, setChildSlots] = useState<Record<number, SlotChoice>>({});
@@ -97,7 +98,7 @@ export default function CheckIn() {
     if (!qrCode) return;
     try {
       const result = await scanMutation.mutateAsync({
-        data: { qrCode, serviceDate: today, serviceSlot }
+        data: { qrCode, serviceDate: today, serviceSlot: serviceSlot === "both" ? "7am" : serviceSlot }
       });
       setScanResult(result);
       setChildSlots({});

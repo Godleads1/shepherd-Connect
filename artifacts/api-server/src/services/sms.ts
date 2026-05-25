@@ -178,9 +178,9 @@ async function send(to: string, sms: string, channel: "generic" | "dnd" | "whats
   await sendViaTwilio(to, sms, logger);
 }
 
-async function sendToPhones(phones: (string | null | undefined)[], msg: string, logger?: Logger) {
+async function sendToPhones(phones: (string | null | undefined)[], msg: string, logger?: Logger, channel: "generic" | "dnd" | "whatsapp" = "dnd") {
   const valid = phones.filter((p): p is string => Boolean(p && p.trim().length >= 7));
-  await Promise.all(valid.map(p => send(p, msg, "generic", logger)));
+  await Promise.all(valid.map(p => send(p, msg, channel, logger)));
 }
 
 // ── OTP ──────────────────────────────────────────────────────────────────────

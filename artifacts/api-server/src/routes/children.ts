@@ -87,7 +87,9 @@ router.get("/children/:id/qr-code", authMiddleware, async (req, res): Promise<vo
   if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
   const [child] = await db.select().from(childrenTable).where(eq(childrenTable.id, id));
   if (!child) { res.status(404).json({ error: "Not found", message: "Child not found" }); return; }
-  res.json({ qrCode: `QR:${child.familyId}:${child.id}`, familyCode: `FAM-${child.familyId}`, childId: child.id });
+  const [family] = await db.select().from(familiesTable).where(eq(familiesTable.id, child.familyId));
+  const familyCode = family?.familyCode ?? `FAM-${child.familyId}`;
+  res.json({ qrCode: `QR:${child.familyId}:${child.id}`, familyCode, childId: child.id });
 });
 
 router.put("/children/:id/face-descriptor", authMiddleware, async (req, res): Promise<void> => {
