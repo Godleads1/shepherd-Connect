@@ -4,7 +4,7 @@ import { Resend } from "resend";
 const API_KEY  = process.env.TERMII_API_KEY;
 const BASE_URL = "https://v3.api.termii.com";
 const SENDER   = "talert"; // Termii built-in default; swap for your registered sender ID
-const APP_URL  = "https://shepherdconnect.name.ng";
+const APP_URL  = "https://sherpherdconnect.name.ng";
 
 // ── Resend fallback ───────────────────────────────────────────────────────────
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
@@ -21,7 +21,7 @@ async function sendViaResend(to: string, subject: string, html: string, logger?:
   if (!resendConfigured()) return false;
   try {
     const { error } = await getResend().emails.send({
-      from: "Shepherd Connect <noreply@shepherdconnect.name.ng>",
+      from: "Shepherd Connect <noreply@sherpherdconnect.name.ng>",
       to,
       subject,
       html,
