@@ -3,7 +3,7 @@ import { Resend } from "resend";
 
 const API_KEY  = process.env.TERMII_API_KEY;
 const BASE_URL = "https://v3.api.termii.com";
-const SENDER   = "talert"; // Termii built-in default; swap for your registered sender ID
+const SENDER   = "N-Alert"; // Termii's pre-approved Nigerian system sender
 const APP_URL  = "https://sherpherdconnect.name.ng";
 
 // ── Resend fallback ───────────────────────────────────────────────────────────
@@ -112,38 +112,12 @@ function badge(text: string, color = "#1e3a8a") { return `<span style="display:i
 function btn(text: string, href: string) { return `<a href="${href}" style="display:inline-block;background:#1e3a8a;color:#ffffff;text-decoration:none;padding:12px 28px;border-radius:24px;font-weight:700;font-size:14px;margin:8px 0">${text}</a>`; }
 function infoBox(html: string) { return `<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:16px 20px;margin:16px 0">${html}</div>`; }
 
-// ── Email send (Termii email channel) ─────────────────────────────────────────
+// ── Email send (Resend only — Termii does not support an email channel on /api/sms/send) ────────
 
 async function sendEmail(to: string, subject: string, html: string, logger?: Logger): Promise<void> {
   if (!to || !to.includes("@")) { logger?.warn({ to }, "Invalid email address — skipped"); return; }
-
-  // Try Termii email first (if API key present)
-  if (API_KEY) {
-    try {
-      const res = await fetch(`${BASE_URL}/api/sms/send`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          to,
-          from: "Shepherd Connect",
-          sms: html,
-          type: "html",
-          channel: "email",
-          api_key: API_KEY,
-          subject,
-        }),
-      });
-      const data = await res.json() as Record<string, unknown>;
-      if (res.ok) { logger?.info({ to }, "Email sent via Termii"); return; }
-      logger?.warn({ to, status: res.status, data }, "Termii email failed — trying Resend fallback");
-    } catch (err) {
-      logger?.warn({ to, err: String(err) }, "Termii email error — trying Resend fallback");
-    }
-  }
-
-  // Fallback: Resend
   if (!(await sendViaResend(to, subject, html, logger))) {
-    logger?.error({ to }, "All email providers failed — email not delivered");
+    logger?.error({ to }, "Email not delivered — Resend failed");
   }
 }
 
