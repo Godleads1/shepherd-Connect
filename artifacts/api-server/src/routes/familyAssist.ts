@@ -168,8 +168,10 @@ router.post("/family-assist/guest", authMiddleware, requireRoles("super_admin", 
   const createdChildren = [];
   for (const c of children) {
     const age = calcAge(c.dob);
-    const matchByAge = allClasses.find(cls => cls.name.toLowerCase() === `class ${age}`);
-    const assignedClassId = matchByAge?.id ?? (allClasses[0]?.id ?? null);
+    const matchByAge = allClasses.find(cls =>
+      cls.ageMin !== null && cls.ageMax !== null && age >= cls.ageMin && age <= cls.ageMax
+    );
+    const assignedClassId = matchByAge?.id ?? null;
 
     const [child] = await db.insert(childrenTable).values({
       familyId: family.id,
