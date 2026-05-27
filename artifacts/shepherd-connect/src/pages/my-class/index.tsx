@@ -7,7 +7,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   School, CheckCircle2, AlertTriangle, Truck, Users,
   Clock, ArrowRight, UserCheck, CalendarCheck, ShieldCheck, Calendar,
-  Cake, CalendarClock, PartyPopper, Tv,
+  Cake, CalendarClock, PartyPopper, Tv, LockKeyhole,
 } from "lucide-react";
 import { apiGet } from "@/lib/api-call";
 import { useAuth } from "@/contexts/auth";
@@ -54,19 +54,13 @@ export default function MyClass() {
     { teacherId: myTeacher?.id },
     { query: { enabled: !!myTeacher?.id, queryKey: ["myTeacherAllocations", myTeacher?.id] } },
   );
-  // Sort all allocations by date descending and pick the most recent class.
-  // This means the page works even when admins haven't created today's allocations yet.
   const allocList: any[] = Array.isArray(myAllocations) ? (myAllocations as any[]) : [];
-  const sortedAllocs = [...allocList].sort(
-    (a, b) => new Date(b.serviceDate).getTime() - new Date(a.serviceDate).getTime()
-  );
-  const todayAlloc = sortedAllocs.find((a) => a.serviceDate === today);
-  const mostRecentAlloc = sortedAllocs[0];
-  const activeAlloc = todayAlloc ?? mostRecentAlloc;
+  const todayAlloc = allocList.find((a) => a.serviceDate === today);
   const hasAllocationToday = !!todayAlloc;
 
-  const myClassId: number | undefined = activeAlloc?.classId;
-  const myClassName: string | undefined = activeAlloc?.class?.name ?? undefined;
+  // Only use today's allocation — teachers must not see data for classes they aren't assigned to today
+  const myClassId: number | undefined = todayAlloc?.classId;
+  const myClassName: string | undefined = todayAlloc?.class?.name ?? undefined;
 
   const { data: allAttendance, isLoading, isError, refetch } = useListAttendance(
     { serviceDate: today, classId: myClassId },
@@ -109,6 +103,29 @@ export default function MyClass() {
     { key: "schedule",  label: "Schedule",    count: scheduleData?.total ?? null },
   ];
 
+  // If the teacher has no allocation today, show a locked-out screen
+  const isLoadingAllocation = !myAllocations && !!myTeacher?.id;
+  if (!isLoadingAllocation && myTeacher && !hasAllocationToday) {
+    return (
+      <div className="max-w-5xl mx-auto space-y-5">
+        <div className="rounded-2xl p-6 text-white relative overflow-hidden shadow-lg"
+          style={{ background: "linear-gradient(135deg, #172554 0%, #1e3a8a 60%, #1d4ed8 100%)" }}>
+          <h1 className="text-2xl font-bold flex items-center gap-2" style={{ fontFamily: "'Playfair Display', serif" }}>
+            <School className="w-7 h-7" /> My Class
+          </h1>
+          <p className="text-blue-200 text-sm mt-1">{format(new Date(), "EEEE, d MMMM yyyy")}</p>
+        </div>
+        <div className="flex flex-col items-center justify-center py-24 bg-white rounded-2xl border border-dashed border-gray-200 text-center px-6">
+          <LockKeyhole className="w-14 h-14 text-gray-300 mb-4" />
+          <h2 className="text-xl font-bold text-gray-700 mb-2">Not Assigned Today</h2>
+          <p className="text-gray-500 text-sm max-w-sm">
+            You are not allocated to any class for today's service. Please contact an admin to be assigned to a class before you can view attendance.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="max-w-5xl mx-auto space-y-5">
 
@@ -125,14 +142,6 @@ export default function MyClass() {
             <p className="text-blue-200 text-sm mt-1">
               {format(new Date(), "EEEE, d MMMM yyyy")}
             </p>
-            {myClassId && !hasAllocationToday && (
-              <p className="text-amber-300 text-xs mt-1">
-                No allocation for today — showing your most recent class
-              </p>
-            )}
-            {!myClassId && !myTeacher && (
-              <p className="text-amber-300 text-xs mt-1">No allocation found for today</p>
-            )}
           </div>
           <div className="flex flex-col items-end gap-3">
             <div className="text-right">

@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { eq, and, ne, inArray } from "drizzle-orm";
-import { db, attendanceTable, childrenTable, classesTable, familiesTable, usersTable, notificationsTable } from "@workspace/db";
+import { db, attendanceTable, childrenTable, classesTable, familiesTable, usersTable, notificationsTable, teachersTable, teacherAllocationsTable } from "@workspace/db";
 import { CheckInBody, CheckOutBody, ListAttendanceQueryParams, ScanQrCodeBody } from "@workspace/api-zod";
 import { authMiddleware, requireRoles } from "../middlewares/auth";
 import { notifyChildCheckedIn, notifyChildInTransit, notifyChildArrivedInClass, notifyChildPickedUp, notifyTeachersChildDroppedOff, notifyTeachersChildInTransit } from "../lib/notify";
@@ -34,6 +34,21 @@ async function getParentContacts(childId: number): Promise<{ phones: (string | n
 
 const router = Router();
 
+/** Returns the class IDs a teacher is allocated to for today. Empty = not assigned. */
+async function getTeacherAllocatedClassIds(userId: number): Promise<number[]> {
+  const today = new Date().toISOString().slice(0, 10);
+  const [teacher] = await db.select().from(teachersTable).where(eq(teachersTable.userId, userId));
+  if (!teacher) return [];
+  const allocs = await db
+    .select({ classId: teacherAllocationsTable.classId })
+    .from(teacherAllocationsTable)
+    .where(and(
+      eq(teacherAllocationsTable.teacherId, teacher.id),
+      eq(teacherAllocationsTable.serviceDate, today),
+    ));
+  return allocs.map(a => a.classId);
+}
+
 // Single-record formatter (for mutation responses — only 1 record, so no N+1)
 async function formatAttendance(a: typeof attendanceTable.$inferSelect) {
   const [child] = await db.select().from(childrenTable).where(eq(childrenTable.id, a.childId));
@@ -60,7 +75,27 @@ router.get("/attendance", authMiddleware, async (req, res): Promise<void> => {
   if (!params.success) { res.status(400).json({ error: "Bad request", message: params.error.message }); return; }
   const { classId, childId, serviceDate, serviceSlot, status } = params.data;
   const conditions = [];
-  if (classId) conditions.push(eq(attendanceTable.classId, classId));
+
+  // Teachers may only see attendance for classes they are allocated to today.
+  if (req.user!.role === "teacher") {
+    const allocatedClassIds = await getTeacherAllocatedClassIds(req.user!.userId);
+    if (allocatedClassIds.length === 0) {
+      res.json([]);
+      return;
+    }
+    if (classId !== undefined) {
+      if (!allocatedClassIds.includes(classId)) {
+        res.status(403).json({ error: "Forbidden", message: "You are not allocated to this class today" });
+        return;
+      }
+      conditions.push(eq(attendanceTable.classId, classId));
+    } else {
+      conditions.push(inArray(attendanceTable.classId, allocatedClassIds));
+    }
+  } else {
+    if (classId) conditions.push(eq(attendanceTable.classId, classId));
+  }
+
   if (childId) conditions.push(eq(attendanceTable.childId, childId));
   if (serviceDate) conditions.push(eq(attendanceTable.serviceDate, serviceDate));
   if (serviceSlot) conditions.push(eq(attendanceTable.serviceSlot, serviceSlot));
@@ -162,6 +197,15 @@ router.put("/attendance/:id/arrive", authMiddleware, async (req, res): Promise<v
   if (!existing) { res.status(404).json({ error: "Not found", message: "Attendance record not found" }); return; }
   if (existing.status === "picked_up") { res.status(400).json({ error: "Bad request", message: "Child has already been picked up" }); return; }
   if (existing.status === "in_class") { res.json(await formatAttendance(existing)); return; }
+
+  // Teachers may only confirm arrivals for children in their allocated class
+  if (req.user!.role === "teacher") {
+    const allocatedClassIds = await getTeacherAllocatedClassIds(req.user!.userId);
+    if (!allocatedClassIds.includes(existing.classId)) {
+      res.status(403).json({ error: "Forbidden", message: "You are not allocated to this class today" });
+      return;
+    }
+  }
 
   const now = new Date();
   const [record] = await db.update(attendanceTable).set({
