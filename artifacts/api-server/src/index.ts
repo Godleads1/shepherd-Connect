@@ -1,6 +1,5 @@
 import app from "./app";
 import { logger } from "./lib/logger";
-import { seedDemoAccounts } from "./lib/seedDemoAccounts";
 import { startScheduler } from "./lib/scheduler";
 
 const rawPort = process.env["PORT"];
@@ -24,6 +23,5 @@ app.listen(port, async (err) => {
   }
 
   logger.info({ port }, "Server listening");
-  await seedDemoAccounts();
   startScheduler();
 });
