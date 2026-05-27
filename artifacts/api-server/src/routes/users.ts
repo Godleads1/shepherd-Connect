@@ -367,6 +367,8 @@ router.delete("/users/:id", authMiddleware, requireRoles("super_admin", "admin")
         "UPDATE substitute_requests SET substitute_teacher_id = NULL WHERE substitute_teacher_id = $1",
         "UPDATE families SET parent_1_id = NULL WHERE parent_1_id = $1",
         "UPDATE families SET parent_2_id = NULL WHERE parent_2_id = $1",
+        "DELETE FROM teacher_allocations WHERE teacher_id IN (SELECT id FROM teachers WHERE user_id = $1)",
+        "DELETE FROM child_appraisals WHERE teacher_id IN (SELECT id FROM teachers WHERE user_id = $1)",
         "DELETE FROM teachers WHERE user_id = $1",
         "DELETE FROM notifications WHERE user_id = $1",
         "DELETE FROM audit_logs WHERE user_id = $1",
