@@ -174,7 +174,12 @@ export default function Register() {
       });
       const data = await res.json() as { verified?: boolean; message?: string };
       if (!res.ok || !data.verified) throw new Error(data.message ?? "Incorrect code");
-      setStep(2);
+      if (selectedRole !== "parent") {
+        // Teachers, admins, attendants: register immediately — no family details needed
+        await handleFinish();
+      } else {
+        setStep(2);
+      }
     } catch (err) {
       setOtpError(err instanceof Error ? err.message : "Verification failed");
     } finally {
@@ -359,7 +364,7 @@ export default function Register() {
           const numericStep = step === "otp" ? 1 : (step as number);
           return (
             <div className="flex gap-2 mb-8">
-              {(selectedRole === "parent" ? [1,2,3] : [1,2]).map(s => (
+              {(selectedRole === "parent" ? [1,2,3] : [1]).map(s => (
                 <div key={s} className="flex-1 relative">
                   <div className="h-1.5 rounded-full transition-all duration-500" style={{ background: numericStep >= s ? LOGO_NAVY : "rgba(26,35,126,0.12)" }} />
                   <div className="absolute -top-6 left-1/2 -translate-x-1/2 text-[10px] font-bold" style={{ color: numericStep >= s ? LOGO_NAVY : "#94a3b8" }}>STEP {s}</div>
