@@ -4,7 +4,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
@@ -352,11 +351,10 @@ function AgeOutModal({ onClose }: { onClose: () => void }) {
 
 export default function Children() {
   const [search, setSearch] = useState("");
-  const [unassignedOnly, setUnassignedOnly] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [ageOutOpen, setAgeOutOpen] = useState(false);
-  const { data, isLoading, isError, refetch } = useListChildren({ search: search || undefined, unassigned: unassignedOnly || undefined });
+  const { data, isLoading, isError, refetch } = useListChildren({ search: search || undefined });
   const { user: currentUser } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -423,17 +421,6 @@ export default function Children() {
             className="pl-10 h-11 rounded-xl bg-white border-gray-200 focus-visible:ring-[#1a237e] shadow-sm"
             data-testid="input-search-children"
           />
-        </div>
-        <div className="flex items-center space-x-3 bg-white px-4 py-2.5 rounded-xl border border-gray-200 shadow-sm">
-          <Switch 
-            id="unassigned" 
-            checked={unassignedOnly} 
-            onCheckedChange={setUnassignedOnly}
-            data-testid="switch-unassigned"
-          />
-          <label htmlFor="unassigned" className="text-sm font-medium text-gray-700 cursor-pointer">
-            Unassigned Only
-          </label>
         </div>
       </div>
 
