@@ -2,11 +2,12 @@ import { Router } from "express";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import * as OTPAuth from "otpauth";
-import { eq } from "drizzle-orm";
+import { eq, or } from "drizzle-orm";
+import { OAuth2Client } from "google-auth-library";
 import { db, usersTable } from "@workspace/db";
 import { LoginBody, RegisterBody } from "@workspace/api-zod";
 import { generateToken, authMiddleware } from "../middlewares/auth";
-import { smsWelcome, smsPendingApproval, smsPasswordResetCode, smsRegistrationOtp, emailRegistrationOtp, emailWelcome, emailPendingApproval, emailPasswordResetCode } from "../services/sms";
+import { smsWelcome, smsPendingApproval, smsPasswordResetCode, smsRegistrationOtp, emailRegistrationOtp, emailWelcome, emailPendingApproval, emailPasswordResetCode, emailVerificationEmail } from "../services/sms";
 
 // ── In-memory OTP sessions (phone verification during registration) ────────────
 // key: random session ID returned to client as "pinId"
@@ -58,6 +59,10 @@ router.post("/auth/login", async (req, res): Promise<void> => {
     res.status(401).json({ error: "Unauthorized", message: "Invalid credentials" });
     return;
   }
+  if (!user.emailVerified) {
+    res.status(403).json({ error: "Forbidden", message: "Please verify your email address. Check your inbox for a verification link.", code: "email_unverified" });
+    return;
+  }
   if (user.status === "pending_approval") {
     res.status(403).json({ error: "Forbidden", message: "Your account is pending admin approval. You will be notified once approved." });
     return;
@@ -68,6 +73,10 @@ router.post("/auth/login", async (req, res): Promise<void> => {
   }
   if (!user.isActive) {
     res.status(401).json({ error: "Unauthorized", message: "Account is inactive" });
+    return;
+  }
+  if (!user.passwordHash) {
+    res.status(401).json({ error: "Unauthorized", message: "This account uses Google Sign-In. Please sign in with Google." });
     return;
   }
   const valid = await bcrypt.compare(password, user.passwordHash);
@@ -125,6 +134,7 @@ router.post("/auth/register", async (req, res): Promise<void> => {
     return;
   }
   const passwordHash = await bcrypt.hash(password, 12);
+  const emailVerificationToken = crypto.randomUUID();
 
   const requiresApproval = role === "admin" || role === "teacher";
   const userStatus = requiresApproval ? "pending_approval" : "active";
@@ -141,15 +151,21 @@ router.post("/auth/register", async (req, res): Promise<void> => {
       role: role as "super_admin" | "admin" | "teacher" | "attendant" | "parent",
       status: userStatus,
       isActive,
+      emailVerified: false,
+      emailVerificationToken,
     })
     .returning();
+
+  // Always send verification email
+  emailVerificationEmail(user.email, user.firstName, emailVerificationToken, req.log).catch(() => {});
 
   if (requiresApproval) {
     smsPendingApproval(user.phone, user.firstName, req.log).catch(() => {});
     emailPendingApproval(user.email, user.firstName, req.log).catch(() => {});
     res.status(201).json({
       pending: true,
-      message: "Registration successful. Your account is pending admin approval. You will be notified once approved.",
+      requiresVerification: true,
+      message: "Registration submitted. Please check your email to verify your address, then wait for admin approval.",
       user: {
         id: user.id,
         email: user.email,
@@ -162,9 +178,7 @@ router.post("/auth/register", async (req, res): Promise<void> => {
     return;
   }
 
-  smsWelcome(user.phone, user.firstName, req.log).catch(() => {});
-  emailWelcome(user.email, user.firstName, req.log).catch(() => {});
-
+  // Issue a short-lived token so the frontend can create family/children records
   const token = generateToken({
     userId: user.id,
     email: user.email,
@@ -174,6 +188,7 @@ router.post("/auth/register", async (req, res): Promise<void> => {
   });
   res.status(201).json({
     token,
+    requiresVerification: true,
     user: {
       id: user.id,
       email: user.email,
@@ -187,6 +202,90 @@ router.post("/auth/register", async (req, res): Promise<void> => {
       createdAt: user.createdAt,
     },
   });
+});
+
+router.get("/auth/verify-email", async (req, res): Promise<void> => {
+  const token = req.query.token as string;
+  if (!token) {
+    res.status(400).send("<p>Invalid verification link.</p>");
+    return;
+  }
+  const [user] = await db.select().from(usersTable).where(eq(usersTable.emailVerificationToken, token));
+  if (!user) {
+    res.redirect("/login?verified=invalid");
+    return;
+  }
+  await db.update(usersTable)
+    .set({ emailVerified: true, emailVerificationToken: null })
+    .where(eq(usersTable.id, user.id));
+  res.redirect("/login?verified=true");
+});
+
+router.post("/auth/google", async (req, res): Promise<void> => {
+  const { credential } = req.body as { credential?: string };
+  if (!credential) {
+    res.status(400).json({ error: "Bad request", message: "credential is required" });
+    return;
+  }
+  const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
+  if (!GOOGLE_CLIENT_ID) {
+    res.status(503).json({ error: "Google Sign-In is not configured on this server" });
+    return;
+  }
+  const client = new OAuth2Client(GOOGLE_CLIENT_ID);
+  let payload: any;
+  try {
+    const ticket = await client.verifyIdToken({ idToken: credential, audience: GOOGLE_CLIENT_ID });
+    payload = ticket.getPayload();
+  } catch {
+    res.status(401).json({ error: "Unauthorized", message: "Invalid Google credential" });
+    return;
+  }
+  const { sub: googleId, email, given_name: gFirstName, family_name: gLastName, picture: photoUrl } = payload;
+  if (!email) {
+    res.status(400).json({ error: "Bad request", message: "Google account has no email address" });
+    return;
+  }
+  const [existing] = await db.select().from(usersTable).where(
+    or(eq(usersTable.googleId, googleId), eq(usersTable.email, email))
+  );
+  if (existing) {
+    if (existing.status === "pending_approval") {
+      res.status(403).json({ error: "Forbidden", message: "Your account is pending admin approval. You will be notified once approved." });
+      return;
+    }
+    if (existing.status === "suspended") {
+      res.status(403).json({ error: "Forbidden", message: "Your account has been suspended. Please contact the church administrator." });
+      return;
+    }
+    const [updated] = await db.update(usersTable)
+      .set({
+        googleId: existing.googleId ?? googleId,
+        emailVerified: true,
+        photoUrl: existing.photoUrl ?? photoUrl ?? null,
+      })
+      .where(eq(usersTable.id, existing.id))
+      .returning();
+    const token = generateToken({ userId: updated.id, email: updated.email, role: updated.role, firstName: updated.firstName, lastName: updated.lastName });
+    res.json({ token, user: buildUserPayload(updated) });
+    return;
+  }
+  // New user — create as parent
+  const [newUser] = await db.insert(usersTable).values({
+    email,
+    passwordHash: null,
+    googleId,
+    emailVerified: true,
+    firstName: gFirstName ?? email.split("@")[0],
+    lastName: gLastName ?? "",
+    role: "parent",
+    status: "active",
+    isActive: true,
+    photoUrl: photoUrl ?? null,
+  }).returning();
+  emailWelcome(newUser.email, newUser.firstName, req.log).catch(() => {});
+  const token = generateToken({ userId: newUser.id, email: newUser.email, role: newUser.role, firstName: newUser.firstName, lastName: newUser.lastName });
+  res.status(201).json({ token, user: buildUserPayload(newUser), isNewUser: true });
 });
 
 router.get("/auth/me", authMiddleware, async (req, res): Promise<void> => {

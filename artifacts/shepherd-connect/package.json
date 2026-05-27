@@ -83,6 +83,7 @@
     "zod": "catalog:"
   },
   "dependencies": {
+    "@react-oauth/google": "^0.13.5",
     "@uppy/aws-s3": "^5.1.0",
     "@uppy/core": "^5.2.0",
     "@uppy/dashboard": "^5.1.1",

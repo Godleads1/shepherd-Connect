@@ -132,6 +132,7 @@ export default function Register() {
   const [selectedRole, setSelectedRole] = useState<"parent"|"teacher"|"admin"|"attendant">("parent");
   const [showPw, setShowPw] = useState(false);
   const [regPhotoUrl, setRegPhotoUrl] = useState("");
+  const [registrationDone, setRegistrationDone] = useState<null | { type: "verify" | "pending"; email: string }>(null);
 
   const [otpPinId, setOtpPinId]     = useState("");
   const [otpCode, setOtpCode]       = useState("");
@@ -226,12 +227,20 @@ export default function Register() {
     try {
       const authRes = await regMutation.mutateAsync({
         data: { firstName: step1Data.firstName, lastName: step1Data.lastName, email: step1Data.email, phone: step1Data.phone, password: step1Data.password, role: selectedRole }
-      });
-      localLogin(authRes.token, authRes.user);
-      if (regPhotoUrl) {
+      }) as any;
+
+      // Admin/teacher: pending approval — no token, just show check-email screen
+      if (authRes.pending) {
+        setRegistrationDone({ type: "pending", email: step1Data.email });
+        return;
+      }
+
+      // Parent/attendant: use token temporarily for family/children creation (not logging in yet)
+      const tempToken = authRes.token as string;
+      if (regPhotoUrl && tempToken) {
         await fetch("/api/users/me", {
           method: "PUT",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${authRes.token}` },
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${tempToken}` },
           body: JSON.stringify({ photoUrl: regPhotoUrl }),
         }).catch(() => {});
       }
@@ -241,21 +250,25 @@ export default function Register() {
         if (s2d.nearestBusStop) addrParts.push(`Near: ${s2d.nearestBusStop}`);
         if (s2d.city) addrParts.push(s2d.city);
 
-        const fam = await famMutation.mutateAsync({
-          data: { parent1Id: authRes.user.id, parent2Id: null, address: addrParts.join(", "), emergencyContactName: s2d.emergencyContactName, emergencyContactPhone: s2d.emergencyContactPhone }
-        });
+        const famRes = await fetch("/api/families", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${tempToken}` },
+          body: JSON.stringify({ parent1Id: authRes.user.id, parent2Id: null, address: addrParts.join(", "), emergencyContactName: s2d.emergencyContactName, emergencyContactPhone: s2d.emergencyContactPhone }),
+        }).then(r => r.json());
+
         for (const child of (children ?? [])) {
           const age = calcAge(child.dobDay, child.dobMonth, child.dobYear);
           const matched = matchClassByAge(age, (classesList as any[]) ?? []);
-          await childMutation.mutateAsync({
-            data: { familyId: fam.id, firstName: child.firstName, lastName: child.lastName || step1Data.lastName, dob: buildDob(child.dobDay, child.dobMonth, child.dobYear), gender: child.gender, allergies: child.allergies, currentClassId: matched?.id ?? undefined }
+          await fetch("/api/children", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${tempToken}` },
+            body: JSON.stringify({ familyId: famRes.id, firstName: child.firstName, lastName: child.lastName || step1Data.lastName, dob: buildDob(child.dobDay, child.dobMonth, child.dobYear), gender: child.gender, allergies: child.allergies, currentClassId: matched?.id ?? undefined }),
           });
         }
-        setLocation("/my-family");
-      } else {
-        setLocation("/dashboard");
       }
-      toast({ title: "Registration complete!" });
+
+      // Show "check your email" screen — user is NOT logged in yet
+      setRegistrationDone({ type: "verify", email: step1Data.email });
     } catch {
       toast({ variant: "destructive", title: "Registration failed", description: "Please try again." });
     }
@@ -318,7 +331,53 @@ export default function Register() {
   ];
 
 
-  const isSubmitting = regMutation.isPending || famMutation.isPending || childMutation.isPending;
+  const isSubmitting = regMutation.isPending;
+
+  if (registrationDone) {
+    const isPending = registrationDone.type === "pending";
+    return (
+      <div className="relative flex min-h-screen flex-col items-center justify-center px-4 py-12 overflow-hidden"
+        style={{ background: "radial-gradient(ellipse at 20% 20%, #fde8d8 0%, transparent 55%), radial-gradient(ellipse at 80% 80%, #dbeafe 0%, transparent 55%), radial-gradient(ellipse at 50% 50%, #fefcf9 0%, #f8fafc 100%)" }}>
+        <Particles />
+        <div className="z-10 w-full" style={{ maxWidth: 460 }}>
+          <div style={{ borderRadius: 24, padding: 36, background: "rgba(255,255,255,0.88)", backdropFilter: "blur(20px)", border: "1px solid rgba(255,255,255,0.92)", boxShadow: "0 8px 40px rgba(26,35,126,0.10)" }}>
+            <div className="text-center space-y-4 mb-6">
+              <div className="w-20 h-20 rounded-full mx-auto flex items-center justify-center" style={{ background: isPending ? "rgba(245,158,11,0.12)" : "rgba(26,35,126,0.08)" }}>
+                <Mail className="w-10 h-10" style={{ color: isPending ? "#f59e0b" : "#1a237e" }} />
+              </div>
+              <h2 className="text-2xl font-bold" style={{ fontFamily: "'Playfair Display', serif", color: "#0a0f1e" }}>
+                {isPending ? "Application Submitted!" : "Check Your Email"}
+              </h2>
+              <p className="text-sm text-gray-500 leading-relaxed">
+                {isPending
+                  ? "Your account is pending admin approval. We've also sent a verification link to your email — please verify it while you wait."
+                  : "We've sent a verification link to your email. Click the link to activate your account, then sign in."}
+              </p>
+              <div className="rounded-xl px-4 py-3 inline-block" style={{ background: isPending ? "rgba(245,158,11,0.08)" : "rgba(26,35,126,0.06)", border: `1px solid ${isPending ? "rgba(245,158,11,0.25)" : "rgba(26,35,126,0.15)"}` }}>
+                <p className="text-sm font-semibold" style={{ color: isPending ? "#b45309" : "#1a237e" }}>{registrationDone.email}</p>
+              </div>
+            </div>
+            <div className="rounded-xl p-4 text-sm text-gray-600 space-y-2" style={{ background: "#f8fafc", border: "1px solid #e2e8f0" }}>
+              <p className="font-semibold text-gray-700">Next steps:</p>
+              <ol className="space-y-1 list-decimal list-inside text-gray-600">
+                <li>Open your email inbox</li>
+                <li>Click the "Verify Email Address" button in the email</li>
+                {isPending && <li>Wait for an admin to approve your account</li>}
+                <li>Sign in with your email and password</li>
+              </ol>
+            </div>
+            <p className="text-xs text-gray-400 mt-4 text-center">Didn't receive the email? Check your spam folder.</p>
+            <Link href="/login">
+              <button className="mt-5 w-full h-11 rounded-full font-semibold text-sm transition-all"
+                style={{ background: "#1a237e", color: "#fff", boxShadow: "0 4px 16px rgba(26,35,126,0.25)" }}>
+                Go to Sign In
+              </button>
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div

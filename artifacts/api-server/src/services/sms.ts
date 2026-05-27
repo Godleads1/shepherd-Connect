@@ -406,6 +406,28 @@ export async function emailRegistrationOtp(email: string | null | undefined, otp
   await sendEmail(email, "Shepherd Connect — Your verification code", html, logger);
 }
 
+export async function emailVerificationEmail(email: string | null | undefined, firstName: string, token: string, logger?: Logger) {
+  if (!email) return;
+  const link = `${APP_URL}/api/auth/verify-email?token=${token}`;
+  const html = `
+    <div style="font-family:Inter,Arial,sans-serif;max-width:480px;margin:0 auto;background:#fff;border-radius:12px;border:1px solid #e2e8f0;padding:32px 28px">
+      <div style="text-align:center;margin-bottom:24px">
+        <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/5/5e/RCCG_logo.png/120px-RCCG_logo.png" alt="RCCG" style="height:56px;margin-bottom:8px" />
+        <h2 style="color:#1e3a8a;margin:0;font-size:20px">Shepherd Connect</h2>
+        <p style="color:#64748b;font-size:13px;margin:4px 0 0">RCCG City of David · Children's Church</p>
+      </div>
+      <h3 style="color:#0f172a;font-size:17px;margin:0 0 8px">Hi ${firstName}, please verify your email</h3>
+      <p style="color:#475569;font-size:14px;margin:0 0 24px">Click the button below to verify your email address and activate your Shepherd Connect account.</p>
+      <div style="text-align:center;margin-bottom:24px">
+        <a href="${link}" style="display:inline-block;background:#1e3a8a;color:#fff;font-weight:700;font-size:15px;padding:14px 32px;border-radius:50px;text-decoration:none">Verify Email Address</a>
+      </div>
+      <p style="color:#94a3b8;font-size:12px;margin:0">This link expires in 24 hours. If you didn't register for Shepherd Connect, you can safely ignore this email.</p>
+      <p style="color:#cbd5e1;font-size:11px;margin:12px 0 0;word-break:break-all">Or copy this link: ${link}</p>
+    </div>
+  `;
+  await sendEmail(email, "Shepherd Connect — Verify your email address", html, logger);
+}
+
 export async function smsDelegateOtp(phone: string | null | undefined, delegateName: string, childName: string, otpCode: string, logger?: Logger) {
   if (!phone) return;
   await send(
