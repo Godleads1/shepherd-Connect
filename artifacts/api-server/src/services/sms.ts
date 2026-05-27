@@ -406,7 +406,7 @@ export async function emailRegistrationOtp(email: string | null | undefined, otp
   await sendEmail(email, "Shepherd Connect — Your verification code", html, logger);
 }
 
-export async function emailVerificationEmail(email: string | null | undefined, firstName: string, token: string, logger?: Logger) {
+async function emailVerificationEmail_UNUSED(email: string | null | undefined, firstName: string, token: string, logger?: Logger) {
   if (!email) return;
   const link = `${APP_URL}/api/auth/verify-email?token=${token}`;
   const html = `

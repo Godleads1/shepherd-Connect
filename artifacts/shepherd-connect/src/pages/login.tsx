@@ -6,11 +6,8 @@ import { Link, useLocation } from "wouter";
 import { useAuth } from "@/contexts/auth";
 import { useLogin } from "@workspace/api-client-react";
 import { useLang, LANGUAGES, LangCode } from "@/contexts/language";
-import { Mail, Lock, Loader2, Globe, ChevronDown, Eye, EyeOff, ShieldCheck, ArrowLeft, KeyRound, Copy, Check, RotateCcw, CheckCircle, AlertCircle } from "lucide-react";
+import { Mail, Lock, Loader2, Globe, ChevronDown, Eye, EyeOff, ShieldCheck, ArrowLeft, KeyRound, Copy, Check, RotateCcw } from "lucide-react";
 import { apiPost } from "@/lib/api-call";
-import { GoogleOAuthProvider, GoogleLogin } from "@react-oauth/google";
-
-const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined;
 
 const LOGO_NAVY  = "#1a237e";
 const LOGO_GREEN = "#1b5e20";
@@ -78,9 +75,6 @@ export default function Login() {
   const { t } = useLang();
   const [selectedRole, setSelectedRole] = useState("parent");
   const [showPw, setShowPw] = useState(false);
-  const [googleLoading, setGoogleLoading] = useState(false);
-
-  const verifiedParam = new URLSearchParams(window.location.search).get("verified");
 
   // MFA second step
   const [mfaStep, setMfaStep] = useState(false);
@@ -172,29 +166,6 @@ export default function Login() {
     else if (role === "teacher") setLocation("/my-class");
     else if (role === "attendant") setLocation("/checkin");
     else setLocation("/dashboard");
-  };
-
-  const handleGoogleSuccess = async (credentialResponse: { credential?: string }) => {
-    if (!credentialResponse.credential) return;
-    setGoogleLoading(true);
-    try {
-      const res = await fetch("/api/auth/google", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ credential: credentialResponse.credential }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        form.setError("root", { message: data.message || "Google sign-in failed" });
-        return;
-      }
-      localLogin(data.token, data.user);
-      navigateForRole(data.user.role);
-    } catch {
-      form.setError("root", { message: "Google sign-in failed. Please try again." });
-    } finally {
-      setGoogleLoading(false);
-    }
   };
 
   const completeLoginWithRole = async (requestedRole: string, creds: { email: string; password: string }) => {
@@ -485,18 +456,6 @@ export default function Login() {
           </div>
 
           <div className="slide-up-delay-3 w-full z-10" style={cardStyle}>
-            {verifiedParam === "true" && (
-              <div className="mb-4 flex items-center gap-2 rounded-xl px-4 py-3 text-sm font-medium" style={{ background: "rgba(22,163,74,0.08)", border: "1px solid rgba(22,163,74,0.25)", color: "#15803d" }}>
-                <CheckCircle className="w-4 h-4 flex-shrink-0" />
-                Email verified! You can now sign in.
-              </div>
-            )}
-            {verifiedParam === "invalid" && (
-              <div className="mb-4 flex items-center gap-2 rounded-xl px-4 py-3 text-sm font-medium" style={{ background: "rgba(185,28,28,0.08)", border: "1px solid rgba(185,28,28,0.25)", color: "#b91c1c" }}>
-                <AlertCircle className="w-4 h-4 flex-shrink-0" />
-                Verification link is invalid or has already been used.
-              </div>
-            )}
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
               <div className="relative">
                 <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4" style={{ color: "#94a3b8" }} />
@@ -533,34 +492,6 @@ export default function Login() {
                 {loginMutation.isPending ? <><Loader2 className="w-4 h-4 animate-spin" /> {t.opening}</> : t.enterBtn}
               </button>
             </form>
-
-            {GOOGLE_CLIENT_ID && (
-              <div className="mt-4">
-                <div className="flex items-center gap-3 my-2">
-                  <div className="flex-1 h-px" style={{ background: "rgba(26,35,126,0.12)" }} />
-                  <span className="text-xs text-gray-400 font-medium">or</span>
-                  <div className="flex-1 h-px" style={{ background: "rgba(26,35,126,0.12)" }} />
-                </div>
-                <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}>
-                  <div className="flex justify-center">
-                    {googleLoading ? (
-                      <div className="flex items-center gap-2 text-sm text-gray-400">
-                        <Loader2 className="w-4 h-4 animate-spin" /> Signing in with Google...
-                      </div>
-                    ) : (
-                      <GoogleLogin
-                        onSuccess={handleGoogleSuccess}
-                        onError={() => form.setError("root", { message: "Google sign-in failed. Please try again." })}
-                        theme="outline"
-                        shape="pill"
-                        text="continue_with"
-                        width={340}
-                      />
-                    )}
-                  </div>
-                </GoogleOAuthProvider>
-              </div>
-            )}
 
             <div className="mt-4 text-center">
               <button
