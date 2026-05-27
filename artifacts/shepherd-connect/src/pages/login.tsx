@@ -179,6 +179,9 @@ export default function Login() {
     }
   };
 
+  const roleToTab = (role: string): string =>
+    role === "super_admin" || role === "admin" ? "admin" : role;
+
   const onSubmit = async (data: LoginFormValues) => {
     try {
       const response = await loginMutation.mutateAsync({ data }) as any;
@@ -189,12 +192,29 @@ export default function Login() {
         return;
       }
 
-      // Multi-role: show picker
+      // Multi-role: filter to roles that match the selected tab
       if (response.requiresRolePick) {
-        setRolePickOptions(response.allRoles);
+        const matchingRoles = (response.allRoles as string[]).filter(r => roleMatchesTab(r, selectedRole));
+        if (matchingRoles.length === 0) {
+          const correctTab = tabLabel[roleToTab(response.allRoles[0])] ?? "the correct";
+          form.setError("root", { message: `Wrong tab — this account belongs to the "${correctTab}" tab. Please select it to sign in.` });
+          return;
+        }
+        if (matchingRoles.length === 1) {
+          await completeLoginWithRole(matchingRoles[0], { email: data.email, password: data.password });
+          return;
+        }
+        setRolePickOptions(matchingRoles);
         setRolePickFirstName(response.firstName);
         setPendingCredentials({ email: data.email, password: data.password });
         setRolePickStep(true);
+        return;
+      }
+
+      // Single-role: check the tab matches the user's role
+      if (!roleMatchesTab(response.user.role, selectedRole)) {
+        const correctTab = tabLabel[roleToTab(response.user.role)] ?? response.user.role;
+        form.setError("root", { message: `Wrong tab — this account uses the "${correctTab}" tab. Please select it to sign in.` });
         return;
       }
 
