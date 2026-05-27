@@ -2338,9 +2338,6 @@ components:
           type: string
           enum: ["7am", "10:30am", "both"]
           nullable: true
-        currentClassId:
-          type: integer
-          nullable: true
       required:
         - familyId
         - firstName

@@ -276,7 +276,6 @@ export interface CreateChildBody {
   photoUrl?: string | null;
   faceDescriptorJson?: string | null;
   servicePreference?: CreateChildBodyServicePreference;
-  currentClassId?: number | null;
 }
 
 export interface PaginatedChildren {

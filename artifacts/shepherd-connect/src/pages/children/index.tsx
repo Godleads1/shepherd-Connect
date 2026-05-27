@@ -269,7 +269,6 @@ function AddChildModal({ open, onClose, onCreated }: { open: boolean; onClose: (
 function AgeOutModal({ onClose }: { onClose: () => void }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const [selected, setSelected] = useState<Record<number, number | null>>({});
 
   const { data, isLoading } = useQuery({
     queryKey: ["children-age-out"],
@@ -277,10 +276,9 @@ function AgeOutModal({ onClose }: { onClose: () => void }) {
   });
 
   const promoteMutation = useMutation({
-    mutationFn: (promotions: Array<{ childId: number; newClassId: number }>) =>
-      apiPost<any>("/children/auto-promote", { promotions }),
+    mutationFn: () => apiPost<any>("/children/auto-promote", {}),
     onSuccess: (res: any) => {
-      toast({ title: `${res.promoted} child${res.promoted !== 1 ? "ren" : ""} promoted successfully` });
+      toast({ title: `${res.promoted} child${res.promoted !== 1 ? "ren" : ""} auto-promoted to correct class` });
       queryClient.invalidateQueries({ queryKey: ["children"] });
       queryClient.invalidateQueries({ queryKey: ["children-age-out"] });
       onClose();
@@ -290,28 +288,16 @@ function AgeOutModal({ onClose }: { onClose: () => void }) {
 
   const agedOut: any[] = data?.children ?? [];
 
-  const handleToggle = (childId: number, classId: number | null) => {
-    setSelected(prev => {
-      const next = { ...prev };
-      if (next[childId] === classId) { delete next[childId]; } else { next[childId] = classId; }
-      return next;
-    });
-  };
-
-  const promotions = Object.entries(selected)
-    .filter(([, classId]) => classId !== null)
-    .map(([childId, classId]) => ({ childId: Number(childId), newClassId: classId as number }));
-
   return (
     <Dialog open onOpenChange={v => { if (!v) onClose(); }}>
       <DialogContent className="max-w-lg max-h-[85vh] flex flex-col">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-[#1e3a8a]">
-            <ArrowUpCircle className="w-5 h-5" /> Age-Out &amp; Promote Children
+            <ArrowUpCircle className="w-5 h-5" /> Age-Out &amp; Auto-Promote
           </DialogTitle>
         </DialogHeader>
         <p className="text-xs text-gray-500 -mt-1">
-          Children below have exceeded the age limit for their current class. Select a suggested class and click Promote.
+          These children have outgrown their current class. Click "Promote All" to automatically move them to the correct class based on their age.
         </p>
         <div className="flex-1 overflow-y-auto space-y-3 mt-2 pr-1">
           {isLoading ? (
@@ -322,47 +308,30 @@ function AgeOutModal({ onClose }: { onClose: () => void }) {
               <p className="font-semibold">All children are in the right class</p>
               <p className="text-sm mt-1">No age-outs detected</p>
             </div>
-          ) : agedOut.map((child: any) => {
-            const isSelected = selected[child.childId] === child.suggestedClass?.id;
-            return (
-              <div key={child.childId}
-                className={`rounded-xl border p-4 transition-all ${isSelected ? "border-blue-400 bg-blue-50" : "border-gray-200 bg-white"}`}>
-                <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <p className="font-bold text-gray-900 text-sm">{child.childName}</p>
-                    <p className="text-xs text-gray-500 mt-0.5">
-                      Age <span className="font-semibold text-red-600">{child.age}</span>
-                      {" "}&middot; Current: <span className="font-semibold">{child.currentClass.name}</span>
-                      {" "}(max age {child.currentClass.ageMax})
-                    </p>
-                  </div>
-                  {child.suggestedClass ? (
-                    <button
-                      onClick={() => handleToggle(child.childId, child.suggestedClass.id)}
-                      className={`flex-shrink-0 text-xs font-bold px-3 py-1.5 rounded-xl border transition-all ${
-                        isSelected
-                          ? "bg-blue-600 text-white border-blue-600"
-                          : "bg-white text-blue-700 border-blue-300 hover:bg-blue-50"
-                      }`}>
-                      {isSelected ? "✓ Selected" : "Select"}
-                    </button>
-                  ) : (
-                    <span className="text-xs text-amber-600 bg-amber-50 px-2 py-1 rounded-lg border border-amber-200">
-                      No class available
-                    </span>
-                  )}
+          ) : agedOut.map((child: any) => (
+            <div key={child.childId} className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <p className="font-bold text-gray-900 text-sm">{child.childName}</p>
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    Age <span className="font-semibold text-red-600">{child.age}</span>
+                    {" "}&middot; Current: <span className="font-semibold">{child.currentClass.name}</span>
+                    {" "}(max age {child.currentClass.ageMax})
+                  </p>
                 </div>
-                {child.suggestedClass && (
-                  <div className="mt-2 flex items-center gap-1.5 text-xs">
-                    <ArrowUpCircle className="w-3.5 h-3.5 text-blue-500" />
-                    <span className="text-gray-500">Suggested:</span>
+                {child.suggestedClass ? (
+                  <div className="flex items-center gap-1.5 text-xs bg-white border border-blue-200 px-3 py-1.5 rounded-xl">
+                    <ArrowUpCircle className="w-3.5 h-3.5 text-blue-500 flex-shrink-0" />
                     <span className="font-semibold text-blue-700">{child.suggestedClass.name}</span>
-                    <span className="text-gray-400">(ages {child.suggestedClass.ageMin}–{child.suggestedClass.ageMax})</span>
                   </div>
+                ) : (
+                  <span className="text-xs text-amber-600 bg-white px-2 py-1 rounded-lg border border-amber-200">
+                    No class available
+                  </span>
                 )}
               </div>
-            );
-          })}
+            </div>
+          ))}
         </div>
         {agedOut.length > 0 && (
           <div className="flex gap-3 pt-3 border-t">
@@ -370,9 +339,9 @@ function AgeOutModal({ onClose }: { onClose: () => void }) {
             <Button
               className="flex-1 rounded-xl"
               style={{ background: "#1e3a8a" }}
-              disabled={promotions.length === 0 || promoteMutation.isPending}
-              onClick={() => promoteMutation.mutate(promotions)}>
-              {promoteMutation.isPending ? "Promoting…" : `Promote ${promotions.length > 0 ? `(${promotions.length})` : ""}`}
+              disabled={promoteMutation.isPending}
+              onClick={() => promoteMutation.mutate()}>
+              {promoteMutation.isPending ? "Promoting…" : `Promote All (${agedOut.length})`}
             </Button>
           </div>
         )}

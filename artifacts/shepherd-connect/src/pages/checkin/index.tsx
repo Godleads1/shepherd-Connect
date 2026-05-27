@@ -14,7 +14,7 @@ import FamilyAssist from "./FamilyAssist";
 type Tab = "qr" | "face" | "assist";
 type SlotChoice = "7am" | "10:30am" | "both";
 
-const SERVICE_SLOTS = [
+const SERVICE_SLOTS: { value: SlotChoice; label: string; time: string }[] = [
   { value: "7am",     label: "1st Service",   time: "7:00 – 10:00 AM" },
   { value: "10:30am", label: "2nd Service",   time: "10:30 AM onwards" },
   { value: "both",    label: "Both Services", time: "All day" },

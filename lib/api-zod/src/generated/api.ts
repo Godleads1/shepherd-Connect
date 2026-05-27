@@ -1037,7 +1037,6 @@ export const CreateChildBody = zod.object({
   photoUrl: zod.string().nullish(),
   faceDescriptorJson: zod.string().nullish(),
   servicePreference: zod.enum(["7am", "10:30am", "both"]).nullish(),
-  currentClassId: zod.number().nullish(),
 });
 
 /**
@@ -1096,7 +1095,6 @@ export const UpdateChildBody = zod.object({
   photoUrl: zod.string().nullish(),
   faceDescriptorJson: zod.string().nullish(),
   servicePreference: zod.enum(["7am", "10:30am", "both"]).nullish(),
-  currentClassId: zod.number().nullish(),
 });
 
 export const UpdateChildResponse = zod.object({

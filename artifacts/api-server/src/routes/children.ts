@@ -77,7 +77,13 @@ router.put("/children/:id", authMiddleware, async (req, res): Promise<void> => {
   if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
   const parsed = CreateChildBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: "Bad request", message: parsed.error.message }); return; }
-  const [child] = await db.update(childrenTable).set(parsed.data).where(eq(childrenTable.id, id)).returning();
+  // Auto-assign class based on updated DOB (ignore any manually-supplied currentClassId)
+  const age = calcAge(parsed.data.dob);
+  const [matchedClass] = await db.select().from(classesTable)
+    .where(and(eq(classesTable.ageMin, age), eq(classesTable.ageMax, age)));
+  const { currentClassId: _ignored, ...rest } = parsed.data as any;
+  const updateData = { ...rest, currentClassId: matchedClass?.id ?? null };
+  const [child] = await db.update(childrenTable).set(updateData).where(eq(childrenTable.id, id)).returning();
   if (!child) { res.status(404).json({ error: "Not found", message: "Child not found" }); return; }
   res.json(await formatChild(child));
 });
@@ -171,30 +177,40 @@ router.get("/children/age-out", authMiddleware, requireRoles("super_admin", "adm
 });
 
 router.post("/children/auto-promote", authMiddleware, requireRoles("super_admin", "admin"), async (req, res): Promise<void> => {
-  const { promotions } = req.body as { promotions?: Array<{ childId: number; newClassId: number }> };
-  if (!Array.isArray(promotions) || promotions.length === 0) { res.status(400).json({ error: "Bad request", message: "promotions array required" }); return; }
+  // Auto-promote all aged-out children by recalculating their class from DOB
+  const children = await db.select().from(childrenTable).where(sql`${childrenTable.currentClassId} IS NOT NULL`);
+  const classes = await db.select().from(classesTable);
+  const classMap = Object.fromEntries(classes.map(c => [c.id, c]));
   const results = [];
-  for (const { childId, newClassId } of promotions) {
-    const [child] = await db.update(childrenTable).set({ currentClassId: newClassId }).where(eq(childrenTable.id, childId)).returning();
-    const [cls] = await db.select().from(classesTable).where(eq(classesTable.id, newClassId));
-    results.push({ childId, childName: child ? `${child.firstName} ${child.lastName}` : null, newClass: cls?.name || null });
+  for (const child of children) {
+    if (!child.currentClassId) continue;
+    const age = calcAge(child.dob);
+    const currentClass = classMap[child.currentClassId];
+    if (!currentClass || (age >= currentClass.ageMin && age <= currentClass.ageMax)) continue;
+    const [matchedClass] = classes.filter(c => c.ageMin <= age && c.ageMax >= age).sort((a, b) => a.ageMin - b.ageMin);
+    if (!matchedClass) continue;
+    const [updated] = await db.update(childrenTable).set({ currentClassId: matchedClass.id }).where(eq(childrenTable.id, child.id)).returning();
+    results.push({ childId: child.id, childName: updated ? `${updated.firstName} ${updated.lastName}` : null, newClass: matchedClass.name });
   }
   res.json({ promoted: results.length, results });
 });
 
 router.post("/children/bulk-import", authMiddleware, requireRoles("super_admin", "admin"), async (req, res): Promise<void> => {
-  const { children: rows } = req.body as { children?: Array<{ firstName: string; lastName: string; dob: string; gender: string; familyId: number; allergies?: string; medicalNotes?: string; currentClassId?: number }> };
+  const { children: rows } = req.body as { children?: Array<{ firstName: string; lastName: string; dob: string; gender: string; familyId: number; allergies?: string; medicalNotes?: string }> };
   if (!Array.isArray(rows) || rows.length === 0) { res.status(400).json({ error: "Bad request", message: "children array required" }); return; }
+  const classes = await db.select().from(classesTable);
   const inserted = [];
   const errors: Array<{ row: number; error: string }> = [];
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
     try {
+      const age = calcAge(row.dob);
+      const matchedClass = classes.find(c => c.ageMin <= age && c.ageMax >= age) ?? null;
       const [child] = await db.insert(childrenTable).values({
         firstName: row.firstName, lastName: row.lastName, dob: row.dob,
         gender: (row.gender as "male" | "female") || "male", familyId: row.familyId,
         allergies: row.allergies || null, medicalNotes: row.medicalNotes || null,
-        currentClassId: row.currentClassId || null,
+        currentClassId: matchedClass?.id ?? null,
       }).returning();
       inserted.push(child);
     } catch (err: any) {
