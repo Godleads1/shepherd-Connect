@@ -291,6 +291,12 @@ export default function Users() {
     queryFn: () => apiGet<{ data: any[]; total: number }>("/users/pending"),
   });
 
+  const { data: pendingRolesData, refetch: refetchPendingRoles } = useQuery({
+    queryKey: ["pending-roles"],
+    queryFn: () => apiGet<{ data: any[]; total: number }>("/users/pending-roles"),
+    enabled: isSuperAdmin,
+  });
+
   const approveMutation = useMutation({
     mutationFn: (id: number) => apiPut(`/users/${id}/approve`),
     onSuccess: () => { toast({ title: "User approved successfully" }); refetch(); refetchPending(); },
@@ -300,6 +306,18 @@ export default function Users() {
   const rejectMutation = useMutation({
     mutationFn: (id: number) => apiPut(`/users/${id}/reject`),
     onSuccess: () => { toast({ title: "User rejected" }); refetch(); refetchPending(); },
+    onError: (e: any) => toast({ variant: "destructive", title: e.message }),
+  });
+
+  const approveRoleMutation = useMutation({
+    mutationFn: ({ id, role }: { id: number; role: string }) => apiPost(`/users/${id}/approve-role`, { role }),
+    onSuccess: () => { toast({ title: "Role approved and granted" }); refetch(); refetchPendingRoles(); },
+    onError: (e: any) => toast({ variant: "destructive", title: e.message }),
+  });
+
+  const rejectRoleMutation = useMutation({
+    mutationFn: ({ id, role }: { id: number; role: string }) => apiPost(`/users/${id}/reject-role`, { role }),
+    onSuccess: () => { toast({ title: "Role request rejected" }); refetchPendingRoles(); },
     onError: (e: any) => toast({ variant: "destructive", title: e.message }),
   });
 
@@ -385,6 +403,8 @@ export default function Users() {
 
   const allUsers = data?.data || [];
   const pendingUsers = pendingData?.data || [];
+  const pendingRoleUsers = pendingRolesData?.data || [];
+  const totalPendingCount = pendingUsers.length + pendingRoleUsers.reduce((sum: number, u: any) => sum + (u.pendingRoles?.length ?? 0), 0);
 
   const filtered = allUsers.filter(u => {
     if (deletedIds.has(u.id)) return false;
@@ -504,8 +524,8 @@ export default function Users() {
           </TabsTrigger>
           <TabsTrigger value="pending" className="flex items-center gap-2">
             <Clock className="w-4 h-4" /> Pending Approval
-            {pendingUsers.length > 0 && (
-              <Badge className="ml-1 text-xs bg-amber-500 text-white border-0">{pendingUsers.length}</Badge>
+            {totalPendingCount > 0 && (
+              <Badge className="ml-1 text-xs bg-amber-500 text-white border-0">{totalPendingCount}</Badge>
             )}
           </TabsTrigger>
         </TabsList>
@@ -621,42 +641,93 @@ export default function Users() {
         </TabsContent>
 
         <TabsContent value="pending" className="mt-4">
-          {pendingUsers.length === 0 ? (
+          {totalPendingCount === 0 ? (
             <div className="text-center py-16 border rounded-xl bg-white">
               <UserCheck className="w-12 h-12 text-green-400 mx-auto mb-3" />
               <p className="text-gray-600 font-medium">No pending approvals</p>
               <p className="text-gray-400 text-sm mt-1">All sign-ups have been reviewed</p>
             </div>
           ) : (
-            <div className="space-y-3">
-              {pendingUsers.map((user: any) => (
-                <div key={user.id} className="bg-white border rounded-xl p-5 flex items-center justify-between gap-4">
-                  <div className="flex items-center gap-4">
-                    <div className="w-12 h-12 rounded-full flex items-center justify-center text-white font-bold flex-shrink-0"
-                      style={{ background: "linear-gradient(135deg, #f59e0b, #d97706)" }}>
-                      {user.firstName[0]}{user.lastName[0]}
-                    </div>
-                    <div>
-                      <p className="font-semibold text-gray-900">{user.firstName} {user.lastName}</p>
-                      <p className="text-sm text-gray-500">{user.email}</p>
-                      <div className="flex items-center gap-2 mt-1">
-                        {roleBadge(user.role)}
-                        <span className="text-xs text-gray-400">Signed up {new Date(user.createdAt).toLocaleDateString()}</span>
+            <div className="space-y-6">
+              {/* New account approvals */}
+              {pendingUsers.length > 0 && (
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-widest text-gray-500 mb-3">New Account Sign-ups</p>
+                  <div className="space-y-3">
+                    {pendingUsers.map((user: any) => (
+                      <div key={user.id} className="bg-white border rounded-xl p-5 flex items-center justify-between gap-4">
+                        <div className="flex items-center gap-4">
+                          <div className="w-12 h-12 rounded-full flex items-center justify-center text-white font-bold flex-shrink-0"
+                            style={{ background: "linear-gradient(135deg, #f59e0b, #d97706)" }}>
+                            {user.firstName[0]}{user.lastName[0]}
+                          </div>
+                          <div>
+                            <p className="font-semibold text-gray-900">{user.firstName} {user.lastName}</p>
+                            <p className="text-sm text-gray-500">{user.email}</p>
+                            <div className="flex items-center gap-2 mt-1">
+                              {roleBadge(user.role)}
+                              <span className="text-xs text-gray-400">Signed up {new Date(user.createdAt).toLocaleDateString()}</span>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex gap-2 flex-shrink-0">
+                          <Button size="sm" className="bg-green-600 hover:bg-green-700 text-white flex items-center gap-1"
+                            onClick={() => approveMutation.mutate(user.id)} disabled={approveMutation.isPending}>
+                            <CheckCircle className="w-4 h-4" /> Approve
+                          </Button>
+                          <Button size="sm" variant="outline" className="text-red-600 border-red-200 hover:bg-red-50 flex items-center gap-1"
+                            onClick={() => rejectMutation.mutate(user.id)} disabled={rejectMutation.isPending}>
+                            <XCircle className="w-4 h-4" /> Reject
+                          </Button>
+                        </div>
                       </div>
-                    </div>
-                  </div>
-                  <div className="flex gap-2 flex-shrink-0">
-                    <Button size="sm" className="bg-green-600 hover:bg-green-700 text-white flex items-center gap-1"
-                      onClick={() => approveMutation.mutate(user.id)} disabled={approveMutation.isPending}>
-                      <CheckCircle className="w-4 h-4" /> Approve
-                    </Button>
-                    <Button size="sm" variant="outline" className="text-red-600 border-red-200 hover:bg-red-50 flex items-center gap-1"
-                      onClick={() => rejectMutation.mutate(user.id)} disabled={rejectMutation.isPending}>
-                      <XCircle className="w-4 h-4" /> Reject
-                    </Button>
+                    ))}
                   </div>
                 </div>
-              ))}
+              )}
+
+              {/* Additional role requests from existing users */}
+              {pendingRoleUsers.length > 0 && (
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-widest text-gray-500 mb-3">Additional Role Requests</p>
+                  <div className="space-y-3">
+                    {pendingRoleUsers.map((user: any) =>
+                      (user.pendingRoles ?? []).map((role: string) => (
+                        <div key={`${user.id}-${role}`} className="bg-white border rounded-xl p-5 flex items-center justify-between gap-4">
+                          <div className="flex items-center gap-4">
+                            <div className="w-12 h-12 rounded-full flex items-center justify-center text-white font-bold flex-shrink-0"
+                              style={{ background: "linear-gradient(135deg, #7c3aed, #4f46e5)" }}>
+                              {user.firstName[0]}{user.lastName[0]}
+                            </div>
+                            <div>
+                              <p className="font-semibold text-gray-900">{user.firstName} {user.lastName}</p>
+                              <p className="text-sm text-gray-500">{user.email}</p>
+                              <div className="flex items-center gap-2 mt-1">
+                                <span className="text-xs text-gray-400">Current role:</span>
+                                {roleBadge(user.role)}
+                                <span className="text-xs text-gray-400">→ requesting:</span>
+                                {roleBadge(role)}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="flex gap-2 flex-shrink-0">
+                            <Button size="sm" className="bg-green-600 hover:bg-green-700 text-white flex items-center gap-1"
+                              onClick={() => approveRoleMutation.mutate({ id: user.id, role })}
+                              disabled={approveRoleMutation.isPending}>
+                              <CheckCircle className="w-4 h-4" /> Approve
+                            </Button>
+                            <Button size="sm" variant="outline" className="text-red-600 border-red-200 hover:bg-red-50 flex items-center gap-1"
+                              onClick={() => rejectRoleMutation.mutate({ id: user.id, role })}
+                              disabled={rejectRoleMutation.isPending}>
+                              <XCircle className="w-4 h-4" /> Reject
+                            </Button>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </TabsContent>

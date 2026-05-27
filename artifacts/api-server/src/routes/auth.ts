@@ -120,10 +120,42 @@ router.post("/auth/register", async (req, res): Promise<void> => {
   }
   const { email, password, firstName, lastName, phone, role } = parsed.data;
   const [existing] = await db.select().from(usersTable).where(eq(usersTable.email, email));
+
   if (existing) {
-    res.status(409).json({ error: "Conflict", message: "Email already registered" });
+    // Email already registered — add role to pendingRoles if not already held
+    const VALID_ROLES_LIST = ["super_admin", "admin", "teacher", "attendant", "parent"];
+    if (!VALID_ROLES_LIST.includes(role)) {
+      res.status(400).json({ error: "Bad request", message: "Invalid role" }); return;
+    }
+    if (existing.role === role) {
+      res.status(409).json({ error: "Conflict", message: "You already have this role" }); return;
+    }
+    const currentSecondary: string[] = existing.secondaryRoles ? JSON.parse(existing.secondaryRoles) : [];
+    if (currentSecondary.includes(role)) {
+      res.status(409).json({ error: "Conflict", message: "You already have this role" }); return;
+    }
+    const currentPending: string[] = existing.pendingRoles ? JSON.parse(existing.pendingRoles) : [];
+    if (currentPending.includes(role)) {
+      res.status(409).json({ error: "Conflict", message: "A request for this role is already pending approval" }); return;
+    }
+    // Verify password matches existing account
+    const passwordValid = await bcrypt.compare(password, existing.passwordHash);
+    if (!passwordValid) {
+      res.status(401).json({ error: "Unauthorized", message: "Incorrect password for this email address" }); return;
+    }
+    const updatedPending = [...currentPending, role];
+    await db.update(usersTable)
+      .set({ pendingRoles: JSON.stringify(updatedPending) })
+      .where(eq(usersTable.id, existing.id));
+    smsPendingApproval(existing.phone ?? "", existing.firstName, req.log).catch(() => {});
+    emailPendingApproval(existing.email, existing.firstName, req.log).catch(() => {});
+    res.status(201).json({
+      pending: true,
+      message: `Your request to join as ${role} has been submitted. Super admin will review and approve it.`,
+    });
     return;
   }
+
   const passwordHash = await bcrypt.hash(password, 12);
 
   const requiresApproval = role === "admin" || role === "teacher";

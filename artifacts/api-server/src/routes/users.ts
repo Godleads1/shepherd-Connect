@@ -16,6 +16,11 @@ function parseSecondaryRoles(raw: string | null | undefined): UserRole[] {
   try { return JSON.parse(raw) as UserRole[]; } catch { return []; }
 }
 
+function parsePendingRoles(raw: string | null | undefined): UserRole[] {
+  if (!raw) return [];
+  try { return JSON.parse(raw) as UserRole[]; } catch { return []; }
+}
+
 function sanitizeUser(
   u: typeof usersTable.$inferSelect,
   viewer?: { role: string; userId: number },
@@ -40,6 +45,7 @@ function sanitizeUser(
     communicationPrefs: u.communicationPrefs,
     hideContactFromAdmin: isSelf ? u.hideContactFromAdmin : undefined,
     secondaryRoles: parseSecondaryRoles(u.secondaryRoles),
+    pendingRoles: parsePendingRoles(u.pendingRoles),
     createdAt: u.createdAt,
   };
 }
@@ -103,6 +109,15 @@ router.get("/users/pending", authMiddleware, requireRoles("super_admin", "admin"
     .orderBy(usersTable.createdAt);
   const viewer = { role: req.user!.role, userId: req.user!.userId };
   res.json({ data: pending.map(u => sanitizeUser(u, viewer)), total: pending.length });
+});
+
+router.get("/users/pending-roles", authMiddleware, requireRoles("super_admin"), async (req, res): Promise<void> => {
+  const allUsers = await db.select().from(usersTable);
+  const withPending = allUsers
+    .filter(u => u.pendingRoles && u.pendingRoles !== "[]")
+    .map(u => ({ ...sanitizeUser(u), pendingRoles: parsePendingRoles(u.pendingRoles) }))
+    .filter(u => u.pendingRoles.length > 0);
+  res.json({ data: withPending, total: withPending.length });
 });
 
 router.get("/users/:id", authMiddleware, async (req, res): Promise<void> => {
@@ -222,6 +237,65 @@ router.post("/users/:id/reassign-role", authMiddleware, requireRoles("super_admi
     .returning();
 
   res.json({ success: true, user: sanitizeUser(updated), message: `Role updated to ${role}` });
+});
+
+router.post("/users/:id/approve-role", authMiddleware, requireRoles("super_admin"), async (req, res): Promise<void> => {
+  const id = parseInt(req.params.id as string, 10);
+  if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
+
+  const { role } = req.body as { role: string };
+  if (!role || !VALID_ROLES.includes(role as UserRole)) {
+    res.status(400).json({ error: "Bad request", message: "Invalid role" }); return;
+  }
+
+  const [target] = await db.select().from(usersTable).where(eq(usersTable.id, id));
+  if (!target) { res.status(404).json({ error: "Not found", message: "User not found" }); return; }
+
+  const pending = parsePendingRoles(target.pendingRoles);
+  if (!pending.includes(role as UserRole)) {
+    res.status(400).json({ error: "Bad request", message: "This role is not pending for this user" }); return;
+  }
+
+  const existing = parseSecondaryRoles(target.secondaryRoles);
+  const updatedSecondary = existing.includes(role as UserRole) ? existing : [...existing, role as UserRole];
+  const updatedPending = pending.filter(r => r !== role);
+
+  const [saved] = await db.update(usersTable)
+    .set({ secondaryRoles: JSON.stringify(updatedSecondary), pendingRoles: JSON.stringify(updatedPending) })
+    .where(eq(usersTable.id, id))
+    .returning();
+
+  // Notify user
+  const { smsAccountApproved: smsApproved, emailAccountApproved: emailApproved } = await import("../services/sms");
+  smsApproved(target.phone ?? "", target.firstName, req.log).catch(() => {});
+  emailApproved(target.email, target.firstName, req.log).catch(() => {});
+
+  res.json({ success: true, user: sanitizeUser(saved), message: `Role ${role} approved and granted` });
+});
+
+router.post("/users/:id/reject-role", authMiddleware, requireRoles("super_admin"), async (req, res): Promise<void> => {
+  const id = parseInt(req.params.id as string, 10);
+  if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
+
+  const { role } = req.body as { role: string };
+  if (!role) { res.status(400).json({ error: "Bad request", message: "role is required" }); return; }
+
+  const [target] = await db.select().from(usersTable).where(eq(usersTable.id, id));
+  if (!target) { res.status(404).json({ error: "Not found", message: "User not found" }); return; }
+
+  const pending = parsePendingRoles(target.pendingRoles);
+  const updatedPending = pending.filter(r => r !== role);
+
+  const [saved] = await db.update(usersTable)
+    .set({ pendingRoles: JSON.stringify(updatedPending) })
+    .where(eq(usersTable.id, id))
+    .returning();
+
+  const { smsAccountRejected: smsRejected, emailAccountRejected: emailRejected } = await import("../services/sms");
+  smsRejected(target.phone ?? "", target.firstName, req.log).catch(() => {});
+  emailRejected(target.email, target.firstName, req.log).catch(() => {});
+
+  res.json({ success: true, user: sanitizeUser(saved), message: `Role ${role} request rejected` });
 });
 
 router.post("/users/:id/grant-role", authMiddleware, requireRoles("super_admin"), async (req, res): Promise<void> => {

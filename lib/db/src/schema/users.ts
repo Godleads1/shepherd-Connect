@@ -36,6 +36,7 @@ export const usersTable = pgTable("users", {
   mfaSecret: text("mfa_secret"),
   mfaEnabled: boolean("mfa_enabled").notNull().default(false),
   secondaryRoles: text("secondary_roles"),
+  pendingRoles: text("pending_roles"),
   resetToken: text("reset_token"),
   resetTokenExpiry: timestamp("reset_token_expiry"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
