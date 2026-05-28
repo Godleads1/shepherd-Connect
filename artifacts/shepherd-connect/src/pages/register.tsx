@@ -132,6 +132,7 @@ export default function Register() {
 
   const [step1Data, setStep1Data] = useState<z.infer<typeof step1Schema> | null>(null);
   const [step2Data, setStep2Data] = useState<z.infer<typeof step2Schema> | null>(null);
+  const [useSelfAsEmergency, setUseSelfAsEmergency] = useState(false);
   const [selectedRole, setSelectedRole] = useState<"parent"|"teacher"|"admin"|"attendant">("parent");
   const [showPw, setShowPw] = useState(false);
   const [regPhotoUrl, setRegPhotoUrl] = useState("");
@@ -561,9 +562,32 @@ export default function Register() {
 
             {/* Emergency contact */}
             <div className="pt-1">
-              <p className="text-sm font-bold mb-3 flex items-center gap-2" style={{ color: "#0f172a" }}>
-                <ShieldAlert className="w-4 h-4" style={{ color: LOGO_GREEN }} /> Emergency Contact
-              </p>
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-sm font-bold flex items-center gap-2" style={{ color: "#0f172a" }}>
+                  <ShieldAlert className="w-4 h-4" style={{ color: LOGO_GREEN }} /> Emergency Contact
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const next = !useSelfAsEmergency;
+                    setUseSelfAsEmergency(next);
+                    if (next && step1Data) {
+                      form2.setValue("emergencyContactName", `${step1Data.firstName} ${step1Data.lastName}`);
+                      form2.setValue("emergencyContactPhone", step1Data.phone);
+                    } else {
+                      form2.setValue("emergencyContactName", "");
+                      form2.setValue("emergencyContactPhone", "");
+                    }
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all"
+                  style={useSelfAsEmergency
+                    ? { background: "#1b5e20", color: "white", borderColor: "#1b5e20" }
+                    : { background: "white", color: "#1b5e20", borderColor: "#1b5e20" }}
+                >
+                  <Check className="w-3.5 h-3.5" />
+                  {useSelfAsEmergency ? "Using my details" : "Use my details"}
+                </button>
+              </div>
               <div className="grid grid-cols-2 gap-3">
                 <Field form={form2} name="emergencyContactName"  label="Contact Name"  data-testid="reg-emerg-name" />
                 <Field form={form2} name="emergencyContactPhone" label="Contact Phone" data-testid="reg-emerg-phone" />
