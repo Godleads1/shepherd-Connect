@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { useGetMyFamily, useCreateChild, useUpdateChild } from "@workspace/api-client-react";
+import { useGetMyFamily, useCreateChild, useUpdateChild, useCreateFamily } from "@workspace/api-client-react";
 import { useQuery } from "@tanstack/react-query";
 import { Skeleton } from "@/components/ui/skeleton";
 import { QueryError } from "@/components/QueryError";
@@ -381,6 +381,74 @@ function ChildCard({ child, onRefetch }: { child: any; onRefetch: () => void }) 
   );
 }
 
+function NoFamilySetup({ userId, onCreated }: { userId?: number; onCreated: () => void }) {
+  const { toast } = useToast();
+  const createFamily = useCreateFamily();
+  const [address, setAddress] = useState("");
+  const [emergencyContactName, setEmergencyContactName] = useState("");
+  const [emergencyContactPhone, setEmergencyContactPhone] = useState("");
+
+  const handleCreate = async () => {
+    if (!userId) return;
+    try {
+      await createFamily.mutateAsync({
+        data: {
+          parent1Id: userId,
+          address: address || undefined,
+          emergencyContactName: emergencyContactName || undefined,
+          emergencyContactPhone: emergencyContactPhone || undefined,
+        } as any,
+      });
+      toast({ title: "Family profile created!", description: "Welcome to Shepherd Connect." });
+      onCreated();
+    } catch (e: any) {
+      toast({ variant: "destructive", title: e.message || "Failed to create family profile" });
+    }
+  };
+
+  return (
+    <div className="min-h-screen flex items-center justify-center px-4"
+      style={{ background: "linear-gradient(135deg, #f0f4ff 0%, #fefce8 100%)" }}>
+      <div className="bg-white rounded-3xl shadow-xl p-8 max-w-md w-full space-y-6" style={{ boxShadow: "0 8px 40px rgba(30,58,138,.12)" }}>
+        <div className="text-center space-y-3">
+          <div className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto text-4xl"
+            style={{ background: "linear-gradient(135deg, #1e3a8a, #1d4ed8)" }}>
+            🏠
+          </div>
+          <h2 className="text-2xl font-bold text-gray-900" style={{ fontFamily: "'Playfair Display', serif" }}>
+            Set Up Your Family
+          </h2>
+          <p className="text-sm text-gray-500">
+            Your account is ready. Complete your family profile to get started with Shepherd Connect.
+          </p>
+        </div>
+
+        <div className="space-y-4">
+          <div>
+            <label className="text-xs font-semibold text-gray-600 uppercase tracking-wider block mb-1">Home Address <span className="text-gray-400 font-normal normal-case">(optional)</span></label>
+            <Input placeholder="e.g. 12 Grace Avenue, Lagos" value={address} onChange={e => setAddress(e.target.value)} />
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-gray-600 uppercase tracking-wider block mb-1">Emergency Contact Name <span className="text-gray-400 font-normal normal-case">(optional)</span></label>
+            <Input placeholder="e.g. Pastor John Doe" value={emergencyContactName} onChange={e => setEmergencyContactName(e.target.value)} />
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-gray-600 uppercase tracking-wider block mb-1">Emergency Contact Phone <span className="text-gray-400 font-normal normal-case">(optional)</span></label>
+            <Input placeholder="e.g. 08012345678" value={emergencyContactPhone} onChange={e => setEmergencyContactPhone(e.target.value)} />
+          </div>
+        </div>
+
+        <Button onClick={handleCreate} disabled={createFamily.isPending} className="w-full h-12 text-base font-bold rounded-2xl"
+          style={{ background: "linear-gradient(135deg, #1e3a8a, #1d4ed8)", color: "white" }}>
+          {createFamily.isPending ? <><Loader2 className="w-4 h-4 animate-spin mr-2" />Creating…</> : "Create My Family Profile"}
+        </Button>
+
+        <p className="text-center text-xs text-gray-400">You can update these details later from your family dashboard.</p>
+      </div>
+    </div>
+  );
+}
+
 export default function MyFamily() {
   const { user } = useAuth();
   const { data: family, isLoading, isError, refetch } = useGetMyFamily();
@@ -451,7 +519,8 @@ export default function MyFamily() {
     }
   };
 
-  if (isError) return <QueryError message="Could not load your family." onRetry={() => refetch()} />;
+  if (isError) return <QueryError message="Could not load your family data." onRetry={() => refetch()} />;
+  if (!isLoading && !family) return <NoFamilySetup userId={user?.id} onCreated={() => refetch()} />;
   if (isLoading) {
     return (
       <div className="space-y-4 max-w-2xl mx-auto">

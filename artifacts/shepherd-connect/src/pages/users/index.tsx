@@ -198,8 +198,8 @@ function GrantRoleDialog({ user, onClose }: { user: any; onClose: () => void }) 
     } finally { setLoading(false); }
   };
 
-  const roleLabels: Record<string, string> = { parent: "Parent", teacher: "Teacher", attendant: "Support", admin: "Admin", super_admin: "Super Admin" };
-  const roleColors: Record<string, string> = { parent: "#6b7280", teacher: "#0d9488", attendant: "#ea580c", admin: "#2563eb", super_admin: "#9333ea" };
+  const roleLabels: Record<string, string> = { parent: "Parent", teacher: "Teacher", support: "Support", admin: "Admin", super_admin: "Super Admin" };
+  const roleColors: Record<string, string> = { parent: "#6b7280", teacher: "#0d9488", support: "#ea580c", admin: "#2563eb", super_admin: "#9333ea" };
 
   return (
     <Dialog open onOpenChange={() => onClose()}>

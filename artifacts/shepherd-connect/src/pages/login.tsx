@@ -158,7 +158,7 @@ export default function Login() {
     parent: "Parent",
     teacher: "Teacher",
     admin: "Admin",
-    attendant: "Support",
+    support: "Support",
   };
 
   const navigateForRole = (role: string) => {
@@ -264,7 +264,7 @@ export default function Login() {
     teacher: "Teacher",
     admin: "Admin",
     super_admin: "Super Admin",
-    attendant: "Support",
+    support: "Support",
   };
 
   const roleIcons: Record<string, string> = {
@@ -272,7 +272,7 @@ export default function Login() {
     teacher: "📚",
     admin: "🛡️",
     super_admin: "⚡",
-    attendant: "🎫",
+    support: "🎫",
   };
 
   return (

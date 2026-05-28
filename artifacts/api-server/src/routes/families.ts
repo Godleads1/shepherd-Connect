@@ -96,7 +96,7 @@ router.get("/families/my", authMiddleware, requireRoles("parent"), async (req, r
     or(eq(familiesTable.parent1Id, userId), eq(familiesTable.parent2Id, userId))
   );
   if (!family) {
-    res.status(404).json({ error: "Not found", message: "Family not found" });
+    res.json(null);
     return;
   }
   const formatted = await formatFamily(family);
