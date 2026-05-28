@@ -20,11 +20,13 @@ import { apiGet, apiPut, apiPost, apiDelete } from "@/lib/api-call";
 import { QueryError } from "@/components/QueryError";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
+const PHONE_RE = /^\d{11}$/;
+
 const userSchema = z.object({
   firstName: z.string().min(1, "Required"),
   lastName: z.string().min(1, "Required"),
-  email: z.string().email("Invalid email"),
-  phone: z.string().optional(),
+  email: z.string().email("Invalid email address"),
+  phone: z.string().optional().refine(v => !v || PHONE_RE.test(v), { message: "Must be exactly 11 digits" }),
   password: z.string().optional(),
   role: z.enum(["super_admin", "admin", "teacher", "attendant", "parent"]),
   isActive: z.boolean().default(true),

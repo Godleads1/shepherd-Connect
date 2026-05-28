@@ -324,14 +324,23 @@ export default function FamilyAssist() {
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide mb-1.5">Delegate's Phone Number</label>
-                  <Input value={delegatePhone} onChange={e => setDelegatePhone(e.target.value)} placeholder="+234…" className="rounded-xl" />
+                  <Input
+                    value={delegatePhone}
+                    onChange={e => setDelegatePhone(e.target.value)}
+                    placeholder="08012345678"
+                    maxLength={11}
+                    className={`rounded-xl${delegatePhone && !/^\d{11}$/.test(delegatePhone) ? " border-red-500 focus-visible:ring-red-400" : ""}`}
+                  />
+                  {delegatePhone && !/^\d{11}$/.test(delegatePhone) && (
+                    <p className="text-xs text-red-500 mt-1">Must be exactly 11 digits</p>
+                  )}
                 </div>
                 <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-xs text-blue-800 flex gap-2">
                   <ShieldCheck className="w-4 h-4 flex-shrink-0 mt-0.5" />
                   <span>A 6-digit OTP will be generated and sent by SMS to the delegate's phone.</span>
                 </div>
                 <button onClick={handleGenerateDelegate}
-                  disabled={!delegateName.trim() || !delegatePhone.trim() || generatingDelegate}
+                  disabled={!delegateName.trim() || !/^\d{11}$/.test(delegatePhone) || generatingDelegate}
                   className="w-full h-11 rounded-xl text-white font-bold disabled:opacity-50 transition-all"
                   style={{ background: "linear-gradient(135deg, #1e3a8a, #1d4ed8)" }}>
                   {generatingDelegate ? "Generating…" : "Generate OTP & Send SMS"}
@@ -451,8 +460,16 @@ export default function FamilyAssist() {
           </div>
           <div>
             <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide mb-1.5">Phone (optional)</label>
-            <Input value={walkInForm.parentPhone} onChange={e => setWalkInForm(p => ({ ...p, parentPhone: e.target.value }))}
-              placeholder="+234…" className="rounded-xl" />
+            <Input
+              value={walkInForm.parentPhone}
+              onChange={e => setWalkInForm(p => ({ ...p, parentPhone: e.target.value }))}
+              placeholder="08012345678"
+              maxLength={11}
+              className={`rounded-xl${walkInForm.parentPhone && !/^\d{11}$/.test(walkInForm.parentPhone) ? " border-red-500 focus-visible:ring-red-400" : ""}`}
+            />
+            {walkInForm.parentPhone && !/^\d{11}$/.test(walkInForm.parentPhone) && (
+              <p className="text-xs text-red-500 mt-1">Must be exactly 11 digits</p>
+            )}
           </div>
 
           <div className="flex items-center justify-between pt-2">

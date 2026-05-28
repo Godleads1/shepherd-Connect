@@ -17,11 +17,14 @@ const LOGO_NAVY  = "#1a237e";
 const LOGO_GREEN = "#1b5e20";
 
 // ── Schemas ──────────────────────────────────────────────────────────────────
+const PHONE_RE = /^\d{11}$/;
+const phoneMsg = "Must be exactly 11 digits";
+
 const step1Schema = z.object({
   firstName: z.string().min(1, "Required"),
   lastName:  z.string().min(1, "Required"),
-  email:     z.string().email("Invalid email"),
-  phone:     z.string().min(1, "Required"),
+  email:     z.string().email("Invalid email address"),
+  phone:     z.string().regex(PHONE_RE, phoneMsg),
   password:  z.string().min(6, "Minimum 6 characters"),
 });
 
@@ -29,13 +32,13 @@ const step2Schema = z.object({
   hasSpouse:             z.boolean(),
   spouseFirstName:       z.string().optional(),
   spouseLastName:        z.string().optional(),
-  spouseEmail:           z.string().optional(),
-  spousePhone:           z.string().optional(),
+  spouseEmail:           z.string().optional().refine(v => !v || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v), { message: "Invalid email address" }),
+  spousePhone:           z.string().optional().refine(v => !v || PHONE_RE.test(v), { message: phoneMsg }),
   houseStreet:           z.string().min(1, "House # & street required"),
   nearestBusStop:        z.string().optional(),
   city:                  z.string().optional(),
   emergencyContactName:  z.string().min(1, "Required"),
-  emergencyContactPhone: z.string().min(1, "Required"),
+  emergencyContactPhone: z.string().regex(PHONE_RE, phoneMsg),
 });
 
 const childSchema = z.object({

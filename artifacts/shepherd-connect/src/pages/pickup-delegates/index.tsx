@@ -16,10 +16,12 @@ import * as z from "zod";
 import { useAuth } from "@/contexts/auth";
 import { PhotoUploader, resolvePhotoUrl } from "@/components/PhotoUploader";
 
+const PHONE_RE = /^\d{11}$/;
+
 const formSchema = z.object({
   childId: z.coerce.number().min(1, "Please select a child"),
   name: z.string().min(1, "Delegate name is required"),
-  phone: z.string().min(1, "Phone number is required"),
+  phone: z.string().regex(PHONE_RE, "Must be exactly 11 digits"),
 });
 
 export default function PickupDelegates() {

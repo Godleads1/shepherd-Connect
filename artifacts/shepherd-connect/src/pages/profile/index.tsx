@@ -510,8 +510,20 @@ export default function Profile() {
             <label className="text-xs font-medium text-gray-600 block mb-1 flex items-center gap-1">
               <Phone className="w-3 h-3" /> Phone Number
             </label>
-            {editing ? <Input value={form.phone} onChange={e => setForm(p => ({ ...p, phone: e.target.value }))} placeholder="+234..." />
-              : <p className="text-gray-900">{form.phone || "—"}</p>}
+            {editing ? (
+              <>
+                <Input
+                  value={form.phone}
+                  onChange={e => setForm(p => ({ ...p, phone: e.target.value }))}
+                  placeholder="08012345678"
+                  maxLength={11}
+                  className={form.phone && !/^\d{11}$/.test(form.phone) ? "border-red-500 focus-visible:ring-red-400" : ""}
+                />
+                {form.phone && !/^\d{11}$/.test(form.phone) && (
+                  <p className="text-xs text-red-500 mt-1">Must be exactly 11 digits</p>
+                )}
+              </>
+            ) : <p className="text-gray-900">{form.phone || "—"}</p>}
           </div>
           <div className="col-span-2">
             <label className="text-xs font-medium text-gray-600 block mb-1 flex items-center gap-1">
@@ -614,7 +626,7 @@ export default function Profile() {
 
       {editing && (
         <Button className="w-full flex items-center gap-2 py-6 text-base" style={{ background: "linear-gradient(135deg, #1e3a8a, #1d4ed8)" }}
-          onClick={handleSave} disabled={saveMutation.isPending}>
+          onClick={handleSave} disabled={saveMutation.isPending || !!(form.phone && !/^\d{11}$/.test(form.phone))}>
           <Save className="w-5 h-5" />
           {saveMutation.isPending ? "Saving..." : "Save Changes"}
         </Button>
