@@ -345,53 +345,47 @@ router.delete("/users/:id", authMiddleware, requireRoles("super_admin", "admin")
   if (requesterRole === "admin" && (target.role === "super_admin" || target.role === "admin")) {
     res.status(403).json({ error: "Forbidden", message: "Admins cannot delete super admins or other admins" }); return;
   }
-  // Super admin: permanently delete. Admin: deactivate only.
-  if (requesterRole === "super_admin") {
-    // Nullify / remove all FK references before deleting the user row.
-    const client = await pool.connect();
-    try {
-      await client.query("BEGIN");
-      const stmts = [
-        "UPDATE attendance SET checked_in_by = NULL WHERE checked_in_by = $1",
-        "UPDATE attendance SET escorted_by = NULL WHERE escorted_by = $1",
-        "UPDATE attendance SET confirmed_by_teacher_id = NULL WHERE confirmed_by_teacher_id = $1",
-        "UPDATE attendance SET checked_out_by = NULL WHERE checked_out_by = $1",
-        "UPDATE class_assignments SET assigned_by = NULL WHERE assigned_by = $1",
-        "UPDATE class_change_requests SET requested_by = NULL WHERE requested_by = $1",
-        "UPDATE class_change_requests SET reviewed_by = NULL WHERE reviewed_by = $1",
-        "DELETE FROM emergency_updates WHERE emergency_id IN (SELECT id FROM emergencies WHERE triggered_by = $1)",
-        "DELETE FROM emergency_updates WHERE user_id = $1",
-        "DELETE FROM emergencies WHERE triggered_by = $1",
-        "UPDATE safeguarding_records SET teacher_user_id = NULL WHERE teacher_user_id = $1",
-        "UPDATE safeguarding_records SET created_by = NULL WHERE created_by = $1",
-        "UPDATE substitute_requests SET requesting_teacher_id = NULL WHERE requesting_teacher_id = $1",
-        "UPDATE substitute_requests SET substitute_teacher_id = NULL WHERE substitute_teacher_id = $1",
-        "UPDATE families SET parent_1_id = NULL WHERE parent_1_id = $1",
-        "UPDATE families SET parent_2_id = NULL WHERE parent_2_id = $1",
-        "DELETE FROM teacher_allocations WHERE teacher_id IN (SELECT id FROM teachers WHERE user_id = $1)",
-        "DELETE FROM child_appraisals WHERE teacher_id IN (SELECT id FROM teachers WHERE user_id = $1)",
-        "DELETE FROM teachers WHERE user_id = $1",
-        "DELETE FROM notifications WHERE user_id = $1",
-        "DELETE FROM audit_logs WHERE user_id = $1",
-        "DELETE FROM parent_feedback WHERE parent_id = $1",
-        "DELETE FROM consent_forms WHERE parent_id = $1",
-        "DELETE FROM messages WHERE sender_id = $1 OR recipient_id = $1",
-        "DELETE FROM push_subscriptions WHERE user_id = $1",
-        "DELETE FROM users WHERE id = $1",
-      ];
-      for (const stmt of stmts) await client.query(stmt, [id]);
-      await client.query("COMMIT");
-    } catch (err) {
-      await client.query("ROLLBACK");
-      throw err;
-    } finally {
-      client.release();
-    }
-    res.json({ success: true, message: "User permanently deleted" });
-  } else {
-    await db.update(usersTable).set({ isActive: false, status: "suspended" }).where(eq(usersTable.id, id));
-    res.json({ success: true, message: "User deactivated" });
+  // Permanently delete the user and nullify / remove all FK references.
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const stmts = [
+      "UPDATE attendance SET checked_in_by = NULL WHERE checked_in_by = $1",
+      "UPDATE attendance SET escorted_by = NULL WHERE escorted_by = $1",
+      "UPDATE attendance SET confirmed_by_teacher_id = NULL WHERE confirmed_by_teacher_id = $1",
+      "UPDATE attendance SET checked_out_by = NULL WHERE checked_out_by = $1",
+      "UPDATE class_assignments SET assigned_by = NULL WHERE assigned_by = $1",
+      "UPDATE class_change_requests SET requested_by = NULL WHERE requested_by = $1",
+      "UPDATE class_change_requests SET reviewed_by = NULL WHERE reviewed_by = $1",
+      "DELETE FROM emergency_updates WHERE emergency_id IN (SELECT id FROM emergencies WHERE triggered_by = $1)",
+      "DELETE FROM emergency_updates WHERE user_id = $1",
+      "DELETE FROM emergencies WHERE triggered_by = $1",
+      "UPDATE safeguarding_records SET teacher_user_id = NULL WHERE teacher_user_id = $1",
+      "UPDATE safeguarding_records SET created_by = NULL WHERE created_by = $1",
+      "UPDATE substitute_requests SET requesting_teacher_id = NULL WHERE requesting_teacher_id = $1",
+      "UPDATE substitute_requests SET substitute_teacher_id = NULL WHERE substitute_teacher_id = $1",
+      "UPDATE families SET parent_1_id = NULL WHERE parent_1_id = $1",
+      "UPDATE families SET parent_2_id = NULL WHERE parent_2_id = $1",
+      "DELETE FROM teacher_allocations WHERE teacher_id IN (SELECT id FROM teachers WHERE user_id = $1)",
+      "DELETE FROM child_appraisals WHERE teacher_id IN (SELECT id FROM teachers WHERE user_id = $1)",
+      "DELETE FROM teachers WHERE user_id = $1",
+      "DELETE FROM notifications WHERE user_id = $1",
+      "DELETE FROM audit_logs WHERE user_id = $1",
+      "DELETE FROM parent_feedback WHERE parent_id = $1",
+      "DELETE FROM consent_forms WHERE parent_id = $1",
+      "DELETE FROM messages WHERE sender_id = $1 OR recipient_id = $1",
+      "DELETE FROM push_subscriptions WHERE user_id = $1",
+      "DELETE FROM users WHERE id = $1",
+    ];
+    for (const stmt of stmts) await client.query(stmt, [id]);
+    await client.query("COMMIT");
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
   }
+  res.json({ success: true, message: "User permanently deleted" });
 });
 
 export default router;
