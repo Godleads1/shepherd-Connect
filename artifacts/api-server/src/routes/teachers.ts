@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { db, teachersTable, usersTable } from "@workspace/db";
 import { CreateTeacherBody } from "@workspace/api-zod";
 import { authMiddleware, requireRoles } from "../middlewares/auth";
@@ -21,6 +21,17 @@ async function formatTeacher(t: typeof teachersTable.$inferSelect) {
 }
 
 router.get("/teachers", authMiddleware, async (_req, res): Promise<void> => {
+  // Auto-sync: create teacher records for any active teacher users that don't have one yet
+  const teacherUsers = await db.select().from(usersTable).where(
+    and(eq(usersTable.role, "teacher"), eq(usersTable.isActive, true))
+  );
+  const existing = await db.select().from(teachersTable);
+  const existingUserIds = new Set(existing.map(t => t.userId));
+  const missing = teacherUsers.filter(u => !existingUserIds.has(u.id));
+  if (missing.length > 0) {
+    await db.insert(teachersTable).values(missing.map(u => ({ userId: u.id })));
+  }
+
   const teachers = await db.select().from(teachersTable);
   const formatted = await Promise.all(teachers.map(formatTeacher));
   res.json(formatted);

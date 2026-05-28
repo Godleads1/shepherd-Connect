@@ -1,7 +1,7 @@
 import { Router } from "express";
 import bcrypt from "bcryptjs";
 import { eq, ilike, or, and, sql } from "drizzle-orm";
-import { db, usersTable, pool } from "@workspace/db";
+import { db, usersTable, teachersTable, pool } from "@workspace/db";
 import { CreateUserBody, UpdateUserBody, ListUsersQueryParams } from "@workspace/api-zod";
 import { authMiddleware, requireRoles } from "../middlewares/auth";
 import { smsAccountApproved, smsAccountRejected, emailAccountApproved, emailAccountRejected } from "../services/sms";
@@ -137,6 +137,11 @@ router.put("/users/:id/approve", authMiddleware, requireRoles("super_admin", "ad
     .where(eq(usersTable.id, id))
     .returning();
   if (!user) { res.status(404).json({ error: "Not found", message: "User not found" }); return; }
+  // Auto-create teacher profile when a teacher account is approved
+  if (user.role === "teacher") {
+    const [existing] = await db.select().from(teachersTable).where(eq(teachersTable.userId, user.id));
+    if (!existing) await db.insert(teachersTable).values({ userId: user.id });
+  }
   smsAccountApproved(user.phone, user.firstName, req.log).catch(() => {});
   emailAccountApproved(user.email, user.firstName, req.log).catch(() => {});
   const viewer = { role: req.user!.role, userId: req.user!.userId };
@@ -264,6 +269,12 @@ router.post("/users/:id/approve-role", authMiddleware, requireRoles("super_admin
     .set({ secondaryRoles: JSON.stringify(updatedSecondary), pendingRoles: JSON.stringify(updatedPending) })
     .where(eq(usersTable.id, id))
     .returning();
+
+  // Auto-create teacher profile when a teacher secondary role is approved
+  if (role === "teacher") {
+    const [existingTeacher] = await db.select().from(teachersTable).where(eq(teachersTable.userId, id));
+    if (!existingTeacher) await db.insert(teachersTable).values({ userId: id });
+  }
 
   // Notify user
   const { smsAccountApproved: smsApproved, emailAccountApproved: emailApproved } = await import("../services/sms");
