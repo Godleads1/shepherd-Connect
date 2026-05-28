@@ -173,8 +173,9 @@ export default function Login() {
       const response = await loginMutation.mutateAsync({ data: { ...creds, requestedRole } as any }) as any;
       localLogin(response.token, response.user);
       navigateForRole(response.user.role);
-    } catch {
-      form.setError("root", { message: t.invalidLogin });
+    } catch (e: any) {
+      const msg = e?.message?.includes(": ") ? e.message.split(": ").slice(1).join(": ") : e?.message;
+      form.setError("root", { message: msg || t.invalidLogin });
       setRolePickStep(false);
     }
   };
@@ -220,8 +221,9 @@ export default function Login() {
 
       localLogin(response.token, response.user);
       navigateForRole(response.user.role);
-    } catch {
-      form.setError("root", { message: t.invalidLogin });
+    } catch (e: any) {
+      const msg = e?.message?.includes(": ") ? e.message.split(": ").slice(1).join(": ") : e?.message;
+      form.setError("root", { message: msg || t.invalidLogin });
     }
   };
 
