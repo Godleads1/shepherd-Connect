@@ -251,7 +251,6 @@ export function Layout({ children }: { children: ReactNode }) {
       items.push({ href: "/audit",              label: t.nav.auditLogs,    icon: FileText });
       items.push({ href: "/reports",               label: "Reports",             icon: BarChart3 });
       items.push({ href: "/error-logs",            label: "Error Logs",          icon: AlertTriangle });
-      items.push({ href: "/waitlist",              label: "Waitlist",            icon: ListOrdered });
       items.push({ href: "/substitute-requests",   label: "Substitute Requests", icon: CalendarClock });
       items.push({ href: "/safeguarding",          label: "Safeguarding & DBS",  icon: ShieldCheck });
       items.push({ href: "/messages",              label: "Messages",            icon: MessageSquare, badge: msgUnreadCount });

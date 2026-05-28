@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
-import { useGetMyFamily, useListClasses, useCreateChild, useUpdateChild } from "@workspace/api-client-react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useGetMyFamily, useCreateChild, useUpdateChild } from "@workspace/api-client-react";
+import { useQuery } from "@tanstack/react-query";
 import { Skeleton } from "@/components/ui/skeleton";
 import { QueryError } from "@/components/QueryError";
 import { Badge } from "@/components/ui/badge";
@@ -10,10 +10,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { QrCode, Users, MapPin, ShieldCheck, Star, PlusCircle, AlertCircle, Download, X, ListOrdered, Trash2, Camera, Loader2, Cake, ChevronDown, ChevronUp, Calendar, CheckCircle, BellRing } from "lucide-react";
+import { QrCode, Users, MapPin, ShieldCheck, Star, PlusCircle, AlertCircle, Download, X, Camera, Loader2, Cake, ChevronDown, ChevronUp, Calendar, CheckCircle, BellRing } from "lucide-react";
 import { useAuth } from "@/contexts/auth";
 import { QRCodeSVG } from "qrcode.react";
-import { apiGet, apiPost, apiDelete } from "@/lib/api-call";
+import { apiGet, apiPost } from "@/lib/api-call";
 import { PhotoUploader, resolvePhotoUrl } from "@/components/PhotoUploader";
 import WelcomeModal, { shouldShowWelcome } from "@/components/WelcomeModal";
 
@@ -125,95 +125,6 @@ function AttendanceHistory({ children }: { children: any[] }) {
   );
 }
 
-function WaitlistSection({ familyId }: { familyId?: number }) {
-  const [selectedClassId, setSelectedClassId] = useState("");
-  const [notes, setNotes] = useState("");
-  const { data: classesData } = useListClasses({});
-  const { toast } = useToast();
-  const qc = useQueryClient();
-
-  const { data: myWaitlist } = useQuery({
-    queryKey: ["my-waitlist", familyId],
-    queryFn: () => apiGet<any[]>(`/classes/waitlist?familyId=${familyId}`),
-    enabled: !!familyId,
-  });
-
-  const joinWaitlist = useMutation({
-    mutationFn: () => apiPost(`/classes/${selectedClassId}/waitlist`, { familyId, notes }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["my-waitlist", familyId] });
-      setSelectedClassId(""); setNotes("");
-      toast({ title: "Added to waitlist", description: "You'll be notified when a spot opens." });
-    },
-    onError: (e: any) => toast({ variant: "destructive", title: e.message || "Failed to join waitlist" }),
-  });
-
-  const removeWaitlist = useMutation({
-    mutationFn: ({ classId, entryId }: { classId: number; entryId: number }) =>
-      apiDelete(`/classes/${classId}/waitlist/${entryId}`),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["my-waitlist", familyId] });
-      toast({ title: "Removed from waitlist" });
-    },
-  });
-
-  const statusColors: Record<string, string> = {
-    pending: "bg-amber-100 text-amber-800 border-amber-200",
-    notified: "bg-blue-100 text-blue-800 border-blue-200",
-    confirmed: "bg-green-100 text-green-800 border-green-200",
-    expired: "bg-gray-100 text-gray-600",
-  };
-
-  return (
-    <div className="bg-white rounded-2xl border p-4 space-y-4" style={{ boxShadow: "0 2px 12px rgba(30,58,138,.06)" }}>
-      <h2 className="text-base font-bold text-gray-900 flex items-center gap-2">
-        <ListOrdered className="h-4 w-4 text-amber-500" /> Class Waitlist
-      </h2>
-
-      {myWaitlist && myWaitlist.length > 0 ? (
-        <div className="space-y-2">
-          {myWaitlist.map((entry: any) => (
-            <div key={entry.id} className="flex items-center justify-between p-3 rounded-xl border bg-gray-50">
-              <div>
-                <p className="text-sm font-medium text-gray-900">{entry.class?.name}</p>
-                <p className="text-xs text-gray-500">{entry.class?.serviceSlot === "7am" ? "1st Service · 7:00–10:00 AM" : entry.class?.serviceSlot === "10:30am" ? "2nd Service · 10:30 AM" : entry.class?.serviceSlot} · {entry.class?.roomLocation}</p>
-              </div>
-              <div className="flex items-center gap-2">
-                <Badge className={`text-xs ${statusColors[entry.status] || "bg-gray-100 text-gray-600"}`}>
-                  {entry.status}
-                </Badge>
-                <button onClick={() => removeWaitlist.mutate({ classId: entry.classId, entryId: entry.id })}
-                  className="w-7 h-7 rounded-full flex items-center justify-center text-red-400 hover:text-red-600 hover:bg-red-50">
-                  <Trash2 className="h-3.5 w-3.5" />
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <p className="text-sm text-gray-400">You're not on any class waitlists.</p>
-      )}
-
-      <div className="pt-2 border-t space-y-2">
-        <p className="text-xs font-medium text-gray-600">Join a waitlist for a full class</p>
-        <div className="flex gap-2">
-          <Select value={selectedClassId} onValueChange={setSelectedClassId}>
-            <SelectTrigger className="flex-1 text-sm h-9"><SelectValue placeholder="Select class" /></SelectTrigger>
-            <SelectContent>
-              {(classesData || []).filter((c: any) => c.enrollmentCount >= c.capacity).map((c: any) => (
-                <SelectItem key={c.id} value={String(c.id)}>{c.name} (Full)</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <button onClick={() => selectedClassId && joinWaitlist.mutate()} disabled={!selectedClassId || joinWaitlist.isPending}
-            className="px-3 py-2 bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold rounded-lg disabled:opacity-50 whitespace-nowrap">
-            {joinWaitlist.isPending ? "..." : "Join Waitlist"}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 function FamilyQRModal({ family, open, onClose }: { family: any; open: boolean; onClose: () => void }) {
   const qrValue = `QR:${family?.id}`;
@@ -675,9 +586,6 @@ export default function MyFamily() {
 
       {/* Attendance History */}
       {children.length > 0 && <AttendanceHistory children={children} />}
-
-      {/* Class Waitlist */}
-      <WaitlistSection familyId={family?.id} />
 
       {/* Family QR Modal */}
       {family && <FamilyQRModal family={family} open={qrModalOpen} onClose={() => setQrModalOpen(false)} />}
