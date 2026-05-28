@@ -15,7 +15,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import { Edit2, Trash2, CheckCircle, XCircle, Clock, UserCheck, Users as UsersIcon, Search, RefreshCw, AlertTriangle, Plus, X } from "lucide-react";
+import { Edit2, Trash2, CheckCircle, XCircle, Clock, UserCheck, Users as UsersIcon, Search, RefreshCw, AlertTriangle, Plus, X, KeyRound } from "lucide-react";
 import { apiGet, apiPut, apiPost, apiDelete } from "@/lib/api-call";
 import { QueryError } from "@/components/QueryError";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -277,6 +277,9 @@ export default function Users() {
   const { toast } = useToast();
 
   const [isOpen, setIsOpen] = useState(false);
+  const [resetTarget, setResetTarget] = useState<any | null>(null);
+  const [resetPassword, setResetPassword] = useState("");
+  const [resetLoading, setResetLoading] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState("");
@@ -386,6 +389,21 @@ export default function Users() {
       toast({ variant: "destructive", title: e.message || "Could not reassign role" });
     } finally {
       setReassignLoading(false);
+    }
+  };
+
+  const handleResetPassword = async () => {
+    if (!resetTarget || !resetPassword) return;
+    setResetLoading(true);
+    try {
+      await apiPut(`/users/${resetTarget.id}/reset-password`, { password: resetPassword });
+      toast({ title: "Password reset", description: `Password for ${resetTarget.firstName} ${resetTarget.lastName} has been updated.` });
+      setResetTarget(null);
+      setResetPassword("");
+    } catch (e: any) {
+      toast({ variant: "destructive", title: e.message || "Could not reset password" });
+    } finally {
+      setResetLoading(false);
     }
   };
 
@@ -518,6 +536,33 @@ export default function Users() {
         />
       )}
 
+      {/* Reset Password dialog */}
+      {resetTarget && (
+        <Dialog open onOpenChange={() => { setResetTarget(null); setResetPassword(""); }}>
+          <DialogContent className="max-w-sm">
+            <DialogHeader>
+              <DialogTitle>Reset Password</DialogTitle>
+            </DialogHeader>
+            <p className="text-sm text-gray-600">
+              Set a new password for <strong>{resetTarget.firstName} {resetTarget.lastName}</strong>. Share it with them securely.
+            </p>
+            <Input
+              type="password"
+              placeholder="New password (min 6 characters)"
+              value={resetPassword}
+              onChange={e => setResetPassword(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && handleResetPassword()}
+            />
+            <div className="flex justify-end gap-2 pt-2">
+              <Button variant="outline" onClick={() => { setResetTarget(null); setResetPassword(""); }}>Cancel</Button>
+              <Button onClick={handleResetPassword} disabled={resetLoading || resetPassword.length < 6}>
+                {resetLoading ? "Resetting…" : "Reset Password"}
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
+
       <Tabs defaultValue="all">
         <TabsList className="bg-gray-100">
           <TabsTrigger value="all" className="flex items-center gap-2">
@@ -590,6 +635,12 @@ export default function Users() {
                         {isSuperAdmin && (
                           <Button variant="ghost" size="sm" onClick={() => handleOpenEdit(user)} title="Edit">
                             <Edit2 className="w-4 h-4" />
+                          </Button>
+                        )}
+                        {(isSuperAdmin || isAdmin) && user.id !== currentUser?.id && (
+                          <Button variant="ghost" size="sm" className="text-amber-600 hover:bg-amber-50" title="Reset Password"
+                            onClick={() => { setResetTarget(user); setResetPassword(""); }}>
+                            <KeyRound className="w-4 h-4" />
                           </Button>
                         )}
                         {isSuperAdmin && user.id !== currentUser?.id && (

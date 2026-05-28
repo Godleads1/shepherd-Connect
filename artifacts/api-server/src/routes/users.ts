@@ -162,6 +162,22 @@ router.put("/users/:id/reject", authMiddleware, requireRoles("super_admin", "adm
   res.json({ success: true, message: "User rejected", user: sanitizeUser(user, viewer) });
 });
 
+router.put("/users/:id/reset-password", authMiddleware, requireRoles("super_admin", "admin"), async (req, res): Promise<void> => {
+  const id = parseInt(req.params.id as string, 10);
+  if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
+  const { password } = req.body as { password?: string };
+  if (!password || password.length < 6) {
+    res.status(400).json({ error: "Bad request", message: "Password must be at least 6 characters" }); return;
+  }
+  const passwordHash = await bcrypt.hash(password, 12);
+  const [user] = await db.update(usersTable)
+    .set({ passwordHash })
+    .where(eq(usersTable.id, id))
+    .returning();
+  if (!user) { res.status(404).json({ error: "Not found", message: "User not found" }); return; }
+  res.json({ success: true, message: "Password reset successfully" });
+});
+
 router.put("/users/:id/suspend", authMiddleware, requireRoles("super_admin"), async (req, res): Promise<void> => {
   const id = parseInt(req.params.id as string, 10);
   if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
