@@ -365,9 +365,8 @@ router.post("/auth/send-otp", async (req, res): Promise<void> => {
   const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
   otpSessions.set(pinId, { otp, phone: phone.trim(), expiresAt });
 
-  // Deliver via the requested channel (WhatsApp or SMS), plus always email as backup
-  const smsChannel = channel === "whatsapp" ? "whatsapp" : "generic";
-  await smsRegistrationOtp(phone.trim(), otp, req.log, smsChannel);
+  // Deliver OTP via SMS (dnd route) plus email as backup
+  await smsRegistrationOtp(phone.trim(), otp, req.log);
   if (email && typeof email === "string") {
     await emailRegistrationOtp(email.trim(), otp, req.log);
   }

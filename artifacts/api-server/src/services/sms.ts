@@ -128,7 +128,7 @@ async function sendToEmails(emails: (string | null | undefined)[], subject: stri
 
 // ── SMS send ─────────────────────────────────────────────────────────────────
 
-async function send(to: string, sms: string, channel: "generic" | "dnd" | "whatsapp" = "generic", logger?: Logger): Promise<void> {
+async function send(to: string, sms: string, channel: "generic" | "dnd" | "whatsapp" = "dnd", logger?: Logger): Promise<void> {
   if (!isConfigured()) { logger?.warn("No SMS provider configured — SMS skipped"); return; }
   const normalised = normalisePhone(to);
 
@@ -138,7 +138,7 @@ async function send(to: string, sms: string, channel: "generic" | "dnd" | "whats
       const res = await fetch(`${BASE_URL}/api/sms/send`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ to: normalised, from: SENDER, sms, type: "plain", channel, api_key: API_KEY }),
+        body: JSON.stringify({ to: normalised, from: SENDER, sms, type: "plain", channel: "dnd", api_key: API_KEY }),
       });
       const data = await res.json() as Record<string, unknown>;
       if (res.ok) { logger?.info({ to: normalised }, "SMS sent via Termii"); return; }
@@ -152,9 +152,9 @@ async function send(to: string, sms: string, channel: "generic" | "dnd" | "whats
   await sendViaTwilio(to, sms, logger);
 }
 
-async function sendToPhones(phones: (string | null | undefined)[], msg: string, logger?: Logger, channel: "generic" | "dnd" | "whatsapp" = "dnd") {
+async function sendToPhones(phones: (string | null | undefined)[], msg: string, logger?: Logger) {
   const valid = phones.filter((p): p is string => Boolean(p && p.trim().length >= 7));
-  await Promise.all(valid.map(p => send(p, msg, channel, logger)));
+  await Promise.all(valid.map(p => send(p, msg, "dnd", logger)));
 }
 
 // ── OTP ──────────────────────────────────────────────────────────────────────
@@ -162,7 +162,6 @@ async function sendToPhones(phones: (string | null | undefined)[], msg: string, 
 export async function sendOtp(phone: string, channel: "sms" | "whatsapp", logger?: Logger): Promise<{ pinId: string } | null> {
   if (!isConfigured()) { logger?.warn("Termii not configured — OTP skipped"); return null; }
   const normalised = normalisePhone(phone);
-  const termiiChannel = "generic"; // WhatsApp requires separate Business API activation
   try {
     const res = await fetch(`${BASE_URL}/api/sms/otp/send`, {
       method: "POST",
@@ -172,12 +171,12 @@ export async function sendOtp(phone: string, channel: "sms" | "whatsapp", logger
         message_type: "NUMERIC",
         to: normalised,
         from: SENDER,
-        channel: termiiChannel,
+        channel: "dnd",
         pin_attempts: 3,
         pin_time_to_live: 10,
         pin_length: 6,
         pin_placeholder: "< 1234 >",
-        message_text: "Your Shepherd Connect code is < 1234 >. Valid for 10 mins. — RCCG City of David",
+        message_text: "Your Shepherd Connect Verification Pin is < 1234 >. It expires in 10 minutes.",
         pin_type: "NUMERIC",
       }),
     });
@@ -340,27 +339,27 @@ export async function emailShepherdsReport(
 
 export async function smsWelcome(phone: string | null | undefined, firstName: string, logger?: Logger) {
   if (!phone) return;
-  await send(phone, `Hi ${firstName}, welcome to Shepherd Connect! Your account is ready. Log in at ${APP_URL} — RCCG City of David`, "generic", logger);
+  await send(phone, `Hi ${firstName}, welcome to Shepherd Connect! Your account is ready. Log in at ${APP_URL} — RCCG City of David`, "dnd", logger);
 }
 
 export async function smsPendingApproval(phone: string | null | undefined, firstName: string, logger?: Logger) {
   if (!phone) return;
-  await send(phone, `Hi ${firstName}, your Shepherd Connect account is pending admin approval. You'll be notified by SMS once approved. — RCCG City of David`, "generic", logger);
+  await send(phone, `Hi ${firstName}, your Shepherd Connect account is pending admin approval. You'll be notified by SMS once approved. — RCCG City of David`, "dnd", logger);
 }
 
 export async function smsAccountApproved(phone: string | null | undefined, firstName: string, logger?: Logger) {
   if (!phone) return;
-  await send(phone, `Hi ${firstName}, your Shepherd Connect account has been approved! Log in at ${APP_URL} — RCCG City of David`, "generic", logger);
+  await send(phone, `Hi ${firstName}, your Shepherd Connect account has been approved! Log in at ${APP_URL} — RCCG City of David`, "dnd", logger);
 }
 
 export async function smsAccountRejected(phone: string | null | undefined, firstName: string, logger?: Logger) {
   if (!phone) return;
-  await send(phone, `Hi ${firstName}, your Shepherd Connect account application was not approved. Contact the church admin for more info. — RCCG City of David`, "generic", logger);
+  await send(phone, `Hi ${firstName}, your Shepherd Connect account application was not approved. Contact the church admin for more info. — RCCG City of David`, "dnd", logger);
 }
 
 export async function smsPasswordResetCode(phone: string | null | undefined, code: string, logger?: Logger) {
   if (!phone) return;
-  await send(phone, `Your Shepherd Connect password reset code is: ${code}. Expires in 15 minutes. Do not share. — RCCG City of David`, "generic", logger);
+  await send(phone, `Your Shepherd Connect Verification Pin is ${code} for Shepherd Connect app. It expires in 15 minutes.`, "dnd", logger);
 }
 
 export async function smsChildCheckedIn(phones: (string | null | undefined)[], childName: string, className: string, serviceSlot: string, logger?: Logger) {
@@ -376,12 +375,12 @@ export async function smsPreDismissal(phones: (string | null | undefined)[], chi
   await sendToPhones(phones, `📢 Service ending soon. ${childName} is ready for pickup at the children's church exit. — Shepherd Connect`, logger);
 }
 
-export async function smsRegistrationOtp(phone: string | null | undefined, otp: string, logger?: Logger, channel: "generic" | "whatsapp" = "generic") {
+export async function smsRegistrationOtp(phone: string | null | undefined, otp: string, logger?: Logger) {
   if (!phone) return;
   await send(
     phone,
-    `Your Shepherd Connect verification code is: ${otp}. Valid for 10 minutes. Do not share this code. — RCCG City of David`,
-    channel,
+    `Your Shepherd Connect Verification Pin is ${otp} for Shepherd Connect app. It expires in 10 minutes.`,
+    "dnd",
     logger,
   );
 }
@@ -433,7 +432,7 @@ export async function smsDelegateOtp(phone: string | null | undefined, delegateN
   await send(
     phone,
     `Hi ${delegateName}, you have been authorised to pick up ${childName} from Shepherd Connect. Your pickup code is: ${otpCode}. Valid for 24 hours. — RCCG City of David`,
-    "generic",
+    "dnd",
     logger,
   );
 }
