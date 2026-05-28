@@ -225,6 +225,7 @@ export default function Register() {
       // Non-parents: skip child step, register immediately
       handleFinish(d);
     } else {
+      form3.reset({ children: [{ firstName: "", lastName: step1Data?.lastName ?? "", dobDay: "", dobMonth: "", dobYear: "", gender: "male", allergies: "" }] });
       setStep(3);
     }
   };
