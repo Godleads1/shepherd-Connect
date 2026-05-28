@@ -6,7 +6,7 @@ import { streamPdf, renderReportPdf } from "../lib/pdf";
 
 const router = Router();
 
-router.get("/reports/not-picked-up", authMiddleware, requireRoles("super_admin", "admin", "attendant"), async (req, res): Promise<void> => {
+router.get("/reports/not-picked-up", authMiddleware, requireRoles("super_admin", "admin", "support"), async (req, res): Promise<void> => {
   const { serviceDate, serviceSlot } = req.query as { serviceDate?: string; serviceSlot?: string };
   const today = serviceDate || new Date().toISOString().split("T")[0];
 

@@ -8,7 +8,7 @@ import { smsAccountApproved, smsAccountRejected, emailAccountApproved, emailAcco
 
 const router = Router();
 
-const VALID_ROLES = ["super_admin", "admin", "teacher", "attendant", "parent"] as const;
+const VALID_ROLES = ["super_admin", "admin", "teacher", "support", "parent"] as const;
 type UserRole = typeof VALID_ROLES[number];
 
 function parseSecondaryRoles(raw: string | null | undefined): UserRole[] {
@@ -61,7 +61,7 @@ router.get("/users", authMiddleware, requireRoles("super_admin", "admin"), async
   const offset = (page - 1) * limit;
 
   const conditions: ReturnType<typeof eq>[] = [];
-  if (role) conditions.push(eq(usersTable.role, role as "super_admin" | "admin" | "teacher" | "attendant" | "parent"));
+  if (role) conditions.push(eq(usersTable.role, role as "super_admin" | "admin" | "teacher" | "support" | "parent"));
   if (statusFilter) conditions.push(eq(usersTable.status, statusFilter as "active" | "pending_approval" | "suspended"));
 
   const searchCondition = search ? or(
@@ -96,7 +96,7 @@ router.post("/users", authMiddleware, requireRoles("super_admin"), async (req, r
   const passwordHash = await bcrypt.hash(password, 12);
   const [user] = await db.insert(usersTable).values({
     email, passwordHash, firstName, lastName, phone,
-    role: role as "super_admin" | "admin" | "teacher" | "attendant" | "parent",
+    role: role as "super_admin" | "admin" | "teacher" | "support" | "parent",
     status: "active",
     isActive: true,
   }).returning();
@@ -191,7 +191,7 @@ router.put("/users/:id", authMiddleware, async (req, res): Promise<void> => {
   if (parsed.data.lastName) updates.lastName = parsed.data.lastName;
   if (parsed.data.phone !== undefined) updates.phone = parsed.data.phone;
   if (isAdmin && parsed.data.isActive !== undefined) updates.isActive = parsed.data.isActive;
-  if (isAdmin && parsed.data.role) updates.role = parsed.data.role as "super_admin" | "admin" | "teacher" | "attendant" | "parent";
+  if (isAdmin && parsed.data.role) updates.role = parsed.data.role as "super_admin" | "admin" | "teacher" | "support" | "parent";
 
   const body = req.body as Record<string, unknown>;
   if (body["photoUrl"] !== undefined) updates.photoUrl = body["photoUrl"] as string | null;
@@ -228,11 +228,11 @@ router.post("/users/:id/reassign-role", authMiddleware, requireRoles("super_admi
     }
   }
 
-  const validRoles = ["super_admin", "admin", "teacher", "attendant", "parent"];
+  const validRoles = ["super_admin", "admin", "teacher", "support", "parent"];
   if (!validRoles.includes(role)) { res.status(400).json({ error: "Bad request", message: "Invalid role" }); return; }
 
   const [updated] = await db.update(usersTable)
-    .set({ role: role as "super_admin" | "admin" | "teacher" | "attendant" | "parent" })
+    .set({ role: role as "super_admin" | "admin" | "teacher" | "support" | "parent" })
     .where(eq(usersTable.id, id))
     .returning();
 

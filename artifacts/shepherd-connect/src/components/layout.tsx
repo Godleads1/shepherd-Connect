@@ -269,7 +269,7 @@ export function Layout({ children }: { children: ReactNode }) {
       items.push({ href: "/appraisals",            label: t.nav.appraisals,      icon: FileText });
       items.push({ href: "/substitute-requests",   label: "Substitute Requests", icon: CalendarClock });
       items.push({ href: "/messages",              label: "Messages",            icon: MessageSquare, badge: msgUnreadCount });
-    } else if (role === "attendant") {
+    } else if (role === "support") {
       items.push({ href: "/checkin",  label: t.nav.checkin,  icon: ClipboardCheck });
       items.push({ href: "/checkout", label: t.nav.checkout, icon: CheckSquare });
     }
@@ -294,7 +294,7 @@ export function Layout({ children }: { children: ReactNode }) {
       { href: "/notifications", label: t.nav.notifications, icon: Bell, badge: unreadCount },
       { href: "/appraisals",    label: t.nav.appraisals,    icon: FileText },
     ];
-    if (role === "attendant") return [
+    if (role === "support") return [
       { href: "/checkin",  label: t.nav.checkin,       icon: ClipboardCheck },
       { href: "/checkout", label: t.nav.checkout,      icon: CheckSquare },
       { href: "/notifications", label: t.nav.notifications, icon: Bell, badge: unreadCount },
@@ -528,7 +528,7 @@ export function Layout({ children }: { children: ReactNode }) {
 
           {/* Center QR */}
           <div className="flex-1 flex justify-center items-center pb-1">
-            <Link href={role === "attendant" ? "/checkin" : role === "parent" ? "/my-family" : "/checkin"}>
+            <Link href={role === "support" ? "/checkin" : role === "parent" ? "/my-family" : "/checkin"}>
               <div
                 className="w-14 h-14 rounded-full flex items-center justify-center shadow-lg transition-all active:scale-95"
                 style={{ background: "linear-gradient(135deg, #1a237e, #283593)", boxShadow: "0 4px 16px rgba(26,35,126,0.5)" }}

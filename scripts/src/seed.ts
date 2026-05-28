@@ -72,15 +72,15 @@ async function seed() {
     if (u) extraTeacherUsers.push(u);
   }
 
-  // Attendant
-  const attendantHash = await bcrypt.hash("attend123", 12);
-  const [attendant] = await db.insert(usersTable).values({
-    email: "attendant@shepherd.com",
-    passwordHash: attendantHash,
+  // Support
+  const supportHash = await bcrypt.hash("attend123", 12);
+  const [support] = await db.insert(usersTable).values({
+    email: "support@shepherd.com",
+    passwordHash: supportHash,
     firstName: "Joseph",
     lastName: "Eze",
     phone: "+2348056789012",
-    role: "attendant",
+    role: "support",
     isActive: true,
   }).onConflictDoNothing().returning();
 
@@ -356,7 +356,7 @@ async function seed() {
   console.log("  Super Admin: superadmin@shepherd.com / admin123");
   console.log("  Admin:       admin@shepherd.com / admin123");
   console.log("  Teacher:     teacher1@shepherd.com / teacher123");
-  console.log("  Attendant:   attendant@shepherd.com / attend123");
+  console.log("  Support:   support@shepherd.com / attend123");
   console.log("  Parent:      parent1@shepherd.com / parent123");
 
   process.exit(0);

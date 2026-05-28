@@ -1991,7 +1991,7 @@ components:
           type: string
         role:
           type: string
-          enum: [super_admin, admin, teacher, attendant, parent]
+          enum: [super_admin, admin, teacher, support, parent]
       required:
         - firstName
         - lastName
@@ -2023,7 +2023,7 @@ components:
           nullable: true
         role:
           type: string
-          enum: [super_admin, admin, teacher, attendant, parent]
+          enum: [super_admin, admin, teacher, support, parent]
         firstName:
           type: string
         lastName:
@@ -3347,7 +3347,7 @@ components:
           type: array
           items:
             type: string
-            enum: [super_admin, admin, teacher, attendant, parent]
+            enum: [super_admin, admin, teacher, support, parent]
         targetUserIds:
           type: array
           items:

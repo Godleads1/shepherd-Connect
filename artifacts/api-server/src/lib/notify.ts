@@ -24,7 +24,7 @@ export async function sendNotification(opts: {
 }
 
 export async function sendToRole(opts: {
-  role: "parent" | "teacher" | "attendant" | "admin" | "super_admin";
+  role: "parent" | "teacher" | "support" | "admin" | "super_admin";
   type: string;
   title: string;
   message: string;
@@ -298,7 +298,7 @@ export async function notifyChildPickedUp(childId: number) {
  * Tiered emergency broadcast — L1 to L4 escalation tree.
  *
  * L1 — Local/Class level: teachers + admins only
- * L2 — Department: all staff (teachers, attendants, admins) + child's parents if childId set
+ * L2 — Department: all staff (teachers, supports, admins) + child's parents if childId set
  * L3 — Building-wide: all staff + ALL parents of children currently checked in today
  * L4 — Full community / critical: every active user on the platform
  */
@@ -356,7 +356,7 @@ export async function broadcastEmergency(opts: {
   } else if (opts.level === "L2") {
     // All staff + child's parents if childId provided
     const allUsers = await db.select({ id: usersTable.id, role: usersTable.role }).from(usersTable).where(eq(usersTable.isActive, true));
-    const staffRoles = new Set(["teacher", "attendant", "admin", "super_admin"]);
+    const staffRoles = new Set(["teacher", "support", "admin", "super_admin"]);
     const targets = new Set(allUsers.filter(u => staffRoles.has(u.role)).map(u => u.id));
 
     if (opts.childId) {
@@ -374,7 +374,7 @@ export async function broadcastEmergency(opts: {
     // All staff + all parents of children checked in today
     const today = new Date().toISOString().split("T")[0];
     const allUsers = await db.select({ id: usersTable.id, role: usersTable.role }).from(usersTable).where(eq(usersTable.isActive, true));
-    const staffRoles = new Set(["teacher", "attendant", "admin", "super_admin"]);
+    const staffRoles = new Set(["teacher", "support", "admin", "super_admin"]);
     const targets = new Set(allUsers.filter(u => staffRoles.has(u.role)).map(u => u.id));
 
     // Find all children checked in today (not yet picked up)

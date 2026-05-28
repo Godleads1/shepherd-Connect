@@ -18,7 +18,7 @@ setInterval(() => {
   for (const [key, s] of otpSessions) { if (s.expiresAt < now) otpSessions.delete(key); }
 }, 60_000); // prune expired sessions every minute
 
-const VALID_ROLES = ["super_admin", "admin", "teacher", "attendant", "parent"] as const;
+const VALID_ROLES = ["super_admin", "admin", "teacher", "support", "parent"] as const;
 type UserRole = typeof VALID_ROLES[number];
 
 function parseSecondaryRoles(raw: string | null | undefined): UserRole[] {
@@ -123,7 +123,7 @@ router.post("/auth/register", async (req, res): Promise<void> => {
 
   if (existing) {
     // Email already registered — add role to pendingRoles if not already held
-    const VALID_ROLES_LIST = ["super_admin", "admin", "teacher", "attendant", "parent"];
+    const VALID_ROLES_LIST = ["super_admin", "admin", "teacher", "support", "parent"];
     if (!VALID_ROLES_LIST.includes(role)) {
       res.status(400).json({ error: "Bad request", message: "Invalid role" }); return;
     }
@@ -170,7 +170,7 @@ router.post("/auth/register", async (req, res): Promise<void> => {
       firstName,
       lastName,
       phone,
-      role: role as "super_admin" | "admin" | "teacher" | "attendant" | "parent",
+      role: role as "super_admin" | "admin" | "teacher" | "support" | "parent",
       status: userStatus,
       isActive,
     })

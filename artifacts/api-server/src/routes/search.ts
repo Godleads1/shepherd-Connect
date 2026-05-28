@@ -102,7 +102,7 @@ router.get("/search", authMiddleware, async (req, res): Promise<void> => {
     return;
   }
 
-  if (role === "attendant") {
+  if (role === "support") {
     const children = await db.select().from(childrenTable)
       .where(or(ilike(childrenTable.firstName, like), ilike(childrenTable.lastName, like)))
       .limit(10);

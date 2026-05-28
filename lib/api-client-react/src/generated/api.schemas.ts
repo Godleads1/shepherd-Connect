@@ -45,7 +45,7 @@ export const RegisterBodyRole = {
   super_admin: "super_admin",
   admin: "admin",
   teacher: "teacher",
-  attendant: "attendant",
+  support: "support",
   parent: "parent",
 } as const;
 
@@ -64,7 +64,7 @@ export const UserRole = {
   super_admin: "super_admin",
   admin: "admin",
   teacher: "teacher",
-  attendant: "attendant",
+  support: "support",
   parent: "parent",
 } as const;
 
@@ -833,7 +833,7 @@ export const BroadcastNotificationBodyTargetRolesItem = {
   super_admin: "super_admin",
   admin: "admin",
   teacher: "teacher",
-  attendant: "attendant",
+  support: "support",
   parent: "parent",
 } as const;
 

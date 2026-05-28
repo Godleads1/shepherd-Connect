@@ -58,7 +58,7 @@ function ChildSlotPicker({
 
 export default function CheckIn() {
   const { user } = useAuth();
-  const canAssist = user?.role === "attendant" || user?.role === "admin" || user?.role === "super_admin";
+  const canAssist = user?.role === "support" || user?.role === "admin" || user?.role === "super_admin";
   const [qrCode, setQrCode] = useState("");
   const [activeTab, setActiveTab] = useState<Tab>("qr");
   const [serviceSlot, setServiceSlot] = useState<SlotChoice>("7am");

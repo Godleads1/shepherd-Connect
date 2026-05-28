@@ -358,7 +358,7 @@ router.post("/attendance/scan-face", authMiddleware, async (req, res): Promise<v
 });
 
 // ─── Late Pickup Alerts ───────────────────────────────────────────────────────
-router.post("/attendance/late-pickup-alerts", authMiddleware, requireRoles("super_admin", "admin", "attendant"), async (req, res): Promise<void> => {
+router.post("/attendance/late-pickup-alerts", authMiddleware, requireRoles("super_admin", "admin", "support"), async (req, res): Promise<void> => {
   const { serviceDate, serviceSlot } = req.body as { serviceDate?: string; serviceSlot?: string };
   const today = serviceDate || new Date().toISOString().split("T")[0];
 

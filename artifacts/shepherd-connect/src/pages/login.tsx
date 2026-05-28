@@ -158,13 +158,13 @@ export default function Login() {
     parent: "Parent",
     teacher: "Teacher",
     admin: "Admin",
-    attendant: "Attendant",
+    attendant: "Support",
   };
 
   const navigateForRole = (role: string) => {
     if (role === "parent") setLocation("/my-family");
     else if (role === "teacher") setLocation("/my-class");
-    else if (role === "attendant") setLocation("/checkin");
+    else if (role === "support") setLocation("/checkin");
     else setLocation("/dashboard");
   };
 
@@ -235,7 +235,7 @@ export default function Login() {
       const role = response.user.role;
       if (role === "parent") setLocation("/my-family");
       else if (role === "teacher") setLocation("/my-class");
-      else if (role === "attendant") setLocation("/checkin");
+      else if (role === "support") setLocation("/checkin");
       else setLocation("/dashboard");
     } catch (e: any) {
       setMfaError(e.message || "Invalid code. Please try again.");
@@ -248,7 +248,7 @@ export default function Login() {
     { label: t.rolePills.parent, value: "parent" },
     { label: t.rolePills.teacher, value: "teacher" },
     { label: t.rolePills.admin, value: "admin" },
-    { label: t.rolePills.attendant, value: "attendant" },
+    { label: t.rolePills.attendant, value: "support" },
   ];
 
   const cardStyle = {
@@ -264,7 +264,7 @@ export default function Login() {
     teacher: "Teacher",
     admin: "Admin",
     super_admin: "Super Admin",
-    attendant: "Attendant",
+    attendant: "Support",
   };
 
   const roleIcons: Record<string, string> = {

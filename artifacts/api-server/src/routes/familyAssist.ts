@@ -18,7 +18,7 @@ function todayString(): string {
   return new Date().toISOString().split("T")[0];
 }
 
-router.get("/family-assist/search", authMiddleware, requireRoles("super_admin", "admin", "attendant"), async (req, res): Promise<void> => {
+router.get("/family-assist/search", authMiddleware, requireRoles("super_admin", "admin", "support"), async (req, res): Promise<void> => {
   const q = ((req.query.q as string) || "").trim();
   if (!q) { res.json([]); return; }
 
@@ -63,7 +63,7 @@ router.get("/family-assist/search", authMiddleware, requireRoles("super_admin", 
   res.json(result);
 });
 
-router.post("/family-assist/delegate", authMiddleware, requireRoles("super_admin", "admin", "attendant"), async (req, res): Promise<void> => {
+router.post("/family-assist/delegate", authMiddleware, requireRoles("super_admin", "admin", "support"), async (req, res): Promise<void> => {
   const { childId, delegateName, delegatePhone } = req.body as { childId?: number; delegateName?: string; delegatePhone?: string };
   if (!childId || !delegateName || !delegatePhone) {
     res.status(400).json({ error: "childId, delegateName and delegatePhone are required" });
@@ -91,7 +91,7 @@ router.post("/family-assist/delegate", authMiddleware, requireRoles("super_admin
   res.status(201).json({ ...delegate, otpCode: otp });
 });
 
-router.post("/family-assist/checkin", authMiddleware, requireRoles("super_admin", "admin", "attendant"), async (req, res): Promise<void> => {
+router.post("/family-assist/checkin", authMiddleware, requireRoles("super_admin", "admin", "support"), async (req, res): Promise<void> => {
   const { childId, serviceSlot } = req.body as { childId?: number; serviceSlot?: string };
   if (!childId || !serviceSlot) {
     res.status(400).json({ error: "childId and serviceSlot are required" });
@@ -132,7 +132,7 @@ router.post("/family-assist/checkin", authMiddleware, requireRoles("super_admin"
 
 type GuestChild = { firstName: string; lastName: string; dob: string; gender: string };
 
-router.post("/family-assist/guest", authMiddleware, requireRoles("super_admin", "admin", "attendant"), async (req, res): Promise<void> => {
+router.post("/family-assist/guest", authMiddleware, requireRoles("super_admin", "admin", "support"), async (req, res): Promise<void> => {
   const { parentName, parentPhone, children, serviceSlot } =
     req.body as { parentName?: string; parentPhone?: string; children?: GuestChild[]; serviceSlot?: string };
 

@@ -65,7 +65,7 @@ router.get("/pickup-requests/stream/:classNumber", async (req, res): Promise<voi
   });
 });
 
-router.get("/pickup-requests", authMiddleware, requireRoles("super_admin", "admin", "attendant"), async (req, res): Promise<void> => {
+router.get("/pickup-requests", authMiddleware, requireRoles("super_admin", "admin", "support"), async (req, res): Promise<void> => {
   const all: any[] = [];
   for (const queue of pickupQueue.values()) {
     all.push(...queue);

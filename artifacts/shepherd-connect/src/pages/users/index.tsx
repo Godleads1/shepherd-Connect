@@ -28,7 +28,7 @@ const userSchema = z.object({
   email: z.string().email("Invalid email address"),
   phone: z.string().optional().refine(v => !v || PHONE_RE.test(v), { message: "Must be exactly 11 digits" }),
   password: z.string().optional(),
-  role: z.enum(["super_admin", "admin", "teacher", "attendant", "parent"]),
+  role: z.enum(["super_admin", "admin", "teacher", "support", "parent"]),
   isActive: z.boolean().default(true),
 });
 
@@ -98,7 +98,7 @@ function ReassignRoleDialog({ user, isSuperAdmin, onConfirm, onCancel, loading }
     ? [
         { value: "parent", label: "Parent" },
         { value: "teacher", label: "Teacher" },
-        { value: "attendant", label: "Attendant" },
+        { value: "support", label: "Support" },
         { value: "admin", label: "Admin" },
         { value: "super_admin", label: "Super Admin" },
       ]
@@ -173,7 +173,7 @@ function GrantRoleDialog({ user, onClose }: { user: any; onClose: () => void }) 
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
   const secondary: string[] = user.secondaryRoles ?? [];
-  const allRoles = ["parent", "teacher", "attendant", "admin", "super_admin"];
+  const allRoles = ["parent", "teacher", "support", "admin", "super_admin"];
   const available = allRoles.filter(r => r !== user.role && !secondary.includes(r));
 
   const grant = async (role: string) => {
@@ -198,7 +198,7 @@ function GrantRoleDialog({ user, onClose }: { user: any; onClose: () => void }) 
     } finally { setLoading(false); }
   };
 
-  const roleLabels: Record<string, string> = { parent: "Parent", teacher: "Teacher", attendant: "Attendant", admin: "Admin", super_admin: "Super Admin" };
+  const roleLabels: Record<string, string> = { parent: "Parent", teacher: "Teacher", attendant: "Support", admin: "Admin", super_admin: "Super Admin" };
   const roleColors: Record<string, string> = { parent: "#6b7280", teacher: "#0d9488", attendant: "#ea580c", admin: "#2563eb", super_admin: "#9333ea" };
 
   return (
@@ -463,7 +463,7 @@ export default function Users() {
                       {isSuperAdmin && <SelectItem value="super_admin">Super Admin</SelectItem>}
                       {isSuperAdmin && <SelectItem value="admin">Admin</SelectItem>}
                       <SelectItem value="teacher">Teacher</SelectItem>
-                      {isSuperAdmin && <SelectItem value="attendant">Attendant</SelectItem>}
+                      {isSuperAdmin && <SelectItem value="support">Support</SelectItem>}
                       <SelectItem value="parent">Parent</SelectItem>
                     </SelectContent>
                   </Select>
@@ -545,7 +545,7 @@ export default function Users() {
                 <SelectItem value="super_admin">Super Admin</SelectItem>
                 <SelectItem value="admin">Admin</SelectItem>
                 <SelectItem value="teacher">Teacher</SelectItem>
-                <SelectItem value="attendant">Attendant</SelectItem>
+                <SelectItem value="support">Support</SelectItem>
                 <SelectItem value="parent">Parent</SelectItem>
               </SelectContent>
             </Select>

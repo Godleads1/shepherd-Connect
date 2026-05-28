@@ -10,12 +10,12 @@ import {
   CheckCircle2, XCircle, ArrowRight, Settings, BadgeCheck, Hash, Printer,
 } from "lucide-react";
 
-type RoleTab = "admin" | "teacher" | "attendant" | "parent";
+type RoleTab = "admin" | "teacher" | "support" | "parent";
 
 const ROLES: { id: RoleTab; label: string; color: string; bg: string }[] = [
   { id: "admin",     label: "Admin / Super Admin", color: "#1e3a8a", bg: "#eff6ff" },
   { id: "teacher",   label: "Teacher",              color: "#059669", bg: "#f0fdf4" },
-  { id: "attendant", label: "Attendant",            color: "#7c3aed", bg: "#f5f3ff" },
+  { id: "support", label: "Support",            color: "#7c3aed", bg: "#f5f3ff" },
   { id: "parent",    label: "Parent",               color: "#d97706", bg: "#fffbeb" },
 ];
 
@@ -271,7 +271,7 @@ function AdminGuide() {
             <p>On the <strong>All Users</strong> tab, find the user and click <strong>Deactivate</strong>. They lose access immediately without deleting their data.</p>
           </Step>
         </div>
-        <Note>Parents and Attendants who self-register are automatically approved and can log in immediately — only Admin and Teacher accounts require manual approval.</Note>
+        <Note>Parents and Supports who self-register are automatically approved and can log in immediately — only Admin and Teacher accounts require manual approval.</Note>
       </Section>
 
       <Section icon={FileText} title="Audit Logs">
@@ -396,11 +396,11 @@ function TeacherGuide() {
   );
 }
 
-function AttendantGuide() {
+function SupportGuide() {
   return (
     <div className="space-y-4">
       <Section icon={ClipboardCheck} title="Check In — Standard" color="#7c3aed">
-        <p className="text-sm text-gray-600 mt-3">Check-in registers a child as present for today's service. The attendant role is designed for fast, kiosk-style operation.</p>
+        <p className="text-sm text-gray-600 mt-3">Check-in registers a child as present for today's service. The support role is designed for fast, kiosk-style operation.</p>
         <div className="space-y-2 mt-2">
           <Step n={1} title="Find the family">
             <p>Go to <strong>Check In</strong>. Search by the child's name, parent name, or family code (e.g. FAM-MENS01). Results appear instantly as you type.</p>
@@ -467,7 +467,7 @@ function AttendantGuide() {
       </Section>
 
       <Section icon={Bell} title="Notifications" color="#7c3aed">
-        <p className="text-sm text-gray-600 mt-3">Attendants receive system notifications (broadcasts, alerts). Check the Bell icon for updates during the service.</p>
+        <p className="text-sm text-gray-600 mt-3">Supports receive system notifications (broadcasts, alerts). Check the Bell icon for updates during the service.</p>
         <Tip>During a busy check-in period, keep an eye on the notification badge — admins sometimes send pre-dismissal alerts or important updates through the broadcast system.</Tip>
       </Section>
     </div>
@@ -524,7 +524,7 @@ function ParentGuide() {
             <p>Immediately after saving, the system displays a <strong>6-digit OTP</strong> with a copy button. This is shown <em>once only</em>. Copy it and share it with the delegate via WhatsApp, text, or in person before church.</p>
           </Step>
           <Step n={3} title="Delegate collects the child">
-            <p>At check-out, the delegate gives the 6-digit OTP to the attendant at the exit. The attendant verifies it and releases the child.</p>
+            <p>At check-out, the delegate gives the 6-digit OTP to the support at the exit. The support verifies it and releases the child.</p>
           </Step>
         </div>
         <Warn>OTPs are valid for 24 hours and can only be used once. If the delegate loses the code, delete the delegate and add them again to generate a new OTP.</Warn>
@@ -588,7 +588,7 @@ export default function UserGuide() {
   const { user } = useAuth();
   const defaultTab: RoleTab =
     user?.role === "teacher" ? "teacher" :
-    user?.role === "attendant" ? "attendant" :
+    user?.role === "support" ? "support" :
     user?.role === "parent" ? "parent" : "admin";
 
   const [activeTab, setActiveTab] = useState<RoleTab>(defaultTab);
@@ -716,9 +716,9 @@ export default function UserGuide() {
         <div className="print-section-heading print-page-break" style={{ display: "none" }}>Teacher Guide</div>
         <TeacherGuide />
       </div>
-      <div className={activeTab === "attendant" ? "" : "hidden print:block"}>
-        <div className="print-section-heading print-page-break" style={{ display: "none" }}>Attendant Guide</div>
-        <AttendantGuide />
+      <div className={activeTab === "support" ? "" : "hidden print:block"}>
+        <div className="print-section-heading print-page-break" style={{ display: "none" }}>Support Guide</div>
+        <SupportGuide />
       </div>
       <div className={activeTab === "parent" ? "" : "hidden print:block"}>
         <div className="print-section-heading print-page-break" style={{ display: "none" }}>Parent Guide</div>
@@ -735,7 +735,7 @@ export default function UserGuide() {
             ["Super Admin", "superadmin@shepherd.com", "admin123"],
             ["Admin",       "admin@shepherd.com",      "admin123"],
             ["Teacher",     "teacher1@shepherd.com",   "teacher123"],
-            ["Attendant",   "attendant@shepherd.com",  "attend123"],
+            ["Support",   "support@shepherd.com",  "attend123"],
             ["Parent",      "parent1@shepherd.com",    "parent123"],
           ].map(([role, email, pass], i) => (
             <div key={role} className={`flex items-center gap-4 px-4 py-2.5 ${i % 2 === 0 ? "bg-gray-50" : "bg-white"}`}>
@@ -755,7 +755,7 @@ export default function UserGuide() {
           <p className="font-semibold text-[#1e3a8a] text-sm">Need help?</p>
           <p className="text-sm text-blue-700 mt-0.5">
             Contact your church administrator or send a message via the <Link href="/messages" className="underline font-medium">Messages</Link> page.
-            For urgent issues during a service, speak to an attendant at the check-in desk.
+            For urgent issues during a service, speak to an support at the check-in desk.
           </p>
         </div>
       </div>

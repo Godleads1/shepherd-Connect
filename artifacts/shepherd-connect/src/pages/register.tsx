@@ -133,7 +133,7 @@ export default function Register() {
   const [step1Data, setStep1Data] = useState<z.infer<typeof step1Schema> | null>(null);
   const [step2Data, setStep2Data] = useState<z.infer<typeof step2Schema> | null>(null);
   const [useSelfAsEmergency, setUseSelfAsEmergency] = useState(false);
-  const [selectedRole, setSelectedRole] = useState<"parent"|"teacher"|"admin"|"attendant">("parent");
+  const [selectedRole, setSelectedRole] = useState<"parent"|"teacher"|"admin"|"support">("parent");
   const [showPw, setShowPw] = useState(false);
   const [regPhotoUrl, setRegPhotoUrl] = useState("");
 
@@ -335,7 +335,7 @@ export default function Register() {
     { value: "parent",    label: "Parent",    emoji: "👪" },
     { value: "teacher",   label: "Teacher",   emoji: "📚" },
     { value: "admin",     label: "Admin",     emoji: "⚙️" },
-    { value: "attendant", label: "Attendant", emoji: "🎟️" },
+    { value: "support", label: "Support", emoji: "🎟️" },
   ];
 
 

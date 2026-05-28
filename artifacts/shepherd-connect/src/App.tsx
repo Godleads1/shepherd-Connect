@@ -58,7 +58,7 @@ function DefaultRedirect() {
   const role = user.role;
   if (role === "parent") return <Redirect to="/my-family" />;
   if (role === "teacher") return <Redirect to="/my-class" />;
-  if (role === "attendant") return <Redirect to="/checkin" />;
+  if (role === "support") return <Redirect to="/checkin" />;
   return <Redirect to="/dashboard" />;
 }
 

@@ -53,7 +53,7 @@ router.post("/notifications/broadcast", authMiddleware, requireRoles("super_admi
     res.status(400).json({ error: "Bad request", message: "title and message are required" });
     return;
   }
-  const roleFilter = targetRole ? eq(usersTable.role, targetRole as "super_admin" | "admin" | "teacher" | "attendant" | "parent") : undefined;
+  const roleFilter = targetRole ? eq(usersTable.role, targetRole as "super_admin" | "admin" | "teacher" | "support" | "parent") : undefined;
   const recipients = await db.select({ id: usersTable.id }).from(usersTable)
     .where(and(eq(usersTable.isActive, true), roleFilter));
 

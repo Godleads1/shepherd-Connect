@@ -69,7 +69,7 @@ const T: Record<LangCode, Translations> = {
     newFamily: "New family?",
     registerHere: "Register here",
     footer: "© 2026 Junior Church, City of David · Victoria Island",
-    rolePills: { parent: "Parent", teacher: "Teacher", admin: "Admin", attendant: "Attendant" },
+    rolePills: { parent: "Parent", teacher: "Teacher", admin: "Admin", attendant: "Support" },
     nav: {
       dashboard: "Dashboard",
       families: "Families",
@@ -253,7 +253,7 @@ const T: Record<LangCode, Translations> = {
     newFamily: "New family?",
     registerHere: "Register here",
     footer: "© 2026 Junior Church, City of David · Victoria Island",
-    rolePills: { parent: "Papa/Mama", teacher: "Teacher", admin: "Admin", attendant: "Attendant" },
+    rolePills: { parent: "Papa/Mama", teacher: "Teacher", admin: "Admin", attendant: "Support" },
     nav: {
       dashboard: "Dashboard",
       families: "Families",
