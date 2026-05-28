@@ -143,16 +143,36 @@ router.post("/auth/register", async (req, res): Promise<void> => {
     if (!passwordValid) {
       res.status(401).json({ error: "Unauthorized", message: "Incorrect password for this email address" }); return;
     }
-    const updatedPending = [...currentPending, role];
-    await db.update(usersTable)
-      .set({ pendingRoles: JSON.stringify(updatedPending) })
-      .where(eq(usersTable.id, existing.id));
-    smsPendingApproval(existing.phone ?? "", existing.firstName, req.log).catch(() => {});
-    emailPendingApproval(existing.email, existing.firstName, req.log).catch(() => {});
-    res.status(201).json({
-      pending: true,
-      message: `Your request to join as ${role} has been submitted. Super admin will review and approve it.`,
-    });
+
+    const newRoleRequiresApproval = role === "admin" || role === "teacher";
+
+    if (newRoleRequiresApproval) {
+      // Queue for admin approval
+      const updatedPending = [...currentPending, role];
+      await db.update(usersTable)
+        .set({ pendingRoles: JSON.stringify(updatedPending) })
+        .where(eq(usersTable.id, existing.id));
+      smsPendingApproval(existing.phone ?? "", existing.firstName, req.log).catch(() => {});
+      emailPendingApproval(existing.email, existing.firstName, req.log).catch(() => {});
+      res.status(201).json({
+        pending: true,
+        message: `Your request to join as ${role} has been submitted. An admin will review and approve it. You will be notified once approved.`,
+      });
+    } else {
+      // Grant immediately — no approval needed for parent / support
+      const updatedSecondary = [...currentSecondary, role];
+      await db.update(usersTable)
+        .set({ secondaryRoles: JSON.stringify(updatedSecondary) })
+        .where(eq(usersTable.id, existing.id));
+      smsWelcome(existing.phone ?? "", existing.firstName, req.log).catch(() => {});
+      emailWelcome(existing.email, existing.firstName, req.log).catch(() => {});
+      const roleLabel = role === "support" ? "Support" : "Parent";
+      res.status(201).json({
+        roleAdded: true,
+        role,
+        message: `Your ${roleLabel} role has been added. Sign in and select the "${roleLabel}" tab to access your ${roleLabel} dashboard.`,
+      });
+    }
     return;
   }
 

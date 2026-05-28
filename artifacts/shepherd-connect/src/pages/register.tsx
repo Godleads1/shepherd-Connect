@@ -244,6 +244,12 @@ export default function Register() {
         return;
       }
 
+      if (authRes.roleAdded) {
+        toast({ title: "Role Added Successfully!", description: authRes.message });
+        setLocation("/login");
+        return;
+      }
+
       localLogin(authRes.token, authRes.user);
 
       if (regPhotoUrl) {
