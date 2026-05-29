@@ -148,7 +148,12 @@ async function send(to: string, sms: string, channel: "generic" | "dnd" | "whats
     }
   }
 
-  // Fallback: Twilio
+  // Fallback: WhatsApp (Baileys) if connected
+  const { sendWhatsAppMessage } = await import("./whatsapp");
+  const waSent = await sendWhatsAppMessage(to, sms);
+  if (waSent) { logger?.info({ to: normalised }, "SMS delivered via WhatsApp fallback"); return; }
+
+  // Last resort: Twilio
   await sendViaTwilio(to, sms, logger);
 }
 

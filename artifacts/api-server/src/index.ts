@@ -1,6 +1,7 @@
 import app from "./app";
 import { logger } from "./lib/logger";
 import { startScheduler } from "./lib/scheduler";
+import { initWhatsApp } from "./services/whatsapp";
 
 const rawPort = process.env["PORT"];
 
@@ -24,4 +25,5 @@ app.listen(port, async (err) => {
 
   logger.info({ port }, "Server listening");
   startScheduler();
+  initWhatsApp().catch(() => { /* no session yet — admin will connect via Settings */ });
 });

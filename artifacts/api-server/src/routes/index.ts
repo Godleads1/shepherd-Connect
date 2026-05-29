@@ -30,6 +30,7 @@ import calendarRouter from "./calendar";
 import errorLogsRouter from "./errorLogs";
 import pickupRequestsRouter from "./pickupRequests";
 import familyAssistRouter from "./familyAssist";
+import whatsappRouter from "./whatsapp";
 
 const router: IRouter = Router();
 
@@ -64,5 +65,6 @@ router.use(calendarRouter);
 router.use(errorLogsRouter);
 router.use(pickupRequestsRouter);
 router.use(familyAssistRouter);
+router.use(whatsappRouter);
 
 export default router;
