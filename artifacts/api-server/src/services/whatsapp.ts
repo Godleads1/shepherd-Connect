@@ -14,35 +14,61 @@ const AUTH_DIR =
   process.env.WHATSAPP_AUTH_DIR ??
   path.resolve(process.cwd(), "../../.whatsapp-auth");
 
-type Status = "disconnected" | "connecting" | "qr_ready" | "connected";
+type Status = "disconnected" | "connecting" | "pairing_code_ready" | "qr_ready" | "connected";
 
 let sock: WASocket | null = null;
 let _status: Status = "disconnected";
 let qrBase64: string | null = null;
+let _pairingCode: string | null = null;
 let _shouldReconnect = false;
-let _everConnected = false;  // true once connection reaches "open"
-let _credsSaved = false;     // true once creds.update fires (pairing happened)
+let _everConnected = false;
+let _credsSaved = false;
+let _phoneNumber: string | null = null;  // set when using phone-pairing mode
 
 export function getWhatsAppState() {
-  return { status: _status, qr: qrBase64, connected: _status === "connected" };
+  return {
+    status: _status,
+    qr: qrBase64,
+    pairingCode: _pairingCode,
+    connected: _status === "connected",
+  };
 }
 
 /** Called on server boot — only resumes if a saved session already exists. */
 export async function initWhatsApp(): Promise<void> {
   const hasSession =
     fs.existsSync(AUTH_DIR) && fs.readdirSync(AUTH_DIR).length > 0;
-  if (!hasSession) return; // no saved creds — admin must click Connect manually
+  if (!hasSession) return;
   _shouldReconnect = true;
   await _connect();
 }
 
-/** Called by the admin clicking "Connect" in Settings. */
+/** QR-code connection mode (original). */
 export async function connectWhatsApp(): Promise<void> {
-  if (_status !== "disconnected") return; // already running
+  if (_status !== "disconnected") return;
+  _phoneNumber = null;
   _shouldReconnect = true;
   _credsSaved = false;
   _everConnected = false;
   await _connect();
+}
+
+/** Phone-number pairing mode — no QR scan needed. */
+export async function connectWithPhone(rawPhone: string): Promise<void> {
+  if (_status !== "disconnected") return;
+  _phoneNumber = _normalizePhone(rawPhone);
+  _shouldReconnect = true;
+  _credsSaved = false;
+  _everConnected = false;
+  _pairingCode = null;
+  await _connect();
+}
+
+function _normalizePhone(phone: string): string {
+  const digits = phone.replace(/\D/g, "");
+  if (digits.startsWith("0")) return "234" + digits.slice(1);
+  if (digits.startsWith("+")) return digits.slice(1);
+  return digits;
 }
 
 async function _connect(): Promise<void> {
@@ -67,8 +93,27 @@ async function _connect(): Promise<void> {
     void saveCreds();
   });
 
+  // Request pairing code once WS handshake is in progress (phone mode only).
+  // We wait 2 s to let Baileys complete its initial handshake before calling
+  // requestPairingCode — calling it too early causes a "not connected" error.
+  if (_phoneNumber && !state.creds.registered) {
+    const capturedPhone = _phoneNumber;
+    const capturedSock = sock;
+    setTimeout(async () => {
+      if (!capturedSock || _credsSaved) return; // already paired or socket gone
+      try {
+        const code = await capturedSock.requestPairingCode(capturedPhone);
+        _pairingCode = code;
+        if (_status === "connecting") _status = "pairing_code_ready";
+        logger.info({ code }, "WhatsApp pairing code ready");
+      } catch (err) {
+        logger.error({ err: String(err) }, "Failed to request WhatsApp pairing code");
+      }
+    }, 2000);
+  }
+
   sock.ev.on("connection.update", async ({ connection, lastDisconnect, qr }) => {
-    if (qr) {
+    if (qr && !_phoneNumber) {
       _status = "qr_ready";
       qrBase64 = await QRCode.toDataURL(qr);
       logger.info("WhatsApp QR code ready");
@@ -77,6 +122,7 @@ async function _connect(): Promise<void> {
     if (connection === "open") {
       _status = "connected";
       qrBase64 = null;
+      _pairingCode = null;
       _everConnected = true;
       logger.info("WhatsApp connected");
     }
@@ -85,16 +131,16 @@ async function _connect(): Promise<void> {
       const code = (lastDisconnect?.error as Boom)?.output?.statusCode;
       const loggedOut = code === DisconnectReason.loggedOut;
 
-      // QR expired without a scan — only true if the QR timed out AND
-      // no credentials were saved (meaning the user never scanned).
-      // After a successful scan, Baileys also closes with 408 as part of
-      // the pairing handshake — in that case _credsSaved is true, so we
-      // must NOT stop; we reconnect to complete the session establishment.
-      const qrTimedOutNoScan = code === 408 && !_credsSaved && !_everConnected;
+      // QR expired without scan: code 408, no creds ever saved, not phone-pairing mode
+      const qrTimedOutNoScan =
+        code === 408 && !_credsSaved && !_everConnected && !_phoneNumber;
 
       _status = "disconnected";
       qrBase64 = null;
-      logger.info({ code, credsSaved: _credsSaved, everConnected: _everConnected }, "WhatsApp connection closed");
+      logger.info(
+        { code, credsSaved: _credsSaved, everConnected: _everConnected },
+        "WhatsApp connection closed",
+      );
 
       if (loggedOut) {
         logger.info("WhatsApp logged out — clearing session");
@@ -102,7 +148,7 @@ async function _connect(): Promise<void> {
         _clearSession();
         _resetState();
       } else if (qrTimedOutNoScan) {
-        logger.info("WhatsApp QR expired without scan — waiting for manual reconnect");
+        logger.info("WhatsApp QR expired — waiting for manual reconnect");
         _shouldReconnect = false;
         _resetState();
       } else if (_shouldReconnect) {
@@ -118,6 +164,8 @@ async function _connect(): Promise<void> {
 function _resetState() {
   _everConnected = false;
   _credsSaved = false;
+  _pairingCode = null;
+  _phoneNumber = null;
   sock = null;
 }
 
@@ -126,7 +174,7 @@ export async function sendWhatsAppMessage(
   text: string,
 ): Promise<boolean> {
   if (!sock || _status !== "connected") return false;
-  const jid = _toJid(phone);
+  const jid = _normalizePhone(phone) + "@s.whatsapp.net";
   try {
     await sock.sendMessage(jid, { text });
     logger.info({ to: jid }, "WhatsApp message sent");
@@ -135,12 +183,6 @@ export async function sendWhatsAppMessage(
     logger.error({ to: jid, err: String(err) }, "WhatsApp send error");
     return false;
   }
-}
-
-function _toJid(phone: string): string {
-  const digits = phone.replace(/\D/g, "");
-  const number = digits.startsWith("0") ? "234" + digits.slice(1) : digits;
-  return number + "@s.whatsapp.net";
 }
 
 export async function disconnectWhatsApp(): Promise<void> {
