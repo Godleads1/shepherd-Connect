@@ -20,7 +20,8 @@ let sock: WASocket | null = null;
 let _status: Status = "disconnected";
 let qrBase64: string | null = null;
 let _shouldReconnect = false;
-let _everConnected = false;   // true once we reach "open" state
+let _everConnected = false;  // true once connection reaches "open"
+let _credsSaved = false;     // true once creds.update fires (pairing happened)
 
 export function getWhatsAppState() {
   return { status: _status, qr: qrBase64, connected: _status === "connected" };
@@ -39,6 +40,8 @@ export async function initWhatsApp(): Promise<void> {
 export async function connectWhatsApp(): Promise<void> {
   if (_status !== "disconnected") return; // already running
   _shouldReconnect = true;
+  _credsSaved = false;
+  _everConnected = false;
   await _connect();
 }
 
@@ -56,16 +59,19 @@ async function _connect(): Promise<void> {
     auth: state,
     printQRInTerminal: false,
     browser: ["Shepherd Connect", "Chrome", "1.0.0"],
-    // Silence Baileys' own verbose logging — we log what we need ourselves
     logger: logger.child({ module: "baileys", level: "silent" }) as any,
   });
 
-  sock.ev.on("creds.update", saveCreds);
+  sock.ev.on("creds.update", () => {
+    _credsSaved = true;
+    void saveCreds();
+  });
 
   sock.ev.on("connection.update", async ({ connection, lastDisconnect, qr }) => {
     if (qr) {
       _status = "qr_ready";
       qrBase64 = await QRCode.toDataURL(qr);
+      logger.info("WhatsApp QR code ready");
     }
 
     if (connection === "open") {
@@ -79,31 +85,40 @@ async function _connect(): Promise<void> {
       const code = (lastDisconnect?.error as Boom)?.output?.statusCode;
       const loggedOut = code === DisconnectReason.loggedOut;
 
-      // QR expired (408) and we never actually connected in this session →
-      // stop looping; admin must manually click Connect again.
-      const qrExpiredWithNoSession = code === 408 && !_everConnected;
+      // QR expired without a scan — only true if the QR timed out AND
+      // no credentials were saved (meaning the user never scanned).
+      // After a successful scan, Baileys also closes with 408 as part of
+      // the pairing handshake — in that case _credsSaved is true, so we
+      // must NOT stop; we reconnect to complete the session establishment.
+      const qrTimedOutNoScan = code === 408 && !_credsSaved && !_everConnected;
 
       _status = "disconnected";
       qrBase64 = null;
+      logger.info({ code, credsSaved: _credsSaved, everConnected: _everConnected }, "WhatsApp connection closed");
 
       if (loggedOut) {
-        logger.info({ code }, "WhatsApp logged out — clearing session");
+        logger.info("WhatsApp logged out — clearing session");
         _shouldReconnect = false;
         _clearSession();
-      } else if (qrExpiredWithNoSession) {
-        logger.info("WhatsApp QR expired — waiting for admin to reconnect");
+        _resetState();
+      } else if (qrTimedOutNoScan) {
+        logger.info("WhatsApp QR expired without scan — waiting for manual reconnect");
         _shouldReconnect = false;
+        _resetState();
       } else if (_shouldReconnect) {
-        logger.info({ code }, "WhatsApp disconnected — reconnecting in 5 s");
+        logger.info({ code }, "WhatsApp reconnecting in 5 s");
         setTimeout(_connect, 5000);
       }
 
-      if (!_shouldReconnect) {
-        _everConnected = false;
-        sock = null;
-      }
+      if (!_shouldReconnect) sock = null;
     }
   });
+}
+
+function _resetState() {
+  _everConnected = false;
+  _credsSaved = false;
+  sock = null;
 }
 
 export async function sendWhatsAppMessage(
@@ -130,7 +145,6 @@ function _toJid(phone: string): string {
 
 export async function disconnectWhatsApp(): Promise<void> {
   _shouldReconnect = false;
-  _everConnected = false;
   if (sock) {
     try { await sock.logout(); } catch { /* ignore */ }
     sock = null;
@@ -138,6 +152,7 @@ export async function disconnectWhatsApp(): Promise<void> {
   _status = "disconnected";
   qrBase64 = null;
   _clearSession();
+  _resetState();
   logger.info("WhatsApp session cleared");
 }
 
