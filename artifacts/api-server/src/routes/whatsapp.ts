@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { authMiddleware, requireRoles } from "../middlewares/auth";
-import { getWhatsAppState, initWhatsApp, disconnectWhatsApp } from "../services/whatsapp";
+import { getWhatsAppState, connectWhatsApp, disconnectWhatsApp } from "../services/whatsapp";
 
 const router = Router();
 
@@ -9,7 +9,7 @@ router.get("/whatsapp/status", authMiddleware, requireRoles("super_admin"), asyn
 });
 
 router.post("/whatsapp/connect", authMiddleware, requireRoles("super_admin"), async (_req, res): Promise<void> => {
-  await initWhatsApp();
+  await connectWhatsApp();
   res.json({ success: true, message: "WhatsApp initialising — check status for QR code" });
 });
 

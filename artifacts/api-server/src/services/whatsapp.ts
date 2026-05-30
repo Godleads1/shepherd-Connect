@@ -20,15 +20,24 @@ let sock: WASocket | null = null;
 let _status: Status = "disconnected";
 let qrBase64: string | null = null;
 let _shouldReconnect = false;
-let _initialized = false;
+let _everConnected = false;   // true once we reach "open" state
 
 export function getWhatsAppState() {
   return { status: _status, qr: qrBase64, connected: _status === "connected" };
 }
 
+/** Called on server boot — only resumes if a saved session already exists. */
 export async function initWhatsApp(): Promise<void> {
-  if (_initialized && _status !== "disconnected") return;
-  _initialized = true;
+  const hasSession =
+    fs.existsSync(AUTH_DIR) && fs.readdirSync(AUTH_DIR).length > 0;
+  if (!hasSession) return; // no saved creds — admin must click Connect manually
+  _shouldReconnect = true;
+  await _connect();
+}
+
+/** Called by the admin clicking "Connect" in Settings. */
+export async function connectWhatsApp(): Promise<void> {
+  if (_status !== "disconnected") return; // already running
   _shouldReconnect = true;
   await _connect();
 }
@@ -47,7 +56,8 @@ async function _connect(): Promise<void> {
     auth: state,
     printQRInTerminal: false,
     browser: ["Shepherd Connect", "Chrome", "1.0.0"],
-    logger: logger.child({ module: "baileys" }) as any,
+    // Silence Baileys' own verbose logging — we log what we need ourselves
+    logger: logger.child({ module: "baileys", level: "silent" }) as any,
   });
 
   sock.ev.on("creds.update", saveCreds);
@@ -56,22 +66,41 @@ async function _connect(): Promise<void> {
     if (qr) {
       _status = "qr_ready";
       qrBase64 = await QRCode.toDataURL(qr);
-      logger.info("WhatsApp QR code ready — scan to connect");
     }
 
     if (connection === "open") {
       _status = "connected";
       qrBase64 = null;
+      _everConnected = true;
       logger.info("WhatsApp connected");
     }
 
     if (connection === "close") {
-      _status = "disconnected";
       const code = (lastDisconnect?.error as Boom)?.output?.statusCode;
       const loggedOut = code === DisconnectReason.loggedOut;
-      logger.warn({ code }, "WhatsApp connection closed");
-      if (_shouldReconnect && !loggedOut) {
+
+      // QR expired (408) and we never actually connected in this session →
+      // stop looping; admin must manually click Connect again.
+      const qrExpiredWithNoSession = code === 408 && !_everConnected;
+
+      _status = "disconnected";
+      qrBase64 = null;
+
+      if (loggedOut) {
+        logger.info({ code }, "WhatsApp logged out — clearing session");
+        _shouldReconnect = false;
+        _clearSession();
+      } else if (qrExpiredWithNoSession) {
+        logger.info("WhatsApp QR expired — waiting for admin to reconnect");
+        _shouldReconnect = false;
+      } else if (_shouldReconnect) {
+        logger.info({ code }, "WhatsApp disconnected — reconnecting in 5 s");
         setTimeout(_connect, 5000);
+      }
+
+      if (!_shouldReconnect) {
+        _everConnected = false;
+        sock = null;
       }
     }
   });
@@ -101,15 +130,19 @@ function _toJid(phone: string): string {
 
 export async function disconnectWhatsApp(): Promise<void> {
   _shouldReconnect = false;
-  _initialized = false;
+  _everConnected = false;
   if (sock) {
     try { await sock.logout(); } catch { /* ignore */ }
     sock = null;
   }
   _status = "disconnected";
   qrBase64 = null;
+  _clearSession();
+  logger.info("WhatsApp session cleared");
+}
+
+function _clearSession() {
   if (fs.existsSync(AUTH_DIR)) {
     fs.rmSync(AUTH_DIR, { recursive: true, force: true });
   }
-  logger.info("WhatsApp session cleared");
 }
