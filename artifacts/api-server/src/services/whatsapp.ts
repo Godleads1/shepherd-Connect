@@ -85,7 +85,19 @@ async function _connect(): Promise<void> {
     auth: state,
     printQRInTerminal: false,
     browser: ["Shepherd Connect", "Chrome", "1.0.0"],
-    logger: logger.child({ module: "baileys", level: "silent" }) as any,
+    logger: {
+      level: "silent",
+      trace: () => {}, debug: () => {}, info: () => {},
+      warn: (obj: unknown, msg?: string) => {
+        // only surface genuine warnings (not routine sync chatter)
+        if (msg && (msg.includes("url generation failed") || msg.includes("connection"))) {
+          logger.warn({ module: "baileys", obj }, msg);
+        }
+      },
+      error: (obj: unknown, msg?: string) => logger.error({ module: "baileys", obj }, msg ?? "baileys error"),
+      fatal: () => {},
+      child: () => ({ level: "silent", trace: ()=>{}, debug: ()=>{}, info: ()=>{}, warn: ()=>{}, error: ()=>{}, fatal: ()=>{}, child: ()=>({}) }),
+    } as any,
   });
 
   sock.ev.on("creds.update", () => {
