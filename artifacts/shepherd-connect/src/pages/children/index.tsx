@@ -14,7 +14,7 @@ import { useAuth } from "@/contexts/auth";
 import { useToast } from "@/hooks/use-toast";
 import { apiDelete, apiPost, apiGet } from "@/lib/api-call";
 
-const CSV_TEMPLATE = `firstName,lastName,dateOfBirth,gender,allergies,medicalNotes
+const CSV_TEMPLATE = `firstName,lastName,dob,gender,allergies,medicalNotes
 Emma,Smith,2018-04-12,female,,
 Liam,Johnson,2017-09-03,male,peanuts,carries epipen`;
 
@@ -55,7 +55,7 @@ function BulkImportModal({ open, onClose }: { open: boolean; onClose: () => void
         </DialogHeader>
         <div className="space-y-4">
           <p className="text-xs text-gray-500">
-            Paste or edit CSV below. Required: <code className="bg-gray-100 px-1 rounded">firstName, lastName, dateOfBirth</code>. Optional: gender, allergies, medicalNotes.
+            Paste or edit CSV below. Required: <code className="bg-gray-100 px-1 rounded">firstName, lastName, dob</code>. Optional: gender, allergies, medicalNotes.
           </p>
           {!result ? (
             <>

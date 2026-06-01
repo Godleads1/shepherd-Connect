@@ -204,7 +204,7 @@ function TeacherDashboard() {
                     <div className="flex items-center gap-2 py-2 px-3 rounded-xl hover:bg-gray-50 transition-colors cursor-pointer">
                       <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0"
                         style={{ background: "linear-gradient(135deg, #1e3a8a, #3b82f6)" }}>
-                        {c.firstName[0]}{c.lastName[0]}
+                        {c.firstName?.[0] ?? "?"}{c.lastName?.[0] ?? ""}
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium text-gray-900 truncate">{c.firstName} {c.lastName}</p>

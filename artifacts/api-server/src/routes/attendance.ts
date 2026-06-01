@@ -106,7 +106,7 @@ router.get("/attendance", authMiddleware, async (req, res): Promise<void> => {
   res.json(formatted);
 });
 
-router.post("/attendance", authMiddleware, async (req, res): Promise<void> => {
+router.post("/attendance", authMiddleware, requireRoles("super_admin", "admin", "attendant"), async (req, res): Promise<void> => {
   const parsed = CheckInBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: "Bad request", message: parsed.error.message }); return; }
   const { childId, classId, serviceDate, serviceSlot } = parsed.data;
@@ -171,7 +171,7 @@ router.post("/attendance", authMiddleware, async (req, res): Promise<void> => {
   res.status(201).json(await formatAttendance(record));
 });
 
-router.put("/attendance/:id/escort", authMiddleware, async (req, res): Promise<void> => {
+router.put("/attendance/:id/escort", authMiddleware, requireRoles("super_admin", "admin", "attendant"), async (req, res): Promise<void> => {
   const id = parseInt(req.params.id as string, 10);
   if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
   const [record] = await db.update(attendanceTable).set({
@@ -189,7 +189,7 @@ router.put("/attendance/:id/escort", authMiddleware, async (req, res): Promise<v
   res.json(await formatAttendance(record));
 });
 
-router.put("/attendance/:id/arrive", authMiddleware, async (req, res): Promise<void> => {
+router.put("/attendance/:id/arrive", authMiddleware, requireRoles("super_admin", "admin", "teacher", "attendant"), async (req, res): Promise<void> => {
   const id = parseInt(req.params.id as string, 10);
   if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
 
@@ -219,7 +219,7 @@ router.put("/attendance/:id/arrive", authMiddleware, async (req, res): Promise<v
   res.json(await formatAttendance(record));
 });
 
-router.put("/attendance/:id/checkout", authMiddleware, async (req, res): Promise<void> => {
+router.put("/attendance/:id/checkout", authMiddleware, requireRoles("super_admin", "admin", "attendant"), async (req, res): Promise<void> => {
   const id = parseInt(req.params.id as string, 10);
   if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
   const parsed = CheckOutBody.safeParse(req.body);

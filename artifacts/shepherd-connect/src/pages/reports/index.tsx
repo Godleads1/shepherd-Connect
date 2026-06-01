@@ -432,7 +432,7 @@ export default function Reports() {
   const handleNotPickedUpExport = () => {
     if (!notPickedUp?.children) return;
     const rows = notPickedUp.children.map((r: any) => [
-      r.child?.firstName + " " + r.child?.lastName,
+      r.child ? `${r.child.firstName} ${r.child.lastName}` : "Unknown",
       r.class?.name || "", r.status,
       r.minutesSinceCheckIn ? r.minutesSinceCheckIn + " min ago" : "",
       r.family?.familyCode || "", r.family?.parentPhone || "",
