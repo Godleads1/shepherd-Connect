@@ -197,6 +197,19 @@ export async function sendWhatsAppMessage(
   }
 }
 
+/**
+ * Clean socket close WITHOUT clearing the session — called on server shutdown
+ * so WhatsApp sees a normal disconnect rather than a TCP drop.
+ */
+export async function closeWhatsAppClean(): Promise<void> {
+  _shouldReconnect = false;
+  if (sock) {
+    try { sock.end(undefined); } catch { /* ignore */ }
+    sock = null;
+  }
+  _status = "disconnected";
+}
+
 export async function disconnectWhatsApp(): Promise<void> {
   _shouldReconnect = false;
   if (sock) {

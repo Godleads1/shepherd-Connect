@@ -1,7 +1,7 @@
 import app from "./app";
 import { logger } from "./lib/logger";
 import { startScheduler } from "./lib/scheduler";
-import { initWhatsApp } from "./services/whatsapp";
+import { initWhatsApp, closeWhatsAppClean } from "./services/whatsapp";
 
 const rawPort = process.env["PORT"];
 
@@ -16,6 +16,19 @@ const port = Number(rawPort);
 if (Number.isNaN(port) || port <= 0) {
   throw new Error(`Invalid PORT value: "${rawPort}"`);
 }
+
+// Gracefully close the WhatsApp socket on shutdown so WhatsApp sees a clean
+// disconnect (not an abrupt TCP drop which triggers session invalidation / 401).
+const _shutdown = () => {
+  logger.info("Graceful shutdown — closing WhatsApp socket");
+  closeWhatsAppClean()
+    .catch(() => { /* ignore */ })
+    .finally(() => process.exit(0));
+  // Force exit after 3 s if cleanup stalls
+  setTimeout(() => process.exit(0), 3000).unref();
+};
+process.on("SIGTERM", _shutdown);
+process.on("SIGINT", _shutdown);
 
 app.listen(port, async (err) => {
   if (err) {

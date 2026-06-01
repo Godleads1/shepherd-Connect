@@ -43,11 +43,17 @@ export default function Settings() {
     } catch { /* ignore */ }
   };
 
+  // Poll fast (3 s) while connecting/pairing so the UI reacts quickly.
+  // Once connected (or fully disconnected with no pending action), slow to 30 s
+  // to avoid hammering the server unnecessarily.
   useEffect(() => {
+    const interval = ["connecting", "qr_ready", "pairing_code_ready"].includes(waState.status)
+      ? 3000
+      : 30000;
     fetchStatus();
-    pollRef.current = setInterval(fetchStatus, 3000);
+    pollRef.current = setInterval(fetchStatus, interval);
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
-  }, []);
+  }, [waState.status]);
 
   if (!user || user.role !== "super_admin") {
     return (
