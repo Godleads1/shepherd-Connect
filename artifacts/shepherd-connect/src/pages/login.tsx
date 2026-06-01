@@ -222,8 +222,11 @@ export default function Login() {
       localLogin(response.token, response.user);
       navigateForRole(response.user.role);
     } catch (e: any) {
-      const msg = e?.message?.includes(": ") ? e.message.split(": ").slice(1).join(": ") : e?.message;
-      form.setError("root", { message: msg || t.invalidLogin });
+      const raw = e?.message?.includes(": ") ? e.message.split(": ").slice(1).join(": ") : e?.message;
+      const msg = (raw === "Internal server error" || e?.status === 500)
+        ? "Service temporarily unavailable. Please try again in a moment."
+        : raw || t.invalidLogin;
+      form.setError("root", { message: msg });
     }
   };
 

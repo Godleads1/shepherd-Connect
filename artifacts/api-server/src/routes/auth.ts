@@ -7,6 +7,7 @@ import { db, usersTable } from "@workspace/db";
 import { LoginBody, RegisterBody } from "@workspace/api-zod";
 import { generateToken, authMiddleware } from "../middlewares/auth";
 import { smsWelcome, smsPendingApproval, smsPasswordResetCode, smsRegistrationOtp, emailRegistrationOtp, emailWelcome, emailPendingApproval, emailPasswordResetCode } from "../services/sms";
+import { withDbRetry } from "../lib/db-retry";
 
 // ── In-memory OTP sessions (phone verification during registration) ────────────
 // key: random session ID returned to client as "pinId"
@@ -53,7 +54,9 @@ router.post("/auth/login", async (req, res): Promise<void> => {
     return;
   }
   const { email, password } = parsed.data;
-  const [user] = await db.select().from(usersTable).where(eq(usersTable.email, email));
+  const [user] = await withDbRetry(() =>
+    db.select().from(usersTable).where(eq(usersTable.email, email)).then(r => r),
+  ).then(r => r);
   if (!user) {
     res.status(401).json({ error: "Unauthorized", message: "Invalid credentials" });
     return;
