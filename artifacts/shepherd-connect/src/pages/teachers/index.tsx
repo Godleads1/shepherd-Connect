@@ -7,9 +7,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { UserCog, Pencil, Phone, Mail, Calendar, CheckCircle2, XCircle, ShieldCheck } from "lucide-react";
+import { UserCog, Pencil, Phone, Mail, Calendar, CheckCircle2, XCircle, ShieldCheck, Clock, AlertTriangle } from "lucide-react";
 import { resolvePhotoUrl } from "@/components/PhotoUploader";
 import { QueryError } from "@/components/QueryError";
+import { format } from "date-fns";
 
 function TeacherAvatar({ teacher }: { teacher: any }) {
   const photo = resolvePhotoUrl(teacher?.user?.photoUrl);
@@ -98,12 +99,94 @@ function EditTeacherModal({ teacher, onClose }: { teacher: any; onClose: () => v
   );
 }
 
+function TimeLogTab() {
+  const today = new Date().toISOString().slice(0, 10);
+  const [date, setDate] = useState(today);
+
+  const { data: logs = [], isLoading } = useQuery<any[]>({
+    queryKey: ["teacher-clock-ins", date],
+    queryFn: () => apiGet<any[]>(`/teacher-clock-ins?date=${date}`),
+  });
+
+  function fmtTime(ts: string | null) {
+    if (!ts) return "—";
+    try { return format(new Date(ts), "h:mm a"); } catch { return "—"; }
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-3">
+        <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Date</label>
+        <input
+          type="date"
+          value={date}
+          onChange={e => setDate(e.target.value)}
+          className="border rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200"
+        />
+        {date !== today && (
+          <button onClick={() => setDate(today)}
+            className="text-xs text-blue-600 font-semibold hover:underline">Today</button>
+        )}
+      </div>
+
+      {isLoading ? (
+        <div className="space-y-3">{[1,2,3].map(i => <Skeleton key={i} className="h-14 rounded-xl" />)}</div>
+      ) : logs.length === 0 ? (
+        <div className="text-center py-16 bg-white rounded-2xl border border-dashed border-gray-200">
+          <Clock className="w-10 h-10 text-gray-200 mx-auto mb-2" />
+          <p className="text-gray-500 font-semibold text-sm">No clock-in records for this date</p>
+        </div>
+      ) : (
+        <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden shadow-sm">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-gray-100 bg-gray-50">
+                <th className="text-left px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wide">Teacher</th>
+                <th className="text-left px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wide">Clock In</th>
+                <th className="text-left px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wide">Clock Out</th>
+                <th className="text-left px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wide">Status</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-50">
+              {logs.map((row: any) => (
+                <tr key={row.id} className={row.isOnTime === false ? "bg-red-50/50" : ""}>
+                  <td className="px-4 py-3 font-semibold text-gray-800">
+                    {row.firstName} {row.lastName}
+                  </td>
+                  <td className="px-4 py-3 font-mono text-gray-700">{fmtTime(row.clockInAt)}</td>
+                  <td className="px-4 py-3 font-mono text-gray-500">{fmtTime(row.clockOutAt)}</td>
+                  <td className="px-4 py-3">
+                    {row.clockInAt === null ? (
+                      <span className="inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">
+                        Not Clocked In
+                      </span>
+                    ) : row.isOnTime ? (
+                      <span className="inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full bg-green-100 text-green-700">
+                        <CheckCircle2 className="w-3 h-3" /> On Time
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full bg-red-100 text-red-700">
+                        <AlertTriangle className="w-3 h-3" /> Late
+                      </span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Teachers() {
   const { user } = useAuth();
   const { toast } = useToast();
   const qc = useQueryClient();
   const [editTarget, setEditTarget] = useState<any>(null);
   const [search, setSearch] = useState("");
+  const [mainTab, setMainTab] = useState<"roster" | "timelog">("roster");
 
   const canEdit = user?.role === "super_admin" || user?.role === "admin";
 
@@ -226,7 +309,7 @@ export default function Teachers() {
           <h1 className="text-2xl font-bold flex items-center gap-2" style={{ fontFamily: "'Playfair Display', serif" }}>
             <UserCog className="w-7 h-7" /> Teachers
           </h1>
-          <p className="text-blue-200 text-sm mt-1">Manage teacher profiles and view safeguarding status</p>
+          <p className="text-blue-200 text-sm mt-1">Manage teacher profiles, safeguarding and time logs</p>
         </div>
         {/* Stats row */}
         <div className="relative z-10 grid grid-cols-4 gap-3 mt-5">
@@ -244,6 +327,25 @@ export default function Teachers() {
         </div>
       </div>
 
+      {/* Tabs */}
+      <div className="flex gap-1 bg-gray-100 rounded-xl p-1">
+        {([
+          { key: "roster",  label: "Teacher Roster", icon: UserCog },
+          { key: "timelog", label: "Time Log",        icon: Clock },
+        ] as const).map(t => (
+          <button key={t.key} onClick={() => setMainTab(t.key)}
+            className="flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg text-sm font-semibold transition-all"
+            style={mainTab === t.key
+              ? { background: "#1e3a8a", color: "white", boxShadow: "0 2px 8px rgba(30,58,138,.3)" }
+              : { color: "#6b7280" }}>
+            <t.icon className="w-4 h-4" /> {t.label}
+          </button>
+        ))}
+      </div>
+
+      {mainTab === "timelog" && <TimeLogTab />}
+
+      {mainTab === "roster" && <>
       {/* Search */}
       <div className="relative">
         <svg className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -306,6 +408,7 @@ export default function Teachers() {
       {editTarget && (
         <EditTeacherModal teacher={editTarget} onClose={() => setEditTarget(null)} />
       )}
+      </>}
     </div>
   );
 }

@@ -9,6 +9,7 @@ import {
   Clock, ArrowRight, UserCheck, CalendarCheck, ShieldCheck, Calendar,
   Cake, CalendarClock, PartyPopper, Tv, LockKeyhole,
 } from "lucide-react";
+import { TeacherClockIn } from "@/components/TeacherClockIn";
 import { apiGet } from "@/lib/api-call";
 import { useAuth } from "@/contexts/auth";
 import { useToast } from "@/hooks/use-toast";
@@ -178,6 +179,9 @@ export default function MyClass() {
           ))}
         </div>
       </div>
+
+      {/* ── Teacher Clock-In ── */}
+      <TeacherClockIn />
 
       {/* ── How it works callout ── */}
       <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex items-start gap-3">

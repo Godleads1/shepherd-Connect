@@ -1,0 +1,159 @@
+import { Router } from "express";
+import { db } from "@workspace/db";
+import { teacherClockInsTable, usersTable } from "@workspace/db/schema";
+import { eq, and, desc } from "drizzle-orm";
+import { authMiddleware, requireRoles } from "../middlewares/auth";
+
+const router = Router();
+
+function todayWAT(): string {
+  // WAT = UTC+1; return YYYY-MM-DD string for today in Lagos time
+  const now = new Date();
+  const wat = new Date(now.getTime() + 60 * 60 * 1000);
+  return wat.toISOString().slice(0, 10);
+}
+
+// JC geofence centre — Trinity Towers, Oniru Rd, Victoria Island, Lagos
+const JC_LAT = 6.4281;
+const JC_LNG = 3.4219;
+const GEOFENCE_RADIUS_M = 250; // 250 metre radius
+const CUTOFF_HOUR = 7; // 7:00 AM Lagos time (WAT = UTC+1)
+
+function haversineDistance(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371000;
+  const toRad = (v: number) => (v * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function isOnTime(now: Date): boolean {
+  // WAT = UTC+1
+  const watHour = (now.getUTCHours() + 1) % 24;
+  const watMin  = now.getUTCMinutes();
+  return watHour < CUTOFF_HOUR || (watHour === CUTOFF_HOUR && watMin === 0);
+}
+
+// POST /teacher-clock-ins/clock-in
+router.post("/teacher-clock-ins/clock-in", authMiddleware, requireRoles("teacher", "admin", "super_admin"), async (req, res): Promise<void> => {
+  const userId = (req as any).user.userId;
+  const today = todayWAT();
+  const { latitude, longitude } = req.body as { latitude?: number; longitude?: number };
+
+  if (latitude === undefined || longitude === undefined) {
+    res.status(400).json({ error: "Bad request", message: "GPS coordinates required. Please enable location access and try again." });
+    return;
+  }
+
+  const dist = haversineDistance(latitude, longitude, JC_LAT, JC_LNG);
+  const withinGeofence = dist <= GEOFENCE_RADIUS_M;
+
+  if (!withinGeofence) {
+    res.status(403).json({
+      error: "Outside geofence",
+      message: `You must be physically inside JC to clock in. You appear to be ${Math.round(dist)}m away from the building.`,
+      distanceMetres: Math.round(dist),
+    });
+    return;
+  }
+
+  // Check for existing clock-in today
+  const [existing] = await db.select().from(teacherClockInsTable)
+    .where(and(eq(teacherClockInsTable.userId, userId), eq(teacherClockInsTable.serviceDate, today)));
+
+  if (existing?.clockInAt) {
+    res.status(409).json({ error: "Conflict", message: "You have already clocked in today." });
+    return;
+  }
+
+  const now = new Date();
+  const onTime = isOnTime(now);
+
+  if (existing) {
+    const [updated] = await db.update(teacherClockInsTable)
+      .set({ clockInAt: now, clockInLat: latitude, clockInLng: longitude, isOnTime: onTime, isWithinGeofence: true })
+      .where(eq(teacherClockInsTable.id, existing.id))
+      .returning();
+    req.log.info({ userId, onTime, dist: Math.round(dist) }, "Teacher clocked in");
+    res.json({ success: true, record: updated, onTime, distanceMetres: Math.round(dist) });
+    return;
+  }
+
+  const [record] = await db.insert(teacherClockInsTable).values({
+    userId,
+    serviceDate: today,
+    clockInAt: now,
+    clockInLat: latitude,
+    clockInLng: longitude,
+    isOnTime: onTime,
+    isWithinGeofence: true,
+  }).returning();
+
+  req.log.info({ userId, onTime, dist: Math.round(dist) }, "Teacher clocked in");
+  res.status(201).json({ success: true, record, onTime, distanceMetres: Math.round(dist) });
+});
+
+// POST /teacher-clock-ins/clock-out
+router.post("/teacher-clock-ins/clock-out", authMiddleware, requireRoles("teacher", "admin", "super_admin"), async (req, res): Promise<void> => {
+  const userId = (req as any).user.userId;
+  const today = todayWAT();
+
+  const [existing] = await db.select().from(teacherClockInsTable)
+    .where(and(eq(teacherClockInsTable.userId, userId), eq(teacherClockInsTable.serviceDate, today)));
+
+  if (!existing?.clockInAt) {
+    res.status(400).json({ error: "Bad request", message: "You have not clocked in today." });
+    return;
+  }
+  if (existing.clockOutAt) {
+    res.status(409).json({ error: "Conflict", message: "You have already clocked out today." });
+    return;
+  }
+
+  const [updated] = await db.update(teacherClockInsTable)
+    .set({ clockOutAt: new Date() })
+    .where(eq(teacherClockInsTable.id, existing.id))
+    .returning();
+
+  req.log.info({ userId }, "Teacher clocked out");
+  res.json({ success: true, record: updated });
+});
+
+// GET /teacher-clock-ins/today — teacher's own status for today
+router.get("/teacher-clock-ins/today", authMiddleware, requireRoles("teacher", "admin", "super_admin"), async (req, res): Promise<void> => {
+  const userId = (req as any).user.userId;
+  const today = todayWAT();
+  const [record] = await db.select().from(teacherClockInsTable)
+    .where(and(eq(teacherClockInsTable.userId, userId), eq(teacherClockInsTable.serviceDate, today)));
+  res.json({ record: record ?? null });
+});
+
+// GET /teacher-clock-ins — admin: all records, optionally filtered by date
+router.get("/teacher-clock-ins", authMiddleware, requireRoles("admin", "super_admin"), async (req, res): Promise<void> => {
+  const { date } = req.query as { date?: string };
+
+  const rows = await db
+    .select({
+      id: teacherClockInsTable.id,
+      userId: teacherClockInsTable.userId,
+      serviceDate: teacherClockInsTable.serviceDate,
+      clockInAt: teacherClockInsTable.clockInAt,
+      clockOutAt: teacherClockInsTable.clockOutAt,
+      isOnTime: teacherClockInsTable.isOnTime,
+      isWithinGeofence: teacherClockInsTable.isWithinGeofence,
+      firstName: usersTable.firstName,
+      lastName: usersTable.lastName,
+      photoUrl: usersTable.photoUrl,
+    })
+    .from(teacherClockInsTable)
+    .innerJoin(usersTable, eq(teacherClockInsTable.userId, usersTable.id))
+    .where(date ? eq(teacherClockInsTable.serviceDate, date) : undefined)
+    .orderBy(desc(teacherClockInsTable.serviceDate), teacherClockInsTable.clockInAt);
+
+  res.json(rows);
+});
+
+export default router;

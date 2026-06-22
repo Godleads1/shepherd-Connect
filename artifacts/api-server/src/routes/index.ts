@@ -31,6 +31,7 @@ import errorLogsRouter from "./errorLogs";
 import pickupRequestsRouter from "./pickupRequests";
 import familyAssistRouter from "./familyAssist";
 import whatsappRouter from "./whatsapp";
+import teacherClockInsRouter from "./teacherClockIns";
 
 const router: IRouter = Router();
 
@@ -66,5 +67,6 @@ router.use(errorLogsRouter);
 router.use(pickupRequestsRouter);
 router.use(familyAssistRouter);
 router.use(whatsappRouter);
+router.use(teacherClockInsRouter);
 
 export default router;
