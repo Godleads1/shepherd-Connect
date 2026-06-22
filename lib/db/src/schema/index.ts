@@ -22,3 +22,5 @@ export * from "./messages";
 export * from "./pushSubscriptions";
 export * from "./errorLogs";
 export * from "./teacherClockIns";
+export * from "./safeguardingAcknowledgements";
+export * from "./parentConcerns";

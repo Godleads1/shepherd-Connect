@@ -46,6 +46,8 @@ import UserGuide from "@/pages/user-guide/index";
 import ErrorLogs from "@/pages/error-logs/index";
 import ClassroomDisplay from "@/pages/classroom-display/index";
 import Settings from "@/pages/settings/index";
+import SafeguardingInfo from "@/pages/safeguarding-info/index";
+import MyConcerns from "@/pages/my-concerns/index";
 import { PWABanner } from "@/components/PWABanner";
 
 const queryClient = new QueryClient();
@@ -106,6 +108,8 @@ function Router() {
               <Route path="/user-guide" component={UserGuide} />
               <Route path="/error-logs" component={ErrorLogs} />
               <Route path="/settings" component={Settings} />
+              <Route path="/safeguarding-info" component={SafeguardingInfo} />
+              <Route path="/my-concerns" component={MyConcerns} />
 
               {/* Fallback inside Layout */}
               <Route component={NotFound} />

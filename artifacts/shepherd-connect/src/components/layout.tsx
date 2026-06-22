@@ -8,7 +8,7 @@ import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import {
   LayoutDashboard, Users, Baby, School, ClipboardCheck, CheckSquare,
   LogOut, Menu, Bell, MessageSquare, AlertTriangle, UserCog, FileText, Star,
-  Clock, ShieldCheck, QrCode, Home, Grid3x3, X, ChevronRight, Globe,
+  Clock, ShieldCheck, QrCode, Home, Grid3x3, X, ChevronRight, Globe, MessageSquareWarning,
   BarChart3, UserCircle, Search, ListOrdered, CalendarClock, BookOpen, WifiOff,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
@@ -253,6 +253,7 @@ export function Layout({ children }: { children: ReactNode }) {
       items.push({ href: "/error-logs",            label: "Error Logs",          icon: AlertTriangle });
       items.push({ href: "/substitute-requests",   label: "Substitute Requests", icon: CalendarClock });
       items.push({ href: "/safeguarding",          label: "Safeguarding & DBS",  icon: ShieldCheck });
+      items.push({ href: "/my-concerns",           label: "Concerns & Feedback", icon: MessageSquareWarning });
       items.push({ href: "/messages",              label: "Messages",            icon: MessageSquare, badge: msgUnreadCount });
       if (role === "super_admin") items.push({ href: "/users", label: t.nav.users, icon: ShieldCheck });
       if (role === "super_admin") items.push({ href: "/settings", label: "Settings", icon: Grid3x3 });
@@ -262,6 +263,8 @@ export function Layout({ children }: { children: ReactNode }) {
       items.push({ href: "/pickup-delegates", label: t.nav.delegates,  icon: UserCog });
       items.push({ href: "/messages",         label: "Messages",       icon: MessageSquare, badge: msgUnreadCount });
       items.push({ href: "/feedback",         label: t.nav.feedback,   icon: Star });
+      items.push({ href: "/safeguarding-info", label: "Safeguarding Info",  icon: ShieldCheck });
+      items.push({ href: "/my-concerns",       label: "My Concerns",        icon: MessageSquareWarning });
     } else if (role === "teacher") {
       items.push({ href: "/my-class",              label: t.nav.myClass,         icon: School });
       items.push({ href: "/teacher-allocations",   label: "My Schedule",         icon: Clock });
