@@ -11,6 +11,7 @@ import { format, differenceInMinutes, differenceInSeconds, formatDistanceToNow }
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { apiPost, apiGet } from "@/lib/api-call";
 import { useAuth } from "@/contexts/auth";
+import LocationBanner from "@/components/LocationBanner";
 
 const SERVICE_CLOCK_KEY = "shepherd_service_end_time";
 
@@ -370,6 +371,8 @@ export default function Checkout() {
         <h1 className="text-3xl font-bold text-gray-900" style={{ fontFamily: "'Playfair Display', serif" }}>Check Out</h1>
         <p className="text-gray-500 text-sm mt-1">Release children to authorised parents or delegates</p>
       </div>
+
+      <LocationBanner />
 
       <ServiceClock />
 

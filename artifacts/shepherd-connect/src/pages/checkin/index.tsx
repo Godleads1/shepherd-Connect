@@ -10,6 +10,7 @@ import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import { enqueueCheckIn, getQueue, removeFromQueue, type QueuedCheckIn } from "@/lib/offline-queue";
 import { useAuth } from "@/contexts/auth";
 import FamilyAssist from "./FamilyAssist";
+import LocationBanner from "@/components/LocationBanner";
 
 type Tab = "qr" | "face" | "assist";
 type SlotChoice = "7am" | "10:30am" | "both";
@@ -291,6 +292,8 @@ export default function CheckIn() {
           </div>
         </div>
       </div>
+
+      <LocationBanner />
 
       {/* Transit/dropped-off live strip */}
       {(droppedOff.length > 0 || inTransit.length > 0) && (
