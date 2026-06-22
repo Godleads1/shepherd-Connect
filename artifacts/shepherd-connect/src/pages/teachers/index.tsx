@@ -101,11 +101,14 @@ function EditTeacherModal({ teacher, onClose }: { teacher: any; onClose: () => v
 
 function TimeLogTab() {
   const today = new Date().toISOString().slice(0, 10);
-  const [date, setDate] = useState(today);
+  const firstOfMonth = today.slice(0, 8) + "01";
+  const [from, setFrom] = useState(firstOfMonth);
+  const [to, setTo]     = useState(today);
 
   const { data: logs = [], isLoading } = useQuery<any[]>({
-    queryKey: ["teacher-clock-ins", date],
-    queryFn: () => apiGet<any[]>(`/teacher-clock-ins?date=${date}`),
+    queryKey: ["teacher-clock-ins", from, to],
+    queryFn: () => apiGet<any[]>(`/teacher-clock-ins?from=${from}&to=${to}`),
+    enabled: !!from && !!to,
   });
 
   function fmtTime(ts: string | null) {
@@ -113,34 +116,94 @@ function TimeLogTab() {
     try { return format(new Date(ts), "h:mm a"); } catch { return "—"; }
   }
 
+  const token = localStorage.getItem("token");
+  const exportUrl = `/api/teacher-clock-ins/export?from=${from}&to=${to}`;
+
+  const handleDownload = () => {
+    const a = document.createElement("a");
+    a.href = exportUrl;
+    // attach auth token via a fetch + blob since we can't set headers on <a>
+    fetch(exportUrl, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.blob())
+      .then(blob => {
+        const url = URL.createObjectURL(blob);
+        a.href = url;
+        a.download = `teacher-time-log-${from}-to-${to}.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+      });
+  };
+
+  const onTime = (logs as any[]).filter((r: any) => r.isOnTime === true).length;
+  const late   = (logs as any[]).filter((r: any) => r.isOnTime === false).length;
+
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-3">
-        <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Date</label>
-        <input
-          type="date"
-          value={date}
-          onChange={e => setDate(e.target.value)}
-          className="border rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200"
-        />
-        {date !== today && (
-          <button onClick={() => setDate(today)}
-            className="text-xs text-blue-600 font-semibold hover:underline">Today</button>
-        )}
+      {/* Filters + Download */}
+      <div className="flex flex-wrap items-end gap-3 bg-white rounded-2xl border border-gray-100 p-4 shadow-sm">
+        <div>
+          <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">From</label>
+          <input type="date" value={from} onChange={e => setFrom(e.target.value)}
+            className="border rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200" />
+        </div>
+        <div>
+          <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">To</label>
+          <input type="date" value={to} onChange={e => setTo(e.target.value)}
+            className="border rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200" />
+        </div>
+        <button onClick={() => { setFrom(today); setTo(today); }}
+          className="text-xs text-blue-600 font-semibold hover:underline pb-1.5">Today</button>
+        <button onClick={() => { setFrom(firstOfMonth); setTo(today); }}
+          className="text-xs text-blue-600 font-semibold hover:underline pb-1.5">This Month</button>
+
+        <div className="ml-auto">
+          <button
+            onClick={handleDownload}
+            disabled={(logs as any[]).length === 0}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all active:scale-95 disabled:opacity-40"
+            style={{ background: "#f59e0b", color: "#172554" }}>
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V4" />
+            </svg>
+            Download CSV
+          </button>
+        </div>
       </div>
+
+      {/* Summary pills */}
+      {(logs as any[]).length > 0 && (
+        <div className="flex gap-3">
+          <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-green-50 border border-green-100 text-sm">
+            <CheckCircle2 className="w-4 h-4 text-green-600" />
+            <span className="font-bold text-green-700">{onTime}</span>
+            <span className="text-green-600">On Time</span>
+          </div>
+          <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-red-50 border border-red-100 text-sm">
+            <AlertTriangle className="w-4 h-4 text-red-500" />
+            <span className="font-bold text-red-600">{late}</span>
+            <span className="text-red-500">Late</span>
+          </div>
+          <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-gray-50 border border-gray-100 text-sm">
+            <Clock className="w-4 h-4 text-gray-400" />
+            <span className="font-bold text-gray-600">{(logs as any[]).length}</span>
+            <span className="text-gray-500">Total Records</span>
+          </div>
+        </div>
+      )}
 
       {isLoading ? (
         <div className="space-y-3">{[1,2,3].map(i => <Skeleton key={i} className="h-14 rounded-xl" />)}</div>
-      ) : logs.length === 0 ? (
+      ) : (logs as any[]).length === 0 ? (
         <div className="text-center py-16 bg-white rounded-2xl border border-dashed border-gray-200">
           <Clock className="w-10 h-10 text-gray-200 mx-auto mb-2" />
-          <p className="text-gray-500 font-semibold text-sm">No clock-in records for this date</p>
+          <p className="text-gray-500 font-semibold text-sm">No clock-in records for this period</p>
         </div>
       ) : (
         <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden shadow-sm">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-gray-100 bg-gray-50">
+                <th className="text-left px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wide">Date</th>
                 <th className="text-left px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wide">Teacher</th>
                 <th className="text-left px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wide">Clock In</th>
                 <th className="text-left px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wide">Clock Out</th>
@@ -148,9 +211,10 @@ function TimeLogTab() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
-              {logs.map((row: any) => (
-                <tr key={row.id} className={row.isOnTime === false ? "bg-red-50/50" : ""}>
-                  <td className="px-4 py-3 font-semibold text-gray-800">
+              {(logs as any[]).map((row: any) => (
+                <tr key={row.id} className={row.isOnTime === false ? "bg-red-50/40" : ""}>
+                  <td className="px-4 py-3 text-gray-500 font-mono text-xs whitespace-nowrap">{row.serviceDate}</td>
+                  <td className="px-4 py-3 font-semibold text-gray-800 whitespace-nowrap">
                     {row.firstName} {row.lastName}
                   </td>
                   <td className="px-4 py-3 font-mono text-gray-700">{fmtTime(row.clockInAt)}</td>

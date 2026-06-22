@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
 import { teacherClockInsTable, usersTable } from "@workspace/db/schema";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, gte, lte } from "drizzle-orm";
 import { authMiddleware, requireRoles } from "../middlewares/auth";
 
 const router = Router();
@@ -131,9 +131,23 @@ router.get("/teacher-clock-ins/today", authMiddleware, requireRoles("teacher", "
   res.json({ record: record ?? null });
 });
 
-// GET /teacher-clock-ins — admin: all records, optionally filtered by date
+// GET /teacher-clock-ins — admin: all records, optionally filtered by date or date range
 router.get("/teacher-clock-ins", authMiddleware, requireRoles("admin", "super_admin"), async (req, res): Promise<void> => {
-  const { date } = req.query as { date?: string };
+  const { date, from, to } = req.query as { date?: string; from?: string; to?: string };
+
+  let whereClause;
+  if (date) {
+    whereClause = eq(teacherClockInsTable.serviceDate, date);
+  } else if (from && to) {
+    whereClause = and(
+      gte(teacherClockInsTable.serviceDate, from),
+      lte(teacherClockInsTable.serviceDate, to),
+    );
+  } else if (from) {
+    whereClause = gte(teacherClockInsTable.serviceDate, from);
+  } else if (to) {
+    whereClause = lte(teacherClockInsTable.serviceDate, to);
+  }
 
   const rows = await db
     .select({
@@ -150,10 +164,71 @@ router.get("/teacher-clock-ins", authMiddleware, requireRoles("admin", "super_ad
     })
     .from(teacherClockInsTable)
     .innerJoin(usersTable, eq(teacherClockInsTable.userId, usersTable.id))
-    .where(date ? eq(teacherClockInsTable.serviceDate, date) : undefined)
+    .where(whereClause)
     .orderBy(desc(teacherClockInsTable.serviceDate), teacherClockInsTable.clockInAt);
 
   res.json(rows);
+});
+
+// GET /teacher-clock-ins/export — CSV download
+router.get("/teacher-clock-ins/export", authMiddleware, requireRoles("admin", "super_admin"), async (req, res): Promise<void> => {
+  const { from, to } = req.query as { from?: string; to?: string };
+
+  let whereClause;
+  if (from && to) {
+    whereClause = and(gte(teacherClockInsTable.serviceDate, from), lte(teacherClockInsTable.serviceDate, to));
+  } else if (from) {
+    whereClause = gte(teacherClockInsTable.serviceDate, from);
+  } else if (to) {
+    whereClause = lte(teacherClockInsTable.serviceDate, to);
+  }
+
+  const rows = await db
+    .select({
+      serviceDate: teacherClockInsTable.serviceDate,
+      firstName: usersTable.firstName,
+      lastName: usersTable.lastName,
+      clockInAt: teacherClockInsTable.clockInAt,
+      clockOutAt: teacherClockInsTable.clockOutAt,
+      isOnTime: teacherClockInsTable.isOnTime,
+      isWithinGeofence: teacherClockInsTable.isWithinGeofence,
+    })
+    .from(teacherClockInsTable)
+    .innerJoin(usersTable, eq(teacherClockInsTable.userId, usersTable.id))
+    .where(whereClause)
+    .orderBy(desc(teacherClockInsTable.serviceDate), teacherClockInsTable.clockInAt);
+
+  function fmtTs(ts: Date | null): string {
+    if (!ts) return "";
+    try {
+      const d = new Date(ts);
+      const watMs = d.getTime() + 60 * 60 * 1000;
+      const w = new Date(watMs);
+      const hh = String(w.getUTCHours()).padStart(2, "0");
+      const mm = String(w.getUTCMinutes()).padStart(2, "0");
+      return `${hh}:${mm}`;
+    } catch { return ""; }
+  }
+
+  const headers = ["Date", "First Name", "Last Name", "Clock In (WAT)", "Clock Out (WAT)", "Status", "Within Geofence"];
+  const csvRows = rows.map(r => [
+    r.serviceDate,
+    r.firstName,
+    r.lastName,
+    fmtTs(r.clockInAt),
+    fmtTs(r.clockOutAt),
+    r.clockInAt === null ? "Not Clocked In" : r.isOnTime ? "On Time" : "Late",
+    r.isWithinGeofence ? "Yes" : "No",
+  ]);
+
+  const csv = [headers, ...csvRows]
+    .map(row => row.map(c => `"${String(c ?? "").replace(/"/g, '""')}"`).join(","))
+    .join("\n");
+
+  const label = from && to ? `${from}-to-${to}` : from ?? to ?? "all";
+  res.setHeader("Content-Type", "text/csv");
+  res.setHeader("Content-Disposition", `attachment; filename="teacher-time-log-${label}.csv"`);
+  res.send(csv);
 });
 
 export default router;
