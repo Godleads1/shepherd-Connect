@@ -33,6 +33,7 @@ import familyAssistRouter from "./familyAssist";
 import whatsappRouter from "./whatsapp";
 import teacherClockInsRouter from "./teacherClockIns";
 import safeguardingPortalRouter from "./safeguardingPortal";
+import teacherIncidentsRouter from "./teacherIncidents";
 
 const router: IRouter = Router();
 
@@ -70,5 +71,6 @@ router.use(familyAssistRouter);
 router.use(whatsappRouter);
 router.use(teacherClockInsRouter);
 router.use(safeguardingPortalRouter);
+router.use(teacherIncidentsRouter);
 
 export default router;

@@ -14,6 +14,9 @@ export const concernTypeEnum = pgEnum("concern_type", [
 export const concernStatusEnum = pgEnum("concern_status", [
   "open",
   "under_review",
+  "assessment",
+  "parent_notified",
+  "escalated",
   "resolved",
   "closed",
 ]);

@@ -8,7 +8,7 @@ import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import {
   LayoutDashboard, Users, Baby, School, ClipboardCheck, CheckSquare,
   LogOut, Menu, Bell, MessageSquare, AlertTriangle, UserCog, FileText, Star,
-  Clock, ShieldCheck, QrCode, Home, Grid3x3, X, ChevronRight, Globe, MessageSquareWarning,
+  Clock, ShieldCheck, QrCode, Home, Grid3x3, X, ChevronRight, Globe, MessageSquareWarning, ShieldAlert,
   BarChart3, UserCircle, Search, ListOrdered, CalendarClock, BookOpen, WifiOff,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
@@ -254,6 +254,7 @@ export function Layout({ children }: { children: ReactNode }) {
       items.push({ href: "/substitute-requests",   label: "Substitute Requests", icon: CalendarClock });
       items.push({ href: "/safeguarding",          label: "Safeguarding & DBS",  icon: ShieldCheck });
       items.push({ href: "/my-concerns",           label: "Concerns & Feedback", icon: MessageSquareWarning });
+      items.push({ href: "/safeguarding-cases",    label: "Safeguarding Cases",  icon: ShieldAlert });
       items.push({ href: "/messages",              label: "Messages",            icon: MessageSquare, badge: msgUnreadCount });
       if (role === "super_admin") items.push({ href: "/users", label: t.nav.users, icon: ShieldCheck });
       if (role === "super_admin") items.push({ href: "/settings", label: "Settings", icon: Grid3x3 });
@@ -271,6 +272,7 @@ export function Layout({ children }: { children: ReactNode }) {
       items.push({ href: "/attendance",            label: t.nav.attendance,      icon: CheckSquare });
       items.push({ href: "/appraisals",            label: t.nav.appraisals,      icon: FileText });
       items.push({ href: "/substitute-requests",   label: "Substitute Requests", icon: CalendarClock });
+      items.push({ href: "/my-incidents",          label: "Incident Reports",    icon: AlertTriangle });
       items.push({ href: "/messages",              label: "Messages",            icon: MessageSquare, badge: msgUnreadCount });
     } else if (role === "support") {
       items.push({ href: "/checkin",  label: t.nav.checkin,  icon: ClipboardCheck });
