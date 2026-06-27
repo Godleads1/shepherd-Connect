@@ -26,3 +26,7 @@ export * from "./safeguardingAcknowledgements";
 export * from "./parentConcerns";
 export * from "./teacherIncidents";
 export * from "./supportRequests";
+export * from "./botSessions";
+export * from "./botLidCache";
+export * from "./botPendingApprovals";
+export * from "./botPhotoPending";

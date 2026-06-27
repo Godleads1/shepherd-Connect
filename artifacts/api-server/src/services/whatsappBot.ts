@@ -1,11 +1,11 @@
 /**
  * Shepherd Connect WhatsApp Bot
  *
- * Supports registered parents AND teachers AND support staff.
- *
- * JID note: newer WhatsApp accounts use "@lid" JIDs that contain no phone
- * number. Those go through a one-time phone-verification step; the LID →
- * userId mapping is cached in memory.
+ * All conversation state is stored in PostgreSQL — not in RAM.
+ * This means:
+ *   • Server restarts do NOT lose active conversations
+ *   • Multiple Node.js workers (PM2 cluster) all share the same state
+ *   • 800+ simultaneous users are supported
  *
  * Parent menus:
  *   1 STATUS    — Child attendance status today
@@ -15,12 +15,12 @@
  *   5 CONCERN   — Submit a concern or feedback
  *   6 REQUEST   — Request support for check-in / check-out / delegate pickup
  *
- * Support menus:
- *   PHOTO <REF> — Signal intent to send photo for a pending request
- *   [image]     — Relays photo to parent after PHOTO command
+ * Support flow:
+ *   PHOTO <REF> — Signal intent to photograph a person
+ *   [image]     — Relays photo to parent for approval
  *
  * Parent approval:
- *   APPROVE <REF> — Approves the photo; records check-in/out automatically
+ *   APPROVE <REF> — Approves photo; records attendance automatically
  *   REJECT <REF>  — Rejects and notifies support
  *
  * Teacher menus:
@@ -42,13 +42,14 @@ import {
   teachersTable,
   teacherAllocationsTable,
   supportRequestsTable,
+  botSessionsTable,
+  botLidCacheTable,
+  botPendingApprovalsTable,
+  botPhotoPendingTable,
 } from "@workspace/db/schema";
-import { eq, or, desc, and, inArray } from "drizzle-orm";
+import { eq, or, desc, and, inArray, lt, sql } from "drizzle-orm";
 import { logger } from "../lib/logger";
-import {
-  sendWhatsAppToJid,
-  sendWhatsAppImageToJid,
-} from "./whatsapp";
+import { sendWhatsAppToJid, sendWhatsAppImageToJid } from "./whatsapp";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -64,43 +65,20 @@ type Step =
   | "request_select_child"
   | "awaiting_photo";
 
+interface SessionData {
+  candidates?: string;
+  concernType?: string;
+  requestType?: string;
+  childList?: string;
+  [key: string]: string | undefined;
+}
+
 interface Session {
   step: Step;
   activeUserId?: number;
-  data: Record<string, string>;
-  expiresAt: number;
+  data: SessionData;
 }
 
-// ── In-memory state ───────────────────────────────────────────────────────────
-
-/** LID JID → resolved userId */
-const lidCache = new Map<string, number>();
-
-/** Sessions keyed by JID */
-const sessions = new Map<string, Session>();
-const SESSION_TTL_MS = 15 * 60 * 1000; // 15 minutes
-
-// Sweep expired sessions and stale relay data every 5 minutes
-setInterval(() => {
-  const now = Date.now();
-  for (const [jid, s] of sessions) {
-    if (s.expiresAt < now) sessions.delete(jid);
-  }
-  // Clean stale relay entries older than 2 hours (in case approval never came)
-  // We don't have timestamps on pendingApproval entries so we rely on DB status
-}, 5 * 60 * 1000).unref();
-
-/**
- * Support photo flow:
- * pendingPhotoCapture: support's fromJid → ref number
- * (set when support types "PHOTO <REF>", cleared after image is relayed)
- */
-const pendingPhotoCapture = new Map<string, string>();
-
-/**
- * Relay data for pending approval:
- * ref → { parentJid, supportJid, childName, requestType, childId, parentUserId }
- */
 interface RelayData {
   parentJid: string;
   supportJid: string;
@@ -110,78 +88,204 @@ interface RelayData {
   parentUserId: number;
   assignedSupportId: number;
 }
-const pendingApproval = new Map<string, RelayData>();
 
-/**
- * Round-robin support assignment counter.
- * Incremented each time a support person is assigned.
- */
+// ── Round-robin counter (per-process; resets on restart — acceptable) ─────────
 let supportRoundRobinIdx = 0;
 
-// ── Session helpers ───────────────────────────────────────────────────────────
+// ── Session TTL ───────────────────────────────────────────────────────────────
+const SESSION_TTL_MS   = 15 * 60 * 1000;  // 15 minutes
+const PHOTO_TTL_MS     = 10 * 60 * 1000;  // 10 minutes
 
-function getSession(jid: string): Session {
-  const s = sessions.get(jid);
-  if (s && s.expiresAt > Date.now()) {
-    s.expiresAt = Date.now() + SESSION_TTL_MS;
-    return s;
+// ── DB cleanup (expired sessions + photo-pending rows) every 10 minutes ───────
+setInterval(async () => {
+  try {
+    const now = new Date();
+    await db.delete(botSessionsTable).where(lt(botSessionsTable.expiresAt, now));
+    await db.delete(botPhotoPendingTable).where(lt(botPhotoPendingTable.expiresAt, now));
+  } catch (err) {
+    logger.warn({ err: String(err) }, "Bot DB cleanup error");
   }
-  const fresh: Session = { step: "idle", data: {}, expiresAt: Date.now() + SESSION_TTL_MS };
-  sessions.set(jid, fresh);
-  return fresh;
+}, 10 * 60 * 1000).unref();
+
+// ── DB session helpers ────────────────────────────────────────────────────────
+
+async function getSession(jid: string): Promise<Session> {
+  const [row] = await db
+    .select()
+    .from(botSessionsTable)
+    .where(
+      and(
+        eq(botSessionsTable.jid, jid),
+        sql`${botSessionsTable.expiresAt} > NOW()`,
+      ),
+    );
+
+  if (!row) return { step: "idle", data: {} };
+
+  return {
+    step: row.step as Step,
+    activeUserId: row.activeUserId ?? undefined,
+    data: JSON.parse(row.dataJson) as SessionData,
+  };
 }
 
-function resetSession(jid: string, keepUserId?: number): Session {
-  const s: Session = {
-    step: "idle",
-    data: {},
-    expiresAt: Date.now() + SESSION_TTL_MS,
-    activeUserId: keepUserId,
+async function saveSession(jid: string, session: Session): Promise<void> {
+  const expiresAt = new Date(Date.now() + SESSION_TTL_MS);
+  await db
+    .insert(botSessionsTable)
+    .values({
+      jid,
+      step: session.step,
+      activeUserId: session.activeUserId ?? null,
+      dataJson: JSON.stringify(session.data),
+      expiresAt,
+      updatedAt: new Date(),
+    })
+    .onConflictDoUpdate({
+      target: botSessionsTable.jid,
+      set: {
+        step: session.step,
+        activeUserId: session.activeUserId ?? null,
+        dataJson: JSON.stringify(session.data),
+        expiresAt,
+        updatedAt: new Date(),
+      },
+    });
+}
+
+async function resetSession(jid: string, keepUserId?: number): Promise<Session> {
+  const session: Session = { step: "idle", data: {}, activeUserId: keepUserId };
+  await saveSession(jid, session);
+  return session;
+}
+
+// ── DB LID-cache helpers ──────────────────────────────────────────────────────
+
+async function getLidUserId(jid: string): Promise<number | null> {
+  const [row] = await db
+    .select()
+    .from(botLidCacheTable)
+    .where(eq(botLidCacheTable.jid, jid));
+  return row?.userId ?? null;
+}
+
+async function setLidUserId(jid: string, userId: number): Promise<void> {
+  await db
+    .insert(botLidCacheTable)
+    .values({ jid, userId })
+    .onConflictDoUpdate({
+      target: botLidCacheTable.jid,
+      set: { userId },
+    });
+}
+
+// ── DB pending-approval helpers ───────────────────────────────────────────────
+
+async function getPendingApproval(ref: string): Promise<RelayData | null> {
+  const [row] = await db
+    .select()
+    .from(botPendingApprovalsTable)
+    .where(eq(botPendingApprovalsTable.refNumber, ref));
+  if (!row) return null;
+  return {
+    parentJid:         row.parentJid,
+    supportJid:        row.supportJid,
+    childName:         row.childName,
+    requestType:       row.requestType as RelayData["requestType"],
+    childId:           row.childId,
+    parentUserId:      row.parentUserId,
+    assignedSupportId: row.assignedSupportId,
   };
-  sessions.set(jid, s);
-  return s;
+}
+
+async function setPendingApproval(ref: string, data: RelayData): Promise<void> {
+  await db
+    .insert(botPendingApprovalsTable)
+    .values({
+      refNumber:         ref,
+      parentJid:         data.parentJid,
+      supportJid:        data.supportJid,
+      childName:         data.childName,
+      requestType:       data.requestType,
+      childId:           data.childId,
+      parentUserId:      data.parentUserId,
+      assignedSupportId: data.assignedSupportId,
+    })
+    .onConflictDoUpdate({
+      target: botPendingApprovalsTable.refNumber,
+      set: {
+        parentJid:  data.parentJid,
+        supportJid: data.supportJid,
+      },
+    });
+}
+
+async function deletePendingApproval(ref: string): Promise<void> {
+  await db
+    .delete(botPendingApprovalsTable)
+    .where(eq(botPendingApprovalsTable.refNumber, ref));
+}
+
+// ── DB photo-pending helpers ──────────────────────────────────────────────────
+
+async function getPhotoPendingRef(supportJid: string): Promise<string | null> {
+  const [row] = await db
+    .select()
+    .from(botPhotoPendingTable)
+    .where(
+      and(
+        eq(botPhotoPendingTable.supportJid, supportJid),
+        sql`${botPhotoPendingTable.expiresAt} > NOW()`,
+      ),
+    );
+  return row?.refNumber ?? null;
+}
+
+async function setPhotoPending(supportJid: string, ref: string): Promise<void> {
+  const expiresAt = new Date(Date.now() + PHOTO_TTL_MS);
+  await db
+    .insert(botPhotoPendingTable)
+    .values({ supportJid, refNumber: ref, expiresAt })
+    .onConflictDoUpdate({
+      target: botPhotoPendingTable.supportJid,
+      set: { refNumber: ref, expiresAt },
+    });
+}
+
+async function deletePhotoPending(supportJid: string): Promise<void> {
+  await db
+    .delete(botPhotoPendingTable)
+    .where(eq(botPhotoPendingTable.supportJid, supportJid));
 }
 
 // ── Phone helpers ─────────────────────────────────────────────────────────────
 
-function normalisePhone(raw: string): string {
-  const d = raw.replace(/\D/g, "");
-  if (d.startsWith("0")) return "234" + d.slice(1);
-  if (d.startsWith("+")) return d.slice(1);
-  return d;
-}
-
-function phoneToWaJid(phone: string): string {
-  return normalisePhone(phone) + "@s.whatsapp.net";
-}
-
-function isLidJid(jid: string) { return jid.endsWith("@lid"); }
-
-function phoneFromWaJid(jid: string) { return jid.split("@")[0]!.split(":")[0]!; }
-
-// ── DB helpers ────────────────────────────────────────────────────────────────
-
-/** Generate all plausible storage variants of a Nigerian phone number. */
 function phoneVariants(raw: string): string[] {
   const digits = raw.replace(/\D/g, "");
   const core = digits.startsWith("234") ? digits.slice(3)
     : digits.startsWith("0") ? digits.slice(1)
     : digits;
-  // core is the 10-digit local number (e.g. 8105531421)
-  return [
-    `0${core}`,          // 08105531421
-    `+234${core}`,       // +2348105531421
-    `234${core}`,        // 2348105531421
-    core,                // 8105531421 (rare but possible)
-  ];
+  return [`0${core}`, `+234${core}`, `234${core}`, core];
 }
 
+function phoneToWaJid(phone: string): string {
+  const digits = phone.replace(/\D/g, "");
+  const norm = digits.startsWith("0") ? "234" + digits.slice(1)
+    : digits.startsWith("+") ? digits.slice(1)
+    : digits;
+  return norm + "@s.whatsapp.net";
+}
+
+function isLidJid(jid: string) { return jid.endsWith("@lid"); }
+function phoneFromWaJid(jid: string) { return jid.split("@")[0]!.split(":")[0]!; }
+
+// ── DB data helpers ───────────────────────────────────────────────────────────
+
 async function findUsersByPhone(phone: string) {
-  const variants = phoneVariants(phone.trim());
   return db
     .select()
     .from(usersTable)
-    .where(inArray(usersTable.phone, variants));
+    .where(inArray(usersTable.phone, phoneVariants(phone.trim())));
 }
 
 async function findUserById(id: number) {
@@ -253,10 +357,10 @@ async function getTodayAllocationForTeacher(teacherId: number) {
     .select()
     .from(teacherAllocationsTable)
     .where(eq(teacherAllocationsTable.teacherId, teacherId));
-  const todayRow = allRows.find(r => String(r.serviceDate).slice(0, 10) === today);
-  if (!todayRow) return null;
-  const [cls] = await db.select().from(classesTable).where(eq(classesTable.id, todayRow.classId));
-  return { ...todayRow, className: cls?.name ?? "Unknown class" };
+  const row = allRows.find(r => String(r.serviceDate).slice(0, 10) === today);
+  if (!row) return null;
+  const [cls] = await db.select().from(classesTable).where(eq(classesTable.id, row.classId));
+  return { ...row, className: cls?.name ?? "Unknown class" };
 }
 
 async function getClassChildren(classId: number) {
@@ -266,51 +370,55 @@ async function getClassChildren(classId: number) {
     .where(eq(childrenTable.currentClassId, classId));
 }
 
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
 function generateRef(prefix = "SC-REQ"): string {
-  const year = new Date().getFullYear();
-  return `${prefix}-${year}-${Math.floor(10000 + Math.random() * 90000)}`;
+  return `${prefix}-${new Date().getFullYear()}-${Math.floor(10000 + Math.random() * 90000)}`;
 }
 
-function todaySlot(): string {
-  return new Date().getHours() < 9 ? "7am" : "10:30am";
+function todayDate() { return new Date().toISOString().slice(0, 10); }
+function todaySlot() { return new Date().getHours() < 9 ? "7am" : "10:30am"; }
+
+function typeLabel(t: string) {
+  return t === "checkin" ? "Check-in" : t === "checkout" ? "Check-out" : "Delegate Pickup";
 }
 
-function todayDate(): string {
-  return new Date().toISOString().slice(0, 10);
+function roleLabel(role: UserRole): string {
+  const m: Record<UserRole, string> = {
+    parent: "👨‍👩‍👧 Parent", teacher: "👩‍🏫 Teacher", admin: "🛠️ Admin",
+    super_admin: "⭐ Super Admin", attendant: "🔖 Attendant", support: "🤝 Support",
+  };
+  return m[role] ?? role;
 }
 
 // ── Message builders ──────────────────────────────────────────────────────────
 
-function parentMenuText(firstName: string) {
+function parentMenuText(name: string) {
   return (
-    `👋 Hi ${firstName}! Welcome to *Shepherd Connect*.\n\n` +
-    `What would you like to do?\n\n` +
+    `👋 Hi ${name}! Welcome to *Shepherd Connect*.\n\n` +
     `*1* — 📋 Check attendance status\n` +
     `*2* — 🔑 Get pickup delegate OTP\n` +
     `*3* — 👶 My children & classes\n` +
     `*4* — 🔔 Recent notifications\n` +
     `*5* — 💬 Submit a concern or feedback\n` +
     `*6* — 🆘 Request support (check-in / check-out)\n\n` +
-    `Type *HELP* or *0* at any time.\n` +
-    `Type *SWITCH* to use a different role.`
+    `Type *HELP* or *0* for this menu. Type *SWITCH* to change role.`
   );
 }
 
-function teacherMenuText(firstName: string) {
+function teacherMenuText(name: string) {
   return (
-    `👋 Hi ${firstName}! Welcome to *Shepherd Connect*.\n\n` +
-    `What would you like to do?\n\n` +
+    `👋 Hi ${name}! Welcome to *Shepherd Connect*.\n\n` +
     `*1* — 🏫 My class roster today\n` +
     `*2* — 📋 Today's attendance summary\n` +
     `*3* — 🔔 Recent notifications\n\n` +
-    `Type *HELP* or *0* at any time.\n` +
-    `Type *SWITCH* to use a different role.`
+    `Type *HELP* or *0* for this menu. Type *SWITCH* to change role.`
   );
 }
 
-function supportMenuText(firstName: string) {
+function supportMenuText(name: string) {
   return (
-    `👋 Hi ${firstName}! You are logged in as *Support Staff*.\n\n` +
+    `👋 Hi ${name}! You are logged in as *Support Staff*.\n\n` +
     `To handle a photo request:\n` +
     `1. Wait for a parent request notification\n` +
     `2. When the person arrives, type: *PHOTO SC-REQ-XXXX*\n` +
@@ -323,12 +431,10 @@ function attendanceStatusText(
   children: Awaited<ReturnType<typeof getParentChildren>>,
   attendance: Awaited<ReturnType<typeof getTodayAttendance>>,
 ) {
-  if (!children.length) return `ℹ️ No children registered yet. Add them via the Shepherd Connect app.`;
-  const statusLabel: Record<string, string> = {
-    dropped_off: "🟡 Dropped off (not yet in class)",
-    in_transit:  "🟠 In transit to classroom",
-    in_class:    "🟢 In class",
-    picked_up:   "✅ Picked up",
+  if (!children.length) return `ℹ️ No children registered yet. Add them via the app.`;
+  const label: Record<string, string> = {
+    dropped_off: "🟡 Dropped off", in_transit: "🟠 In transit",
+    in_class: "🟢 In class", picked_up: "✅ Picked up",
   };
   const lines = children.map(c => {
     const att  = attendance.find(a => a.childId === c.id);
@@ -336,7 +442,7 @@ function attendanceStatusText(
     const cls  = c.className ? ` (${c.className})` : "";
     if (!att) return `👦 *${name}*${cls}\n   ⚪ Not checked in today`;
     const slot = att.serviceSlot === "7am" ? "7:00 AM" : "10:30 AM";
-    return `👦 *${name}*${cls}\n   ${statusLabel[att.status] ?? att.status}\n   ⏰ ${slot} service`;
+    return `👦 *${name}*${cls}\n   ${label[att.status] ?? att.status}\n   ⏰ ${slot} service`;
   });
   return `📋 *Today's Attendance*\n\n${lines.join("\n\n")}`;
 }
@@ -345,7 +451,7 @@ function otpText(
   children: Awaited<ReturnType<typeof getParentChildren>>,
   delegates: Awaited<ReturnType<typeof getDelegates>>,
 ) {
-  if (!children.length) return `ℹ️ No children found on your account.`;
+  if (!children.length) return `ℹ️ No children on your account.`;
   if (!delegates.length) return `ℹ️ No pickup delegates added yet. Add them via the app.`;
   const now = new Date();
   const lines = children.flatMap(c => {
@@ -359,22 +465,18 @@ function otpText(
       }),
     ];
   });
-  if (!lines.length) return `ℹ️ No delegates found.`;
-  return `🔑 *Pickup Delegate OTPs*\n\n${lines.join("\n")}\n\n_Show OTP to the attendant at pickup._`;
+  return !lines.length ? `ℹ️ No delegates found.`
+    : `🔑 *Pickup Delegate OTPs*\n\n${lines.join("\n")}\n\n_Show OTP to the attendant at pickup._`;
 }
 
 function notificationsText(notifs: Awaited<ReturnType<typeof getRecentNotifications>>) {
-  if (!notifs.length) return `🔔 You have no recent notifications.`;
+  if (!notifs.length) return `🔔 No recent notifications.`;
   const lines = notifs.map(n => {
     const dot  = n.readStatus ? "" : "🔵 ";
     const date = new Date(n.createdAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
     return `${dot}*${n.title}*\n_${date}_ — ${n.message}`;
   });
   return `🔔 *Recent Notifications*\n\n${lines.join("\n\n")}\n\n_Open the app to see all._`;
-}
-
-function typeLabel(type: string): string {
-  return type === "checkin" ? "Check-in" : type === "checkout" ? "Check-out" : "Delegate Pickup";
 }
 
 // ── Main handler ──────────────────────────────────────────────────────────────
@@ -388,75 +490,58 @@ export async function handleInboundMessage(
 ): Promise<void> {
   const input = text.trim().toLowerCase();
 
-  // ── Image from support staff ──────────────────────────────────────────────
+  // ── Image from support — relay to parent ─────────────────────────────────
   if (imageBuffer) {
-    const ref = pendingPhotoCapture.get(fromJid);
+    const ref = await getPhotoPendingRef(fromJid);
     if (ref) {
-      pendingPhotoCapture.delete(fromJid);
+      await deletePhotoPending(fromJid);
       await _handleSupportPhoto(fromJid, ref, imageBuffer, reply);
-      return;
     }
-    // Image with no pending context — ignore silently
     return;
   }
 
-  // ── Global APPROVE / REJECT commands (parent approval flow) ───────────────
+  // ── Global APPROVE / REJECT ──────────────────────────────────────────────
   const approveMatch = input.match(/^approve\s+(sc-req-\d{4}-\d+)/i);
   const rejectMatch  = input.match(/^reject\s+(sc-req-\d{4}-\d+)/i);
+  if (approveMatch) { await _handleApproval(fromJid, approveMatch[1]!.toUpperCase(), true,  reply); return; }
+  if (rejectMatch)  { await _handleApproval(fromJid, rejectMatch[1]!.toUpperCase(),  false, reply); return; }
 
-  if (approveMatch) {
-    await _handleApproval(fromJid, approveMatch[1]!.toUpperCase(), true, reply);
-    return;
-  }
-  if (rejectMatch) {
-    await _handleApproval(fromJid, rejectMatch[1]!.toUpperCase(), false, reply);
-    return;
-  }
-
-  // ── PHOTO command from support ────────────────────────────────────────────
+  // ── PHOTO <REF> from support ─────────────────────────────────────────────
   const photoMatch = input.match(/^photo\s+(sc-req-\d{4}-\d+)/i);
-  if (photoMatch) {
-    await _handlePhotoIntent(fromJid, photoMatch[1]!.toUpperCase(), reply);
-    return;
-  }
+  if (photoMatch) { await _handlePhotoIntent(fromJid, photoMatch[1]!.toUpperCase(), reply); return; }
 
-  // ── Resolve user from JID ─────────────────────────────────────────────────
+  // ── Resolve userId from JID ──────────────────────────────────────────────
   let resolvedUserId: number | null = null;
 
   if (isLidJid(fromJid)) {
-    const cached = lidCache.get(fromJid);
+    const cached = await getLidUserId(fromJid);
     if (cached) {
       resolvedUserId = cached;
     } else {
-      const session = getSession(fromJid);
+      const session = await getSession(fromJid);
       if (session.step === "lid_verify_phone") {
         const matches = await findUsersByPhone(text.trim());
         if (!matches.length) {
-          await reply(
-            `❌ I couldn't find that number.\n\n` +
-            `Please check and try again, or contact the church admin.\n\n` +
-            `_Type your registered phone number (e.g. 08012345678):_`,
-          );
+          await reply(`❌ I couldn't find that number.\n\nPlease check and try again.\n\n_Type your registered phone (e.g. 08012345678):_`);
           return;
         }
-        lidCache.set(fromJid, matches[0]!.id);
-        resetSession(fromJid);
+        await setLidUserId(fromJid, matches[0]!.id);
         resolvedUserId = matches[0]!.id;
         if (matches.length > 1) {
-          const s = getSession(fromJid);
-          s.step = "role_select";
-          s.data.candidates = matches.map(u => u.id).join(",");
-          const opts = matches.map((u, i) => `*${i + 1}* — ${_roleLabel(u.role as UserRole)} (${u.firstName} ${u.lastName})`).join("\n");
-          await reply(`I found multiple accounts for this number. Which one are you using today?\n\n${opts}`);
+          const s: Session = { step: "role_select", data: { candidates: matches.map(u => u.id).join(",") } };
+          await saveSession(fromJid, s);
+          const opts = matches.map((u, i) => `*${i + 1}* — ${roleLabel(u.role as UserRole)} (${u.firstName} ${u.lastName})`).join("\n");
+          await reply(`I found multiple accounts. Which one are you using today?\n\n${opts}`);
           return;
         }
+        await resetSession(fromJid, matches[0]!.id);
+        const user = await findUserById(matches[0]!.id);
+        if (user) await reply(parentMenuText(user.firstName));
+        return;
       } else {
-        session.step = "lid_verify_phone";
-        await reply(
-          `👋 Welcome to *Shepherd Connect*!\n\n` +
-          `Please type your registered phone number to verify your account.\n\n` +
-          `_Example: 08012345678_`,
-        );
+        const s: Session = { step: "lid_verify_phone", data: {} };
+        await saveSession(fromJid, s);
+        await reply(`👋 Welcome to *Shepherd Connect*!\n\nPlease type your registered phone number to verify your account.\n\n_Example: 08012345678_`);
         return;
       }
     }
@@ -466,12 +551,12 @@ export async function handleInboundMessage(
     if (matches.length) resolvedUserId = matches[0]!.id;
 
     if (matches.length > 1) {
-      const session = getSession(fromJid);
+      const session = await getSession(fromJid);
       if (session.step !== "role_select" && !session.activeUserId) {
-        session.step = "role_select";
-        session.data.candidates = matches.map(u => u.id).join(",");
-        const opts = matches.map((u, i) => `*${i + 1}* — ${_roleLabel(u.role as UserRole)} (${u.firstName} ${u.lastName})`).join("\n");
-        await reply(`I found multiple accounts for this number. Which one would you like to use?\n\n${opts}`);
+        const s: Session = { step: "role_select", data: { candidates: matches.map(u => u.id).join(",") } };
+        await saveSession(fromJid, s);
+        const opts = matches.map((u, i) => `*${i + 1}* — ${roleLabel(u.role as UserRole)} (${u.firstName} ${u.lastName})`).join("\n");
+        await reply(`I found multiple accounts. Which one would you like to use?\n\n${opts}`);
         return;
       }
     }
@@ -480,69 +565,60 @@ export async function handleInboundMessage(
   if (!resolvedUserId) {
     await reply(
       `👋 Hello! I'm the *Shepherd Connect* assistant.\n\n` +
-      `I'm sorry, I don't recognise this number. Only registered users can use this service.\n\n` +
-      `Please register at:\n🌐 https://shepherdconnect.name.ng\n\n` +
-      `If you believe this is an error, please contact the church admin.`,
+      `I don't recognise this number. Only registered users can access this service.\n\n` +
+      `Register at: 🌐 https://shepherdconnect.name.ng\n\n` +
+      `Contact the church admin if you believe this is an error.`,
     );
     return;
   }
 
-  const session = getSession(fromJid);
+  // ── Load session ─────────────────────────────────────────────────────────
+  let session = await getSession(fromJid);
+  if (session.activeUserId) resolvedUserId = session.activeUserId;
 
   // ── Role selection ────────────────────────────────────────────────────────
   if (session.step === "role_select") {
     const candidates = (session.data.candidates ?? "").split(",").map(Number).filter(Boolean);
     const idx = parseInt(input, 10) - 1;
     if (isNaN(idx) || idx < 0 || idx >= candidates.length) {
-      await reply(`Please reply with a number between 1 and ${candidates.length}.`);
-      return;
+      await reply(`Please reply with a number between 1 and ${candidates.length}.`); return;
     }
-    session.activeUserId = candidates[idx]!;
-    session.step = "idle";
-    resolvedUserId = session.activeUserId;
+    resolvedUserId = candidates[idx]!;
+    session = await resetSession(fromJid, resolvedUserId);
   }
-
-  if (session.activeUserId) resolvedUserId = session.activeUserId;
 
   const user = await findUserById(resolvedUserId);
-  if (!user) {
-    await reply(`⚠️ Something went wrong. Please try again.`);
-    return;
-  }
-
+  if (!user) { await reply(`⚠️ Something went wrong. Please try again.`); return; }
   const role = user.role as UserRole;
 
   // ── Global escapes ────────────────────────────────────────────────────────
   if (["0", "menu", "help", "hi", "hello", "start"].includes(input)) {
-    resetSession(fromJid, resolvedUserId);
+    await resetSession(fromJid, resolvedUserId);
     if (role === "teacher") { await reply(teacherMenuText(user.firstName)); return; }
-    if (role === "support") { await reply(supportMenuText(user.firstName)); return; }
-    await reply(parentMenuText(user.firstName));
-    return;
+    if (role === "support" || role === "attendant") { await reply(supportMenuText(user.firstName)); return; }
+    await reply(parentMenuText(user.firstName)); return;
   }
 
   if (input === "switch") {
     const phone   = isLidJid(fromJid) ? null : phoneFromWaJid(fromJid);
     const matches = phone ? await findUsersByPhone(phone) : [user];
     if (matches.length <= 1) { await reply(`ℹ️ You only have one account on this number.`); return; }
-    const s = resetSession(fromJid);
-    s.step = "role_select";
-    s.data.candidates = matches.map(u => u.id).join(",");
-    const opts = matches.map((u, i) => `*${i + 1}* — ${_roleLabel(u.role as UserRole)} (${u.firstName} ${u.lastName})`).join("\n");
-    await reply(`Which account would you like to use?\n\n${opts}`);
-    return;
+    const s: Session = { step: "role_select", data: { candidates: matches.map(u => u.id).join(",") } };
+    await saveSession(fromJid, s);
+    const opts = matches.map((u, i) => `*${i + 1}* — ${roleLabel(u.role as UserRole)} (${u.firstName} ${u.lastName})`).join("\n");
+    await reply(`Which account would you like to use?\n\n${opts}`); return;
   }
 
-  // ── Multi-step flows (concern) ────────────────────────────────────────────
+  // ── Multi-step: concern ───────────────────────────────────────────────────
   if (session.step === "concern_select_type") {
     const typeMap: Record<string, string> = { "1": "safeguarding_concern", "2": "complaint", "3": "compliment", "4": "general_feedback" };
-    const concernType = typeMap[input];
-    if (!concernType) { await reply(`Please reply with *1*, *2*, *3*, or *4*.\n\nOr type *0* to cancel.`); return; }
+    const ct = typeMap[input];
+    if (!ct) { await reply(`Please reply with *1*, *2*, *3*, or *4*.\n\nType *0* to cancel.`); return; }
     session.step = "concern_enter_desc";
-    session.data.concernType = concernType;
+    session.data.concernType = ct;
+    await saveSession(fromJid, session);
     const labels: Record<string, string> = { safeguarding_concern: "Safeguarding Concern", complaint: "Complaint", compliment: "Compliment", general_feedback: "General Feedback" };
-    await reply(`✏️ You selected: *${labels[concernType]}*\n\nPlease type your message now.\n\n_Type *0* to cancel._`);
-    return;
+    await reply(`✏️ You selected: *${labels[ct]}*\n\nType your message now.\n\n_Type *0* to cancel._`); return;
   }
 
   if (session.step === "concern_enter_desc") {
@@ -551,62 +627,45 @@ export async function handleInboundMessage(
     const [clash] = await db.select().from(parentConcernsTable).where(eq(parentConcernsTable.referenceNumber, ref));
     if (clash) ref = generateRef("SC");
     await db.insert(parentConcernsTable).values({ referenceNumber: ref, parentUserId: user.id, type: session.data.concernType as any, description: text.trim(), status: "open" });
-    resetSession(fromJid, resolvedUserId);
-    logger.info({ userId: user.id, ref }, "WhatsApp bot: concern submitted");
-    await reply(`✅ *Concern submitted!*\n\nReference: *${ref}*\n\nThe safeguarding team will respond via the app.\n\nType *0* for the main menu.`);
-    return;
+    await resetSession(fromJid, resolvedUserId);
+    logger.info({ userId: user.id, ref }, "Bot: concern submitted");
+    await reply(`✅ *Concern submitted!*\n\nReference: *${ref}*\n\nThe safeguarding team will respond via the app.\n\nType *0* for the main menu.`); return;
   }
 
-  // ── Multi-step flows (support request) ────────────────────────────────────
+  // ── Multi-step: support request ───────────────────────────────────────────
   if (session.step === "request_select_type") {
-    const reqTypeMap: Record<string, "checkin" | "checkout" | "delegate_pickup"> = {
-      "1": "checkin", "2": "checkout", "3": "delegate_pickup",
-    };
+    const reqTypeMap: Record<string, "checkin" | "checkout" | "delegate_pickup"> = { "1": "checkin", "2": "checkout", "3": "delegate_pickup" };
     const reqType = reqTypeMap[input];
     if (!reqType) { await reply(`Please reply with *1*, *2*, or *3*.\n\nType *0* to cancel.`); return; }
-    session.data.requestType = reqType;
-
-    // Check how many children this parent has
     const children = await getParentChildren(user.id);
-    if (!children.length) {
-      resetSession(fromJid, resolvedUserId);
-      await reply(`ℹ️ You have no children registered. Please add them via the Shepherd Connect app first.`);
-      return;
-    }
+    if (!children.length) { await resetSession(fromJid, resolvedUserId); await reply(`ℹ️ No children registered. Add them via the app first.`); return; }
     if (children.length === 1) {
-      // Skip child selection
       await _createSupportRequest(fromJid, user, children[0]!, reqType, reply);
-      resetSession(fromJid, resolvedUserId);
-      return;
+      await resetSession(fromJid, resolvedUserId); return;
     }
     session.step = "request_select_child";
+    session.data.requestType = reqType;
     session.data.childList = children.map(c => c.id).join(",");
-    const childOpts = children.map((c, i) => `*${i + 1}* — ${c.firstName} ${c.lastName}${c.className ? ` (${c.className})` : ""}`).join("\n");
-    await reply(`Which child is this request for?\n\n${childOpts}\n\nOr type *0* to cancel.`);
-    return;
+    await saveSession(fromJid, session);
+    const opts = children.map((c, i) => `*${i + 1}* — ${c.firstName} ${c.lastName}${c.className ? ` (${c.className})` : ""}`).join("\n");
+    await reply(`Which child is this request for?\n\n${opts}\n\nOr type *0* to cancel.`); return;
   }
 
   if (session.step === "request_select_child") {
     const childIds = (session.data.childList ?? "").split(",").map(Number).filter(Boolean);
     const idx = parseInt(input, 10) - 1;
-    if (isNaN(idx) || idx < 0 || idx >= childIds.length) {
-      await reply(`Please reply with a number between 1 and ${childIds.length}.\n\nType *0* to cancel.`);
-      return;
-    }
-    const childId = childIds[idx]!;
+    if (isNaN(idx) || idx < 0 || idx >= childIds.length) { await reply(`Please reply with a number between 1 and ${childIds.length}.\n\nType *0* to cancel.`); return; }
     const [childRow] = await db
       .select({ id: childrenTable.id, firstName: childrenTable.firstName, lastName: childrenTable.lastName, currentClassId: childrenTable.currentClassId, className: classesTable.name })
       .from(childrenTable)
       .leftJoin(classesTable, eq(childrenTable.currentClassId, classesTable.id))
-      .where(eq(childrenTable.id, childId));
+      .where(eq(childrenTable.id, childIds[idx]!));
     if (!childRow) { await reply(`Something went wrong. Please try again.`); return; }
-    const reqType = session.data.requestType as "checkin" | "checkout" | "delegate_pickup";
-    await _createSupportRequest(fromJid, user, childRow, reqType, reply);
-    resetSession(fromJid, resolvedUserId);
-    return;
+    await _createSupportRequest(fromJid, user, childRow, session.data.requestType as any, reply);
+    await resetSession(fromJid, resolvedUserId); return;
   }
 
-  // ── Role-specific menu commands ───────────────────────────────────────────
+  // ── Role menus ────────────────────────────────────────────────────────────
   if (role === "teacher") {
     await _handleTeacherCommand(input, user.id, user.firstName, reply);
   } else if (role === "support" || role === "attendant") {
@@ -614,6 +673,93 @@ export async function handleInboundMessage(
   } else {
     await _handleParentCommand(input, user.id, user.firstName, fromJid, resolvedUserId, session, reply);
   }
+}
+
+// ── Parent commands ───────────────────────────────────────────────────────────
+
+async function _handleParentCommand(
+  input: string, userId: number, firstName: string,
+  fromJid: string, resolvedUserId: number, session: Session,
+  reply: (msg: string) => Promise<void>,
+) {
+  if (input === "1" || input === "status") {
+    const ch = await getParentChildren(userId);
+    const at = await getTodayAttendance(ch.map(c => c.id));
+    await reply(attendanceStatusText(ch, at)); return;
+  }
+  if (input === "2" || input === "otp") {
+    const ch = await getParentChildren(userId);
+    const dl = await getDelegates(ch.map(c => c.id));
+    await reply(otpText(ch, dl)); return;
+  }
+  if (input === "3" || input === "children") {
+    const ch = await getParentChildren(userId);
+    if (!ch.length) { await reply(`ℹ️ No children registered. Add them via the app.`); return; }
+    const lines = ch.map((c, i) => `${i + 1}. *${c.firstName} ${c.lastName}*\n   📚 ${c.className ?? "No class assigned"}`);
+    await reply(`👶 *My Children*\n\n${lines.join("\n\n")}`); return;
+  }
+  if (input === "4" || input === "notify" || input === "notifications") {
+    const n = await getRecentNotifications(userId);
+    await reply(notificationsText(n)); return;
+  }
+  if (input === "5" || input === "concern") {
+    session.step = "concern_select_type";
+    await saveSession(fromJid, session);
+    await reply(
+      `💬 *Submit a Concern or Feedback*\n\n` +
+      `*1* — 🛡️ Safeguarding Concern\n*2* — ⚠️ Complaint\n*3* — 👍 Compliment\n*4* — 💬 General Feedback\n\n_Type *0* to cancel._`
+    ); return;
+  }
+  if (input === "6" || input === "request") {
+    session.step = "request_select_type";
+    await saveSession(fromJid, session);
+    await reply(
+      `🆘 *Request Support*\n\n` +
+      `*1* — 🟢 Check-in (bring child in)\n*2* — 🔴 Check-out (pick up child)\n*3* — 👤 Delegate Pickup\n\n_Type *0* to cancel._`
+    ); return;
+  }
+  await reply(parentMenuText(firstName));
+}
+
+// ── Teacher commands ──────────────────────────────────────────────────────────
+
+async function _handleTeacherCommand(
+  input: string, userId: number, firstName: string,
+  reply: (msg: string) => Promise<void>,
+) {
+  if (input === "1" || input === "class" || input === "roster") {
+    const teacher = await getTeacherRecord(userId);
+    if (!teacher) { await reply(`ℹ️ No teacher profile found. Contact admin.`); return; }
+    const alloc = await getTodayAllocationForTeacher(teacher.id);
+    if (!alloc) { await reply(`ℹ️ No class allocation for today.`); return; }
+    const ch = await getClassChildren(alloc.classId);
+    if (!ch.length) { await reply(`ℹ️ No children in *${alloc.className}* yet.`); return; }
+    const lines = ch.map((c, i) => `${i + 1}. ${c.gender === "male" ? "👦" : "👧"} ${c.firstName} ${c.lastName}`);
+    await reply(`🏫 *${alloc.className}*\n📅 ${new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}\n\n${lines.join("\n")}\n\n_${ch.length} ${ch.length === 1 ? "child" : "children"} enrolled._`); return;
+  }
+  if (input === "2" || input === "attend" || input === "attendance") {
+    const teacher = await getTeacherRecord(userId);
+    if (!teacher) { await reply(`ℹ️ No teacher profile found. Contact admin.`); return; }
+    const alloc = await getTodayAllocationForTeacher(teacher.id);
+    if (!alloc) { await reply(`ℹ️ No class allocation for today.`); return; }
+    const ch = await getClassChildren(alloc.classId);
+    const at = await getTodayAttendance(ch.map(c => c.id));
+    await reply(
+      `📋 *${alloc.className}* — Attendance\n` +
+      `📅 ${new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}\n\n` +
+      `🟢 In class: *${at.filter(a => a.status === "in_class").length}*\n` +
+      `🟠 In transit: *${at.filter(a => a.status === "in_transit").length}*\n` +
+      `🟡 Dropped off: *${at.filter(a => a.status === "dropped_off").length}*\n` +
+      `✅ Picked up: *${at.filter(a => a.status === "picked_up").length}*\n` +
+      `⚪ Not checked in: *${ch.length - at.length}*\n\n` +
+      `👥 Total enrolled: *${ch.length}*`
+    ); return;
+  }
+  if (input === "3" || input === "notify" || input === "notifications") {
+    const n = await getRecentNotifications(userId);
+    await reply(notificationsText(n)); return;
+  }
+  await reply(teacherMenuText(firstName));
 }
 
 // ── Support request creation ──────────────────────────────────────────────────
@@ -627,311 +773,177 @@ async function _createSupportRequest(
 ) {
   const supportUsers = await getActiveSupportUsers();
   if (!supportUsers.length) {
-    await reply(
-      `⚠️ No support staff are available right now.\n\n` +
-      `Please contact the church admin directly or visit the check-in desk.`,
-    );
-    return;
+    await reply(`⚠️ No support staff available right now.\n\nPlease visit the check-in desk directly.`); return;
   }
 
-  // Pick one support person — round-robin, never two get the same request
-  const assigned = supportUsers[supportRoundRobinIdx % supportUsers.length]!;
+  const assigned   = supportUsers[supportRoundRobinIdx % supportUsers.length]!;
   supportRoundRobinIdx++;
 
-  const ref = generateRef("SC-REQ");
+  const ref         = generateRef("SC-REQ");
   const serviceDate = todayDate();
   const serviceSlot = todaySlot();
+  const childName   = `${child.firstName} ${child.lastName}`;
+  const childClass  = child.className ? ` (${child.className})` : "";
+  const slotLabel   = serviceSlot === "7am" ? "7:00 AM" : "10:30 AM";
 
   await db.insert(supportRequestsTable).values({
-    referenceNumber: ref,
-    type: requestType,
-    childId: child.id,
-    parentUserId: parent.id,
-    assignedSupportId: assigned.id,
-    status: "pending",
-    serviceDate,
-    serviceSlot,
+    referenceNumber: ref, type: requestType, childId: child.id,
+    parentUserId: parent.id, assignedSupportId: assigned.id,
+    status: "pending", serviceDate, serviceSlot,
   });
 
-  logger.info({ ref, parentId: parent.id, supportId: assigned.id, requestType }, "Support request created");
-
-  const childName = `${child.firstName} ${child.lastName}`;
-  const childClass = child.className ? ` (${child.className})` : "";
-  const slotLabel  = serviceSlot === "7am" ? "7:00 AM" : "10:30 AM";
-
-  // Confirm to parent
   await reply(
     `✅ *Support Request Sent!*\n\n` +
-    `📌 Type: *${typeLabel(requestType)}*\n` +
-    `👦 Child: *${childName}*${childClass}\n` +
-    `🔖 Reference: *${ref}*\n\n` +
-    `A support officer has been notified and will assist shortly.\n\n` +
-    `You will receive a photo for approval before anything proceeds.\n` +
-    `_Type *0* for the main menu._`,
+    `📌 Type: *${typeLabel(requestType)}*\n👦 Child: *${childName}*${childClass}\n🔖 Ref: *${ref}*\n\n` +
+    `A support officer has been notified and will assist shortly.\n` +
+    `You will receive a photo for approval before anything proceeds.\n\n` +
+    `_Type *0* for the main menu._`
   );
 
-  // Notify the assigned support officer
   const supportJid = assigned.phone ? phoneToWaJid(assigned.phone) : null;
   if (supportJid) {
-    const notifText =
-      `🔔 *New Support Request*\n` +
-      `Ref: *${ref}*\n\n` +
-      `📌 Type: *${typeLabel(requestType)}*\n` +
-      `👦 Child: *${childName}*${childClass}\n` +
+    await setPendingApproval(ref, {
+      parentJid, supportJid, childName, requestType,
+      childId: child.id, parentUserId: parent.id, assignedSupportId: assigned.id,
+    });
+
+    await sendWhatsAppToJid(supportJid,
+      `🔔 *New Support Request*\nRef: *${ref}*\n\n` +
+      `📌 Type: *${typeLabel(requestType)}*\n👦 Child: *${childName}*${childClass}\n` +
       `👨‍👩‍👧 Parent: *${parent.firstName} ${parent.lastName}*\n` +
       (parent.phone ? `📞 ${parent.phone}\n` : "") +
       `⏰ Service: *${slotLabel}*\n\n` +
-      `When the person arrives:\n` +
-      `1️⃣  Take their photo with your camera\n` +
-      `2️⃣  Type: *PHOTO ${ref}*\n` +
-      `3️⃣  Then send the photo immediately\n\n` +
-      `⚠️ _This request is assigned to you. Do not share it with other staff._`;
-
-    await sendWhatsAppToJid(supportJid, notifText);
-
-    // Cache relay data so we can forward the photo later
-    pendingApproval.set(ref, {
-      parentJid,
-      supportJid,
-      childName,
-      requestType,
-      childId: child.id,
-      parentUserId: parent.id,
-      assignedSupportId: assigned.id,
-    });
-  } else {
-    logger.warn({ supportId: assigned.id }, "Assigned support has no phone number — cannot WhatsApp them");
+      `When the person arrives:\n1️⃣ Take their photo\n2️⃣ Type: *PHOTO ${ref}*\n3️⃣ Send the photo immediately\n\n` +
+      `⚠️ _This request is assigned to you only._`
+    );
   }
+
+  logger.info({ ref, parentId: parent.id, supportId: assigned.id, requestType }, "Support request created");
 }
 
-// ── Photo intent handler (support types "PHOTO <REF>") ────────────────────────
+// ── Photo intent handler ──────────────────────────────────────────────────────
 
 async function _handlePhotoIntent(
-  fromJid: string,
-  ref: string,
-  reply: (msg: string) => Promise<void>,
+  fromJid: string, ref: string, reply: (msg: string) => Promise<void>,
 ) {
-  // Verify the request exists and is pending
-  const [req] = await db
-    .select()
-    .from(supportRequestsTable)
-    .where(eq(supportRequestsTable.referenceNumber, ref));
+  const [req] = await db.select().from(supportRequestsTable).where(eq(supportRequestsTable.referenceNumber, ref));
+  if (!req) { await reply(`❌ Request *${ref}* not found.`); return; }
+  if (req.status !== "pending") { await reply(`⚠️ Request *${ref}* is already *${req.status}*.`); return; }
 
-  if (!req) {
-    await reply(`❌ Request *${ref}* not found. Please check the reference number.`);
-    return;
-  }
-  if (req.status !== "pending") {
-    await reply(`⚠️ Request *${ref}* is already *${req.status}*. No further action needed.`);
-    return;
-  }
-
-  // Load relay data — may not be in memory if server restarted
-  if (!pendingApproval.has(ref)) {
-    // Rebuild from DB
-    const [child]  = await db.select({ id: childrenTable.id, firstName: childrenTable.firstName, lastName: childrenTable.lastName }).from(childrenTable).where(eq(childrenTable.id, req.childId));
-    const [parent] = await db.select().from(usersTable).where(eq(usersTable.id, req.parentUserId));
-    const [support] = await db.select().from(usersTable).where(eq(usersTable.id, req.assignedSupportId!));
-
-    if (!child || !parent) { await reply(`⚠️ Could not load request data. Please contact admin.`); return; }
-
-    // Try to find parent JID from LID cache or construct from phone
-    let parentJid = parent.phone ? phoneToWaJid(parent.phone) : "";
-    for (const [jid, uid] of lidCache) {
-      if (uid === parent.id) { parentJid = jid; break; }
-    }
-
-    pendingApproval.set(ref, {
-      parentJid,
-      supportJid: fromJid,
+  // Rebuild relay data if not in DB (server restart scenario)
+  const existing = await getPendingApproval(ref);
+  if (!existing) {
+    const [child]   = await db.select().from(childrenTable).where(eq(childrenTable.id, req.childId));
+    const [parent]  = await db.select().from(usersTable).where(eq(usersTable.id, req.parentUserId));
+    if (!child || !parent) { await reply(`⚠️ Could not load request data. Contact admin.`); return; }
+    // Try to reach parent via phone JID (works even after restart)
+    const parentJid = parent.phone ? phoneToWaJid(parent.phone) : "";
+    await setPendingApproval(ref, {
+      parentJid, supportJid: fromJid,
       childName: `${child.firstName} ${child.lastName}`,
       requestType: req.type,
-      childId: child.id,
-      parentUserId: parent.id,
-      assignedSupportId: req.assignedSupportId!,
+      childId: child.id, parentUserId: parent.id, assignedSupportId: req.assignedSupportId!,
     });
   }
 
-  // Register that THIS support JID is waiting to send a photo for this ref
-  pendingPhotoCapture.set(fromJid, ref);
-
+  await setPhotoPending(fromJid, ref);
   await reply(`📸 Ready! Now send the photo of the person immediately.`);
 }
 
-// ── Photo relay handler (support sends image after PHOTO command) ─────────────
+// ── Photo relay handler ───────────────────────────────────────────────────────
 
 async function _handleSupportPhoto(
-  supportJid: string,
-  ref: string,
-  imageBuffer: Buffer,
+  supportJid: string, ref: string, imageBuffer: Buffer,
   reply: (msg: string) => Promise<void>,
 ) {
-  const relay = pendingApproval.get(ref);
-  if (!relay) {
-    await reply(`⚠️ Couldn't find request *${ref}* in memory. Please type *PHOTO ${ref}* again.`);
-    return;
-  }
+  const relay = await getPendingApproval(ref);
+  if (!relay) { await reply(`⚠️ Couldn't find request *${ref}*. Type *PHOTO ${ref}* again.`); return; }
 
-  // Update status in DB
-  await db
-    .update(supportRequestsTable)
+  await db.update(supportRequestsTable)
     .set({ status: "photo_sent", updatedAt: new Date() })
     .where(eq(supportRequestsTable.referenceNumber, ref));
 
-  // Confirm to support
   await reply(`✅ Photo received. Sending to the parent for approval...\nPlease wait for their decision.`);
 
-  // Forward image to parent
   if (relay.parentJid) {
-    const caption =
+    await sendWhatsAppImageToJid(relay.parentJid, imageBuffer,
       `📸 *Photo for Your Approval*\n\n` +
-      `👦 Child: *${relay.childName}*\n` +
-      `📌 Type: *${typeLabel(relay.requestType)}*\n` +
-      `🔖 Ref: *${ref}*\n\n` +
-      `Please confirm this is the right person:\n\n` +
-      `✅ Type: *APPROVE ${ref}*\n` +
-      `❌ Type: *REJECT ${ref}*`;
-
-    await sendWhatsAppImageToJid(relay.parentJid, imageBuffer, caption);
-    logger.info({ ref, parentJid: relay.parentJid }, "Photo relayed to parent for approval");
-  } else {
-    logger.warn({ ref }, "No parent JID available to relay photo");
-    await reply(`⚠️ Could not reach the parent on WhatsApp. Please contact admin.`);
+      `👦 Child: *${relay.childName}*\n📌 Type: *${typeLabel(relay.requestType)}*\n🔖 Ref: *${ref}*\n\n` +
+      `Please confirm this is the right person:\n\n✅ Type: *APPROVE ${ref}*\n❌ Type: *REJECT ${ref}*`
+    );
+    logger.info({ ref, parentJid: relay.parentJid }, "Photo relayed to parent");
   }
 }
 
-// ── Approval handler (parent approves or rejects) ─────────────────────────────
+// ── Approval handler ──────────────────────────────────────────────────────────
 
 async function _handleApproval(
-  parentJid: string,
-  ref: string,
-  approved: boolean,
+  parentJid: string, ref: string, approved: boolean,
   reply: (msg: string) => Promise<void>,
 ) {
-  const relay = pendingApproval.get(ref);
-  const [req] = await db
-    .select()
-    .from(supportRequestsTable)
-    .where(eq(supportRequestsTable.referenceNumber, ref));
-
-  if (!req) {
-    await reply(`❌ Request *${ref}* not found.`);
-    return;
-  }
+  const relay = await getPendingApproval(ref);
+  const [req]  = await db.select().from(supportRequestsTable).where(eq(supportRequestsTable.referenceNumber, ref));
+  if (!req) { await reply(`❌ Request *${ref}* not found.`); return; }
   if (req.status !== "photo_sent" && req.status !== "pending") {
-    await reply(`⚠️ Request *${ref}* has already been *${req.status}*.`);
-    return;
+    await reply(`⚠️ Request *${ref}* has already been *${req.status}*.`); return;
   }
 
   const childName = relay?.childName ?? `Child #${req.childId}`;
 
   if (approved) {
-    // Update request status
-    await db
-      .update(supportRequestsTable)
-      .set({ status: "approved", updatedAt: new Date() })
-      .where(eq(supportRequestsTable.referenceNumber, ref));
-
-    // Auto-record the check-in or check-out in attendance
-    await _recordAttendance(req, reply);
-
-    // Confirm to parent
-    await reply(
-      `✅ *Approved!*\n\n` +
-      `You approved the ${typeLabel(req.type).toLowerCase()} for *${childName}*.\n` +
-      `The support officer has been notified and will proceed.\n\n` +
-      `Type *0* for the main menu.`,
-    );
-
-    // Notify support
+    await db.update(supportRequestsTable).set({ status: "approved", updatedAt: new Date() }).where(eq(supportRequestsTable.referenceNumber, ref));
+    await _recordAttendance(req);
+    await reply(`✅ *Approved!*\n\nYou approved the ${typeLabel(req.type).toLowerCase()} for *${childName}*.\nThe support officer has been notified.\n\nType *0* for the main menu.`);
     if (relay?.supportJid) {
-      await sendWhatsAppToJid(
-        relay.supportJid,
-        `✅ *Parent Approved!*\n\n` +
-        `👦 *${childName}* — ${typeLabel(req.type)}\n` +
-        `🔖 Ref: *${ref}*\n\n` +
-        `Please proceed with the ${typeLabel(req.type).toLowerCase()}.\n` +
-        `The attendance has been recorded automatically.`,
+      await sendWhatsAppToJid(relay.supportJid,
+        `✅ *Parent Approved!*\n\n👦 *${childName}* — ${typeLabel(req.type)}\n🔖 Ref: *${ref}*\n\n` +
+        `Please proceed. Attendance has been recorded automatically.`
       );
     }
-
-    // Clean up
-    pendingApproval.delete(ref);
-
   } else {
-    // Rejected
-    await db
-      .update(supportRequestsTable)
-      .set({ status: "rejected", updatedAt: new Date() })
-      .where(eq(supportRequestsTable.referenceNumber, ref));
-
-    await reply(
-      `❌ *Rejected.*\n\n` +
-      `The support officer has been notified not to proceed for *${childName}*.\n\n` +
-      `If this was a mistake, you can submit a new request.\n` +
-      `Type *0* for the main menu.`,
-    );
-
+    await db.update(supportRequestsTable).set({ status: "rejected", updatedAt: new Date() }).where(eq(supportRequestsTable.referenceNumber, ref));
+    await reply(`❌ *Rejected.*\n\nThe support officer has been notified not to proceed for *${childName}*.\n\nType *0* for the main menu.`);
     if (relay?.supportJid) {
-      await sendWhatsAppToJid(
-        relay.supportJid,
-        `❌ *Parent Rejected the Photo*\n\n` +
-        `👦 *${childName}* — ${typeLabel(req.type)}\n` +
-        `🔖 Ref: *${ref}*\n\n` +
-        `⚠️ *Do not proceed.* The parent has declined.\n\n` +
-        `If you believe this is an error, please contact the church admin.`,
+      await sendWhatsAppToJid(relay.supportJid,
+        `❌ *Parent Rejected the Photo*\n\n👦 *${childName}* — ${typeLabel(req.type)}\n🔖 Ref: *${ref}*\n\n⚠️ *Do not proceed.*`
       );
     }
-
-    pendingApproval.delete(ref);
   }
+
+  await deletePendingApproval(ref);
 }
 
-// ── Auto-record attendance on approval ────────────────────────────────────────
+// ── Auto-record attendance ────────────────────────────────────────────────────
 
-async function _recordAttendance(
-  req: typeof supportRequestsTable.$inferSelect,
-  reply: (msg: string) => Promise<void>,
-) {
-  const today = todayDate();
-  const slot  = req.serviceSlot;
-
+async function _recordAttendance(req: typeof supportRequestsTable.$inferSelect) {
   try {
-    const [existing] = await db
-      .select()
-      .from(attendanceTable)
-      .where(and(
-        eq(attendanceTable.childId, req.childId),
-        eq(attendanceTable.serviceDate, today),
-      ));
+    const today = todayDate();
+    const [existing] = await db.select().from(attendanceTable)
+      .where(and(eq(attendanceTable.childId, req.childId), eq(attendanceTable.serviceDate, today)));
 
     if (req.type === "checkin") {
       if (existing) {
-        // Already has a record — just update status
         await db.update(attendanceTable).set({ status: "dropped_off", checkInTime: new Date() }).where(eq(attendanceTable.id, existing.id));
       } else {
-        // Need classId — get from child
         const [child] = await db.select().from(childrenTable).where(eq(childrenTable.id, req.childId));
         if (child?.currentClassId) {
           await db.insert(attendanceTable).values({
-            childId: req.childId,
-            classId: child.currentClassId,
-            serviceDate: today,
-            serviceSlot: slot,
-            checkInTime: new Date(),
-            status: "dropped_off",
+            childId: req.childId, classId: child.currentClassId,
+            serviceDate: today, serviceSlot: req.serviceSlot,
+            checkInTime: new Date(), status: "dropped_off",
             checkedInBy: req.assignedSupportId ?? undefined,
           });
         }
       }
     } else if (req.type === "checkout" || req.type === "delegate_pickup") {
       if (existing) {
-        await db.update(attendanceTable).set({ status: "picked_up", checkOutTime: new Date(), checkedOutBy: req.assignedSupportId ?? undefined }).where(eq(attendanceTable.id, existing.id));
+        await db.update(attendanceTable)
+          .set({ status: "picked_up", checkOutTime: new Date(), checkedOutBy: req.assignedSupportId ?? undefined })
+          .where(eq(attendanceTable.id, existing.id));
       }
     }
 
-    await db
-      .update(supportRequestsTable)
+    await db.update(supportRequestsTable)
       .set({ status: "completed", updatedAt: new Date() })
       .where(eq(supportRequestsTable.referenceNumber, req.referenceNumber));
 
@@ -939,132 +951,4 @@ async function _recordAttendance(
   } catch (err) {
     logger.error({ ref: req.referenceNumber, err: String(err) }, "Failed to auto-record attendance");
   }
-}
-
-// ── Parent command handler ────────────────────────────────────────────────────
-
-async function _handleParentCommand(
-  input: string,
-  userId: number,
-  firstName: string,
-  fromJid: string,
-  resolvedUserId: number,
-  session: Session,
-  reply: (msg: string) => Promise<void>,
-) {
-  if (input === "1" || input === "status") {
-    const children   = await getParentChildren(userId);
-    const attendance = await getTodayAttendance(children.map(c => c.id));
-    await reply(attendanceStatusText(children, attendance));
-    return;
-  }
-  if (input === "2" || input === "otp") {
-    const children  = await getParentChildren(userId);
-    const delegates = await getDelegates(children.map(c => c.id));
-    await reply(otpText(children, delegates));
-    return;
-  }
-  if (input === "3" || input === "children") {
-    const children = await getParentChildren(userId);
-    if (!children.length) { await reply(`ℹ️ No children registered. Add them via the app.`); return; }
-    const lines = children.map((c, i) => `${i + 1}. *${c.firstName} ${c.lastName}*\n   📚 ${c.className ?? "No class assigned"}`);
-    await reply(`👶 *My Children*\n\n${lines.join("\n\n")}`);
-    return;
-  }
-  if (input === "4" || input === "notify" || input === "notifications") {
-    const notifs = await getRecentNotifications(userId);
-    await reply(notificationsText(notifs));
-    return;
-  }
-  if (input === "5" || input === "concern") {
-    session.step = "concern_select_type";
-    await reply(
-      `💬 *Submit a Concern or Feedback*\n\n` +
-      `*1* — 🛡️ Safeguarding Concern\n` +
-      `*2* — ⚠️ Complaint\n` +
-      `*3* — 👍 Compliment\n` +
-      `*4* — 💬 General Feedback\n\n` +
-      `_Type *0* to cancel._`,
-    );
-    return;
-  }
-  if (input === "6" || input === "request") {
-    session.step = "request_select_type";
-    await reply(
-      `🆘 *Request Support*\n\n` +
-      `What type of request is this?\n\n` +
-      `*1* — 🟢 Check-in (bring child in)\n` +
-      `*2* — 🔴 Check-out (pick up child)\n` +
-      `*3* — 👤 Delegate Pickup (another person collecting)\n\n` +
-      `_Type *0* to cancel._`,
-    );
-    return;
-  }
-  await reply(parentMenuText(firstName));
-}
-
-// ── Teacher command handler ───────────────────────────────────────────────────
-
-async function _handleTeacherCommand(
-  input: string,
-  userId: number,
-  firstName: string,
-  reply: (msg: string) => Promise<void>,
-) {
-  if (input === "1" || input === "class" || input === "roster") {
-    const teacher = await getTeacherRecord(userId);
-    if (!teacher) { await reply(`ℹ️ No teacher profile found. Contact admin.`); return; }
-    const allocation = await getTodayAllocationForTeacher(teacher.id);
-    if (!allocation) { await reply(`ℹ️ No class allocation for today.`); return; }
-    const children = await getClassChildren(allocation.classId);
-    if (!children.length) { await reply(`ℹ️ No children in *${allocation.className}* yet.`); return; }
-    const lines = children.map((c, i) => `${i + 1}. ${c.gender === "male" ? "👦" : "👧"} ${c.firstName} ${c.lastName}`);
-    await reply(
-      `🏫 *${allocation.className}* — Class Roster\n` +
-      `📅 ${new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}\n\n` +
-      lines.join("\n") +
-      `\n\n_${children.length} ${children.length === 1 ? "child" : "children"} enrolled._`,
-    );
-    return;
-  }
-  if (input === "2" || input === "attend" || input === "attendance") {
-    const teacher = await getTeacherRecord(userId);
-    if (!teacher) { await reply(`ℹ️ No teacher profile found. Contact admin.`); return; }
-    const allocation = await getTodayAllocationForTeacher(teacher.id);
-    if (!allocation) { await reply(`ℹ️ No class allocation for today.`); return; }
-    const children   = await getClassChildren(allocation.classId);
-    const attendance = await getTodayAttendance(children.map(c => c.id));
-    const inClass    = attendance.filter(a => a.status === "in_class").length;
-    const transit    = attendance.filter(a => a.status === "in_transit").length;
-    const dropped    = attendance.filter(a => a.status === "dropped_off").length;
-    const pickedUp   = attendance.filter(a => a.status === "picked_up").length;
-    const notIn      = children.length - attendance.length;
-    await reply(
-      `📋 *${allocation.className}* — Attendance\n` +
-      `📅 ${new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}\n\n` +
-      `🟢 In class: *${inClass}*\n` +
-      `🟠 In transit: *${transit}*\n` +
-      `🟡 Dropped off: *${dropped}*\n` +
-      `✅ Picked up: *${pickedUp}*\n` +
-      `⚪ Not checked in: *${notIn}*\n\n` +
-      `👥 Total enrolled: *${children.length}*`,
-    );
-    return;
-  }
-  if (input === "3" || input === "notify" || input === "notifications") {
-    const notifs = await getRecentNotifications(userId);
-    await reply(notificationsText(notifs));
-    return;
-  }
-  await reply(teacherMenuText(firstName));
-}
-
-// ── Utility ───────────────────────────────────────────────────────────────────
-
-function _roleLabel(role: UserRole): string {
-  const labels: Record<UserRole, string> = {
-    parent: "👨‍👩‍👧 Parent", teacher: "👩‍🏫 Teacher", admin: "🛠️ Admin",
-    super_admin: "⭐ Super Admin", attendant: "🔖 Attendant", support: "🤝 Support",
-  };
-  return labels[role] ?? role;
 }
