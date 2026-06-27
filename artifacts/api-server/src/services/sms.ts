@@ -38,12 +38,16 @@ async function sendViaResend(to: string, subject: string, html: string, logger?:
   }
 }
 
-// ── Twilio fallback ───────────────────────────────────────────────────────────
-const TWILIO_SID   = process.env.TWILIO_ACCOUNT_SID;
-const TWILIO_TOKEN = process.env.TWILIO_AUTH_TOKEN;
-const TWILIO_FROM  = process.env.TWILIO_PHONE_NUMBER;
+// ── Twilio ────────────────────────────────────────────────────────────────────
+const TWILIO_SID        = process.env.TWILIO_ACCOUNT_SID;
+const TWILIO_TOKEN      = process.env.TWILIO_AUTH_TOKEN;
+const TWILIO_FROM       = process.env.TWILIO_PHONE_NUMBER;
+// Twilio WhatsApp sender — set TWILIO_WHATSAPP_NUMBER in env (e.g. whatsapp:+14155238886 for sandbox,
+// or your approved WA Business number). Falls back to TWILIO_PHONE_NUMBER if not set.
+const TWILIO_WA_FROM    = process.env.TWILIO_WHATSAPP_NUMBER ?? TWILIO_FROM;
 
-function twilioConfigured() { return Boolean(TWILIO_SID && TWILIO_TOKEN && TWILIO_FROM); }
+function twilioConfigured()   { return Boolean(TWILIO_SID && TWILIO_TOKEN && TWILIO_FROM); }
+function twilioWaConfigured() { return Boolean(TWILIO_SID && TWILIO_TOKEN && TWILIO_WA_FROM); }
 
 function toE164(phone: string): string {
   const s = phone.replace(/[\s\-().+]/g, "");
@@ -69,6 +73,39 @@ async function sendViaTwilio(to: string, body: string, logger?: Logger): Promise
     return true;
   } catch (err) {
     logger?.error({ to: e164, err: String(err) }, "Twilio SMS request error");
+    return false;
+  }
+}
+
+/**
+ * Send a WhatsApp message via Twilio's WhatsApp API.
+ * Requires either the Twilio Sandbox number or an approved WhatsApp Business number.
+ * Set TWILIO_WHATSAPP_NUMBER=whatsapp:+14155238886 (sandbox) or your own WA number.
+ */
+async function sendViaTwilioWhatsApp(to: string, body: string, logger?: Logger): Promise<boolean> {
+  if (!twilioWaConfigured()) return false;
+  const e164   = toE164(to);
+  const waTo   = `whatsapp:${e164}`;
+  // Ensure the From number has the whatsapp: prefix
+  const waFrom = TWILIO_WA_FROM!.startsWith("whatsapp:")
+    ? TWILIO_WA_FROM!
+    : `whatsapp:${TWILIO_WA_FROM}`;
+  try {
+    const creds = Buffer.from(`${TWILIO_SID}:${TWILIO_TOKEN}`).toString("base64");
+    const form  = new URLSearchParams({ From: waFrom, To: waTo, Body: body });
+    const res   = await fetch(
+      `https://api.twilio.com/2010-04-01/Accounts/${TWILIO_SID}/Messages.json`,
+      { method: "POST", headers: { Authorization: `Basic ${creds}`, "Content-Type": "application/x-www-form-urlencoded" }, body: form },
+    );
+    const data = await res.json() as Record<string, unknown>;
+    if (!res.ok) {
+      logger?.error({ to: waTo, status: res.status, data }, "Twilio WhatsApp send failed");
+      return false;
+    }
+    logger?.info({ to: waTo, sid: data.sid }, "WhatsApp sent via Twilio");
+    return true;
+  } catch (err) {
+    logger?.error({ to: waTo, err: String(err) }, "Twilio WhatsApp request error");
     return false;
   }
 }
@@ -142,19 +179,40 @@ async function send(to: string, sms: string, channel: "generic" | "dnd" | "whats
       });
       const data = await res.json() as Record<string, unknown>;
       if (res.ok) { logger?.info({ to: normalised }, "SMS sent via Termii"); return; }
-      logger?.warn({ to: normalised, status: res.status, data }, "Termii SMS failed — trying Twilio fallback");
+      logger?.warn({ to: normalised, status: res.status, data }, "Termii SMS failed — trying WhatsApp fallback");
     } catch (err) {
-      logger?.warn({ to: normalised, err: String(err) }, "Termii SMS error — trying Twilio fallback");
+      logger?.warn({ to: normalised, err: String(err) }, "Termii SMS error — trying WhatsApp fallback");
     }
   }
 
-  // Fallback: WhatsApp (Baileys) if connected
-  const { sendWhatsAppMessage } = await import("./whatsapp");
-  const waSent = await sendWhatsAppMessage(to, sms);
-  if (waSent) { logger?.info({ to: normalised }, "SMS delivered via WhatsApp fallback"); return; }
+  // Fallback: Baileys WhatsApp → Twilio WhatsApp → Twilio SMS
+  await sendWhatsAppWithFallback(to, sms, logger);
+}
 
-  // Last resort: Twilio
-  await sendViaTwilio(to, sms, logger);
+/**
+ * Primary WhatsApp delivery channel.
+ * 1. Tries Baileys (free, WhatsApp Web) — instant if phone is online.
+ * 2. Falls back to Twilio WhatsApp API — paid (~$0.005/msg) but reliable.
+ * Parent always receives a WhatsApp message regardless of Baileys status.
+ */
+export async function sendWhatsAppWithFallback(to: string, text: string, logger?: Logger): Promise<boolean> {
+  // 1 — Try Baileys (free)
+  const { sendWhatsAppMessage } = await import("./whatsapp");
+  const baileysSent = await sendWhatsAppMessage(to, text);
+  if (baileysSent) {
+    logger?.info({ to }, "WhatsApp sent via Baileys");
+    return true;
+  }
+
+  logger?.warn({ to }, "Baileys unavailable — falling back to Twilio WhatsApp");
+
+  // 2 — Fallback: Twilio WhatsApp (paid but still WhatsApp, not SMS)
+  const twSent = await sendViaTwilioWhatsApp(to, text, logger);
+  if (twSent) return true;
+
+  // 3 — Last resort: Twilio SMS (so the message gets through no matter what)
+  logger?.warn({ to }, "Twilio WhatsApp failed — last resort: Twilio SMS");
+  return sendViaTwilio(to, text, logger);
 }
 
 async function sendToPhones(phones: (string | null | undefined)[], msg: string, logger?: Logger) {
