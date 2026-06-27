@@ -43,7 +43,7 @@ import {
   teacherAllocationsTable,
   supportRequestsTable,
 } from "@workspace/db/schema";
-import { eq, or, desc, and } from "drizzle-orm";
+import { eq, or, desc, and, inArray } from "drizzle-orm";
 import { logger } from "../lib/logger";
 import {
   sendWhatsAppToJid,
@@ -79,6 +79,16 @@ const lidCache = new Map<string, number>();
 /** Sessions keyed by JID */
 const sessions = new Map<string, Session>();
 const SESSION_TTL_MS = 15 * 60 * 1000; // 15 minutes
+
+// Sweep expired sessions and stale relay data every 5 minutes
+setInterval(() => {
+  const now = Date.now();
+  for (const [jid, s] of sessions) {
+    if (s.expiresAt < now) sessions.delete(jid);
+  }
+  // Clean stale relay entries older than 2 hours (in case approval never came)
+  // We don't have timestamps on pendingApproval entries so we rely on DB status
+}, 5 * 60 * 1000).unref();
 
 /**
  * Support photo flow:
@@ -151,10 +161,27 @@ function phoneFromWaJid(jid: string) { return jid.split("@")[0]!.split(":")[0]!;
 
 // ── DB helpers ────────────────────────────────────────────────────────────────
 
+/** Generate all plausible storage variants of a Nigerian phone number. */
+function phoneVariants(raw: string): string[] {
+  const digits = raw.replace(/\D/g, "");
+  const core = digits.startsWith("234") ? digits.slice(3)
+    : digits.startsWith("0") ? digits.slice(1)
+    : digits;
+  // core is the 10-digit local number (e.g. 8105531421)
+  return [
+    `0${core}`,          // 08105531421
+    `+234${core}`,       // +2348105531421
+    `234${core}`,        // 2348105531421
+    core,                // 8105531421 (rare but possible)
+  ];
+}
+
 async function findUsersByPhone(phone: string) {
-  const norm = normalisePhone(phone);
-  const all = await db.select().from(usersTable);
-  return all.filter(u => u.phone && normalisePhone(u.phone) === norm);
+  const variants = phoneVariants(phone.trim());
+  return db
+    .select()
+    .from(usersTable)
+    .where(inArray(usersTable.phone, variants));
 }
 
 async function findUserById(id: number) {
@@ -200,8 +227,10 @@ async function getTodayAttendance(childIds: number[]) {
 
 async function getDelegates(childIds: number[]) {
   if (!childIds.length) return [];
-  const all = await db.select().from(pickupDelegatesTable);
-  return all.filter(d => childIds.includes(d.childId));
+  return db
+    .select()
+    .from(pickupDelegatesTable)
+    .where(inArray(pickupDelegatesTable.childId, childIds));
 }
 
 async function getRecentNotifications(userId: number, limit = 5) {
