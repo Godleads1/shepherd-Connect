@@ -124,6 +124,43 @@ async function _connect(): Promise<void> {
     }, 2000);
   }
 
+  // ── Inbound message handler (bot) ──────────────────────────────────────────
+  sock.ev.on("messages.upsert", async ({ messages, type }) => {
+    if (type !== "notify") return;
+    for (const msg of messages) {
+      // Ignore own messages, status updates, and group chats
+      if (msg.key.fromMe) continue;
+      if (!msg.key.remoteJid || msg.key.remoteJid === "status@broadcast") continue;
+      if (msg.key.remoteJid.endsWith("@g.us")) continue;
+
+      const fromJid = msg.key.remoteJid;
+      const text =
+        msg.message?.conversation ??
+        msg.message?.extendedTextMessage?.text ??
+        "";
+
+      if (!text.trim()) continue;
+
+      logger.info({ from: fromJid, text }, "WhatsApp inbound message");
+
+      const reply = async (replyText: string) => {
+        if (!sock) return;
+        try {
+          await sock.sendMessage(fromJid, { text: replyText });
+        } catch (err) {
+          logger.error({ to: fromJid, err: String(err) }, "Bot reply failed");
+        }
+      };
+
+      try {
+        const { handleInboundMessage } = await import("./whatsappBot");
+        await handleInboundMessage(fromJid, text, reply);
+      } catch (err) {
+        logger.error({ from: fromJid, err: String(err) }, "WhatsApp bot error");
+      }
+    }
+  });
+
   sock.ev.on("connection.update", async ({ connection, lastDisconnect, qr }) => {
     if (qr && !_phoneNumber) {
       _status = "qr_ready";
