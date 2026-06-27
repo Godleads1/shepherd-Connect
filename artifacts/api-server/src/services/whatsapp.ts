@@ -2,6 +2,7 @@ import makeWASocket, {
   useMultiFileAuthState,
   DisconnectReason,
   fetchLatestBaileysVersion,
+  downloadMediaMessage,
   type WASocket,
 } from "@whiskeysockets/baileys";
 import { Boom } from "@hapi/boom";
@@ -137,24 +138,48 @@ async function _connect(): Promise<void> {
       const text =
         msg.message?.conversation ??
         msg.message?.extendedTextMessage?.text ??
+        msg.message?.imageMessage?.caption ??
         "";
 
-      if (!text.trim()) continue;
+      const isImage = !!msg.message?.imageMessage;
+      let imageBuffer: Buffer | null = null;
 
-      logger.info({ from: fromJid, text }, "WhatsApp inbound message");
+      if (isImage) {
+        try {
+          const downloaded = await downloadMediaMessage(msg, "buffer", {});
+          imageBuffer = downloaded as Buffer;
+        } catch (err) {
+          logger.error({ from: fromJid, err: String(err) }, "Failed to download WhatsApp image");
+        }
+      }
+
+      if (!text.trim() && !imageBuffer) continue;
+
+      logger.info({ from: fromJid, text, isImage }, "WhatsApp inbound message");
+
+      const capturedSock = sock;
 
       const reply = async (replyText: string) => {
-        if (!sock) return;
+        if (!capturedSock) return;
         try {
-          await sock.sendMessage(fromJid, { text: replyText });
+          await capturedSock.sendMessage(fromJid, { text: replyText });
         } catch (err) {
           logger.error({ to: fromJid, err: String(err) }, "Bot reply failed");
         }
       };
 
+      const replyWithImage = async (buf: Buffer, caption: string) => {
+        if (!capturedSock) return;
+        try {
+          await capturedSock.sendMessage(fromJid, { image: buf, caption });
+        } catch (err) {
+          logger.error({ to: fromJid, err: String(err) }, "Bot image reply failed");
+        }
+      };
+
       try {
         const { handleInboundMessage } = await import("./whatsappBot");
-        await handleInboundMessage(fromJid, text, reply);
+        await handleInboundMessage(fromJid, text, imageBuffer, reply, replyWithImage);
       } catch (err) {
         logger.error({ from: fromJid, err: String(err) }, "WhatsApp bot error");
       }
@@ -230,6 +255,39 @@ export async function sendWhatsAppMessage(
     return true;
   } catch (err) {
     logger.error({ to: jid, err: String(err) }, "WhatsApp send error");
+    return false;
+  }
+}
+
+/** Send a text message to any JID directly (for proactive bot messages). */
+export async function sendWhatsAppToJid(
+  jid: string,
+  text: string,
+): Promise<boolean> {
+  if (!sock || _status !== "connected") return false;
+  try {
+    await sock.sendMessage(jid, { text });
+    logger.info({ to: jid }, "WhatsApp message sent");
+    return true;
+  } catch (err) {
+    logger.error({ to: jid, err: String(err) }, "WhatsApp send error");
+    return false;
+  }
+}
+
+/** Send an image to any JID directly (for photo relay). */
+export async function sendWhatsAppImageToJid(
+  jid: string,
+  imageBuffer: Buffer,
+  caption: string,
+): Promise<boolean> {
+  if (!sock || _status !== "connected") return false;
+  try {
+    await sock.sendMessage(jid, { image: imageBuffer, caption });
+    logger.info({ to: jid }, "WhatsApp image sent");
+    return true;
+  } catch (err) {
+    logger.error({ to: jid, err: String(err) }, "WhatsApp image send error");
     return false;
   }
 }

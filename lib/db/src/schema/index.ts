@@ -25,3 +25,4 @@ export * from "./teacherClockIns";
 export * from "./safeguardingAcknowledgements";
 export * from "./parentConcerns";
 export * from "./teacherIncidents";
+export * from "./supportRequests";
