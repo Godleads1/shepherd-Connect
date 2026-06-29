@@ -382,7 +382,7 @@ export function Layout({ children }: { children: ReactNode }) {
   const UserChip = () => {
     const [open, setOpen] = useState(false);
     const [switching, setSwitching] = useState(false);
-    const allRoles: string[] = [role, ...((user as any)?.secondaryRoles ?? [])];
+    const allRoles: string[] = (user as any)?.allRoles ?? [role];
     const roleLabels: Record<string, string> = { parent: "Parent", teacher: "Teacher", support: "Support", admin: "Admin", super_admin: "Super Admin" };
     const roleIcons: Record<string, string> = { parent: "👨‍👩‍👧", teacher: "📚", support: "🎫", admin: "🛡️", super_admin: "⚡" };
 
