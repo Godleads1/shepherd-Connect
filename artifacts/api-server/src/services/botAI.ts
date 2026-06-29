@@ -15,8 +15,9 @@ import {
   childrenTable,
   attendanceTable,
   notificationsTable,
+  botSessionsTable,
 } from "@workspace/db/schema";
-import { eq, or, and, gte } from "drizzle-orm";
+import { eq, or, and, gte, lt, isNotNull, sql } from "drizzle-orm";
 import { logger } from "../lib/logger";
 import { sendWhatsAppToJid } from "./whatsapp";
 
@@ -249,6 +250,56 @@ export function greetingLine(firstName: string): string {
   return `${greeting}, *${firstName}*! Happy ${day} 🌟`;
 }
 
+/** Send "are you there?" nudge to sessions idle for > 20 minutes */
+async function sendIdleNudges(): Promise<void> {
+  try {
+    const twentyMinAgo = new Date(Date.now() - 20 * 60 * 1000);
+    const idleSessions = await db
+      .select()
+      .from(botSessionsTable)
+      .where(
+        and(
+          eq(botSessionsTable.step, "idle"),
+          lt(botSessionsTable.updatedAt, twentyMinAgo),
+          sql`${botSessionsTable.expiresAt} > NOW()`,
+          isNotNull(botSessionsTable.activeUserId),
+        ),
+      );
+
+    for (const s of idleSessions) {
+      if (!s.activeUserId) continue;
+      const [user] = await db
+        .select({ firstName: usersTable.firstName })
+        .from(usersTable)
+        .where(eq(usersTable.id, s.activeUserId));
+      if (!user) continue;
+
+      try {
+        await sendWhatsAppToJid(
+          s.jid,
+          `👋 *Hey ${user.firstName}!*\n\n` +
+          `Are you still there? Is there anything I can help you with today?\n\n` +
+          `Reply *Yes* if you need something, or *No* to end our chat. 😊`,
+        );
+        // Flip step to awaiting_nudge WITHOUT touching updatedAt
+        // (so the next cron run won't nudge them again)
+        await db
+          .update(botSessionsTable)
+          .set({ step: "awaiting_nudge" })
+          .where(eq(botSessionsTable.jid, s.jid));
+      } catch (err) {
+        logger.warn({ jid: s.jid, err: String(err) }, "Bot: idle nudge send failed");
+      }
+    }
+
+    if (idleSessions.length) {
+      logger.info({ count: idleSessions.length }, "Bot: idle nudges sent");
+    }
+  } catch (err) {
+    logger.warn({ err: String(err) }, "Bot: sendIdleNudges error");
+  }
+}
+
 /** Start scheduled reminders using node-cron */
 export function startBotScheduler(): void {
   // Dynamically import node-cron to avoid build issues if not available
@@ -257,7 +308,9 @@ export function startBotScheduler(): void {
     cron.schedule("30 6 * * 0", () => { void sendServiceReminders("7:00 AM"); }, { timezone: "Africa/Lagos" });
     // Sunday 10:00 AM — 10:30am service reminder
     cron.schedule("0 10 * * 0", () => { void sendServiceReminders("10:30 AM"); }, { timezone: "Africa/Lagos" });
-    logger.info("Bot: proactive scheduler started (Sun 6:30am + 10:00am reminders)");
+    // Every 10 minutes — nudge sessions idle for > 20 min
+    cron.schedule("*/10 * * * *", () => { void sendIdleNudges(); });
+    logger.info("Bot: proactive scheduler started (Sun reminders + 10-min idle nudges)");
   }).catch(err => {
     logger.warn({ err: String(err) }, "Bot: scheduler not started (node-cron unavailable)");
   });

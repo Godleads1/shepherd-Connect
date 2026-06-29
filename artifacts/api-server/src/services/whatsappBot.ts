@@ -54,7 +54,8 @@ type Step =
   | "concern_enter_desc"
   | "request_select_type"
   | "request_select_child"
-  | "awaiting_photo";
+  | "awaiting_photo"
+  | "awaiting_nudge";
 
 interface SessionData {
   candidates?: string;
@@ -607,6 +608,42 @@ export async function handleInboundMessage(
   const user = await findUserById(resolvedUserId);
   if (!user) { await reply(`⚠️ Something went wrong. Please try again.`); return; }
   const role = user.role as UserRole;
+
+  // ── Idle-nudge reply — YES/NO (or anything) after "are you there?" ─────────
+  if (session.step === "awaiting_nudge") {
+    const isNo  = /\b(no|nope|nah|not really|all good|i'?m fine|fine)\b/i.test(input);
+    const isExplicitYes = input.length < 30 && /\b(yes|yeah|yep|yup|sure|ok|okay|please)\b/i.test(input);
+
+    if (isNo) {
+      await db.delete(botSessionsTable).where(eq(botSessionsTable.jid, fromJid));
+      const h = new Date().getHours();
+      const sign = h >= 5 && h < 12 ? "Have a lovely day! ☀️"
+                 : h >= 12 && h < 17 ? "Have a great afternoon! 🌤️"
+                 : "Good night! Rest well. 🌙";
+      await reply(
+        `${sign}\n\n` +
+        `Take care, *${user.firstName}!* 😊\n\n` +
+        `_Feel free to message anytime — I'm always here. Type *hi* or *0* whenever you need me._`,
+      );
+      return;
+    }
+
+    // YES or a real message — reset session and either show menu (explicit yes)
+    // or fall through so their actual message is processed normally
+    session = await resetSession(fromJid, resolvedUserId, session.data.lastAction);
+    if (isExplicitYes) {
+      const menuHint = role === "teacher"
+        ? `*1* — Class roster  |  *2* — Attendance  |  *3* — Notifications`
+        : `*1* — Status  |  *2* — OTP  |  *3* — Children  |  *4* — Notifications  |  *5* — Concern  |  *6* — Support`;
+      await reply(
+        `Welcome back, *${user.firstName}!* 🎉\n\n` +
+        `What can I do for you? Here's a quick reminder of what I can help with:\n\n${menuHint}\n\n` +
+        `Or type *0* for the full menu, or just describe what you need.`,
+      );
+      return;
+    }
+    // else: fall through so their actual typed message is handled normally
+  }
 
   // ── Multi-step: concern ───────────────────────────────────────────────────
   if (session.step === "concern_select_type") {
