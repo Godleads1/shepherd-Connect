@@ -21,6 +21,35 @@ export async function sendNotification(opts: {
     readStatus: false,
     metadataJson: opts.metadata ? JSON.stringify(opts.metadata) : null,
   });
+  dispatchExternal(opts.userId, opts.title, opts.message).catch(() => {});
+}
+
+/**
+ * Fire-and-forget external delivery (WhatsApp) based on the user's
+ * saved communicationPrefs. Safe to call for any notification — silently
+ * skips users without a phone or without WhatsApp enabled.
+ */
+export async function dispatchExternal(userId: number, title: string, message: string): Promise<void> {
+  try {
+    const [user] = await db.select({
+      phone: usersTable.phone,
+      communicationPrefs: usersTable.communicationPrefs,
+    }).from(usersTable).where(eq(usersTable.id, userId));
+    if (!user?.phone) return;
+
+    let prefs: { inApp?: boolean; whatsapp?: boolean; sms?: boolean; email?: boolean } = {};
+    if (user.communicationPrefs) {
+      try { prefs = JSON.parse(user.communicationPrefs); } catch { /* ignore malformed JSON */ }
+    }
+
+    if (prefs.whatsapp) {
+      const { sendWhatsAppWithFallback } = await import("../services/sms");
+      const text = `*${title}*\n\n${message}`;
+      await sendWhatsAppWithFallback(user.phone, text, logger);
+    }
+  } catch (err) {
+    logger.warn({ userId, err }, "dispatchExternal: delivery failed");
+  }
 }
 
 export async function sendToRole(opts: {
@@ -344,6 +373,7 @@ export async function broadcastEmergency(opts: {
         metadataJson: JSON.stringify(meta),
       }))
     );
+    Promise.all(userIds.map(uid => dispatchExternal(uid, title, message))).catch(() => {});
   };
 
   if (opts.level === "L1") {

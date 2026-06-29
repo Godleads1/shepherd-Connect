@@ -3,7 +3,7 @@ import { eq, and, ne, inArray } from "drizzle-orm";
 import { db, attendanceTable, childrenTable, classesTable, familiesTable, usersTable, notificationsTable, teachersTable, teacherAllocationsTable } from "@workspace/db";
 import { CheckInBody, CheckOutBody, ListAttendanceQueryParams, ScanQrCodeBody } from "@workspace/api-zod";
 import { authMiddleware, requireRoles } from "../middlewares/auth";
-import { notifyChildCheckedIn, notifyChildInTransit, notifyChildArrivedInClass, notifyChildPickedUp, notifyTeachersChildDroppedOff, notifyTeachersChildInTransit } from "../lib/notify";
+import { notifyChildCheckedIn, notifyChildInTransit, notifyChildArrivedInClass, notifyChildPickedUp, notifyTeachersChildDroppedOff, notifyTeachersChildInTransit, sendNotification } from "../lib/notify";
 import { smsChildCheckedIn, smsChildCheckedOut, smsPreDismissal, emailChildCheckedIn, emailChildCheckedOut } from "../services/sms";
 import { pushToUsers } from "../services/push";
 
@@ -378,11 +378,11 @@ router.post("/attendance/late-pickup-alerts", authMiddleware, requireRoles("supe
     if (!family) continue;
     const parentIds = [family.parent1Id, family.parent2Id].filter(Boolean) as number[];
     for (const parentId of parentIds) {
-      await db.insert(notificationsTable).values({
+      await sendNotification({
         userId: parentId,
+        type: "late_pickup_reminder",
         title: "Late Pickup Reminder",
         message: `${child.firstName} ${child.lastName} is still at church and hasn't been picked up yet. Please collect them as soon as possible.`,
-        type: "info",
       });
       notified++;
     }

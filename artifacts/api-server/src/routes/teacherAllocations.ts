@@ -3,6 +3,7 @@ import { eq, and, or, sql } from "drizzle-orm";
 import { db, teacherAllocationsTable, teachersTable, classesTable, usersTable, notificationsTable } from "@workspace/db";
 import { CreateTeacherAllocationBody, UpdateTeacherAllocationBody, ListTeacherAllocationsQueryParams } from "@workspace/api-zod";
 import { authMiddleware, requireRoles } from "../middlewares/auth";
+import { sendNotification } from "../lib/notify";
 
 const router = Router();
 
@@ -121,17 +122,13 @@ router.post("/teacher-allocations/auto-schedule", authMiddleware, requireRoles("
 
   const adminUsers = await db.select({ id: usersTable.id }).from(usersTable)
     .where(and(eq(usersTable.isActive, true), eq(usersTable.role, "teacher")));
-  if (adminUsers.length > 0) {
-    await db.insert(notificationsTable).values(adminUsers.map(u => ({
-      userId: u.id,
-      type: "schedule_published",
-      title: "New Schedule Published",
-      message: `Your schedule for ${serviceDate} has been published. Please check your allocations.`,
-      channel: "in_app" as const,
-      readStatus: false,
-      metadataJson: JSON.stringify({ serviceDate }),
-    })));
-  }
+  await Promise.all(adminUsers.map(u => sendNotification({
+    userId: u.id,
+    type: "schedule_published",
+    title: "New Schedule Published",
+    message: `Your schedule for ${serviceDate} has been published. Please check your allocations.`,
+    metadata: { serviceDate },
+  })));
 
   res.json({ success: true, created: created.length, allocationIds: created, message: `Auto-scheduled ${created.length} teacher allocation(s) for ${serviceDate}` });
 });
@@ -156,19 +153,15 @@ router.post("/teacher-allocations/:id/swap", authMiddleware, requireRoles("super
   if (newTeacherRec) notifyIds.push(newTeacherRec.userId);
 
   for (const uid of notifyIds) {
-    const [u] = await db.select().from(usersTable).where(eq(usersTable.id, uid));
-    if (!u) continue;
     const isOld = origTeacher && uid === origTeacher.userId;
-    await db.insert(notificationsTable).values({
+    await sendNotification({
       userId: uid,
       type: "schedule_swap",
       title: "Schedule Change",
       message: isOld
         ? `You have been swapped out of ${cls?.name || "class"} on ${original.serviceDate} (${original.serviceSlot}).${reason ? " Reason: " + reason : ""}`
         : `You have been assigned to ${cls?.name || "class"} on ${original.serviceDate} (${original.serviceSlot}).${reason ? " Reason: " + reason : ""}`,
-      channel: "in_app" as const,
-      readStatus: false,
-      metadataJson: JSON.stringify({ allocationId: id, serviceDate: original.serviceDate, serviceSlot: original.serviceSlot }),
+      metadata: { allocationId: id, serviceDate: original.serviceDate, serviceSlot: original.serviceSlot },
     });
   }
 
@@ -198,17 +191,13 @@ router.post("/teacher-allocations/:id/mark-unavailable", authMiddleware, async (
   const admins = await db.select({ id: usersTable.id }).from(usersTable)
     .where(and(eq(usersTable.isActive, true), or(eq(usersTable.role, "admin"), eq(usersTable.role, "super_admin"))));
 
-  if (admins.length > 0) {
-    await db.insert(notificationsTable).values(admins.map(a => ({
-      userId: a.id,
-      type: "teacher_unavailable",
-      title: "⚠️ Teacher Unavailable — Substitute Needed",
-      message: `${teacherName} is unavailable for ${cls?.name || "class"} on ${alloc.serviceDate} (${alloc.serviceSlot}).${reason ? " Reason: " + reason : ""} Please assign a substitute.`,
-      channel: "in_app" as const,
-      readStatus: false,
-      metadataJson: JSON.stringify({ allocationId: id, teacherId: alloc.teacherId, classId: alloc.classId, serviceDate: alloc.serviceDate }),
-    })));
-  }
+  await Promise.all(admins.map(a => sendNotification({
+    userId: a.id,
+    type: "teacher_unavailable",
+    title: "⚠️ Teacher Unavailable — Substitute Needed",
+    message: `${teacherName} is unavailable for ${cls?.name || "class"} on ${alloc.serviceDate} (${alloc.serviceSlot}).${reason ? " Reason: " + reason : ""} Please assign a substitute.`,
+    metadata: { allocationId: id, teacherId: alloc.teacherId, classId: alloc.classId, serviceDate: alloc.serviceDate },
+  })));
 
   res.json({ ...await formatAllocation(updated), teacherName, className: cls?.name, adminNotified: admins.length });
 });

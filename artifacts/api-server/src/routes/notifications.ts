@@ -4,6 +4,7 @@ import { db, notificationsTable, usersTable } from "@workspace/db";
 import { ListNotificationsQueryParams } from "@workspace/api-zod";
 import { authMiddleware, requireRoles } from "../middlewares/auth";
 import { pushToUsers, pushToRole } from "../services/push";
+import { dispatchExternal } from "../lib/notify";
 
 const router = Router();
 
@@ -77,6 +78,9 @@ router.post("/notifications/broadcast", authMiddleware, requireRoles("super_admi
   const recipientIds = recipients.map(r => r.id);
   pushToUsers(recipientIds, { title, body: message, icon: "/pwa-192.png", url: "/notifications" }, req.log).catch(() => {});
 
+  // WhatsApp delivery for users who have it enabled
+  Promise.all(recipients.map(r => dispatchExternal(r.id, title, message))).catch(() => {});
+
   res.json({ success: true, sent: recipients.length, message: `Notification sent to ${recipients.length} user(s)` });
 });
 
@@ -109,6 +113,9 @@ router.post("/notifications/pre-dismissal", authMiddleware, requireRoles("super_
 
   // Browser push to all parents
   pushToRole("parent", { title, body: message, icon: "/pwa-192.png", url: "/notifications" }, req.log).catch(() => {});
+
+  // WhatsApp delivery for parents who have it enabled
+  Promise.all(parents.map(p => dispatchExternal(p.id, title, message))).catch(() => {});
 
   res.json({ success: true, sent: parents.length, message: `Pre-dismissal alert sent to ${parents.length} parent(s)` });
 });

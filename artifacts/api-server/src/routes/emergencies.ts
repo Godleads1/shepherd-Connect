@@ -3,7 +3,7 @@ import { eq, and } from "drizzle-orm";
 import { db, emergenciesTable, emergencyUpdatesTable, childrenTable, usersTable, notificationsTable, attendanceTable } from "@workspace/db";
 import { TriggerEmergencyBody, UpdateEmergencyBody, ListEmergenciesQueryParams } from "@workspace/api-zod";
 import { authMiddleware, requireRoles } from "../middlewares/auth";
-import { broadcastEmergency } from "../lib/notify";
+import { broadcastEmergency, sendNotification } from "../lib/notify";
 
 const router = Router();
 
@@ -167,21 +167,16 @@ router.post("/emergencies/:id/all-clear", authMiddleware, requireRoles("super_ad
   });
 
   const allUsers = await db.select({ id: usersTable.id }).from(usersTable).where(eq(usersTable.isActive, true));
-  if (allUsers.length > 0) {
-    await db.insert(notificationsTable).values(
-      allUsers.map(u => ({
-        userId: u.id,
-        type: "emergency_all_clear",
-        title: "✅ ALL CLEAR — Emergency Resolved",
-        message: notes
-          ? `The emergency has been resolved. ${notes}`
-          : "The emergency situation has been fully resolved. All children are safe. Normal operations resuming.",
-        channel: "in_app" as const,
-        readStatus: false,
-        metadataJson: JSON.stringify({ emergencyId: id }),
-      }))
-    );
-  }
+  const allClearMsg = notes
+    ? `The emergency has been resolved. ${notes}`
+    : "The emergency situation has been fully resolved. All children are safe. Normal operations resuming.";
+  await Promise.all(allUsers.map(u => sendNotification({
+    userId: u.id,
+    type: "emergency_all_clear",
+    title: "✅ ALL CLEAR — Emergency Resolved",
+    message: allClearMsg,
+    metadata: { emergencyId: id },
+  })));
 
   res.json(await formatEmergency(emergency));
 });
@@ -216,21 +211,16 @@ router.post("/emergencies/missing-child-search", authMiddleware, requireRoles("s
   const teachers = await db.select({ id: usersTable.id }).from(usersTable)
     .where(and(eq(usersTable.isActive, true), eq(usersTable.role, "teacher")));
 
-  if (teachers.length > 0) {
-    await db.insert(notificationsTable).values(
-      teachers.map(t => ({
-        userId: t.id,
-        type: "missing_child_search",
-        title: "⚠️ MISSING CHILD — CHECK YOUR CLASS NOW",
-        message: childInfo
-          ? `URGENT: ${childInfo.firstName} ${childInfo.lastName} cannot be located. Please check your class and all nearby areas immediately and report to admin.`
-          : "URGENT: A child cannot be located. Please check your class and all nearby areas immediately and report to admin.",
-        channel: "in_app" as const,
-        readStatus: false,
-        metadataJson: JSON.stringify({ childId, serviceDate: today }),
-      }))
-    );
-  }
+  const missingMsg = childInfo
+    ? `URGENT: ${childInfo.firstName} ${childInfo.lastName} cannot be located. Please check your class and all nearby areas immediately and report to admin.`
+    : "URGENT: A child cannot be located. Please check your class and all nearby areas immediately and report to admin.";
+  await Promise.all(teachers.map(t => sendNotification({
+    userId: t.id,
+    type: "missing_child_search",
+    title: "⚠️ MISSING CHILD — CHECK YOUR CLASS NOW",
+    message: missingMsg,
+    metadata: { childId, serviceDate: today },
+  })));
 
   res.json({
     success: true,

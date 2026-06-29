@@ -5,6 +5,7 @@ import { db, pickupDelegatesTable, childrenTable, familiesTable, usersTable, not
 import { CreatePickupDelegateBody, VerifyDelegateOtpBody, ListPickupDelegatesQueryParams } from "@workspace/api-zod";
 import { authMiddleware } from "../middlewares/auth";
 import { smsDelegateOtp } from "../services/sms";
+import { sendNotification } from "../lib/notify";
 
 const createDelegateLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
@@ -172,14 +173,12 @@ router.post("/pickup-delegates/:id/notify-parent", authMiddleware, async (req, r
     .set({ approvalStatus: "pending", approvalRequestedAt: new Date() })
     .where(eq(pickupDelegatesTable.id, id));
 
-  await db.insert(notificationsTable).values({
+  await sendNotification({
     userId: parentUserId,
     type: "delegate_approval_request",
     title: `🔔 Approve Pickup: ${child.firstName}`,
     message: `${delegate.name} is at the front desk to collect ${child.firstName} ${child.lastName}. Please approve or deny this pickup request.`,
-    channel: "in_app" as const,
-    readStatus: false,
-    metadataJson: JSON.stringify({ delegateId: id, childId: child.id, delegateName: delegate.name, requiresApproval: true }),
+    metadata: { delegateId: id, childId: child.id, delegateName: delegate.name, requiresApproval: true },
   });
 
   res.json({ success: true, requiresApproval: true, message: `Parent notified. Waiting for their approval before releasing ${child.firstName}.` });

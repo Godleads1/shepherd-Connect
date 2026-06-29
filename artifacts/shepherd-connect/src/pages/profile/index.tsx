@@ -546,7 +546,7 @@ export default function Profile() {
             { key: "inApp",    label: "In-App Notifications", icon: Bell,          desc: "Alerts within the Shepherd Connect app",   live: true },
             { key: "email",    label: "Email Notifications",  icon: Mail,          desc: "Notifications sent to your email address", live: true },
             { key: "sms",      label: "SMS Text Messages",    icon: Smartphone,    desc: "Text message alerts to your phone",        live: true },
-            { key: "whatsapp", label: "WhatsApp Messages",    icon: MessageSquare, desc: "Notifications via WhatsApp",               live: false },
+            { key: "whatsapp", label: "WhatsApp Messages",    icon: MessageSquare, desc: "Notifications via WhatsApp",               live: true },
           ] as { key: keyof CommPrefs; label: string; icon: React.ElementType; desc: string; live: boolean }[]).map(({ key, label, icon: Icon, desc, live }) => {
             const active = prefs[key];
             const isSaving = savingPref === key;

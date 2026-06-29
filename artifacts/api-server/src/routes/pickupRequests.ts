@@ -3,9 +3,10 @@ import { authMiddleware, requireRoles } from "../middlewares/auth";
 import { db } from "@workspace/db";
 import {
   attendanceTable, childrenTable, classesTable, usersTable,
-  notificationsTable, teachersTable, teacherAllocationsTable,
+  teachersTable, teacherAllocationsTable,
 } from "@workspace/db/schema";
 import { eq, and } from "drizzle-orm";
+import { sendNotification } from "../lib/notify";
 
 const router = Router();
 
@@ -150,17 +151,12 @@ router.post("/pickup-requests", authMiddleware, async (req, res): Promise<void> 
       eq(teacherAllocationsTable.serviceDate, today),
     ));
 
-  if (allocations.length > 0) {
-    await db.insert(notificationsTable).values(
-      allocations.map(a => ({
-        userId: a.userId,
-        type: "pickup_request",
-        title: "Pickup Request",
-        message: `${parentName} is here to collect ${childName} from ${className}. Please prepare for handover.`,
-        channel: "in_app" as const,
-      }))
-    );
-  }
+  await Promise.all(allocations.map(a => sendNotification({
+    userId: a.userId,
+    type: "pickup_request",
+    title: "Pickup Request",
+    message: `${parentName} is here to collect ${childName} from ${className}. Please prepare for handover.`,
+  })));
 
   req.log.info({ childId, classId, parentName }, "Parent signalled pickup");
   res.json({ success: true, message: "Pickup signal sent to classroom" });

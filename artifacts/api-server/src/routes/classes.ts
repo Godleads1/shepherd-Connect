@@ -3,6 +3,7 @@ import { eq, and, sql } from "drizzle-orm";
 import { db, classesTable, childrenTable, classWaitlistTable, familiesTable, usersTable, notificationsTable } from "@workspace/db";
 import { CreateClassBody, ListClassesQueryParams } from "@workspace/api-zod";
 import { authMiddleware, requireRoles } from "../middlewares/auth";
+import { sendNotification } from "../lib/notify";
 
 const router = Router();
 
@@ -137,14 +138,12 @@ router.post("/classes/:id/notify-waitlist", authMiddleware, requireRoles("super_
   if (fam?.parent2Id) parentIds.push(fam.parent2Id);
 
   if (parentIds.length > 0) {
-    await db.insert(notificationsTable).values(parentIds.map(uid => ({
+    await Promise.all(parentIds.map(uid => sendNotification({
       userId: uid,
       type: "waitlist_space_available",
       title: `A spot opened in ${cls.name}!`,
       message: `Great news! A space is now available in ${cls.name}. Please contact the admin to confirm enrollment.`,
-      channel: "in_app" as const,
-      readStatus: false,
-      metadataJson: JSON.stringify({ classId, className: cls.name }),
+      metadata: { classId, className: cls.name },
     })));
   }
 
