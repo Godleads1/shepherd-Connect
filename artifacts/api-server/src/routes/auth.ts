@@ -466,4 +466,23 @@ router.post("/auth/mfa/verify-login", async (req, res): Promise<void> => {
   res.json({ token, user: buildUserPayload(user) });
 });
 
+// POST /auth/switch-role — swap active role within the user's allRoles (no re-login needed)
+router.post("/auth/switch-role", authMiddleware, async (req, res): Promise<void> => {
+  const { role: requestedRole } = req.body as { role?: string };
+  if (!requestedRole) { res.status(400).json({ error: "Bad request", message: "role is required" }); return; }
+
+  const [user] = await db.select().from(usersTable).where(eq(usersTable.id, req.user!.userId));
+  if (!user) { res.status(404).json({ error: "Not found", message: "User not found" }); return; }
+
+  const secondary = parseSecondaryRoles(user.secondaryRoles);
+  const allRoles: UserRole[] = [user.role, ...secondary];
+
+  if (!allRoles.includes(requestedRole as UserRole)) {
+    res.status(403).json({ error: "Forbidden", message: "You do not have access to that role" }); return;
+  }
+
+  const token = generateToken({ userId: user.id, email: user.email, role: requestedRole as UserRole, firstName: user.firstName, lastName: user.lastName });
+  res.json({ token, user: buildUserPayload(user, requestedRole as UserRole) });
+});
+
 export default router;
