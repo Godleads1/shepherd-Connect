@@ -59,6 +59,8 @@ type Step =
 
 interface SessionData {
   candidates?: string;
+  candidateRoles?: string;  // parallel to candidates — role for each slot (for single-user multi-role)
+  activeRole?: string;      // overrides user.role when user has secondary roles
   concernType?: string;
   requestType?: string;
   childList?: string;
@@ -486,6 +488,29 @@ async function executeTeacherIntent(
   }
 }
 
+// ── Role-option builder ───────────────────────────────────────────────────────
+// Expands a list of DB user rows into a flat list of {userId, role, name} options,
+// including secondary roles stored as JSON in user.secondaryRoles.
+
+interface RoleOption { userId: number; role: UserRole; name: string; }
+
+function buildRoleOptions(matches: Awaited<ReturnType<typeof findUsersByPhone>>): RoleOption[] {
+  const opts: RoleOption[] = [];
+  for (const m of matches) {
+    const name = `${m.firstName} ${m.lastName}`;
+    opts.push({ userId: m.id, role: m.role as UserRole, name });
+    if (m.secondaryRoles) {
+      try {
+        const secRoles: string[] = JSON.parse(m.secondaryRoles);
+        for (const sr of secRoles) {
+          opts.push({ userId: m.id, role: sr as UserRole, name });
+        }
+      } catch { /* ignore malformed JSON */ }
+    }
+  }
+  return opts;
+}
+
 // ── Main handler ──────────────────────────────────────────────────────────────
 
 export async function handleInboundMessage(
@@ -568,13 +593,21 @@ export async function handleInboundMessage(
     const matches = await findUsersByPhone(phone);
     if (matches.length) resolvedUserId = matches[0]!.id;
 
-    if (matches.length > 1) {
-      const session = await getSession(fromJid);
-      if (session.step !== "role_select" && !session.activeUserId) {
-        const s: Session = { step: "role_select", data: { candidates: matches.map(u => u.id).join(",") } };
+    const session0 = await getSession(fromJid);
+    if (session0.step !== "role_select" && !session0.activeUserId) {
+      // Build full role options (separate DB accounts + secondary roles on single rows)
+      const roleOpts = buildRoleOptions(matches);
+      if (roleOpts.length > 1) {
+        const s: Session = {
+          step: "role_select",
+          data: {
+            candidates: roleOpts.map(o => String(o.userId)).join(","),
+            candidateRoles: roleOpts.map(o => o.role).join(","),
+          },
+        };
         await saveSession(fromJid, s);
-        const opts = matches.map((u, i) => `*${i + 1}* — ${roleLabel(u.role as UserRole)} (${u.firstName} ${u.lastName})`).join("\n");
-        await reply(`I found multiple accounts. Which one would you like to use?\n\n${opts}`);
+        const opts = roleOpts.map((o, i) => `*${i + 1}* — ${roleLabel(o.role)} (${o.name})`).join("\n");
+        await reply(`I found multiple roles on this number. Which would you like to use?\n\n${opts}`);
         return;
       }
     }
@@ -597,17 +630,24 @@ export async function handleInboundMessage(
   // ── Role selection ────────────────────────────────────────────────────────
   if (session.step === "role_select") {
     const candidates = (session.data.candidates ?? "").split(",").map(Number).filter(Boolean);
+    const candidateRoles = (session.data.candidateRoles ?? "").split(",").filter(Boolean);
     const idx = parseInt(input, 10) - 1;
     if (isNaN(idx) || idx < 0 || idx >= candidates.length) {
       await reply(`Please reply with a number between 1 and ${candidates.length}.`); return;
     }
     resolvedUserId = candidates[idx]!;
+    const chosenRole = candidateRoles[idx] ?? null;
     session = await resetSession(fromJid, resolvedUserId);
+    if (chosenRole) {
+      session.data.activeRole = chosenRole;
+      await saveSession(fromJid, session);
+    }
   }
 
   const user = await findUserById(resolvedUserId);
   if (!user) { await reply(`⚠️ Something went wrong. Please try again.`); return; }
-  const role = user.role as UserRole;
+  // Use activeRole from session (set when user switches to a secondary role)
+  const role = (session.data.activeRole as UserRole | undefined) ?? (user.role as UserRole);
 
   // ── Idle-nudge reply — YES/NO (or anything) after "are you there?" ─────────
   if (session.step === "awaiting_nudge") {
@@ -727,11 +767,18 @@ export async function handleInboundMessage(
   if (input === "switch") {
     const phone   = isLidJid(fromJid) ? (user.phone ?? null) : phoneFromWaJid(fromJid);
     const matches = phone ? await findUsersByPhone(phone) : [user];
-    if (matches.length <= 1) { await reply(`ℹ️ You only have one account on this number.`); return; }
-    const s: Session = { step: "role_select", data: { candidates: matches.map(u => u.id).join(",") } };
+    const roleOpts = buildRoleOptions(matches);
+    if (roleOpts.length <= 1) { await reply(`ℹ️ You only have one role on this number.`); return; }
+    const s: Session = {
+      step: "role_select",
+      data: {
+        candidates: roleOpts.map(o => String(o.userId)).join(","),
+        candidateRoles: roleOpts.map(o => o.role).join(","),
+      },
+    };
     await saveSession(fromJid, s);
-    const opts = matches.map((u, i) => `*${i + 1}* — ${roleLabel(u.role as UserRole)} (${u.firstName} ${u.lastName})`).join("\n");
-    await reply(`Which account would you like to use?\n\n${opts}`); return;
+    const opts = roleOpts.map((o, i) => `*${i + 1}* — ${roleLabel(o.role)} (${o.name})`).join("\n");
+    await reply(`Which role would you like to use?\n\n${opts}`); return;
   }
 
   // ── Role name typed (e.g. "Teacher", "Parent") — try to switch accounts ──
