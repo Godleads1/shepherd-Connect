@@ -801,12 +801,14 @@ export async function handleInboundMessage(
     return;
   }
 
+  // Fetch children once — reused by both fuzzy and AI paths
+  const children = await getParentChildren(user.id);
+  const childNames = children.map(c => `${c.firstName} ${c.lastName}`);
+
   // 1. Fuzzy keyword match (free, instant)
   const fuzzyIntent = fuzzyClassify(text);
 
   if (fuzzyIntent && fuzzyIntent !== "UNKNOWN") {
-    const children = await getParentChildren(user.id);
-    const childNames = children.map(c => `${c.firstName} ${c.lastName}`);
     const handler = role === "teacher"
       ? executeTeacherIntent(fuzzyIntent, undefined, user.id, user.firstName, fromJid, session, reply)
       : executeParentIntent(fuzzyIntent, undefined, user.id, user.firstName, fromJid, session, reply);
@@ -819,8 +821,6 @@ export async function handleInboundMessage(
 
   // 2. AI intent classification (handles everything else: typos, questions, complex phrasing)
   try {
-    const children = await getParentChildren(user.id);
-    const childNames = children.map(c => `${c.firstName} ${c.lastName}`);
     const classified = await classifyIntent(text, role as any, childNames);
 
     if (classified.confidence >= 0.5 && classified.intent !== "UNKNOWN") {

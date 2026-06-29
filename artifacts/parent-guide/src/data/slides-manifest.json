@@ -66,6 +66,14 @@
   {
     "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567809",
     "position": 9,
+    "filepath": "src/pages/slides/Slide9WhatsAppBot.tsx",
+    "title": "WhatsApp Bot",
+    "description": "Full list of WhatsApp bot abilities — status, OTP, AI, reminders and more",
+    "speakerNotes": ""
+  },
+  {
+    "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567810",
+    "position": 10,
     "filepath": "src/pages/slides/Slide9Closing.tsx",
     "title": "Safe. Known. Celebrated.",
     "description": "Closing slide with tagline and contact info",

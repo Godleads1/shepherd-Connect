@@ -96,6 +96,60 @@ async function buildFamilyRegistry() {
   }));
 }
 
+router.get("/reports/class-list", authMiddleware, requireRoles("super_admin", "admin"), async (req, res): Promise<void> => {
+  const { classId, format = "json" } = req.query as { classId?: string; format?: string };
+  if (!classId) { res.status(400).json({ error: "classId is required" }); return; }
+
+  const classIdNum = parseInt(classId, 10);
+  const [cls] = await db.select().from(classesTable).where(eq(classesTable.id, classIdNum));
+  if (!cls) { res.status(404).json({ error: "Class not found" }); return; }
+
+  const children = await db.select().from(childrenTable).where(eq(childrenTable.currentClassId, classIdNum));
+
+  const enriched = await Promise.all(children.map(async (child) => {
+    const age = child.dob
+      ? Math.floor((Date.now() - new Date(child.dob).getTime()) / (365.25 * 24 * 60 * 60 * 1000))
+      : null;
+    let parent1Name = "", parent1Phone = "", parent1Email = "";
+    let parent2Name = "", parent2Phone = "";
+
+    if (child.familyId) {
+      const [fam] = await db.select().from(familiesTable).where(eq(familiesTable.id, child.familyId));
+      if (fam) {
+        const [p1, p2] = await Promise.all([
+          fam.parent1Id ? db.select().from(usersTable).where(eq(usersTable.id, fam.parent1Id)).then(r => r[0]) : Promise.resolve(undefined),
+          fam.parent2Id ? db.select().from(usersTable).where(eq(usersTable.id, fam.parent2Id)).then(r => r[0]) : Promise.resolve(undefined),
+        ]);
+        if (p1) { parent1Name = `${p1.firstName} ${p1.lastName}`; parent1Phone = p1.phone || ""; parent1Email = p1.email; }
+        if (p2) { parent2Name = `${p2.firstName} ${p2.lastName}`; parent2Phone = p2.phone || ""; }
+      }
+    }
+
+    return {
+      childName: `${child.firstName} ${child.lastName}`,
+      dob: child.dob || "",
+      age: age !== null ? String(age) : "",
+      gender: child.gender || "",
+      allergies: child.allergies || "",
+      medicalNotes: child.medicalNotes || "",
+      parent1Name, parent1Phone, parent1Email,
+      parent2Name, parent2Phone,
+    };
+  }));
+
+  if (format === "csv") {
+    const headers = ["Child Name", "Date of Birth", "Age", "Gender", "Allergies", "Medical Notes", "Parent 1 Name", "Parent 1 Phone", "Parent 1 Email", "Parent 2 Name", "Parent 2 Phone"];
+    const rows = enriched.map(r => [r.childName, r.dob, r.age, r.gender, r.allergies, r.medicalNotes, r.parent1Name, r.parent1Phone, r.parent1Email, r.parent2Name, r.parent2Phone]);
+    const csv = [headers, ...rows].map(row => row.map(c => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
+    const safeName = cls.name.replace(/\s+/g, "-").toLowerCase();
+    res.setHeader("Content-Type", "text/csv");
+    res.setHeader("Content-Disposition", `attachment; filename="${safeName}-class-list.csv"`);
+    res.send(csv); return;
+  }
+
+  res.json({ classId: classIdNum, className: cls.name, serviceSlot: cls.serviceSlot, total: enriched.length, children: enriched });
+});
+
 router.get("/reports/family-registry", authMiddleware, requireRoles("super_admin", "admin"), async (req, res): Promise<void> => {
   const { format = "json" } = req.query as { format?: string };
   const enriched = await buildFamilyRegistry();

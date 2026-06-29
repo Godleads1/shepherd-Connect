@@ -10,7 +10,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import { Users, MapPin, Edit2, Trash2, Zap, RefreshCw, CheckCircle, ArrowRight, Tv2 } from "lucide-react";
+import { Users, MapPin, Edit2, Trash2, Zap, RefreshCw, CheckCircle, ArrowRight, Tv2, Download } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiGet, apiPost } from "@/lib/api-call";
 import { QueryError } from "@/components/QueryError";
@@ -111,6 +111,25 @@ export default function Classes() {
       refetch();
     } catch (e) {
       toast({ variant: "destructive", title: "Delete failed" });
+    }
+  };
+
+  const downloadClassList = async (classId: number, className: string) => {
+    const token = localStorage.getItem("token");
+    try {
+      const resp = await fetch(`/api/reports/class-list?classId=${classId}&format=csv`, {
+        headers: { Authorization: `Bearer ${token ?? ""}` },
+      });
+      if (!resp.ok) throw new Error("Download failed");
+      const blob = await resp.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${className.replace(/\s+/g, "-").toLowerCase()}-list.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      toast({ variant: "destructive", title: "Could not download class list" });
     }
   };
 
@@ -309,6 +328,13 @@ export default function Classes() {
                     title="Open TV display for this classroom"
                   >
                     <Tv2 className="w-3.5 h-3.5" /> TV Display
+                  </button>
+                  <button
+                    className="py-2 px-3 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 border border-emerald-200 text-emerald-700 hover:bg-emerald-50 transition-colors"
+                    onClick={() => downloadClassList(cls.id, cls.name)}
+                    title="Download class list as CSV"
+                  >
+                    <Download className="w-3.5 h-3.5" /> List
                   </button>
                   <button 
                     className="py-2 px-3 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 border border-gray-200 text-gray-700 hover:bg-gray-50 transition-colors" 
