@@ -725,7 +725,7 @@ export async function handleInboundMessage(
   }
 
   if (input === "switch") {
-    const phone   = isLidJid(fromJid) ? null : phoneFromWaJid(fromJid);
+    const phone   = isLidJid(fromJid) ? (user.phone ?? null) : phoneFromWaJid(fromJid);
     const matches = phone ? await findUsersByPhone(phone) : [user];
     if (matches.length <= 1) { await reply(`ℹ️ You only have one account on this number.`); return; }
     const s: Session = { step: "role_select", data: { candidates: matches.map(u => u.id).join(",") } };
@@ -749,8 +749,9 @@ export async function handleInboundMessage(
       await reply(parentMenuText(user.firstName, session.data.lastAction)); return;
     }
     // Check if they have an account with the typed role on this number
-    const phone      = isLidJid(fromJid) ? null : phoneFromWaJid(fromJid);
-    const allMatches = phone ? await findUsersByPhone(phone) : [];
+    // LID JIDs have no phone in the JID itself — fall back to the user's stored phone
+    const phone      = isLidJid(fromJid) ? (user.phone ?? null) : phoneFromWaJid(fromJid);
+    const allMatches = phone ? await findUsersByPhone(phone) : [user];
     const roleMatch  = allMatches.filter(u => u.role === typedRole);
 
     if (roleMatch.length === 1) {
