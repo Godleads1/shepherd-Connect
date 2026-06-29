@@ -582,9 +582,9 @@ export async function handleInboundMessage(
   if (!resolvedUserId) {
     await reply(
       `👋 Hello! I'm the *Shepherd Connect* assistant.\n\n` +
-      `I don't recognise this number. Only registered users can access this service.\n\n` +
-      `Register at: 🌐 https://shepherdconnect.name.ng\n\n` +
-      `Contact the church admin if you believe this is an error.`,
+      `I'm sorry, I don't recognise this number. Only registered users can access this service.\n\n` +
+      `Please register on the Shepherd Connect app first:\n🌐 https://shepherdconnect.name.ng\n\n` +
+      `If you believe this is an error, please contact the church admin.`,
     );
     return;
   }
@@ -682,6 +682,41 @@ export async function handleInboundMessage(
     await reply(`Which account would you like to use?\n\n${opts}`); return;
   }
 
+  // ── Role name typed (e.g. "Teacher", "Parent") — try to switch accounts ──
+  const ROLE_NAMES: Record<string, UserRole> = {
+    teacher: "teacher", parent: "parent", admin: "admin",
+    attendant: "attendant", support: "support", "super admin": "super_admin",
+  };
+  const typedRole = ROLE_NAMES[input.toLowerCase()];
+  if (typedRole) {
+    if (role === typedRole) {
+      // Already on that role — just show the right menu
+      await resetSession(fromJid, resolvedUserId, session.data.lastAction);
+      if (role === "teacher") { await reply(teacherMenuText(user.firstName, session.data.lastAction)); return; }
+      if (role === "support" || role === "attendant") { await reply(supportMenuText(user.firstName)); return; }
+      await reply(parentMenuText(user.firstName, session.data.lastAction)); return;
+    }
+    // Check if they have an account with the typed role
+    const phone   = isLidJid(fromJid) ? null : phoneFromWaJid(fromJid);
+    const matches = phone ? await findUsersByPhone(phone) : [];
+    const roleMatch = matches.filter(u => u.role === typedRole);
+    if (roleMatch.length) {
+      // Switch to that account
+      await resetSession(fromJid, roleMatch[0]!.id);
+      const u = roleMatch[0]!;
+      if (typedRole === "teacher") { await reply(teacherMenuText(u.firstName)); return; }
+      if (typedRole === "support" || typedRole === "attendant") { await reply(supportMenuText(u.firstName)); return; }
+      await reply(parentMenuText(u.firstName)); return;
+    }
+    // No account with that role on this number
+    await reply(
+      `ℹ️ You are registered as *${roleLabel(role)}* on this number.\n\n` +
+      `There is no *${roleLabel(typedRole)}* account linked to this phone number.\n\n` +
+      `If you have a different account, contact the church admin to link it.\n\n` +
+      `Type *0* to return to your menu.`
+    ); return;
+  }
+
   // ── Numbered shortcuts ────────────────────────────────────────────────────
   const numberHandled = await _handleNumberedCommand(
     input, role, user.id, user.firstName, fromJid, session, reply,
@@ -744,15 +779,19 @@ export async function handleInboundMessage(
       return;
     }
   } catch (err) {
-    logger.warn({ err: String(err) }, "Bot: AI classification failed, showing menu");
+    logger.warn({ err: String(err) }, "Bot: AI classification failed");
   }
 
-  // 3. Final fallback — show personalised menu
-  if (role === "teacher") {
-    await reply(teacherMenuText(user.firstName, session.data.lastAction));
-  } else {
-    await reply(parentMenuText(user.firstName, session.data.lastAction));
-  }
+  // 3. Final fallback — brief "I didn't understand", not the full menu again
+  const menuHint = role === "teacher"
+    ? `*1* — Class roster  |  *2* — Attendance  |  *3* — Notifications`
+    : `*1* — Status  |  *2* — OTP  |  *3* — Children  |  *4* — Notifications  |  *5* — Concern  |  *6* — Support`;
+
+  await reply(
+    `🤔 I didn't quite understand that.\n\n` +
+    `Try picking a number:\n${menuHint}\n\n` +
+    `Or type *0* for the full menu, or just describe what you need in plain words.`
+  );
 }
 
 // ── Numbered command dispatcher ───────────────────────────────────────────────
