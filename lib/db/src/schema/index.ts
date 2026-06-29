@@ -30,3 +30,4 @@ export * from "./botSessions";
 export * from "./botLidCache";
 export * from "./botPendingApprovals";
 export * from "./botPhotoPending";
+export * from "./staffCheckpoints";

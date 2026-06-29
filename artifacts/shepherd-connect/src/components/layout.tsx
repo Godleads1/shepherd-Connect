@@ -6,7 +6,7 @@ import { useLang, LANGUAGES, LangCode } from "@/contexts/language";
 import { useToast } from "@/hooks/use-toast";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import {
-  LayoutDashboard, Users, Baby, School, ClipboardCheck, CheckSquare,
+  LayoutDashboard, Users, Baby, School, ClipboardCheck, CheckSquare, CheckCircle2,
   LogOut, Menu, Bell, MessageSquare, AlertTriangle, UserCog, FileText, Star,
   Clock, ShieldCheck, QrCode, Home, Grid3x3, X, ChevronRight, ChevronDown, Globe, MessageSquareWarning, ShieldAlert,
   BarChart3, UserCircle, Search, ListOrdered, CalendarClock, BookOpen, WifiOff,
@@ -258,6 +258,7 @@ export function Layout({ children }: { children: ReactNode }) {
       items.push({ href: "/messages",              label: "Messages",            icon: MessageSquare, badge: msgUnreadCount });
       if (role === "super_admin") items.push({ href: "/users", label: t.nav.users, icon: ShieldCheck });
       if (role === "super_admin") items.push({ href: "/staff-attendance", label: "Staff Attendance", icon: Clock });
+      if (role === "super_admin" || role === "admin") items.push({ href: "/staff-checkpoints", label: "Service Checkpoints", icon: CheckCircle2 });
       if (role === "super_admin") items.push({ href: "/settings", label: "Settings", icon: Grid3x3 });
     } else if (role === "parent") {
       items.push({ href: "/my-family",        label: t.nav.myFamily,   icon: Home });

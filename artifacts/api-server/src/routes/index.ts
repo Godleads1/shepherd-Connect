@@ -34,6 +34,7 @@ import whatsappRouter from "./whatsapp";
 import teacherClockInsRouter from "./teacherClockIns";
 import safeguardingPortalRouter from "./safeguardingPortal";
 import teacherIncidentsRouter from "./teacherIncidents";
+import staffCheckpointsRouter from "./staffCheckpoints";
 
 const router: IRouter = Router();
 
@@ -72,5 +73,6 @@ router.use(whatsappRouter);
 router.use(teacherClockInsRouter);
 router.use(safeguardingPortalRouter);
 router.use(teacherIncidentsRouter);
+router.use(staffCheckpointsRouter);
 
 export default router;

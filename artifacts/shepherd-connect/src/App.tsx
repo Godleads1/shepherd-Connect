@@ -51,6 +51,7 @@ import MyConcerns from "@/pages/my-concerns/index";
 import MyIncidents from "@/pages/my-incidents/index";
 import SafeguardingCases from "@/pages/safeguarding-cases/index";
 import StaffAttendance from "@/pages/staff-attendance/index";
+import StaffCheckpoints from "@/pages/staff-checkpoints/index";
 import { PWABanner } from "@/components/PWABanner";
 
 const queryClient = new QueryClient();
@@ -116,6 +117,7 @@ function Router() {
               <Route path="/my-incidents" component={MyIncidents} />
               <Route path="/safeguarding-cases" component={SafeguardingCases} />
               <Route path="/staff-attendance" component={StaffAttendance} />
+              <Route path="/staff-checkpoints" component={StaffCheckpoints} />
 
               {/* Fallback inside Layout */}
               <Route component={NotFound} />
