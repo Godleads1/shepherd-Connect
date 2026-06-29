@@ -282,7 +282,7 @@ export default function StaffAttendance() {
       <div className="flex items-start gap-2 text-xs text-gray-400 bg-gray-50 rounded-xl p-3 border border-gray-100">
         <Timer className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-amber-500" />
         <span>
-          Clock-in requires staff to be physically within <strong>250 m</strong> of the church building.
+          Clock-in requires staff to be physically within <strong>150 m</strong> of the church building.
           On-time cutoff is <strong>7:00 AM WAT</strong>. GPS coordinates are recorded with every clock-in.
         </span>
       </div>

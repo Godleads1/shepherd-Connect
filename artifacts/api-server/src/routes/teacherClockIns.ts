@@ -16,7 +16,7 @@ function todayWAT(): string {
 // JC geofence centre — Trinity Towers, Oniru Rd, Victoria Island, Lagos
 const JC_LAT = 6.4281;
 const JC_LNG = 3.4219;
-const GEOFENCE_RADIUS_M = 250; // 250 metre radius
+const GEOFENCE_RADIUS_M = 150; // 150 metre radius
 const CUTOFF_HOUR = 7; // 7:00 AM Lagos time (WAT = UTC+1)
 
 function haversineDistance(lat1: number, lng1: number, lat2: number, lng2: number): number {
