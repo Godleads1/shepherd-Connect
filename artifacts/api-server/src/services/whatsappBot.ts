@@ -696,24 +696,36 @@ export async function handleInboundMessage(
       if (role === "support" || role === "attendant") { await reply(supportMenuText(user.firstName)); return; }
       await reply(parentMenuText(user.firstName, session.data.lastAction)); return;
     }
-    // Check if they have an account with the typed role
-    const phone   = isLidJid(fromJid) ? null : phoneFromWaJid(fromJid);
-    const matches = phone ? await findUsersByPhone(phone) : [];
-    const roleMatch = matches.filter(u => u.role === typedRole);
-    if (roleMatch.length) {
-      // Switch to that account
+    // Check if they have an account with the typed role on this number
+    const phone      = isLidJid(fromJid) ? null : phoneFromWaJid(fromJid);
+    const allMatches = phone ? await findUsersByPhone(phone) : [];
+    const roleMatch  = allMatches.filter(u => u.role === typedRole);
+
+    if (roleMatch.length === 1) {
+      // Exactly one account with that role — switch directly
       await resetSession(fromJid, roleMatch[0]!.id);
       const u = roleMatch[0]!;
       if (typedRole === "teacher") { await reply(teacherMenuText(u.firstName)); return; }
       if (typedRole === "support" || typedRole === "attendant") { await reply(supportMenuText(u.firstName)); return; }
       await reply(parentMenuText(u.firstName)); return;
     }
+
+    if (roleMatch.length > 1) {
+      // Multiple accounts with the same role — let them pick
+      const s: Session = { step: "role_select", data: { candidates: roleMatch.map(u => u.id).join(",") } };
+      await saveSession(fromJid, s);
+      const opts = roleMatch.map((u, i) => `*${i + 1}* — ${u.firstName} ${u.lastName}`).join("\n");
+      await reply(`You have ${roleMatch.length} *${roleLabel(typedRole)}* accounts on this number. Which one?\n\n${opts}`);
+      return;
+    }
+
     // No account with that role on this number
+    // Show all available roles on this number so they can pick the right one
+    const availableRoles = allMatches.map(u => `• ${roleLabel(u.role as UserRole)} (${u.firstName} ${u.lastName})`).join("\n");
     await reply(
-      `ℹ️ You are registered as *${roleLabel(role)}* on this number.\n\n` +
-      `There is no *${roleLabel(typedRole)}* account linked to this phone number.\n\n` +
-      `If you have a different account, contact the church admin to link it.\n\n` +
-      `Type *0* to return to your menu.`
+      `ℹ️ There is no *${roleLabel(typedRole)}* account linked to this number.\n\n` +
+      `Your registered ${allMatches.length === 1 ? "account" : "accounts"} on this number:\n${availableRoles}\n\n` +
+      `Type *SWITCH* to change account, or *0* for your current menu.`
     ); return;
   }
 
