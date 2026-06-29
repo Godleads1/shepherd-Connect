@@ -2,6 +2,7 @@ import { Router } from "express";
 import { eq, or, and, desc, inArray } from "drizzle-orm";
 import { db, messagesTable, usersTable, childrenTable } from "@workspace/db";
 import { authMiddleware } from "../middlewares/auth";
+import { dispatchExternal } from "../lib/notify";
 import { z } from "zod";
 
 const router = Router();
@@ -105,6 +106,18 @@ router.post("/messages", authMiddleware, async (req, res): Promise<void> => {
     isRead: false,
   }).returning();
   const [formatted] = await attachParticipants([message]);
+
+  // Fire-and-forget: notify recipient via their preferred external channel (WhatsApp/SMS)
+  const senderName = formatted.sender
+    ? `${formatted.sender.firstName} ${formatted.sender.lastName}`
+    : "Someone";
+  const subject = parsed.data.subject ? `Re: ${parsed.data.subject}` : "New Message";
+  dispatchExternal(
+    parsed.data.recipientId,
+    `${subject} from ${senderName}`,
+    parsed.data.body,
+  ).catch(() => {});
+
   res.status(201).json(formatted);
 });
 
