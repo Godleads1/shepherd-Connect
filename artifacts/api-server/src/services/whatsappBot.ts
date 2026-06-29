@@ -864,21 +864,34 @@ async function _createSupportRequest(
 
   await db.insert(supportRequestsTable).values({ referenceNumber: ref, type: requestType, childId: child.id, parentUserId: parent.id, assignedSupportId: assigned.id, status: "pending", serviceDate, serviceSlot });
 
+  const isDelegate = requestType === "delegate_pickup";
+
+  // Parent confirmation — delegate pickup requires photo approval; check-in/out does not
   await reply(
     `✅ *Support Request Sent!*\n\n📌 Type: *${typeLabel(requestType)}*\n👦 Child: *${childName}*${childClass}\n🔖 Ref: *${ref}*\n\n` +
-    `A support officer has been notified and will assist shortly.\n` +
-    `You will receive a photo for approval before anything proceeds.\n\n` +
-    `_Type *0* for the main menu._`
+    (isDelegate
+      ? `A support officer will photograph the delegate and send you the image to confirm their identity before releasing *${child.firstName}*.\n\n_Reply *YES* to approve or *NO* to reject when you receive the photo._`
+      : `A support officer has been notified and will assist you directly at the desk.`) +
+    `\n\n_Type *0* for the main menu._`
   );
 
   const supportJid = assigned.phone ? phoneToWaJid(assigned.phone) : null;
   if (supportJid) {
-    await setPendingApproval(ref, { parentJid, supportJid, childName, requestType, childId: child.id, parentUserId: parent.id, assignedSupportId: assigned.id });
-    await sendWhatsAppToJid(supportJid,
-      `🔔 *New Support Request*\nRef: *${ref}*\n\n📌 Type: *${typeLabel(requestType)}*\n👦 Child: *${childName}*${childClass}\n` +
-      `👨‍👩‍👧 Parent: *${parent.firstName} ${parent.lastName}*\n${parent.phone ? `📞 ${parent.phone}\n` : ""}⏰ Service: *${slotLabel}*\n\n` +
-      `When the person arrives:\n1️⃣ Take their photo\n2️⃣ Type: *PHOTO ${ref}*\n3️⃣ Send the photo immediately\n\n⚠️ _This request is assigned to you only._`
-    );
+    // Only store relay data for delegate pickup (photo approval flow)
+    if (isDelegate) {
+      await setPendingApproval(ref, { parentJid, supportJid, childName, requestType, childId: child.id, parentUserId: parent.id, assignedSupportId: assigned.id });
+    }
+
+    const supportMsg = isDelegate
+      ? `🔔 *Delegate Pickup Request*\nRef: *${ref}*\n\n👦 Child: *${childName}*${childClass}\n` +
+        `👨‍👩‍👧 Parent: *${parent.firstName} ${parent.lastName}*\n${parent.phone ? `📞 ${parent.phone}\n` : ""}⏰ Service: *${slotLabel}*\n\n` +
+        `📸 *Photo verification required:*\n1️⃣ Ask the delegate to show ID\n2️⃣ Type: *PHOTO ${ref}*\n3️⃣ Send their photo immediately\n\n` +
+        `⚠️ _Do NOT release the child until the parent approves the photo._`
+      : `🔔 *${typeLabel(requestType)} Request*\nRef: *${ref}*\n\n👦 Child: *${childName}*${childClass}\n` +
+        `👨‍👩‍👧 Parent: *${parent.firstName} ${parent.lastName}*\n${parent.phone ? `📞 ${parent.phone}\n` : ""}⏰ Service: *${slotLabel}*\n\n` +
+        `Please assist this parent directly at the check-in desk.\n🔖 Ref: *${ref}*`;
+
+    await sendWhatsAppToJid(supportJid, supportMsg);
   }
 
   logger.info({ ref, parentId: parent.id, supportId: assigned.id, requestType }, "Support request created");
@@ -891,6 +904,16 @@ async function _handlePhotoIntent(fromJid: string, ref: string, reply: (msg: str
   if (!req) { await reply(`❌ Request *${ref}* not found.`); return; }
   if (req.status !== "pending") { await reply(`⚠️ Request *${ref}* is already *${req.status}*.`); return; }
 
+  // Photo verification is only for delegate pickup — not for check-in or check-out
+  if (req.type !== "delegate_pickup") {
+    await reply(
+      `⚠️ Photo verification is only required for *Delegate Pickup* requests.\n\n` +
+      `For *${typeLabel(req.type)}* (ref: ${ref}), please assist the parent directly at the desk.\n\n` +
+      `Once done, the system will be updated by the attendant via the app.`
+    );
+    return;
+  }
+
   const existing = await getPendingApproval(ref);
   if (!existing) {
     const [child]  = await db.select().from(childrenTable).where(eq(childrenTable.id, req.childId));
@@ -901,7 +924,7 @@ async function _handlePhotoIntent(fromJid: string, ref: string, reply: (msg: str
   }
 
   await setPhotoPending(fromJid, ref);
-  await reply(`📸 Ready! Now send the photo of the person immediately.`);
+  await reply(`📸 Ready! Now send the photo of the *delegate* immediately.`);
 }
 
 // ── Photo relay ───────────────────────────────────────────────────────────────
@@ -910,21 +933,34 @@ async function _handleSupportPhoto(supportJid: string, ref: string, imageBuffer:
   const relay = await getPendingApproval(ref);
   if (!relay) { await reply(`⚠️ Couldn't find request *${ref}*. Type *PHOTO ${ref}* again.`); return; }
 
-  await db.update(supportRequestsTable).set({ status: "photo_sent", updatedAt: new Date() }).where(eq(supportRequestsTable.referenceNumber, ref));
-  await reply(`✅ Photo received. Sending to the parent for approval...\nPlease wait for their decision.`);
+  // Delegate pickup: relay photo to parent and wait for YES/NO approval
+  if (relay.requestType === "delegate_pickup") {
+    await db.update(supportRequestsTable).set({ status: "photo_sent", updatedAt: new Date() }).where(eq(supportRequestsTable.referenceNumber, ref));
+    await reply(`✅ Photo received. Sending to the parent for identity approval...\nPlease wait — *do NOT release the child yet.*`);
 
-  if (relay.parentJid) {
-    // Store ref in parent's session so they can reply "yes/no"
-    const parentSession = await getSession(relay.parentJid);
-    parentSession.data.pendingApprovalRef = ref;
-    await saveSession(relay.parentJid, parentSession);
+    if (relay.parentJid) {
+      const parentSession = await getSession(relay.parentJid);
+      parentSession.data.pendingApprovalRef = ref;
+      await saveSession(relay.parentJid, parentSession);
 
-    await sendWhatsAppImageToJid(relay.parentJid, imageBuffer,
-      `📸 *Photo for Your Approval*\n\n👦 Child: *${relay.childName}*\n📌 Type: *${typeLabel(relay.requestType)}*\n🔖 Ref: *${ref}*\n\n` +
-      `Please confirm this is the right person:\n\n✅ Reply *YES* or type *APPROVE ${ref}*\n❌ Reply *NO* or type *REJECT ${ref}*`
-    );
-    logger.info({ ref, parentJid: relay.parentJid }, "Photo relayed to parent");
+      await sendWhatsAppImageToJid(relay.parentJid, imageBuffer,
+        `📸 *Delegate Identity Verification*\n\n👦 Child: *${relay.childName}*\n🔖 Ref: *${ref}*\n\n` +
+        `Please confirm this is the person you authorised to collect your child:\n\n` +
+        `✅ Reply *YES* to approve — delegate may collect\n❌ Reply *NO* to reject — delegate will be turned away`
+      );
+      logger.info({ ref, parentJid: relay.parentJid }, "Delegate photo relayed to parent for approval");
+    }
+    return;
   }
+
+  // Check-in / checkout: no parent approval needed — just log the photo and confirm to support
+  // (The parent is present or the child is known to staff — no identity risk)
+  await reply(
+    `✅ Photo logged for *${typeLabel(relay.requestType)}* — *${relay.childName}*.\n\n` +
+    `No parent approval needed for this request type.\n` +
+    `Please proceed and update attendance in the app.\n🔖 Ref: *${ref}*`
+  );
+  logger.info({ ref, requestType: relay.requestType }, "Photo logged for non-delegate request — no parent approval required");
 }
 
 // ── Approval handler ──────────────────────────────────────────────────────────
