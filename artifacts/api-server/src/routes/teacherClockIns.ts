@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
 import { teacherClockInsTable, usersTable } from "@workspace/db/schema";
-import { eq, and, desc, gte, lte } from "drizzle-orm";
+import { eq, and, desc, gte, lte, inArray } from "drizzle-orm";
 import { authMiddleware, requireRoles } from "../middlewares/auth";
 
 const router = Router();
@@ -38,7 +38,7 @@ function isOnTime(now: Date): boolean {
 }
 
 // POST /teacher-clock-ins/clock-in
-router.post("/teacher-clock-ins/clock-in", authMiddleware, requireRoles("teacher", "admin", "super_admin"), async (req, res): Promise<void> => {
+router.post("/teacher-clock-ins/clock-in", authMiddleware, requireRoles("teacher", "support", "admin", "super_admin"), async (req, res): Promise<void> => {
   const userId = (req as any).user.userId;
   const today = todayWAT();
   const { latitude, longitude } = req.body as { latitude?: number; longitude?: number };
@@ -97,7 +97,7 @@ router.post("/teacher-clock-ins/clock-in", authMiddleware, requireRoles("teacher
 });
 
 // POST /teacher-clock-ins/clock-out
-router.post("/teacher-clock-ins/clock-out", authMiddleware, requireRoles("teacher", "admin", "super_admin"), async (req, res): Promise<void> => {
+router.post("/teacher-clock-ins/clock-out", authMiddleware, requireRoles("teacher", "support", "admin", "super_admin"), async (req, res): Promise<void> => {
   const userId = (req as any).user.userId;
   const today = todayWAT();
 
@@ -123,12 +123,58 @@ router.post("/teacher-clock-ins/clock-out", authMiddleware, requireRoles("teache
 });
 
 // GET /teacher-clock-ins/today — teacher's own status for today
-router.get("/teacher-clock-ins/today", authMiddleware, requireRoles("teacher", "admin", "super_admin"), async (req, res): Promise<void> => {
+router.get("/teacher-clock-ins/today", authMiddleware, requireRoles("teacher", "support", "admin", "super_admin"), async (req, res): Promise<void> => {
   const userId = (req as any).user.userId;
   const today = todayWAT();
   const [record] = await db.select().from(teacherClockInsTable)
     .where(and(eq(teacherClockInsTable.userId, userId), eq(teacherClockInsTable.serviceDate, today)));
   res.json({ record: record ?? null });
+});
+
+// GET /teacher-clock-ins/summary?date=YYYY-MM-DD — full staff roster vs clock-in records
+router.get("/teacher-clock-ins/summary", authMiddleware, requireRoles("admin", "super_admin"), async (req, res): Promise<void> => {
+  const date = (req.query["date"] as string) || todayWAT();
+
+  // All active teachers + support staff
+  const staff = await db
+    .select({ id: usersTable.id, firstName: usersTable.firstName, lastName: usersTable.lastName, role: usersTable.role, photoUrl: usersTable.photoUrl })
+    .from(usersTable)
+    .where(and(
+      eq(usersTable.isActive, true),
+      inArray(usersTable.role, ["teacher", "support"]),
+    ));
+
+  // Clock-in records for that date
+  const records = await db.select().from(teacherClockInsTable)
+    .where(eq(teacherClockInsTable.serviceDate, date));
+
+  const recordMap = new Map(records.map(r => [r.userId, r]));
+
+  const roster = staff.map(u => ({
+    userId: u.id,
+    firstName: u.firstName,
+    lastName: u.lastName,
+    role: u.role,
+    photoUrl: u.photoUrl,
+    clockIn: recordMap.get(u.id) ?? null,
+  }));
+
+  const present = roster.filter(r => r.clockIn?.clockInAt).length;
+  const onTime  = roster.filter(r => r.clockIn?.isOnTime === true).length;
+  const late    = roster.filter(r => r.clockIn?.isOnTime === false).length;
+  const absent  = roster.length - present;
+
+  res.json({
+    date,
+    stats: { total: roster.length, present, onTime, late, absent },
+    staff: roster.sort((a, b) => {
+      // Clocked-in first, then alphabetical
+      const aIn = !!a.clockIn?.clockInAt;
+      const bIn = !!b.clockIn?.clockInAt;
+      if (aIn !== bIn) return aIn ? -1 : 1;
+      return a.firstName.localeCompare(b.firstName);
+    }),
+  });
 });
 
 // GET /teacher-clock-ins — admin: all records, optionally filtered by date or date range

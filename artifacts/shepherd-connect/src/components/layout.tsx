@@ -257,6 +257,7 @@ export function Layout({ children }: { children: ReactNode }) {
       items.push({ href: "/safeguarding-cases",    label: "Safeguarding Cases",  icon: ShieldAlert });
       items.push({ href: "/messages",              label: "Messages",            icon: MessageSquare, badge: msgUnreadCount });
       if (role === "super_admin") items.push({ href: "/users", label: t.nav.users, icon: ShieldCheck });
+      if (role === "super_admin") items.push({ href: "/staff-attendance", label: "Staff Attendance", icon: Clock });
       if (role === "super_admin") items.push({ href: "/settings", label: "Settings", icon: Grid3x3 });
     } else if (role === "parent") {
       items.push({ href: "/my-family",        label: t.nav.myFamily,   icon: Home });
@@ -277,6 +278,7 @@ export function Layout({ children }: { children: ReactNode }) {
     } else if (role === "support") {
       items.push({ href: "/checkin",  label: t.nav.checkin,  icon: ClipboardCheck });
       items.push({ href: "/checkout", label: t.nav.checkout, icon: CheckSquare });
+      items.push({ href: "/teachers", label: "My Time Log",  icon: Clock });
     }
     items.push({ href: "/notifications", label: t.nav.notifications, icon: Bell, badge: unreadCount });
     items.push({ href: "/profile", label: "My Profile", icon: UserCircle });
