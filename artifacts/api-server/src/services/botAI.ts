@@ -32,6 +32,7 @@ export type Intent =
   | "GENERAL_QUESTION"  // anything about the church
   | "MENU"              // show menu
   | "SWITCH"            // switch account/role
+  | "FAREWELL"          // goodbye / good night / bye
   | "UNKNOWN";          // couldn't determine
 
 export interface ClassifiedIntent {
@@ -124,6 +125,7 @@ export async function classifyIntent(
 // ── Fuzzy keyword pre-classifier (no AI cost for obvious inputs) ──────────────
 
 const KEYWORD_MAP: Array<[RegExp, Intent]> = [
+  [/\b(bye|goodbye|good.?night|good.?eve|see.?you|later|cya|take.?care|night|peace.?out|signing.?off|ttyl)\b/i, "FAREWELL"],
   [/\b(status|where|check.?in|attend|present|class|son|daughter|child)\b/i, "CHECK_STATUS"],
   [/\b(otp|code|delegate|pickup|collect)\b/i, "GET_OTP"],
   [/\b(children|child|kids?|my.?kid|my.?child)\b/i, "MY_CHILDREN"],

@@ -672,6 +672,21 @@ export async function handleInboundMessage(
     await reply(parentMenuText(user.firstName, session.data.lastAction)); return;
   }
 
+  // ── Farewell — end the conversation gracefully ─────────────────────────────
+  const FAREWELL_RE = /\b(bye|goodbye|good.?night|good.?eve|see.?you|later|cya|take.?care|night|signing.?off|ttyl)\b/i;
+  if (FAREWELL_RE.test(input)) {
+    const hour = new Date().getHours(); // server is UTC; close enough for a hint
+    const sign = hour >= 5 && hour < 12 ? "Have a lovely day! ☀️"
+               : hour >= 12 && hour < 17 ? "Have a great afternoon! 🌤️"
+               : "Good night! Rest well. 🌙";
+    await reply(
+      `${sign}\n\n` +
+      `Feel free to message anytime — I'm always here. 😊\n\n` +
+      `_Your session is saved. Type *hi* or *0* whenever you're ready._`
+    );
+    return;
+  }
+
   if (input === "switch") {
     const phone   = isLidJid(fromJid) ? null : phoneFromWaJid(fromJid);
     const matches = phone ? await findUsersByPhone(phone) : [user];
