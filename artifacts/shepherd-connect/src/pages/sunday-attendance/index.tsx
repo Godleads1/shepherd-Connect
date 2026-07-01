@@ -6,10 +6,14 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   QrCode, Download, Printer, RefreshCw, CheckCircle2, XCircle,
-  LogOut, Users, UserCheck, UserX, ShieldCheck, CalendarDays,
+  LogOut, Users, UserCheck, UserX, ShieldCheck, CalendarDays, ChevronDown, ChevronUp,
 } from "lucide-react";
 
-const INTERVAL_LABELS: Record<string, string> = {
+const SERVICE_1 = ["07:00", "08:30", "09:30"] as const;
+const SERVICE_2 = ["10:00", "11:00", "12:00"] as const;
+const ALL_INTERVALS = [...SERVICE_1, ...SERVICE_2] as const;
+
+const INTERVAL_DISPLAY: Record<string, string> = {
   "07:00": "7:00",
   "08:30": "8:30",
   "09:30": "9:30",
@@ -57,12 +61,234 @@ function fmtTime(iso: string) {
 }
 
 function roleBadge(role: string) {
-  const colors: Record<string, string> = {
-    teacher: "bg-blue-100 text-blue-700",
-    support: "bg-purple-100 text-purple-700",
-    attendant: "bg-green-100 text-green-700",
+  const map: Record<string, string> = {
+    teacher:  "bg-blue-100 text-blue-700",
+    support:  "bg-purple-100 text-purple-700",
+    attendant:"bg-green-100 text-green-700",
   };
-  return colors[role] ?? "bg-gray-100 text-gray-600";
+  return map[role] ?? "bg-gray-100 text-gray-600";
+}
+
+function scoreColor(n: number) {
+  if (n >= 6) return "bg-green-100 text-green-700";
+  if (n >= 3) return "bg-yellow-100 text-yellow-700";
+  if (n > 0)  return "bg-orange-100 text-orange-700";
+  return "bg-red-50 text-red-400";
+}
+
+/** Mini dot-row showing scanned/missed per interval */
+function DotRow({ checkpoints, clockOuts }: { checkpoints: Checkpoint[]; clockOuts: ClockOut[] }) {
+  const firstOut  = clockOuts.find(c => c.service === "1st");
+  const secondOut = clockOuts.find(c => c.service === "2nd");
+  return (
+    <div className="flex items-center gap-0.5 flex-wrap">
+      {/* 1st service */}
+      {SERVICE_1.map(lbl => {
+        const ok = checkpoints.find(c => c.intervalLabel === lbl)?.scanned;
+        return (
+          <div
+            key={lbl}
+            title={`${INTERVAL_DISPLAY[lbl]} AM (1st)`}
+            className={`w-3.5 h-3.5 rounded-full ${ok ? "bg-green-500" : "bg-red-200"}`}
+          />
+        );
+      })}
+      {/* clock-out 1st */}
+      <div
+        title="Clock-out 1st"
+        className={`w-3.5 h-3.5 rounded-sm ${firstOut ? "bg-amber-400" : "bg-gray-200"}`}
+      />
+      <div className="w-0.5 h-3.5 bg-gray-200 rounded mx-0.5" />
+      {/* 2nd service */}
+      {SERVICE_2.map(lbl => {
+        const ok = checkpoints.find(c => c.intervalLabel === lbl)?.scanned;
+        return (
+          <div
+            key={lbl}
+            title={`${INTERVAL_DISPLAY[lbl]} (2nd)`}
+            className={`w-3.5 h-3.5 rounded-full ${ok ? "bg-green-500" : "bg-red-200"}`}
+          />
+        );
+      })}
+      {/* clock-out 2nd */}
+      <div
+        title="Clock-out 2nd"
+        className={`w-3.5 h-3.5 rounded-sm ${secondOut ? "bg-amber-400" : "bg-gray-200"}`}
+      />
+    </div>
+  );
+}
+
+/** Mobile card for one staff member */
+function StaffCard({ row }: { row: StaffRow }) {
+  const [open, setOpen] = useState(false);
+  const firstOut  = row.clockOuts.find(c => c.service === "1st");
+  const secondOut = row.clockOuts.find(c => c.service === "2nd");
+
+  return (
+    <div className="border rounded-xl bg-white shadow-sm overflow-hidden">
+      {/* Header row */}
+      <button
+        className="w-full flex items-center gap-3 px-4 py-3 text-left"
+        onClick={() => setOpen(o => !o)}
+      >
+        {row.photoUrl ? (
+          <img src={row.photoUrl} alt="" className="w-9 h-9 rounded-full object-cover flex-shrink-0" />
+        ) : (
+          <div className="w-9 h-9 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-semibold text-sm flex-shrink-0">
+            {row.firstName[0]}{row.lastName[0]}
+          </div>
+        )}
+        <div className="flex-1 min-w-0">
+          <p className="font-semibold text-gray-900 text-sm truncate">
+            {row.firstName} {row.lastName}
+          </p>
+          <div className="flex items-center gap-2 mt-0.5">
+            <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${roleBadge(row.role)}`}>
+              {row.role}
+            </span>
+            <DotRow checkpoints={row.checkpoints} clockOuts={row.clockOuts} />
+          </div>
+        </div>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${scoreColor(row.totalScans)}`}>
+            {row.totalScans}/6
+          </span>
+          {open ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
+        </div>
+      </button>
+
+      {/* Expanded detail */}
+      {open && (
+        <div className="border-t bg-gray-50 px-4 py-3 space-y-3">
+          {/* 1st service */}
+          <div>
+            <p className="text-xs font-semibold text-blue-700 uppercase tracking-wider mb-2">1st Service</p>
+            <div className="grid grid-cols-3 gap-2">
+              {SERVICE_1.map(lbl => {
+                const cp = row.checkpoints.find(c => c.intervalLabel === lbl);
+                return (
+                  <div key={lbl} className={`rounded-lg p-2 text-center ${cp?.scanned ? "bg-green-50 border border-green-200" : "bg-red-50 border border-red-100"}`}>
+                    <p className="text-xs font-medium text-gray-700">{INTERVAL_DISPLAY[lbl]} AM</p>
+                    {cp?.scanned ? (
+                      <>
+                        <CheckCircle2 className="w-4 h-4 text-green-500 mx-auto mt-1" />
+                        <p className="text-[10px] text-gray-500 mt-0.5">{cp.scannedAt ? fmtTime(cp.scannedAt) : ""}</p>
+                      </>
+                    ) : (
+                      <XCircle className="w-4 h-4 text-red-300 mx-auto mt-1" />
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            {firstOut && (
+              <div className="mt-2 flex items-center gap-2 text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-1.5">
+                <LogOut className="w-3.5 h-3.5" />
+                <span>Clocked out at {fmtTime(firstOut.scannedAt)}</span>
+              </div>
+            )}
+          </div>
+          {/* 2nd service */}
+          <div>
+            <p className="text-xs font-semibold text-purple-700 uppercase tracking-wider mb-2">2nd Service</p>
+            <div className="grid grid-cols-3 gap-2">
+              {SERVICE_2.map(lbl => {
+                const cp = row.checkpoints.find(c => c.intervalLabel === lbl);
+                const disp = lbl === "12:00" ? "12:00 PM" : `${INTERVAL_DISPLAY[lbl]} AM`;
+                return (
+                  <div key={lbl} className={`rounded-lg p-2 text-center ${cp?.scanned ? "bg-green-50 border border-green-200" : "bg-red-50 border border-red-100"}`}>
+                    <p className="text-xs font-medium text-gray-700">{disp}</p>
+                    {cp?.scanned ? (
+                      <>
+                        <CheckCircle2 className="w-4 h-4 text-green-500 mx-auto mt-1" />
+                        <p className="text-[10px] text-gray-500 mt-0.5">{cp.scannedAt ? fmtTime(cp.scannedAt) : ""}</p>
+                      </>
+                    ) : (
+                      <XCircle className="w-4 h-4 text-red-300 mx-auto mt-1" />
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            {secondOut && (
+              <div className="mt-2 flex items-center gap-2 text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-1.5">
+                <LogOut className="w-3.5 h-3.5" />
+                <span>Clocked out at {fmtTime(secondOut.scannedAt)}</span>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Desktop table row */
+function TableRow({ row, i }: { row: StaffRow; i: number }) {
+  const firstOut  = row.clockOuts.find(c => c.service === "1st");
+  const secondOut = row.clockOuts.find(c => c.service === "2nd");
+  return (
+    <tr className={`border-b hover:bg-gray-50 transition-colors ${i % 2 === 0 ? "bg-white" : "bg-gray-50/40"}`}>
+      <td className="px-4 py-3">
+        <div className="flex items-center gap-2">
+          {row.photoUrl ? (
+            <img src={row.photoUrl} alt="" className="w-7 h-7 rounded-full object-cover flex-shrink-0" />
+          ) : (
+            <div className="w-7 h-7 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-medium text-xs flex-shrink-0">
+              {row.firstName[0]}{row.lastName[0]}
+            </div>
+          )}
+          <div>
+            <p className="font-medium text-gray-900 text-sm leading-tight whitespace-nowrap">
+              {row.firstName} {row.lastName}
+            </p>
+            <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${roleBadge(row.role)}`}>
+              {row.role}
+            </span>
+          </div>
+        </div>
+      </td>
+      {ALL_INTERVALS.map(lbl => {
+        const cp = row.checkpoints.find(c => c.intervalLabel === lbl);
+        return (
+          <td key={lbl} className="px-2 py-3 text-center">
+            {cp?.scanned ? (
+              <div className="flex flex-col items-center gap-0.5">
+                <CheckCircle2 className="w-4 h-4 text-green-500" />
+                {cp.scannedAt && (
+                  <span className="text-[10px] text-gray-400">{fmtTime(cp.scannedAt)}</span>
+                )}
+              </div>
+            ) : (
+              <XCircle className="w-4 h-4 text-red-200 mx-auto" />
+            )}
+          </td>
+        );
+      })}
+      <td className="px-2 py-3 text-center">
+        {firstOut ? (
+          <div className="flex flex-col items-center gap-0.5">
+            <LogOut className="w-4 h-4 text-amber-500" />
+            <span className="text-[10px] text-gray-400">{fmtTime(firstOut.scannedAt)}</span>
+          </div>
+        ) : <span className="text-gray-200 text-xs">—</span>}
+      </td>
+      <td className="px-2 py-3 text-center">
+        {secondOut ? (
+          <div className="flex flex-col items-center gap-0.5">
+            <LogOut className="w-4 h-4 text-amber-500" />
+            <span className="text-[10px] text-gray-400">{fmtTime(secondOut.scannedAt)}</span>
+          </div>
+        ) : <span className="text-gray-200 text-xs">—</span>}
+      </td>
+      <td className="px-3 py-3 text-center">
+        <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${scoreColor(row.totalScans)}`}>
+          {row.totalScans}/6
+        </span>
+      </td>
+    </tr>
+  );
 }
 
 export default function SundayAttendancePage() {
@@ -99,147 +325,120 @@ export default function SundayAttendancePage() {
     const win = window.open("", "_blank");
     if (!win) return;
     const dateLabel = new Date(date + "T00:00:00").toLocaleDateString("en-NG", {
-      weekday: "long",
-      year: "numeric",
-      month: "long",
-      day: "numeric",
+      weekday: "long", year: "numeric", month: "long", day: "numeric",
     });
     win.document.write(`
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <title>Shepherd Connect — Service Attendance QR</title>
-        <style>
-          body { font-family: sans-serif; text-align: center; padding: 40px; }
-          h1 { font-size: 28px; color: #1e3a8a; margin-bottom: 4px; }
-          p { color: #555; font-size: 16px; margin: 4px 0; }
-          img { margin: 24px auto; display: block; width: 300px; }
-          .footer { margin-top: 16px; font-size: 13px; color: #888; }
-        </style>
-      </head>
+      <!DOCTYPE html><html>
+      <head><title>Shepherd Connect — Attendance QR</title>
+      <style>
+        body{font-family:sans-serif;text-align:center;padding:40px}
+        h1{font-size:28px;color:#1e3a8a;margin-bottom:4px}
+        p{color:#555;font-size:16px;margin:4px 0}
+        img{margin:24px auto;display:block;width:300px}
+        .foot{margin-top:16px;font-size:13px;color:#888}
+      </style></head>
       <body>
         <h1>Shepherd Connect</h1>
         <p>Service Attendance — ${dateLabel}</p>
-        <img src="${qrData.qrPng}" alt="QR Code" />
-        <p>Scan this QR code at each checkpoint to record your attendance.</p>
-        <div class="footer">Safe. Known. Celebrated. — RCCG City of David</div>
-      </body>
-      </html>
+        <img src="${qrData.qrPng}" alt="QR"/>
+        <p>Scan at each checkpoint to record your attendance.</p>
+        <div class="foot">Safe. Known. Celebrated. — RCCG City of David</div>
+      </body></html>
     `);
     win.document.close();
     win.print();
   }
 
   const statCards = [
-    { label: "Total Staff", value: summary?.stats.total ?? 0, icon: Users, color: "text-blue-600" },
-    { label: "Present", value: summary?.stats.present ?? 0, icon: UserCheck, color: "text-green-600" },
-    { label: "Absent", value: summary?.stats.absent ?? 0, icon: UserX, color: "text-red-500" },
-    { label: "Full Day", value: summary?.stats.fullDay ?? 0, icon: ShieldCheck, color: "text-yellow-600" },
+    { label: "Total Staff",  value: summary?.stats.total    ?? 0, icon: Users,      color: "text-blue-600",   bg: "bg-blue-50"  },
+    { label: "Present",      value: summary?.stats.present  ?? 0, icon: UserCheck,  color: "text-green-600",  bg: "bg-green-50" },
+    { label: "Absent",       value: summary?.stats.absent   ?? 0, icon: UserX,      color: "text-red-500",    bg: "bg-red-50"   },
+    { label: "Full Day",     value: summary?.stats.fullDay  ?? 0, icon: ShieldCheck,color: "text-amber-600",  bg: "bg-amber-50" },
   ];
 
   return (
     <Layout>
-      <div className="p-4 md:p-6 max-w-7xl mx-auto space-y-6">
-        {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="p-4 md:p-6 max-w-7xl mx-auto space-y-5">
+
+        {/* ── Header ── */}
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-blue-900">Service Attendance</h1>
-            <p className="text-sm text-gray-500 mt-0.5">
-              QR-based Sunday attendance — track who was present at each checkpoint
-            </p>
+            <h1 className="text-xl font-bold text-blue-900">Service Attendance</h1>
+            <p className="text-sm text-gray-500">QR-based Sunday tracking</p>
           </div>
-          <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-2">
             <input
               type="date"
               value={date}
               onChange={e => setDate(e.target.value)}
-              className="border rounded-lg px-3 py-1.5 text-sm text-gray-700 bg-white shadow-sm"
+              className="border rounded-lg px-3 py-1.5 text-sm text-gray-700 bg-white shadow-sm w-full sm:w-auto"
             />
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => refetchSummary()}
-              className="text-gray-600"
-            >
+            <Button variant="outline" size="icon" onClick={() => refetchSummary()} className="shrink-0">
               <RefreshCw className="w-4 h-4" />
             </Button>
           </div>
         </div>
 
-        {/* Stats */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        {/* ── Stats ── */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {statCards.map(c => (
-            <Card key={c.label} className="shadow-sm">
-              <CardContent className="p-4 flex items-center gap-3">
-                <c.icon className={`w-6 h-6 ${c.color}`} />
+            <Card key={c.label} className="shadow-sm border-0">
+              <CardContent className={`p-3 flex items-center gap-3 rounded-xl ${c.bg}`}>
+                <div className="bg-white p-2 rounded-lg shadow-sm shrink-0">
+                  <c.icon className={`w-5 h-5 ${c.color}`} />
+                </div>
                 <div>
-                  <p className="text-xl font-bold text-gray-900">{c.value}</p>
-                  <p className="text-xs text-gray-500">{c.label}</p>
+                  <p className="text-lg font-bold text-gray-900 leading-none">{c.value}</p>
+                  <p className="text-xs text-gray-500 mt-0.5">{c.label}</p>
                 </div>
               </CardContent>
             </Card>
           ))}
         </div>
 
-        {/* QR + Checkpoints */}
-        <div className="grid md:grid-cols-2 gap-6">
-          {/* QR Generate Card */}
+        {/* ── QR + Intervals ── */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+
+          {/* QR card */}
           <Card className="shadow-sm">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base flex items-center gap-2">
-                <QrCode className="w-5 h-5 text-blue-700" />
-                QR Code
+            <CardHeader className="pb-2 pt-4 px-4">
+              <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                <QrCode className="w-4 h-4 text-blue-700" /> QR Code
               </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="px-4 pb-4 space-y-3">
               {qrData ? (
                 <>
                   <div className="flex justify-center">
-                    <div ref={printRef} className="bg-white p-3 rounded-xl border shadow-sm inline-block">
-                      <img src={qrData.qrPng} alt="QR Code" className="w-48 h-48" />
+                    <div ref={printRef} className="bg-white p-3 rounded-xl border shadow-sm">
+                      <img src={qrData.qrPng} alt="QR" className="w-40 h-40 sm:w-48 sm:h-48" />
                     </div>
                   </div>
-                  <p className="text-xs text-center text-gray-500">
-                    {qrData.existing ? "Existing QR for this date" : "New QR generated"} —
-                    print and paste on the church wall
+                  <p className="text-xs text-center text-gray-400">
+                    {qrData.existing ? "Existing" : "New"} QR for {date} — paste on the church wall
                   </p>
-                  <div className="flex gap-2">
-                    <Button
-                      className="flex-1 bg-blue-900 hover:bg-blue-800 text-white"
-                      size="sm"
-                      onClick={handleDownload}
-                    >
-                      <Download className="w-4 h-4 mr-1.5" />
-                      Download
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button className="bg-blue-900 hover:bg-blue-800 text-white text-xs" size="sm" onClick={handleDownload}>
+                      <Download className="w-3.5 h-3.5 mr-1" /> Download
                     </Button>
-                    <Button
-                      className="flex-1"
-                      variant="outline"
-                      size="sm"
-                      onClick={handlePrint}
-                    >
-                      <Printer className="w-4 h-4 mr-1.5" />
-                      Print
+                    <Button variant="outline" size="sm" className="text-xs" onClick={handlePrint}>
+                      <Printer className="w-3.5 h-3.5 mr-1" /> Print
                     </Button>
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="w-full text-gray-400 text-xs"
+                  <button
+                    className="w-full text-gray-400 text-xs hover:text-gray-600"
                     onClick={() => generateMutation.mutate(date)}
                     disabled={generateMutation.isPending}
                   >
-                    Regenerate QR
-                  </Button>
+                    Regenerate
+                  </button>
                 </>
               ) : (
                 <>
-                  <div className="flex flex-col items-center gap-3 py-4 text-gray-400">
-                    <QrCode className="w-16 h-16 opacity-30" />
+                  <div className="flex flex-col items-center gap-2 py-5 text-gray-400">
+                    <QrCode className="w-14 h-14 opacity-20" />
                     <p className="text-sm text-center">
-                      {summary?.hasQr
-                        ? "A QR code exists for this date. Click to load it."
-                        : "No QR code yet for this date."}
+                      {summary?.hasQr ? "QR exists — click to load" : "No QR yet for this date"}
                     </p>
                   </div>
                   <Button
@@ -247,84 +446,88 @@ export default function SundayAttendancePage() {
                     onClick={() => generateMutation.mutate(date)}
                     disabled={generateMutation.isPending}
                   >
-                    {generateMutation.isPending ? (
-                      <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                    ) : (
-                      <QrCode className="w-4 h-4 mr-2" />
-                    )}
+                    {generateMutation.isPending
+                      ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                      : <QrCode className="w-4 h-4 mr-2" />}
                     {summary?.hasQr ? "Load QR Code" : "Generate QR Code"}
                   </Button>
                 </>
               )}
               {generateMutation.isError && (
-                <p className="text-red-500 text-xs text-center">
-                  Failed to generate QR. Please try again.
-                </p>
+                <p className="text-red-500 text-xs text-center">Failed. Please try again.</p>
               )}
             </CardContent>
           </Card>
 
           {/* Checkpoint summary */}
           <Card className="shadow-sm">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base flex items-center gap-2">
-                <CalendarDays className="w-5 h-5 text-blue-700" />
-                Checkpoint Summary
+            <CardHeader className="pb-2 pt-4 px-4">
+              <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                <CalendarDays className="w-4 h-4 text-blue-700" /> Checkpoint Summary
               </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-3">
+            <CardContent className="px-4 pb-4 space-y-3">
+              {/* 1st service */}
               <div>
-                <p className="text-xs font-semibold text-blue-700 uppercase tracking-wider mb-2">
-                  1st Service
-                </p>
-                {["07:00", "08:30", "09:30"].map(label => {
+                <p className="text-[11px] font-bold text-blue-600 uppercase tracking-wider mb-1.5">1st Service</p>
+                {SERVICE_1.map(lbl => {
                   const total = summary?.staff.length ?? 0;
-                  const count = summary?.staff.filter(
-                    s => s.checkpoints.find(c => c.intervalLabel === label)?.scanned
-                  ).length ?? 0;
+                  const count = summary?.staff.filter(s => s.checkpoints.find(c => c.intervalLabel === lbl)?.scanned).length ?? 0;
+                  const pct = total > 0 ? Math.round((count / total) * 100) : 0;
                   return (
-                    <div key={label} className="flex items-center justify-between py-1.5 border-b last:border-0">
-                      <span className="text-sm text-gray-700 font-medium">{INTERVAL_LABELS[label]} AM</span>
-                      <span className={`text-xs font-medium ${count > 0 ? "text-green-600" : "text-gray-400"}`}>
-                        {total > 0 ? `${count} / ${total}` : "—"}
-                      </span>
+                    <div key={lbl} className="mb-2">
+                      <div className="flex justify-between text-xs mb-1">
+                        <span className="text-gray-600 font-medium">{INTERVAL_DISPLAY[lbl]} AM</span>
+                        <span className={count > 0 ? "text-green-600 font-semibold" : "text-gray-400"}>
+                          {total > 0 ? `${count}/${total}` : "—"}
+                        </span>
+                      </div>
+                      {total > 0 && (
+                        <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                          <div className="h-full bg-green-500 rounded-full transition-all" style={{ width: `${pct}%` }} />
+                        </div>
+                      )}
                     </div>
                   );
                 })}
               </div>
+              {/* 2nd service */}
               <div>
-                <p className="text-xs font-semibold text-purple-700 uppercase tracking-wider mb-2">
-                  2nd Service
-                </p>
-                {["10:00", "11:00", "12:00"].map(label => {
+                <p className="text-[11px] font-bold text-purple-600 uppercase tracking-wider mb-1.5">2nd Service</p>
+                {SERVICE_2.map(lbl => {
                   const total = summary?.staff.length ?? 0;
-                  const count = summary?.staff.filter(
-                    s => s.checkpoints.find(c => c.intervalLabel === label)?.scanned
-                  ).length ?? 0;
-                  const disp = label === "12:00" ? "12:00 PM" : `${INTERVAL_LABELS[label]} AM`;
+                  const count = summary?.staff.filter(s => s.checkpoints.find(c => c.intervalLabel === lbl)?.scanned).length ?? 0;
+                  const pct = total > 0 ? Math.round((count / total) * 100) : 0;
+                  const disp = lbl === "12:00" ? "12:00 PM" : `${INTERVAL_DISPLAY[lbl]} AM`;
                   return (
-                    <div key={label} className="flex items-center justify-between py-1.5 border-b last:border-0">
-                      <span className="text-sm text-gray-700 font-medium">{disp}</span>
-                      <span className={`text-xs font-medium ${count > 0 ? "text-green-600" : "text-gray-400"}`}>
-                        {total > 0 ? `${count} / ${total}` : "—"}
-                      </span>
+                    <div key={lbl} className="mb-2">
+                      <div className="flex justify-between text-xs mb-1">
+                        <span className="text-gray-600 font-medium">{disp}</span>
+                        <span className={count > 0 ? "text-green-600 font-semibold" : "text-gray-400"}>
+                          {total > 0 ? `${count}/${total}` : "—"}
+                        </span>
+                      </div>
+                      {total > 0 && (
+                        <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                          <div className="h-full bg-purple-500 rounded-full transition-all" style={{ width: `${pct}%` }} />
+                        </div>
+                      )}
                     </div>
                   );
                 })}
               </div>
-              <p className="text-xs text-gray-400 pt-1">
-                WhatsApp reminders are sent automatically at each checkpoint time.
+              <p className="text-[11px] text-gray-400">
+                WhatsApp reminders sent automatically at each checkpoint time.
               </p>
             </CardContent>
           </Card>
         </div>
 
-        {/* Compliance Grid */}
+        {/* ── Compliance grid / cards ── */}
         <Card className="shadow-sm">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base flex items-center gap-2">
-              <Users className="w-5 h-5 text-blue-700" />
-              Staff Compliance Grid
+          <CardHeader className="pb-2 pt-4 px-4">
+            <CardTitle className="text-sm font-semibold flex items-center gap-2">
+              <Users className="w-4 h-4 text-blue-700" /> Staff Compliance
             </CardTitle>
           </CardHeader>
           <CardContent className="p-0">
@@ -334,159 +537,61 @@ export default function SundayAttendancePage() {
               </div>
             ) : !summary || summary.staff.length === 0 ? (
               <div className="text-center py-10 text-gray-400">
-                <Users className="w-10 h-10 mx-auto mb-2 opacity-30" />
+                <Users className="w-10 h-10 mx-auto mb-2 opacity-20" />
                 <p className="text-sm">No active staff found.</p>
               </div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="bg-blue-50 border-b">
-                      <th className="text-left px-4 py-3 font-semibold text-blue-900 min-w-[160px]">
-                        Staff
-                      </th>
-                      {["07:00", "08:30", "09:30"].map(label => (
-                        <th key={label} className="px-3 py-3 text-center font-semibold text-blue-700 min-w-[68px]">
-                          <div className="text-xs">{INTERVAL_LABELS[label]}</div>
-                          <div className="text-[10px] text-blue-400 font-normal">1st</div>
+              <>
+                {/* Mobile: expandable cards */}
+                <div className="md:hidden px-3 pb-3 space-y-2">
+                  <div className="flex items-center gap-3 px-1 py-2 text-[10px] text-gray-400 font-medium">
+                    <div className="flex items-center gap-0.5">
+                      {SERVICE_1.map(l => <div key={l} className="w-3.5 h-3.5 rounded-full bg-gray-200 flex items-center justify-center text-[8px] text-gray-500">{INTERVAL_DISPLAY[l].replace(":","")}</div>)}
+                      <div className="w-3.5 h-3.5 rounded-sm bg-gray-200 mx-0.5" title="Out 1st" />
+                      <div className="w-px h-3.5 bg-gray-200 mx-0.5" />
+                      {SERVICE_2.map(l => <div key={l} className="w-3.5 h-3.5 rounded-full bg-gray-200 flex items-center justify-center text-[8px] text-gray-500">{INTERVAL_DISPLAY[l].replace(":","")}</div>)}
+                      <div className="w-3.5 h-3.5 rounded-sm bg-gray-200 mx-0.5" title="Out 2nd" />
+                    </div>
+                    <span>tap to expand</span>
+                  </div>
+                  {summary.staff.map(row => <StaffCard key={row.userId} row={row} />)}
+                </div>
+
+                {/* Desktop: full table */}
+                <div className="hidden md:block overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="bg-blue-50 border-b">
+                        <th className="text-left px-4 py-3 font-semibold text-blue-900 min-w-[180px]">Staff</th>
+                        {SERVICE_1.map(lbl => (
+                          <th key={lbl} className="px-2 py-3 text-center font-semibold text-blue-700 min-w-[64px]">
+                            <div className="text-xs">{INTERVAL_DISPLAY[lbl]}</div>
+                            <div className="text-[10px] text-blue-400 font-normal">1st</div>
+                          </th>
+                        ))}
+                        <th className="px-2 py-3 text-center min-w-[56px]">
+                          <div className="text-xs font-semibold text-amber-700">Out</div>
+                          <div className="text-[10px] text-amber-400 font-normal">1st</div>
                         </th>
-                      ))}
-                      <th className="px-3 py-3 text-center font-semibold text-amber-700 min-w-[68px]">
-                        <div className="text-xs">Out</div>
-                        <div className="text-[10px] text-amber-400 font-normal">1st</div>
-                      </th>
-                      {["10:00", "11:00", "12:00"].map(label => (
-                        <th key={label} className="px-3 py-3 text-center font-semibold text-purple-700 min-w-[68px]">
-                          <div className="text-xs">{INTERVAL_LABELS[label]}</div>
-                          <div className="text-[10px] text-purple-400 font-normal">2nd</div>
+                        {SERVICE_2.map(lbl => (
+                          <th key={lbl} className="px-2 py-3 text-center font-semibold text-purple-700 min-w-[64px]">
+                            <div className="text-xs">{INTERVAL_DISPLAY[lbl]}</div>
+                            <div className="text-[10px] text-purple-400 font-normal">2nd</div>
+                          </th>
+                        ))}
+                        <th className="px-2 py-3 text-center min-w-[56px]">
+                          <div className="text-xs font-semibold text-amber-700">Out</div>
+                          <div className="text-[10px] text-amber-400 font-normal">2nd</div>
                         </th>
-                      ))}
-                      <th className="px-3 py-3 text-center font-semibold text-amber-700 min-w-[68px]">
-                        <div className="text-xs">Out</div>
-                        <div className="text-[10px] text-amber-400 font-normal">2nd</div>
-                      </th>
-                      <th className="px-3 py-3 text-center font-semibold text-gray-500 min-w-[60px] text-xs">
-                        Score
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {summary.staff.map((row, i) => {
-                      const firstOut = row.clockOuts.find(c => c.service === "1st");
-                      const secondOut = row.clockOuts.find(c => c.service === "2nd");
-                      return (
-                        <tr
-                          key={row.userId}
-                          className={`border-b hover:bg-gray-50 transition-colors ${
-                            i % 2 === 0 ? "bg-white" : "bg-gray-50/40"
-                          }`}
-                        >
-                          <td className="px-4 py-2.5">
-                            <div className="flex items-center gap-2">
-                              {row.photoUrl ? (
-                                <img
-                                  src={row.photoUrl}
-                                  alt=""
-                                  className="w-7 h-7 rounded-full object-cover flex-shrink-0"
-                                />
-                              ) : (
-                                <div className="w-7 h-7 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-medium text-xs flex-shrink-0">
-                                  {row.firstName[0]}{row.lastName[0]}
-                                </div>
-                              )}
-                              <div className="min-w-0">
-                                <p className="font-medium text-gray-900 text-xs leading-tight truncate">
-                                  {row.firstName} {row.lastName}
-                                </p>
-                                <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${roleBadge(row.role)}`}>
-                                  {row.role}
-                                </span>
-                              </div>
-                            </div>
-                          </td>
-                          {["07:00", "08:30", "09:30"].map(label => {
-                            const cp = row.checkpoints.find(c => c.intervalLabel === label);
-                            return (
-                              <td key={label} className="px-2 py-2.5 text-center">
-                                {cp?.scanned ? (
-                                  <div className="flex flex-col items-center">
-                                    <CheckCircle2 className="w-4 h-4 text-green-500" />
-                                    {cp.scannedAt && (
-                                      <span className="text-[10px] text-gray-400 mt-0.5">
-                                        {fmtTime(cp.scannedAt)}
-                                      </span>
-                                    )}
-                                  </div>
-                                ) : (
-                                  <XCircle className="w-4 h-4 text-red-200 mx-auto" />
-                                )}
-                              </td>
-                            );
-                          })}
-                          <td className="px-2 py-2.5 text-center">
-                            {firstOut ? (
-                              <div className="flex flex-col items-center">
-                                <LogOut className="w-4 h-4 text-amber-500" />
-                                <span className="text-[10px] text-gray-400 mt-0.5">
-                                  {fmtTime(firstOut.scannedAt)}
-                                </span>
-                              </div>
-                            ) : (
-                              <span className="text-gray-200 text-xs">—</span>
-                            )}
-                          </td>
-                          {["10:00", "11:00", "12:00"].map(label => {
-                            const cp = row.checkpoints.find(c => c.intervalLabel === label);
-                            return (
-                              <td key={label} className="px-2 py-2.5 text-center">
-                                {cp?.scanned ? (
-                                  <div className="flex flex-col items-center">
-                                    <CheckCircle2 className="w-4 h-4 text-green-500" />
-                                    {cp.scannedAt && (
-                                      <span className="text-[10px] text-gray-400 mt-0.5">
-                                        {fmtTime(cp.scannedAt)}
-                                      </span>
-                                    )}
-                                  </div>
-                                ) : (
-                                  <XCircle className="w-4 h-4 text-red-200 mx-auto" />
-                                )}
-                              </td>
-                            );
-                          })}
-                          <td className="px-2 py-2.5 text-center">
-                            {secondOut ? (
-                              <div className="flex flex-col items-center">
-                                <LogOut className="w-4 h-4 text-amber-500" />
-                                <span className="text-[10px] text-gray-400 mt-0.5">
-                                  {fmtTime(secondOut.scannedAt)}
-                                </span>
-                              </div>
-                            ) : (
-                              <span className="text-gray-200 text-xs">—</span>
-                            )}
-                          </td>
-                          <td className="px-2 py-2.5 text-center">
-                            <span
-                              className={`text-xs font-bold px-2 py-0.5 rounded-full ${
-                                row.totalScans >= 6
-                                  ? "bg-green-100 text-green-700"
-                                  : row.totalScans >= 3
-                                  ? "bg-yellow-100 text-yellow-700"
-                                  : row.totalScans > 0
-                                  ? "bg-orange-100 text-orange-700"
-                                  : "bg-red-50 text-red-400"
-                              }`}
-                            >
-                              {row.totalScans}/6
-                            </span>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
+                        <th className="px-3 py-3 text-center text-xs font-semibold text-gray-500 min-w-[56px]">Score</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {summary.staff.map((row, i) => <TableRow key={row.userId} row={row} i={i} />)}
+                    </tbody>
+                  </table>
+                </div>
+              </>
             )}
           </CardContent>
         </Card>
