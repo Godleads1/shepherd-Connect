@@ -1,6 +1,8 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiGet, apiPost } from "@/lib/api-call";
+import { usePullToRefresh } from "@/hooks/usePullToRefresh";
+import { PullToRefreshIndicator } from "@/components/PullToRefreshIndicator";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -302,6 +304,12 @@ export default function SundayAttendancePage() {
     enabled: !!date,
   });
 
+  const handleRefresh = useCallback(async () => {
+    await refetchSummary();
+  }, [refetchSummary]);
+
+  const ptr = usePullToRefresh(handleRefresh);
+
   const generateMutation = useMutation({
     mutationFn: (serviceDate: string) =>
       apiPost<QrData>("/sunday-attendance/qr/generate", { serviceDate }),
@@ -357,6 +365,7 @@ export default function SundayAttendancePage() {
 
   return (
     <div className="space-y-5">
+      <PullToRefreshIndicator {...ptr} />
 
         {/* ── Header ── */}
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">

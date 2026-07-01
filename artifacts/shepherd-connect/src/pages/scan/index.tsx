@@ -1,7 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useLocation } from "wouter";
 import { useAuth } from "@/contexts/auth";
 import { apiPost, apiGet } from "@/lib/api-call";
+import { usePullToRefresh } from "@/hooks/usePullToRefresh";
+import { PullToRefreshIndicator } from "@/components/PullToRefreshIndicator";
 import { CheckCircle2, AlertCircle, LogOut, QrCode, Clock, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -58,14 +60,16 @@ export default function ScanPage() {
 
   const [myScans, setMyScans] = useState<Scan[]>([]);
 
-  const loadMyScans = async () => {
+  const loadMyScans = useCallback(async () => {
     try {
       const data = await apiGet<{ scans: Scan[] }>(`/sunday-attendance/my-scans?date=${date}`);
       setMyScans(data.scans ?? []);
     } catch {
       // non-critical
     }
-  };
+  }, [date]);
+
+  const ptr = usePullToRefresh(loadMyScans);
 
   const doScan = async () => {
     if (!token) {
@@ -132,6 +136,7 @@ export default function ScanPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-blue-950 to-blue-900 flex flex-col items-center px-4 py-10">
+      <PullToRefreshIndicator {...ptr} variant="dark" />
       <div className="w-full max-w-sm space-y-6">
         {/* Header */}
         <div className="text-center space-y-2">
