@@ -1,7 +1,6 @@
 import { useState, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiGet, apiPost } from "@/lib/api-call";
-import { Layout } from "@/components/layout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -357,8 +356,7 @@ export default function SundayAttendancePage() {
   ];
 
   return (
-    <Layout>
-      <div className="p-4 md:p-6 max-w-7xl mx-auto space-y-5">
+    <div className="space-y-5">
 
         {/* ── Header ── */}
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -595,7 +593,6 @@ export default function SundayAttendancePage() {
             )}
           </CardContent>
         </Card>
-      </div>
-    </Layout>
+    </div>
   );
 }
