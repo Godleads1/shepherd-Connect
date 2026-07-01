@@ -1,17 +1,19 @@
-import { ReactNode, useState, useEffect, useRef } from "react";
+import { ReactNode, useState, useEffect, useRef, useCallback } from "react";
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/contexts/auth";
 import { useLogout } from "@workspace/api-client-react";
 import { useLang, LANGUAGES, LangCode } from "@/contexts/language";
 import { useToast } from "@/hooks/use-toast";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
+import { usePullToRefresh } from "@/hooks/usePullToRefresh";
+import { PullToRefreshIndicator } from "@/components/PullToRefreshIndicator";
 import {
   LayoutDashboard, Users, Baby, School, ClipboardCheck, CheckSquare, CheckCircle2,
   LogOut, Menu, Bell, MessageSquare, AlertTriangle, UserCog, FileText, Star,
   Clock, ShieldCheck, QrCode, Home, Grid3x3, X, ChevronRight, ChevronDown, Globe, MessageSquareWarning, ShieldAlert,
   BarChart3, UserCircle, Search, ListOrdered, CalendarClock, BookOpen, WifiOff,
 } from "lucide-react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiGet, apiPost } from "@/lib/api-call";
 
 function SidebarLangSwitcher() {
@@ -194,6 +196,12 @@ export function Layout({ children }: { children: ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
   const { t } = useLang();
+
+  const qc = useQueryClient();
+  const handlePullRefresh = useCallback(async () => {
+    await qc.invalidateQueries();
+  }, [qc]);
+  const ptr = usePullToRefresh(handlePullRefresh);
 
   const logoutMutation = useLogout();
   const { toast } = useToast();
@@ -558,6 +566,7 @@ export function Layout({ children }: { children: ReactNode }) {
 
         {/* Page Content */}
         <main className="flex-1 p-4 md:p-6 lg:p-8 pb-24 md:pb-8">
+          <PullToRefreshIndicator {...ptr} />
           {children}
         </main>
 
