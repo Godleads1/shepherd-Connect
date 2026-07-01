@@ -31,10 +31,9 @@ import errorLogsRouter from "./errorLogs";
 import pickupRequestsRouter from "./pickupRequests";
 import familyAssistRouter from "./familyAssist";
 import whatsappRouter from "./whatsapp";
-import teacherClockInsRouter from "./teacherClockIns";
 import safeguardingPortalRouter from "./safeguardingPortal";
 import teacherIncidentsRouter from "./teacherIncidents";
-import staffCheckpointsRouter from "./staffCheckpoints";
+import sundayAttendanceRouter from "./sundayAttendance";
 
 const router: IRouter = Router();
 
@@ -70,9 +69,8 @@ router.use(errorLogsRouter);
 router.use(pickupRequestsRouter);
 router.use(familyAssistRouter);
 router.use(whatsappRouter);
-router.use(teacherClockInsRouter);
 router.use(safeguardingPortalRouter);
 router.use(teacherIncidentsRouter);
-router.use(staffCheckpointsRouter);
+router.use(sundayAttendanceRouter);
 
 export default router;

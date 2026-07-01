@@ -50,8 +50,8 @@ import SafeguardingInfo from "@/pages/safeguarding-info/index";
 import MyConcerns from "@/pages/my-concerns/index";
 import MyIncidents from "@/pages/my-incidents/index";
 import SafeguardingCases from "@/pages/safeguarding-cases/index";
-import StaffAttendance from "@/pages/staff-attendance/index";
-import StaffCheckpoints from "@/pages/staff-checkpoints/index";
+import SundayAttendance from "@/pages/sunday-attendance/index";
+import ScanPage from "@/pages/scan/index";
 import { PWABanner } from "@/components/PWABanner";
 
 const queryClient = new QueryClient();
@@ -73,6 +73,7 @@ function Router() {
     <Switch>
       <Route path="/login" component={Login} />
       <Route path="/register" component={Register} />
+      <Route path="/scan" component={ScanPage} />
       <Route path="/classroom-display/:classId" component={ClassroomDisplay} />
       <Route path="/">
         <DefaultRedirect />
@@ -116,8 +117,7 @@ function Router() {
               <Route path="/my-concerns" component={MyConcerns} />
               <Route path="/my-incidents" component={MyIncidents} />
               <Route path="/safeguarding-cases" component={SafeguardingCases} />
-              <Route path="/staff-attendance" component={StaffAttendance} />
-              <Route path="/staff-checkpoints" component={StaffCheckpoints} />
+              <Route path="/sunday-attendance" component={SundayAttendance} />
 
               {/* Fallback inside Layout */}
               <Route component={NotFound} />

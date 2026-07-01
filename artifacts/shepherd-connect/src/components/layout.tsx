@@ -257,8 +257,7 @@ export function Layout({ children }: { children: ReactNode }) {
       items.push({ href: "/safeguarding-cases",    label: "Safeguarding Cases",  icon: ShieldAlert });
       items.push({ href: "/messages",              label: "Messages",            icon: MessageSquare, badge: msgUnreadCount });
       if (role === "super_admin") items.push({ href: "/users", label: t.nav.users, icon: ShieldCheck });
-      if (role === "super_admin") items.push({ href: "/staff-attendance", label: "Staff Attendance", icon: Clock });
-      if (role === "super_admin" || role === "admin") items.push({ href: "/staff-checkpoints", label: "Service Checkpoints", icon: CheckCircle2 });
+      if (role === "super_admin" || role === "admin") items.push({ href: "/sunday-attendance", label: "Service Attendance", icon: QrCode });
       if (role === "super_admin") items.push({ href: "/settings", label: "Settings", icon: Grid3x3 });
     } else if (role === "parent") {
       items.push({ href: "/my-family",        label: t.nav.myFamily,   icon: Home });
