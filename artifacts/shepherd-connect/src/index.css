@@ -229,6 +229,9 @@
 .shadow-card { box-shadow: var(--shadow-card); }
 .shadow-card-hover:hover { box-shadow: var(--shadow-card-hover); }
 
+/* Prevent horizontal overflow at the root level */
+html, body { overflow-x: hidden; max-width: 100vw; }
+
 /* Bottom nav safe area */
 .pb-safe { padding-bottom: max(env(safe-area-inset-bottom), 1rem); }
 

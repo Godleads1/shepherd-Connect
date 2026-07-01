@@ -457,7 +457,7 @@ export function Layout({ children }: { children: ReactNode }) {
   const isOnline = useOnlineStatus();
 
   return (
-    <div className="flex min-h-screen w-full bg-background">
+    <div className="flex min-h-screen w-full bg-background overflow-x-hidden">
 
       {/* ── Mobile Search Overlay ── */}
       {mobileSearchOpen && <MobileSearchOverlay onClose={() => setMobileSearchOpen(false)} />}
@@ -498,7 +498,7 @@ export function Layout({ children }: { children: ReactNode }) {
       )}
 
       {/* ── Right side: header + content + bottom nav ── */}
-      <div className="flex flex-col flex-1 md:ml-64 min-h-screen">
+      <div className="flex flex-col min-w-0 w-full md:pl-64 min-h-screen overflow-x-hidden">
 
         {/* Top Header */}
         <header
