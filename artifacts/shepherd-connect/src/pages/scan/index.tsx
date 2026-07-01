@@ -114,8 +114,9 @@ export default function ScanPage() {
   }, [authLoading, user, navigate]);
 
   useEffect(() => {
-    if (user && !hasScanned && !scanning) {
-      doScan();
+    if (user) {
+      // Only auto-scan if a token was supplied (i.e. opened via QR code)
+      if (token && !hasScanned && !scanning) doScan();
       loadMyScans();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -132,13 +133,55 @@ export default function ScanPage() {
   if (!user) return null;
 
   const checkpoints = myScans.filter(s => s.scanType === "checkpoint");
-  const clockOuts = myScans.filter(s => s.scanType === "clock_out");
+  const clockOuts   = myScans.filter(s => s.scanType === "clock_out");
+  const alreadyClockedOut = clockOuts.length > 0 || clockOutDone;
+  const alreadyCheckedIn  = checkpoints.length > 0;
+
+  const homeHref =
+    user.role === "teacher" ? "/my-class"
+    : user.role === "support" ? "/checkin"
+    : "/dashboard";
+
+  const ScanHistory = () => (
+    <div className="space-y-2">
+      <p className="text-blue-300 text-xs font-medium uppercase tracking-wider">
+        Your record today
+      </p>
+      {checkpoints.map(s => (
+        <div key={s.id}
+          className="flex items-center justify-between bg-blue-800/30 rounded-lg px-3 py-2">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-green-400 flex-shrink-0" />
+            <span className="text-white text-sm">
+              {s.intervalLabel ? (INTERVAL_LABELS[s.intervalLabel] ?? s.intervalLabel) : "Checked in"}
+            </span>
+          </div>
+          <span className="text-blue-300 text-xs">
+            {new Date(s.scannedAt).toLocaleTimeString("en-NG", { hour: "2-digit", minute: "2-digit", timeZone: "Africa/Lagos" })}
+          </span>
+        </div>
+      ))}
+      {clockOuts.map(s => (
+        <div key={s.id}
+          className="flex items-center justify-between bg-yellow-900/30 rounded-lg px-3 py-2">
+          <div className="flex items-center gap-2">
+            <LogOut className="w-4 h-4 text-yellow-400 flex-shrink-0" />
+            <span className="text-white text-sm">Clock Out — {s.service} service</span>
+          </div>
+          <span className="text-blue-300 text-xs">
+            {new Date(s.scannedAt).toLocaleTimeString("en-NG", { hour: "2-digit", minute: "2-digit", timeZone: "Africa/Lagos" })}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-blue-950 to-blue-900 flex flex-col items-center px-4 py-10">
       <PullToRefreshIndicator {...ptr} variant="dark" />
       <div className="w-full max-w-sm space-y-6">
-        {/* Header */}
+
+        {/* ── Header ── */}
         <div className="text-center space-y-2">
           <div className="flex justify-center">
             <div className="bg-yellow-400 p-3 rounded-full">
@@ -152,172 +195,163 @@ export default function ScanPage() {
           </p>
           <p className="text-blue-400 text-xs">
             {new Date(date + "T00:00:00").toLocaleDateString("en-NG", {
-              weekday: "long",
-              year: "numeric",
-              month: "long",
-              day: "numeric",
+              weekday: "long", year: "numeric", month: "long", day: "numeric",
             })}
           </p>
         </div>
 
-        {/* Scanning state */}
-        {scanning && (
-          <Card className="border-0 bg-blue-800/50">
-            <CardContent className="py-6 flex flex-col items-center gap-3 text-white">
-              <RefreshCw className="w-8 h-8 animate-spin text-yellow-400" />
-              <p className="text-sm">Recording your attendance…</p>
-            </CardContent>
-          </Card>
+        {/* ── No-token state: instructions + history ── */}
+        {!token && (
+          <>
+            {/* Instruction card */}
+            <Card className="border-0 bg-blue-800/50">
+              <CardContent className="py-5 space-y-3 text-center">
+                <div className="w-14 h-14 rounded-2xl bg-yellow-400/20 border-2 border-yellow-400/40 flex items-center justify-center mx-auto">
+                  <QrCode className="w-7 h-7 text-yellow-400" />
+                </div>
+                <p className="text-white font-semibold">How to check in</p>
+                <ol className="text-blue-200 text-sm text-left space-y-2 list-none">
+                  <li className="flex items-start gap-2">
+                    <span className="w-5 h-5 rounded-full bg-yellow-400 text-blue-950 text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5">1</span>
+                    Open your phone&apos;s camera app
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="w-5 h-5 rounded-full bg-yellow-400 text-blue-950 text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5">2</span>
+                    Point it at the QR code displayed at the church entrance
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="w-5 h-5 rounded-full bg-yellow-400 text-blue-950 text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5">3</span>
+                    Tap the link that appears — your attendance is recorded automatically
+                  </li>
+                </ol>
+              </CardContent>
+            </Card>
+
+            {/* Clock-out from this page (no QR token needed) */}
+            {alreadyCheckedIn && !alreadyClockedOut && (
+              <Card className="border-0 bg-blue-800/40">
+                <CardContent className="py-4 space-y-3 text-center">
+                  <p className="text-blue-200 text-sm">Done for this service?</p>
+                  <Button
+                    className="w-full bg-yellow-500 hover:bg-yellow-400 text-blue-950 font-semibold"
+                    onClick={doClockOut}
+                    disabled={clockOutLoading}
+                  >
+                    {clockOutLoading
+                      ? <RefreshCw className="w-4 h-4 animate-spin mr-2" />
+                      : <LogOut className="w-4 h-4 mr-2" />}
+                    Clock Out
+                  </Button>
+                  {clockOutError && <p className="text-red-300 text-xs">{clockOutError}</p>}
+                </CardContent>
+              </Card>
+            )}
+
+            {clockOutDone && (
+              <Card className="border-0 bg-green-900/50">
+                <CardContent className="py-4 text-center space-y-1">
+                  <CheckCircle2 className="w-8 h-8 text-green-400 mx-auto" />
+                  <p className="text-white font-medium">Clocked out successfully</p>
+                  <p className="text-green-300 text-xs">God bless you for serving today!</p>
+                </CardContent>
+              </Card>
+            )}
+
+            {myScans.length > 0 && <ScanHistory />}
+          </>
         )}
 
-        {/* Scan Result */}
-        {scanResult && !scanning && (
-          <Card className={`border-0 ${scanResult.duplicate ? "bg-blue-800/50" : "bg-green-800/50"}`}>
-            <CardContent className="py-5 space-y-2 text-center">
-              {scanResult.duplicate ? (
-                <Clock className="w-10 h-10 text-yellow-400 mx-auto" />
-              ) : (
-                <CheckCircle2 className="w-10 h-10 text-green-400 mx-auto" />
-              )}
-              <p className="text-white font-semibold text-lg">
-                {scanResult.duplicate ? "Already Recorded" : "Scan Successful!"}
-              </p>
-              <p className="text-blue-200 text-sm">{scanResult.message}</p>
-              {scanResult.intervalLabel && (
-                <div className="bg-blue-900/60 rounded-lg px-3 py-2 inline-block">
-                  <p className="text-yellow-400 font-medium text-sm">
-                    {INTERVAL_LABELS[scanResult.intervalLabel] ?? scanResult.intervalLabel}
+        {/* ── QR-token flow: scanning / result / clock-out ── */}
+        {token && (
+          <>
+            {scanning && (
+              <Card className="border-0 bg-blue-800/50">
+                <CardContent className="py-6 flex flex-col items-center gap-3 text-white">
+                  <RefreshCw className="w-8 h-8 animate-spin text-yellow-400" />
+                  <p className="text-sm">Recording your attendance…</p>
+                </CardContent>
+              </Card>
+            )}
+
+            {scanResult && !scanning && (
+              <Card className={`border-0 ${scanResult.duplicate ? "bg-blue-800/50" : "bg-green-800/50"}`}>
+                <CardContent className="py-5 space-y-2 text-center">
+                  {scanResult.duplicate
+                    ? <Clock className="w-10 h-10 text-yellow-400 mx-auto" />
+                    : <CheckCircle2 className="w-10 h-10 text-green-400 mx-auto" />}
+                  <p className="text-white font-semibold text-lg">
+                    {scanResult.duplicate ? "Already Recorded" : "Scan Successful!"}
                   </p>
-                </div>
-              )}
-              <Button
-                variant="outline"
-                size="sm"
-                className="mt-1 border-blue-400 text-blue-200 hover:bg-blue-800"
-                onClick={doScan}
-                disabled={scanning}
-              >
-                Scan Again
-              </Button>
-            </CardContent>
-          </Card>
+                  <p className="text-blue-200 text-sm">{scanResult.message}</p>
+                  {scanResult.intervalLabel && (
+                    <div className="bg-blue-900/60 rounded-lg px-3 py-2 inline-block">
+                      <p className="text-yellow-400 font-medium text-sm">
+                        {INTERVAL_LABELS[scanResult.intervalLabel] ?? scanResult.intervalLabel}
+                      </p>
+                    </div>
+                  )}
+                  <Button variant="outline" size="sm"
+                    className="mt-1 border-blue-400 text-blue-200 hover:bg-blue-800"
+                    onClick={doScan} disabled={scanning}>
+                    Scan Again
+                  </Button>
+                </CardContent>
+              </Card>
+            )}
+
+            {scanError && !scanning && (
+              <Card className="border-0 bg-red-900/50">
+                <CardContent className="py-5 space-y-2 text-center">
+                  <AlertCircle className="w-10 h-10 text-red-400 mx-auto" />
+                  <p className="text-white font-semibold">Scan Failed</p>
+                  <p className="text-red-200 text-sm">{scanError}</p>
+                  <Button variant="outline" size="sm"
+                    className="border-red-400 text-red-200 hover:bg-red-900"
+                    onClick={doScan} disabled={scanning}>
+                    Try Again
+                  </Button>
+                </CardContent>
+              </Card>
+            )}
+
+            {hasScanned && !alreadyClockedOut && (
+              <Card className="border-0 bg-blue-800/40">
+                <CardContent className="py-4 space-y-3 text-center">
+                  <p className="text-blue-200 text-sm">Done for this service?</p>
+                  <Button
+                    className="w-full bg-yellow-500 hover:bg-yellow-400 text-blue-950 font-semibold"
+                    onClick={doClockOut} disabled={clockOutLoading}>
+                    {clockOutLoading
+                      ? <RefreshCw className="w-4 h-4 animate-spin mr-2" />
+                      : <LogOut className="w-4 h-4 mr-2" />}
+                    Clock Out
+                  </Button>
+                  {clockOutError && <p className="text-red-300 text-xs">{clockOutError}</p>}
+                </CardContent>
+              </Card>
+            )}
+
+            {clockOutDone && (
+              <Card className="border-0 bg-green-900/50">
+                <CardContent className="py-4 text-center space-y-1">
+                  <CheckCircle2 className="w-8 h-8 text-green-400 mx-auto" />
+                  <p className="text-white font-medium">Clocked out successfully</p>
+                  <p className="text-green-300 text-xs">God bless you for serving today!</p>
+                </CardContent>
+              </Card>
+            )}
+
+            {myScans.length > 0 && <ScanHistory />}
+          </>
         )}
 
-        {/* Scan error */}
-        {scanError && !scanning && (
-          <Card className="border-0 bg-red-900/50">
-            <CardContent className="py-5 space-y-2 text-center">
-              <AlertCircle className="w-10 h-10 text-red-400 mx-auto" />
-              <p className="text-white font-semibold">Scan Failed</p>
-              <p className="text-red-200 text-sm">{scanError}</p>
-              <Button
-                variant="outline"
-                size="sm"
-                className="border-red-400 text-red-200 hover:bg-red-900"
-                onClick={doScan}
-                disabled={scanning}
-              >
-                Try Again
-              </Button>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Clock Out */}
-        {hasScanned && !clockOutDone && (
-          <Card className="border-0 bg-blue-800/40">
-            <CardContent className="py-4 space-y-3 text-center">
-              <p className="text-blue-200 text-sm">Done for this service?</p>
-              <Button
-                className="w-full bg-yellow-500 hover:bg-yellow-400 text-blue-950 font-semibold"
-                onClick={doClockOut}
-                disabled={clockOutLoading}
-              >
-                {clockOutLoading ? (
-                  <RefreshCw className="w-4 h-4 animate-spin mr-2" />
-                ) : (
-                  <LogOut className="w-4 h-4 mr-2" />
-                )}
-                Clock Out
-              </Button>
-              {clockOutError && (
-                <p className="text-red-300 text-xs">{clockOutError}</p>
-              )}
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Clock-out success */}
-        {clockOutDone && (
-          <Card className="border-0 bg-green-900/50">
-            <CardContent className="py-4 text-center space-y-1">
-              <CheckCircle2 className="w-8 h-8 text-green-400 mx-auto" />
-              <p className="text-white font-medium">Clocked out successfully</p>
-              <p className="text-green-300 text-xs">God bless you for serving today!</p>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Today's scan history */}
-        {myScans.length > 0 && (
-          <div className="space-y-2">
-            <p className="text-blue-300 text-xs font-medium uppercase tracking-wider">
-              Your record today
-            </p>
-            {checkpoints.map(s => (
-              <div
-                key={s.id}
-                className="flex items-center justify-between bg-blue-800/30 rounded-lg px-3 py-2"
-              >
-                <div className="flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4 text-green-400 flex-shrink-0" />
-                  <span className="text-white text-sm">
-                    {s.intervalLabel
-                      ? (INTERVAL_LABELS[s.intervalLabel] ?? s.intervalLabel)
-                      : "Checkpoint"}
-                  </span>
-                </div>
-                <span className="text-blue-300 text-xs">
-                  {new Date(s.scannedAt).toLocaleTimeString("en-NG", {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                    timeZone: "Africa/Lagos",
-                  })}
-                </span>
-              </div>
-            ))}
-            {clockOuts.map(s => (
-              <div
-                key={s.id}
-                className="flex items-center justify-between bg-yellow-900/30 rounded-lg px-3 py-2"
-              >
-                <div className="flex items-center gap-2">
-                  <LogOut className="w-4 h-4 text-yellow-400 flex-shrink-0" />
-                  <span className="text-white text-sm">
-                    Clock Out — {s.service} service
-                  </span>
-                </div>
-                <span className="text-blue-300 text-xs">
-                  {new Date(s.scannedAt).toLocaleTimeString("en-NG", {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                    timeZone: "Africa/Lagos",
-                  })}
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Footer */}
+        {/* ── Footer ── */}
         <div className="text-center">
-          <button
-            className="text-blue-400 text-xs underline"
-            onClick={() => navigate("/dashboard")}
-          >
-            Go to Dashboard
+          <button className="text-blue-400 text-xs underline" onClick={() => navigate(homeHref)}>
+            Back to app
           </button>
         </div>
+
       </div>
     </div>
   );

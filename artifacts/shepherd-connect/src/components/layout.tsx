@@ -283,10 +283,11 @@ export function Layout({ children }: { children: ReactNode }) {
       items.push({ href: "/substitute-requests",   label: "Substitute Requests", icon: CalendarClock });
       items.push({ href: "/my-incidents",          label: "Incident Reports",    icon: AlertTriangle });
       items.push({ href: "/messages",              label: "Messages",            icon: MessageSquare, badge: msgUnreadCount });
+      items.push({ href: "/scan",                  label: "Service Attendance",  icon: QrCode });
     } else if (role === "support") {
       items.push({ href: "/checkin",  label: t.nav.checkin,  icon: ClipboardCheck });
       items.push({ href: "/checkout", label: t.nav.checkout, icon: CheckSquare });
-      items.push({ href: "/teachers", label: "My Time Log",  icon: Clock });
+      items.push({ href: "/scan",     label: "Service Attendance", icon: QrCode });
     }
     items.push({ href: "/notifications", label: t.nav.notifications, icon: Bell, badge: unreadCount });
     items.push({ href: "/profile", label: "My Profile", icon: UserCircle });
@@ -310,10 +311,10 @@ export function Layout({ children }: { children: ReactNode }) {
       { href: "/appraisals",    label: t.nav.appraisals,    icon: FileText },
     ];
     if (role === "support") return [
-      { href: "/checkin",  label: t.nav.checkin,       icon: ClipboardCheck },
-      { href: "/checkout", label: t.nav.checkout,      icon: CheckSquare },
+      { href: "/checkin",  label: t.nav.checkin,           icon: ClipboardCheck },
+      { href: "/checkout", label: t.nav.checkout,          icon: CheckSquare },
+      { href: "/scan",     label: "My Attendance",         icon: QrCode },
       { href: "/notifications", label: t.nav.notifications, icon: Bell, badge: unreadCount },
-      { href: "/checkin",  label: "QR",                icon: QrCode },
     ];
     return [
       { href: "/dashboard",  label: t.nav.dashboard,  icon: LayoutDashboard },
