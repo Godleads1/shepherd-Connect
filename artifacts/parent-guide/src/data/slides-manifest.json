@@ -48,8 +48,16 @@
     "speakerNotes": ""
   },
   {
-    "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567807",
+    "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567811",
     "position": 7,
+    "filepath": "src/pages/slides/SlideClassChange.tsx",
+    "title": "Class Change Request",
+    "description": "How parents request a class change for their child",
+    "speakerNotes": ""
+  },
+  {
+    "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567807",
+    "position": 8,
     "filepath": "src/pages/slides/Slide7Notifications.tsx",
     "title": "Notifications",
     "description": "Real-time alerts at every step of the child's day",
@@ -57,7 +65,7 @@
   },
   {
     "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567808",
-    "position": 8,
+    "position": 9,
     "filepath": "src/pages/slides/Slide8Profile.tsx",
     "title": "Your Profile",
     "description": "Managing personal details, communication preferences, and feedback",
@@ -65,7 +73,7 @@
   },
   {
     "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567809",
-    "position": 9,
+    "position": 10,
     "filepath": "src/pages/slides/Slide9WhatsAppBot.tsx",
     "title": "WhatsApp Bot",
     "description": "Full list of WhatsApp bot abilities — status, OTP, AI, reminders and more",
@@ -73,7 +81,7 @@
   },
   {
     "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567810",
-    "position": 10,
+    "position": 11,
     "filepath": "src/pages/slides/Slide9Closing.tsx",
     "title": "Safe. Known. Celebrated.",
     "description": "Closing slide with tagline and contact info",
