@@ -1,7 +1,7 @@
 import { pgTable, serial, text, timestamp, date, pgEnum, integer } from "drizzle-orm/pg-core";
 import { usersTable } from "./users";
 
-export const scanTypeEnum = pgEnum("scan_type", ["checkpoint", "clock_out"]);
+export const scanTypeEnum = pgEnum("scan_type", ["checkpoint", "clock_out", "emergency_out"]);
 
 export const sundayQrCodesTable = pgTable("sunday_qr_codes", {
   id: serial("id").primaryKey(),

@@ -1,6 +1,14 @@
 import { Router } from "express";
 import { eq, and } from "drizzle-orm";
-import { db, sundayQrCodesTable, staffScansTable, usersTable } from "@workspace/db";
+import {
+  db,
+  sundayQrCodesTable,
+  staffScansTable,
+  usersTable,
+  teacherAllocationsTable,
+  teachersTable,
+  substituteRequestsTable,
+} from "@workspace/db";
 import { authMiddleware } from "../middlewares/auth";
 import QRCode from "qrcode";
 import crypto from "crypto";
@@ -226,6 +234,86 @@ router.post("/sunday-attendance/clock-out", authMiddleware, async (req, res): Pr
   });
 });
 
+// POST /sunday-attendance/emergency-out — staff leaves early due to emergency
+router.post("/sunday-attendance/emergency-out", authMiddleware, async (req, res): Promise<void> => {
+  const { date, service, reason } = req.body as { date?: string; service?: string; reason?: string };
+  if (!date) {
+    res.status(400).json({ error: "date is required" });
+    return;
+  }
+
+  const userId = req.user!.userId;
+  const now = new Date();
+  const wat = toWAT(now);
+  const derivedService = service ?? getService(wat.getUTCHours());
+
+  const existing = await db
+    .select()
+    .from(staffScansTable)
+    .where(
+      and(
+        eq(staffScansTable.serviceDate, date),
+        eq(staffScansTable.userId, userId),
+        eq(staffScansTable.scanType, "emergency_out")
+      )
+    );
+
+  const alreadyOut = existing.some(s => s.service === derivedService);
+  if (alreadyOut) {
+    res.json({
+      ok: true,
+      duplicate: true,
+      message: `Emergency exit already recorded for ${derivedService} service`,
+    });
+    return;
+  }
+
+  await db.insert(staffScansTable).values({
+    serviceDate: date,
+    userId,
+    scannedAt: now,
+    scanType: "emergency_out",
+    intervalLabel: reason ?? null,
+    service: derivedService,
+  });
+
+  const user = req.user!;
+  logger.info(
+    { userId, date, service: derivedService, reason },
+    "sunday-attendance: emergency exit recorded"
+  );
+
+  // Notify admins about the emergency exit
+  try {
+    const admins = await db
+      .select({ id: usersTable.id })
+      .from(usersTable)
+      .where(eq(usersTable.isActive, true));
+    const adminUsers = admins.filter(
+      u => (u as typeof u & { role: string }).role === "admin" ||
+           (u as typeof u & { role: string }).role === "super_admin"
+    );
+    for (const admin of adminUsers) {
+      await sendNotification({
+        userId: admin.id,
+        type: "warning",
+        title: "⚠️ Emergency Exit",
+        message: `A staff member has made an emergency exit from the ${derivedService} service.${reason ? ` Reason: ${reason}` : ""}`,
+      });
+    }
+  } catch (err) {
+    logger.error({ err }, "sunday-attendance: failed to notify admins of emergency exit");
+  }
+
+  res.json({
+    ok: true,
+    duplicate: false,
+    message: `Emergency exit recorded at ${formatWAT(now)} WAT from ${derivedService} service`,
+    service: derivedService,
+    exitedAt: formatWAT(now),
+  });
+});
+
 // GET /sunday-attendance/summary?date= — admin compliance grid
 router.get("/sunday-attendance/summary", authMiddleware, async (req, res): Promise<void> => {
   const role = req.user!.role;
@@ -251,6 +339,55 @@ router.get("/sunday-attendance/summary", authMiddleware, async (req, res): Promi
     .from(staffScansTable)
     .where(eq(staffScansTable.serviceDate, date));
 
+  // Build teacher allocation map: userId → serviceSlots[]
+  const allocationRows = await db
+    .select({
+      userId: teachersTable.userId,
+      serviceSlot: teacherAllocationsTable.serviceSlot,
+    })
+    .from(teacherAllocationsTable)
+    .innerJoin(teachersTable, eq(teachersTable.id, teacherAllocationsTable.teacherId))
+    .where(eq(teacherAllocationsTable.serviceDate, date));
+
+  const allocationMap = new Map<number, Set<string>>();
+  for (const row of allocationRows) {
+    if (!allocationMap.has(row.userId)) allocationMap.set(row.userId, new Set());
+    allocationMap.get(row.userId)!.add(row.serviceSlot as string);
+  }
+
+  // Build substitute map for this date
+  const confirmedSubs = await db
+    .select()
+    .from(substituteRequestsTable)
+    .where(
+      and(
+        eq(substituteRequestsTable.serviceDate, date),
+        eq(substituteRequestsTable.status, "confirmed")
+      )
+    );
+  const substituteIds = new Set(
+    confirmedSubs
+      .filter(s => s.substituteTeacherId !== null)
+      .map(s => s.substituteTeacherId!)
+  );
+  const excusedIds = new Set(confirmedSubs.map(s => s.requestingTeacherId));
+
+  const FIRST_SERVICE = ["07:00", "08:30", "09:30"] as const;
+  const SECOND_SERVICE = ["10:00", "11:00", "12:00"] as const;
+
+  function getScheduledService(userId: number, role: string): "1st" | "2nd" | "both" {
+    // Non-teacher roles (support, attendant) serve both services by default
+    if (role !== "teacher") return "both";
+    const slots = allocationMap.get(userId);
+    if (!slots || slots.size === 0) return "both";
+    const has1st = slots.has("7am");
+    const has2nd = slots.has("10:30am");
+    if (has1st && has2nd) return "both";
+    if (has1st) return "1st";
+    if (has2nd) return "2nd";
+    return "both";
+  }
+
   const staffRows = staff.map(s => {
     const userScans = scans.filter(sc => sc.userId === s.id);
     const checkpoints = INTERVALS.map(label => {
@@ -262,7 +399,24 @@ router.get("/sunday-attendance/summary", authMiddleware, async (req, res): Promi
     const clockOuts = userScans
       .filter(sc => sc.scanType === "clock_out")
       .map(co => ({ service: co.service, scannedAt: co.scannedAt }));
-    const totalScans = userScans.filter(sc => sc.scanType === "checkpoint").length;
+
+    const emergencyScans = userScans.filter(sc => sc.scanType === "emergency_out");
+    const emergencyOut = emergencyScans.length > 0
+      ? { service: emergencyScans[0]!.service, exitedAt: emergencyScans[0]!.scannedAt, reason: emergencyScans[0]!.intervalLabel }
+      : null;
+
+    const scheduledService = getScheduledService(s.id, s.role as string);
+
+    // Score: count checkpoints relevant to their scheduled service
+    const relevantIntervals: readonly string[] =
+      scheduledService === "1st" ? FIRST_SERVICE :
+      scheduledService === "2nd" ? SECOND_SERVICE :
+      INTERVALS;
+    const totalScans = userScans.filter(
+      sc => sc.scanType === "checkpoint" && sc.intervalLabel !== null && relevantIntervals.includes(sc.intervalLabel)
+    ).length;
+    const scoreMax = scheduledService === "both" ? 6 : 3;
+
     return {
       userId: s.id,
       firstName: s.firstName,
@@ -271,7 +425,12 @@ router.get("/sunday-attendance/summary", authMiddleware, async (req, res): Promi
       photoUrl: s.photoUrl,
       checkpoints,
       clockOuts,
+      emergencyOut,
+      scheduledService,
       totalScans,
+      scoreMax,
+      isSubstitute: substituteIds.has(s.id),
+      isExcused: excusedIds.has(s.id),
     };
   });
 
@@ -286,7 +445,7 @@ router.get("/sunday-attendance/summary", authMiddleware, async (req, res): Promi
       total: staff.length,
       present,
       absent: staff.length - present,
-      fullDay: staffRows.filter(s => s.totalScans >= 6).length,
+      fullDay: staffRows.filter(s => s.totalScans >= s.scoreMax).length,
     },
   });
 });

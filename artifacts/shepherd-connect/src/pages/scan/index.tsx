@@ -7,7 +7,7 @@ import { PullToRefreshIndicator } from "@/components/PullToRefreshIndicator";
 import QrCameraScanner from "@/components/QrCameraScanner";
 import {
   CheckCircle2, AlertCircle, LogOut, QrCode, Clock,
-  RefreshCw, Camera, ScanLine,
+  RefreshCw, Camera, ScanLine, AlertTriangle, X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -37,6 +37,14 @@ type ClockOutResult = {
   service?: string;
 };
 
+type EmergencyResult = {
+  ok: boolean;
+  duplicate: boolean;
+  message: string;
+  service?: string;
+  exitedAt?: string;
+};
+
 type Scan = {
   id: number;
   scanType: string;
@@ -56,15 +64,18 @@ export default function ScanPage() {
     urlParams.get("date") ?? new Date().toISOString().slice(0, 10),
   );
 
-  const [cameraOpen,     setCameraOpen]     = useState(false);
-  const [scanResult,     setScanResult]     = useState<ScanResult | null>(null);
-  const [scanError,      setScanError]      = useState<string | null>(null);
-  const [scanning,       setScanning]       = useState(false);
-  const [hasScanned,     setHasScanned]     = useState(false);
-  const [clockOutDone,   setClockOutDone]   = useState(false);
-  const [clockOutLoading,setClockOutLoading]= useState(false);
-  const [clockOutError,  setClockOutError]  = useState<string | null>(null);
-  const [myScans,        setMyScans]        = useState<Scan[]>([]);
+  const [cameraOpen,            setCameraOpen]            = useState(false);
+  const [scanResult,            setScanResult]            = useState<ScanResult | null>(null);
+  const [scanError,             setScanError]             = useState<string | null>(null);
+  const [scanning,              setScanning]              = useState(false);
+  const [hasScanned,            setHasScanned]            = useState(false);
+  const [clockOutDone,          setClockOutDone]          = useState(false);
+  const [clockOutLoading,       setClockOutLoading]       = useState(false);
+  const [clockOutError,         setClockOutError]         = useState<string | null>(null);
+  const [emergencyDone,         setEmergencyDone]         = useState(false);
+  const [emergencyLoading,      setEmergencyLoading]      = useState(false);
+  const [showEmergencyConfirm,  setShowEmergencyConfirm]  = useState(false);
+  const [myScans,               setMyScans]               = useState<Scan[]>([]);
 
   const loadMyScans = useCallback(async () => {
     try {
@@ -118,6 +129,21 @@ export default function ScanPage() {
     }
   };
 
+  const doEmergencyOut = async () => {
+    setEmergencyLoading(true);
+    setShowEmergencyConfirm(false);
+    try {
+      await apiPost<EmergencyResult>("/sunday-attendance/emergency-out", { date });
+      setEmergencyDone(true);
+      await loadMyScans();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Emergency exit failed. Please try again.";
+      setClockOutError(msg);
+    } finally {
+      setEmergencyLoading(false);
+    }
+  };
+
   // Handle QR scanned from in-app camera
   const handleCameraScan = useCallback((rawUrl: string) => {
     setCameraOpen(false);
@@ -161,11 +187,12 @@ export default function ScanPage() {
   }
   if (!user) return null;
 
-  const checkpoints     = myScans.filter(s => s.scanType === "checkpoint");
-  const clockOuts       = myScans.filter(s => s.scanType === "clock_out");
-  const alreadyIn       = checkpoints.length > 0;
-  const alreadyOut      = clockOuts.length > 0 || clockOutDone;
-  const showClockOut    = (hasScanned || alreadyIn) && !alreadyOut;
+  const checkpoints    = myScans.filter(s => s.scanType === "checkpoint");
+  const clockOuts      = myScans.filter(s => s.scanType === "clock_out");
+  const emergencyOuts  = myScans.filter(s => s.scanType === "emergency_out");
+  const alreadyIn      = checkpoints.length > 0;
+  const alreadyOut     = clockOuts.length > 0 || emergencyOuts.length > 0 || clockOutDone || emergencyDone;
+  const showClockOut   = (hasScanned || alreadyIn) && !alreadyOut;
 
   const homeHref =
     user.role === "teacher" ? "/my-class"
@@ -181,6 +208,46 @@ export default function ScanPage() {
           onClose={() => setCameraOpen(false)}
           hint="Point the camera at the QR code on the church screen"
         />
+      )}
+
+      {/* Emergency exit confirmation overlay */}
+      {showEmergencyConfirm && (
+        <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center px-4">
+          <div className="bg-white rounded-2xl p-6 max-w-sm w-full shadow-2xl">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="bg-orange-100 p-2 rounded-full">
+                <AlertTriangle className="w-6 h-6 text-orange-600" />
+              </div>
+              <h2 className="text-lg font-bold text-gray-900">Emergency Exit?</h2>
+              <button className="ml-auto text-gray-400" onClick={() => setShowEmergencyConfirm(false)}>
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <p className="text-gray-600 text-sm mb-4">
+              This will record an emergency exit and notify the admin. Your remaining checkpoints
+              for this service will be marked as excused. Use only for genuine emergencies.
+            </p>
+            <div className="flex gap-3">
+              <Button
+                variant="outline"
+                className="flex-1"
+                onClick={() => setShowEmergencyConfirm(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                className="flex-1 bg-orange-600 hover:bg-orange-700 text-white"
+                onClick={doEmergencyOut}
+                disabled={emergencyLoading}
+              >
+                {emergencyLoading
+                  ? <RefreshCw className="w-4 h-4 animate-spin mr-1" />
+                  : <AlertTriangle className="w-4 h-4 mr-1" />}
+                Confirm Exit
+              </Button>
+            </div>
+          </div>
+        </div>
       )}
 
       <div className="min-h-screen bg-gradient-to-b from-blue-950 to-blue-900 flex flex-col items-center px-4 py-10">
@@ -243,6 +310,18 @@ export default function ScanPage() {
                   : <LogOut className="w-5 h-5 mr-2" />}
                 Clock Out
               </Button>
+            )}
+
+            {/* Emergency Exit button — only shown when checked in */}
+            {showClockOut && !scanning && (
+              <button
+                className="w-full py-3 text-sm font-medium text-orange-300 flex items-center justify-center gap-2 hover:text-orange-200 transition-colors"
+                onClick={() => setShowEmergencyConfirm(true)}
+                disabled={emergencyLoading}
+              >
+                <AlertTriangle className="w-4 h-4" />
+                Emergency Exit
+              </button>
             )}
 
             {clockOutError && (
@@ -311,6 +390,17 @@ export default function ScanPage() {
             </Card>
           )}
 
+          {/* ── Emergency exit success ── */}
+          {(emergencyDone || emergencyOuts.length > 0) && (
+            <Card className="border-0 bg-orange-900/50">
+              <CardContent className="py-4 text-center space-y-1">
+                <AlertTriangle className="w-8 h-8 text-orange-400 mx-auto" />
+                <p className="text-white font-medium">Emergency exit recorded</p>
+                <p className="text-orange-300 text-xs">The admin has been notified. Take care!</p>
+              </CardContent>
+            </Card>
+          )}
+
           {/* ── Today's record ── */}
           {myScans.length > 0 && (
             <div className="space-y-2">
@@ -342,6 +432,22 @@ export default function ScanPage() {
                     <LogOut className="w-4 h-4 text-yellow-400 flex-shrink-0" />
                     <span className="text-white text-sm">
                       Clock Out — {s.service} service
+                    </span>
+                  </div>
+                  <span className="text-blue-300 text-xs">
+                    {new Date(s.scannedAt).toLocaleTimeString("en-NG", {
+                      hour: "2-digit", minute: "2-digit", timeZone: "Africa/Lagos",
+                    })}
+                  </span>
+                </div>
+              ))}
+              {emergencyOuts.map(s => (
+                <div key={s.id}
+                  className="flex items-center justify-between bg-orange-900/30 rounded-xl px-3 py-2.5">
+                  <div className="flex items-center gap-2">
+                    <AlertTriangle className="w-4 h-4 text-orange-400 flex-shrink-0" />
+                    <span className="text-white text-sm">
+                      Emergency Exit — {s.service} service
                     </span>
                   </div>
                   <span className="text-blue-300 text-xs">

@@ -5,7 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   QrCode, Download, Printer, RefreshCw, CheckCircle2, XCircle,
-  LogOut, Users, UserCheck, UserX, ShieldCheck, CalendarDays, ChevronDown, ChevronUp,
+  LogOut, Users, UserCheck, UserX, ShieldCheck, CalendarDays,
+  ChevronDown, ChevronUp, AlertTriangle,
 } from "lucide-react";
 
 const SERVICE_1 = ["07:00", "08:30", "09:30"] as const;
@@ -22,7 +23,9 @@ const INTERVAL_DISPLAY: Record<string, string> = {
 };
 
 type Checkpoint = { intervalLabel: string; scanned: boolean; scannedAt: string | null };
-type ClockOut = { service: string | null; scannedAt: string };
+type ClockOut   = { service: string | null; scannedAt: string };
+type EmergencyOut = { service: string | null; exitedAt: Date; reason: string | null } | null;
+
 type StaffRow = {
   userId: number;
   firstName: string;
@@ -31,8 +34,14 @@ type StaffRow = {
   photoUrl: string | null;
   checkpoints: Checkpoint[];
   clockOuts: ClockOut[];
+  emergencyOut: EmergencyOut;
+  scheduledService: "1st" | "2nd" | "both";
   totalScans: number;
+  scoreMax: number;
+  isSubstitute: boolean;
+  isExcused: boolean;
 };
+
 type SummaryData = {
   date: string;
   hasQr: boolean;
@@ -51,7 +60,7 @@ function nextSunday(): string {
   return sunday.toISOString().slice(0, 10);
 }
 
-function fmtTime(iso: string) {
+function fmtTime(iso: string | Date) {
   return new Date(iso).toLocaleTimeString("en-NG", {
     hour: "2-digit",
     minute: "2-digit",
@@ -68,51 +77,96 @@ function roleBadge(role: string) {
   return map[role] ?? "bg-gray-100 text-gray-600";
 }
 
-function scoreColor(n: number) {
-  if (n >= 6) return "bg-green-100 text-green-700";
-  if (n >= 3) return "bg-yellow-100 text-yellow-700";
+function scoreColor(n: number, max: number) {
+  if (n >= max) return "bg-green-100 text-green-700";
+  if (n >= Math.ceil(max / 2)) return "bg-yellow-100 text-yellow-700";
   if (n > 0)  return "bg-orange-100 text-orange-700";
   return "bg-red-50 text-red-400";
 }
 
+/** Is this interval in an unscheduled service for this staff member? */
+function isUnscheduled(intervalLabel: string, scheduledService: "1st" | "2nd" | "both"): boolean {
+  if (scheduledService === "both") return false;
+  if (scheduledService === "1st") return (SERVICE_2 as readonly string[]).includes(intervalLabel);
+  return (SERVICE_1 as readonly string[]).includes(intervalLabel);
+}
+
+/** Was an emergency exit from the service that owns this interval? */
+function isEmergencyService(intervalLabel: string, emergencyOut: EmergencyOut): boolean {
+  if (!emergencyOut?.service) return false;
+  const svc1 = (SERVICE_1 as readonly string[]).includes(intervalLabel) ? "1st" : "2nd";
+  return svc1 === emergencyOut.service;
+}
+
 /** Mini dot-row showing scanned/missed per interval */
-function DotRow({ checkpoints, clockOuts }: { checkpoints: Checkpoint[]; clockOuts: ClockOut[] }) {
+function DotRow({
+  checkpoints, clockOuts, emergencyOut, scheduledService,
+}: {
+  checkpoints: Checkpoint[];
+  clockOuts: ClockOut[];
+  emergencyOut: EmergencyOut;
+  scheduledService: "1st" | "2nd" | "both";
+}) {
   const firstOut  = clockOuts.find(c => c.service === "1st");
   const secondOut = clockOuts.find(c => c.service === "2nd");
+  const emg1st = emergencyOut?.service === "1st";
+  const emg2nd = emergencyOut?.service === "2nd";
   return (
     <div className="flex items-center gap-0.5 flex-wrap">
       {/* 1st service */}
       {SERVICE_1.map(lbl => {
-        const ok = checkpoints.find(c => c.intervalLabel === lbl)?.scanned;
+        const ok  = checkpoints.find(c => c.intervalLabel === lbl)?.scanned;
+        const na  = scheduledService === "2nd";
+        const exc = !ok && emg1st;
         return (
           <div
             key={lbl}
-            title={`${INTERVAL_DISPLAY[lbl]} AM (1st)`}
-            className={`w-3.5 h-3.5 rounded-full ${ok ? "bg-green-500" : "bg-red-200"}`}
+            title={na ? "Not scheduled" : `${INTERVAL_DISPLAY[lbl]} AM (1st)`}
+            className={`w-3.5 h-3.5 rounded-full ${
+              na  ? "bg-gray-100" :
+              ok  ? "bg-green-500" :
+              exc ? "bg-orange-300" :
+                    "bg-red-200"
+            }`}
           />
         );
       })}
       {/* clock-out 1st */}
       <div
-        title="Clock-out 1st"
-        className={`w-3.5 h-3.5 rounded-sm ${firstOut ? "bg-amber-400" : "bg-gray-200"}`}
+        title={emg1st ? "Emergency exit" : "Clock-out 1st"}
+        className={`w-3.5 h-3.5 rounded-sm ${
+          scheduledService === "2nd" ? "bg-gray-100" :
+          emg1st   ? "bg-orange-400" :
+          firstOut ? "bg-amber-400"  : "bg-gray-200"
+        }`}
       />
       <div className="w-0.5 h-3.5 bg-gray-200 rounded mx-0.5" />
       {/* 2nd service */}
       {SERVICE_2.map(lbl => {
-        const ok = checkpoints.find(c => c.intervalLabel === lbl)?.scanned;
+        const ok  = checkpoints.find(c => c.intervalLabel === lbl)?.scanned;
+        const na  = scheduledService === "1st";
+        const exc = !ok && emg2nd;
         return (
           <div
             key={lbl}
-            title={`${INTERVAL_DISPLAY[lbl]} (2nd)`}
-            className={`w-3.5 h-3.5 rounded-full ${ok ? "bg-green-500" : "bg-red-200"}`}
+            title={na ? "Not scheduled" : `${INTERVAL_DISPLAY[lbl]} (2nd)`}
+            className={`w-3.5 h-3.5 rounded-full ${
+              na  ? "bg-gray-100" :
+              ok  ? "bg-green-500" :
+              exc ? "bg-orange-300" :
+                    "bg-red-200"
+            }`}
           />
         );
       })}
       {/* clock-out 2nd */}
       <div
-        title="Clock-out 2nd"
-        className={`w-3.5 h-3.5 rounded-sm ${secondOut ? "bg-amber-400" : "bg-gray-200"}`}
+        title={emg2nd ? "Emergency exit" : "Clock-out 2nd"}
+        className={`w-3.5 h-3.5 rounded-sm ${
+          scheduledService === "1st" ? "bg-gray-100" :
+          emg2nd    ? "bg-orange-400" :
+          secondOut ? "bg-amber-400"  : "bg-gray-200"
+        }`}
       />
     </div>
   );
@@ -123,6 +177,8 @@ function StaffCard({ row }: { row: StaffRow }) {
   const [open, setOpen] = useState(false);
   const firstOut  = row.clockOuts.find(c => c.service === "1st");
   const secondOut = row.clockOuts.find(c => c.service === "2nd");
+  const emg1st    = row.emergencyOut?.service === "1st";
+  const emg2nd    = row.emergencyOut?.service === "2nd";
 
   return (
     <div className="border rounded-xl bg-white shadow-sm overflow-hidden">
@@ -139,19 +195,32 @@ function StaffCard({ row }: { row: StaffRow }) {
           </div>
         )}
         <div className="flex-1 min-w-0">
-          <p className="font-semibold text-gray-900 text-sm truncate">
-            {row.firstName} {row.lastName}
-          </p>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <p className="font-semibold text-gray-900 text-sm truncate">
+              {row.firstName} {row.lastName}
+            </p>
+            {row.isSubstitute && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded-full font-bold bg-teal-100 text-teal-700">SUB</span>
+            )}
+            {row.isExcused && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded-full font-bold bg-gray-100 text-gray-500">EXCUSED</span>
+            )}
+          </div>
           <div className="flex items-center gap-2 mt-0.5">
             <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${roleBadge(row.role)}`}>
               {row.role}
             </span>
-            <DotRow checkpoints={row.checkpoints} clockOuts={row.clockOuts} />
+            <DotRow
+              checkpoints={row.checkpoints}
+              clockOuts={row.clockOuts}
+              emergencyOut={row.emergencyOut}
+              scheduledService={row.scheduledService}
+            />
           </div>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
-          <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${scoreColor(row.totalScans)}`}>
-            {row.totalScans}/6
+          <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${scoreColor(row.totalScans, row.scoreMax)}`}>
+            {row.totalScans}/{row.scoreMax}
           </span>
           {open ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
         </div>
@@ -162,47 +231,40 @@ function StaffCard({ row }: { row: StaffRow }) {
         <div className="border-t bg-gray-50 px-4 py-3 space-y-3">
           {/* 1st service */}
           <div>
-            <p className="text-xs font-semibold text-blue-700 uppercase tracking-wider mb-2">1st Service</p>
+            <p className="text-xs font-semibold text-blue-700 uppercase tracking-wider mb-2">
+              1st Service
+              {row.scheduledService === "2nd" && (
+                <span className="ml-2 font-normal text-gray-400 normal-case">(not scheduled)</span>
+              )}
+            </p>
             <div className="grid grid-cols-3 gap-2">
               {SERVICE_1.map(lbl => {
-                const cp = row.checkpoints.find(c => c.intervalLabel === lbl);
+                const cp  = row.checkpoints.find(c => c.intervalLabel === lbl);
+                const na  = row.scheduledService === "2nd";
+                const exc = !cp?.scanned && emg1st;
+                const disp = `${INTERVAL_DISPLAY[lbl]} AM`;
+                if (na) {
+                  return (
+                    <div key={lbl} className="rounded-lg p-2 text-center bg-gray-50 border border-gray-100">
+                      <p className="text-xs font-medium text-gray-400">{disp}</p>
+                      <span className="text-[10px] text-gray-300 mt-1 block">N/A</span>
+                    </div>
+                  );
+                }
                 return (
-                  <div key={lbl} className={`rounded-lg p-2 text-center ${cp?.scanned ? "bg-green-50 border border-green-200" : "bg-red-50 border border-red-100"}`}>
-                    <p className="text-xs font-medium text-gray-700">{INTERVAL_DISPLAY[lbl]} AM</p>
-                    {cp?.scanned ? (
-                      <>
-                        <CheckCircle2 className="w-4 h-4 text-green-500 mx-auto mt-1" />
-                        <p className="text-[10px] text-gray-500 mt-0.5">{cp.scannedAt ? fmtTime(cp.scannedAt) : ""}</p>
-                      </>
-                    ) : (
-                      <XCircle className="w-4 h-4 text-red-300 mx-auto mt-1" />
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-            {firstOut && (
-              <div className="mt-2 flex items-center gap-2 text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-1.5">
-                <LogOut className="w-3.5 h-3.5" />
-                <span>Clocked out at {fmtTime(firstOut.scannedAt)}</span>
-              </div>
-            )}
-          </div>
-          {/* 2nd service */}
-          <div>
-            <p className="text-xs font-semibold text-purple-700 uppercase tracking-wider mb-2">2nd Service</p>
-            <div className="grid grid-cols-3 gap-2">
-              {SERVICE_2.map(lbl => {
-                const cp = row.checkpoints.find(c => c.intervalLabel === lbl);
-                const disp = lbl === "12:00" ? "12:00 PM" : `${INTERVAL_DISPLAY[lbl]} AM`;
-                return (
-                  <div key={lbl} className={`rounded-lg p-2 text-center ${cp?.scanned ? "bg-green-50 border border-green-200" : "bg-red-50 border border-red-100"}`}>
+                  <div key={lbl} className={`rounded-lg p-2 text-center ${
+                    cp?.scanned ? "bg-green-50 border border-green-200" :
+                    exc ? "bg-orange-50 border border-orange-100" :
+                    "bg-red-50 border border-red-100"
+                  }`}>
                     <p className="text-xs font-medium text-gray-700">{disp}</p>
                     {cp?.scanned ? (
                       <>
                         <CheckCircle2 className="w-4 h-4 text-green-500 mx-auto mt-1" />
                         <p className="text-[10px] text-gray-500 mt-0.5">{cp.scannedAt ? fmtTime(cp.scannedAt) : ""}</p>
                       </>
+                    ) : exc ? (
+                      <AlertTriangle className="w-4 h-4 text-orange-400 mx-auto mt-1" />
                     ) : (
                       <XCircle className="w-4 h-4 text-red-300 mx-auto mt-1" />
                     )}
@@ -210,13 +272,90 @@ function StaffCard({ row }: { row: StaffRow }) {
                 );
               })}
             </div>
-            {secondOut && (
+            {firstOut && row.scheduledService !== "2nd" && (
+              <div className="mt-2 flex items-center gap-2 text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-1.5">
+                <LogOut className="w-3.5 h-3.5" />
+                <span>Clocked out at {fmtTime(firstOut.scannedAt)}</span>
+              </div>
+            )}
+            {emg1st && (
+              <div className="mt-2 flex items-center gap-2 text-xs text-orange-700 bg-orange-50 border border-orange-100 rounded-lg px-3 py-1.5">
+                <AlertTriangle className="w-3.5 h-3.5" />
+                <span>Emergency exit at {fmtTime(row.emergencyOut!.exitedAt)}</span>
+              </div>
+            )}
+          </div>
+          {/* 2nd service */}
+          <div>
+            <p className="text-xs font-semibold text-purple-700 uppercase tracking-wider mb-2">
+              2nd Service
+              {row.scheduledService === "1st" && (
+                <span className="ml-2 font-normal text-gray-400 normal-case">(not scheduled)</span>
+              )}
+            </p>
+            <div className="grid grid-cols-3 gap-2">
+              {SERVICE_2.map(lbl => {
+                const cp  = row.checkpoints.find(c => c.intervalLabel === lbl);
+                const na  = row.scheduledService === "1st";
+                const exc = !cp?.scanned && emg2nd;
+                const disp = lbl === "12:00" ? "12:00 PM" : `${INTERVAL_DISPLAY[lbl]} AM`;
+                if (na) {
+                  return (
+                    <div key={lbl} className="rounded-lg p-2 text-center bg-gray-50 border border-gray-100">
+                      <p className="text-xs font-medium text-gray-400">{disp}</p>
+                      <span className="text-[10px] text-gray-300 mt-1 block">N/A</span>
+                    </div>
+                  );
+                }
+                return (
+                  <div key={lbl} className={`rounded-lg p-2 text-center ${
+                    cp?.scanned ? "bg-green-50 border border-green-200" :
+                    exc ? "bg-orange-50 border border-orange-100" :
+                    "bg-red-50 border border-red-100"
+                  }`}>
+                    <p className="text-xs font-medium text-gray-700">{disp}</p>
+                    {cp?.scanned ? (
+                      <>
+                        <CheckCircle2 className="w-4 h-4 text-green-500 mx-auto mt-1" />
+                        <p className="text-[10px] text-gray-500 mt-0.5">{cp.scannedAt ? fmtTime(cp.scannedAt) : ""}</p>
+                      </>
+                    ) : exc ? (
+                      <AlertTriangle className="w-4 h-4 text-orange-400 mx-auto mt-1" />
+                    ) : (
+                      <XCircle className="w-4 h-4 text-red-300 mx-auto mt-1" />
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            {secondOut && row.scheduledService !== "1st" && (
               <div className="mt-2 flex items-center gap-2 text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-1.5">
                 <LogOut className="w-3.5 h-3.5" />
                 <span>Clocked out at {fmtTime(secondOut.scannedAt)}</span>
               </div>
             )}
+            {emg2nd && (
+              <div className="mt-2 flex items-center gap-2 text-xs text-orange-700 bg-orange-50 border border-orange-100 rounded-lg px-3 py-1.5">
+                <AlertTriangle className="w-3.5 h-3.5" />
+                <span>Emergency exit at {fmtTime(row.emergencyOut!.exitedAt)}</span>
+              </div>
+            )}
           </div>
+          {/* Substitute / Excused badges */}
+          {(row.isSubstitute || row.isExcused) && (
+            <div className="flex gap-2 flex-wrap pt-1">
+              {row.isSubstitute && (
+                <span className="text-[11px] px-2 py-1 rounded-full bg-teal-50 text-teal-700 border border-teal-200 font-medium">
+                  🔄 Serving as substitute today
+                </span>
+              )}
+              {row.isExcused && (
+                <span className="text-[11px] px-2 py-1 rounded-full bg-gray-50 text-gray-500 border border-gray-200 font-medium">
+                  ✓ Substitute assigned — excused
+                </span>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -227,8 +366,42 @@ function StaffCard({ row }: { row: StaffRow }) {
 function TableRow({ row, i }: { row: StaffRow; i: number }) {
   const firstOut  = row.clockOuts.find(c => c.service === "1st");
   const secondOut = row.clockOuts.find(c => c.service === "2nd");
+  const emg1st    = row.emergencyOut?.service === "1st";
+  const emg2nd    = row.emergencyOut?.service === "2nd";
+
+  function checkpointCell(lbl: string) {
+    const cp  = row.checkpoints.find(c => c.intervalLabel === lbl);
+    const na  = isUnscheduled(lbl, row.scheduledService);
+    const exc = !cp?.scanned && isEmergencyService(lbl, row.emergencyOut);
+
+    if (na) {
+      return (
+        <td key={lbl} className="px-2 py-3 text-center">
+          <span className="text-gray-200 text-xs">—</span>
+        </td>
+      );
+    }
+    return (
+      <td key={lbl} className="px-2 py-3 text-center">
+        {cp?.scanned ? (
+          <div className="flex flex-col items-center gap-0.5">
+            <CheckCircle2 className="w-4 h-4 text-green-500" />
+            {cp.scannedAt && (
+              <span className="text-[10px] text-gray-400">{fmtTime(cp.scannedAt)}</span>
+            )}
+          </div>
+        ) : exc ? (
+          <span title="Excused — emergency exit"><AlertTriangle className="w-4 h-4 text-orange-300 mx-auto" /></span>
+        ) : (
+          <XCircle className="w-4 h-4 text-red-200 mx-auto" />
+        )}
+      </td>
+    );
+  }
+
   return (
     <tr className={`border-b hover:bg-gray-50 transition-colors ${i % 2 === 0 ? "bg-white" : "bg-gray-50/40"}`}>
+      {/* Name + badges */}
       <td className="px-4 py-3">
         <div className="flex items-center gap-2">
           {row.photoUrl ? (
@@ -239,72 +412,68 @@ function TableRow({ row, i }: { row: StaffRow; i: number }) {
             </div>
           )}
           <div>
-            <p className="font-medium text-gray-900 text-sm leading-tight whitespace-nowrap">
-              {row.firstName} {row.lastName}
-            </p>
+            <div className="flex items-center gap-1 flex-wrap">
+              <p className="font-medium text-gray-900 text-sm leading-tight whitespace-nowrap">
+                {row.firstName} {row.lastName}
+              </p>
+              {row.isSubstitute && (
+                <span className="text-[9px] px-1 py-0.5 rounded font-bold bg-teal-100 text-teal-700">SUB</span>
+              )}
+              {row.isExcused && (
+                <span className="text-[9px] px-1 py-0.5 rounded font-bold bg-gray-100 text-gray-500">EXCUSED</span>
+              )}
+            </div>
             <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${roleBadge(row.role)}`}>
               {row.role}
             </span>
           </div>
         </div>
       </td>
+
       {/* 1st service checkpoints */}
-      {SERVICE_1.map(lbl => {
-        const cp = row.checkpoints.find(c => c.intervalLabel === lbl);
-        return (
-          <td key={lbl} className="px-2 py-3 text-center">
-            {cp?.scanned ? (
-              <div className="flex flex-col items-center gap-0.5">
-                <CheckCircle2 className="w-4 h-4 text-green-500" />
-                {cp.scannedAt && (
-                  <span className="text-[10px] text-gray-400">{fmtTime(cp.scannedAt)}</span>
-                )}
-              </div>
-            ) : (
-              <XCircle className="w-4 h-4 text-red-200 mx-auto" />
-            )}
-          </td>
-        );
-      })}
-      {/* Clock-out 1st service */}
+      {SERVICE_1.map(lbl => checkpointCell(lbl))}
+
+      {/* Clock-out / Emergency — 1st service */}
       <td className="px-2 py-3 text-center">
-        {firstOut ? (
+        {row.scheduledService === "2nd" ? (
+          <span className="text-gray-200 text-xs">—</span>
+        ) : emg1st ? (
+          <div className="flex flex-col items-center gap-0.5" title="Emergency exit">
+            <AlertTriangle className="w-4 h-4 text-orange-400" />
+            <span className="text-[10px] text-gray-400">{fmtTime(row.emergencyOut!.exitedAt)}</span>
+          </div>
+        ) : firstOut ? (
           <div className="flex flex-col items-center gap-0.5">
             <LogOut className="w-4 h-4 text-amber-500" />
             <span className="text-[10px] text-gray-400">{fmtTime(firstOut.scannedAt)}</span>
           </div>
         ) : <span className="text-gray-200 text-xs">—</span>}
       </td>
+
       {/* 2nd service checkpoints */}
-      {SERVICE_2.map(lbl => {
-        const cp = row.checkpoints.find(c => c.intervalLabel === lbl);
-        return (
-          <td key={lbl} className="px-2 py-3 text-center">
-            {cp?.scanned ? (
-              <div className="flex flex-col items-center gap-0.5">
-                <CheckCircle2 className="w-4 h-4 text-green-500" />
-                {cp.scannedAt && (
-                  <span className="text-[10px] text-gray-400">{fmtTime(cp.scannedAt)}</span>
-                )}
-              </div>
-            ) : (
-              <XCircle className="w-4 h-4 text-red-200 mx-auto" />
-            )}
-          </td>
-        );
-      })}
-      {/* Clock-out 2nd service */}
+      {SERVICE_2.map(lbl => checkpointCell(lbl))}
+
+      {/* Clock-out / Emergency — 2nd service */}
       <td className="px-2 py-3 text-center">
-        {secondOut ? (
+        {row.scheduledService === "1st" ? (
+          <span className="text-gray-200 text-xs">—</span>
+        ) : emg2nd ? (
+          <div className="flex flex-col items-center gap-0.5" title="Emergency exit">
+            <AlertTriangle className="w-4 h-4 text-orange-400" />
+            <span className="text-[10px] text-gray-400">{fmtTime(row.emergencyOut!.exitedAt)}</span>
+          </div>
+        ) : secondOut ? (
           <div className="flex flex-col items-center gap-0.5">
             <LogOut className="w-4 h-4 text-amber-500" />
             <span className="text-[10px] text-gray-400">{fmtTime(secondOut.scannedAt)}</span>
           </div>
         ) : <span className="text-gray-200 text-xs">—</span>}
       </td>
+
+      {/* Score */}
       <td className="px-3 py-3 text-center">
-        <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${scoreColor(row.totalScans)}`}>
-          {row.totalScans}/6
+        <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${scoreColor(row.totalScans, row.scoreMax)}`}>
+          {row.totalScans}/{row.scoreMax}
         </span>
       </td>
     </tr>
@@ -341,279 +510,235 @@ export default function SundayAttendancePage() {
   }
 
   function handlePrint() {
-    if (!qrData) return;
+    if (!printRef.current || !qrData) return;
     const win = window.open("", "_blank");
     if (!win) return;
-    const dateLabel = new Date(date + "T00:00:00").toLocaleDateString("en-NG", {
-      weekday: "long", year: "numeric", month: "long", day: "numeric",
-    });
     win.document.write(`
-      <!DOCTYPE html><html>
-      <head><title>Shepherd Connect — Attendance QR</title>
-      <style>
-        body{font-family:sans-serif;text-align:center;padding:40px}
-        h1{font-size:28px;color:#1e3a8a;margin-bottom:4px}
-        p{color:#555;font-size:16px;margin:4px 0}
-        img{margin:24px auto;display:block;width:300px}
-        .foot{margin-top:16px;font-size:13px;color:#888}
-      </style></head>
+      <html><head><title>Attendance QR — ${date}</title>
+      <style>body{margin:0;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;font-family:sans-serif;background:#1e3a8a;color:#fff}
+      img{width:320px;height:320px}h2{margin:16px 0 4px}p{margin:0;opacity:.7}</style></head>
       <body>
-        <h1>Shepherd Connect</h1>
-        <p>Service Attendance — ${dateLabel}</p>
-        <img src="${qrData.qrPng}" alt="QR"/>
-        <p>Scan at each checkpoint to record your attendance.</p>
-        <div class="foot">Safe. Known. Celebrated. — RCCG City of David</div>
+        <h2>Shepherd Connect</h2>
+        <p>Service Attendance — ${date}</p>
+        <img src="${qrData.qrPng}" />
+        <p style="margin-top:12px;font-size:13px">Scan to record attendance</p>
       </body></html>
     `);
     win.document.close();
     win.print();
   }
 
-  const statCards = [
-    { label: "Total Staff",  value: summary?.stats.total    ?? 0, icon: Users,      color: "text-blue-600",   bg: "bg-blue-50"  },
-    { label: "Present",      value: summary?.stats.present  ?? 0, icon: UserCheck,  color: "text-green-600",  bg: "bg-green-50" },
-    { label: "Absent",       value: summary?.stats.absent   ?? 0, icon: UserX,      color: "text-red-500",    bg: "bg-red-50"   },
-    { label: "Full Day",     value: summary?.stats.fullDay  ?? 0, icon: ShieldCheck,color: "text-amber-600",  bg: "bg-amber-50" },
-  ];
-
   return (
     <div className="space-y-5">
 
-        {/* ── Header ── */}
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <h1 className="text-xl font-bold text-blue-900">Service Attendance</h1>
-            <p className="text-sm text-gray-500">QR-based Sunday tracking</p>
-          </div>
-          <div className="flex items-center gap-2">
+      {/* ── QR Code section ── */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <QrCode className="w-5 h-5 text-blue-600" />
+            Sunday QR Code
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {/* Date picker */}
+          <div className="flex items-center gap-3 flex-wrap">
+            <div className="flex items-center gap-2">
+              <CalendarDays className="w-4 h-4 text-gray-500" />
+              <label className="text-sm text-gray-600 font-medium">Service Date</label>
+            </div>
             <input
               type="date"
               value={date}
-              onChange={e => setDate(e.target.value)}
-              className="border rounded-lg px-3 py-1.5 text-sm text-gray-700 bg-white shadow-sm w-full sm:w-auto"
+              onChange={e => {
+                setDate(e.target.value);
+                setQrData(null);
+              }}
+              className="border rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
-            <Button variant="outline" size="icon" onClick={() => refetchSummary()} className="shrink-0">
-              <RefreshCw className="w-4 h-4" />
-            </Button>
           </div>
-        </div>
 
-        {/* ── Stats ── */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          {statCards.map(c => (
-            <Card key={c.label} className="shadow-sm border-0">
-              <CardContent className={`p-3 flex items-center gap-3 rounded-xl ${c.bg}`}>
-                <div className="bg-white p-2 rounded-lg shadow-sm shrink-0">
-                  <c.icon className={`w-5 h-5 ${c.color}`} />
-                </div>
-                <div>
-                  <p className="text-lg font-bold text-gray-900 leading-none">{c.value}</p>
-                  <p className="text-xs text-gray-500 mt-0.5">{c.label}</p>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-
-        {/* ── QR + Intervals ── */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-
-          {/* QR card */}
-          <Card className="shadow-sm">
-            <CardHeader className="pb-2 pt-4 px-4">
-              <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                <QrCode className="w-4 h-4 text-blue-700" /> QR Code
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="px-4 pb-4 space-y-3">
-              {qrData ? (
-                <>
-                  <div className="flex justify-center">
-                    <div ref={printRef} className="bg-white p-3 rounded-xl border shadow-sm">
-                      <img src={qrData.qrPng} alt="QR" className="w-40 h-40 sm:w-48 sm:h-48" />
-                    </div>
-                  </div>
-                  <p className="text-xs text-center text-gray-400">
-                    {qrData.existing ? "Existing" : "New"} QR for {date} — paste on the church wall
-                  </p>
-                  <div className="grid grid-cols-2 gap-2">
-                    <Button className="bg-blue-900 hover:bg-blue-800 text-white text-xs" size="sm" onClick={handleDownload}>
-                      <Download className="w-3.5 h-3.5 mr-1" /> Download
-                    </Button>
-                    <Button variant="outline" size="sm" className="text-xs" onClick={handlePrint}>
-                      <Printer className="w-3.5 h-3.5 mr-1" /> Print
-                    </Button>
-                  </div>
-                  <button
-                    className="w-full text-gray-400 text-xs hover:text-gray-600"
-                    onClick={() => generateMutation.mutate(date)}
-                    disabled={generateMutation.isPending}
-                  >
-                    Regenerate
-                  </button>
-                </>
-              ) : (
-                <>
-                  <div className="flex flex-col items-center gap-2 py-5 text-gray-400">
-                    <QrCode className="w-14 h-14 opacity-20" />
-                    <p className="text-sm text-center">
-                      {summary?.hasQr ? "QR exists — click to load" : "No QR yet for this date"}
-                    </p>
-                  </div>
-                  <Button
-                    className="w-full bg-blue-900 hover:bg-blue-800 text-white"
-                    onClick={() => generateMutation.mutate(date)}
-                    disabled={generateMutation.isPending}
-                  >
-                    {generateMutation.isPending
-                      ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                      : <QrCode className="w-4 h-4 mr-2" />}
-                    {summary?.hasQr ? "Load QR Code" : "Generate QR Code"}
-                  </Button>
-                </>
-              )}
-              {generateMutation.isError && (
-                <p className="text-red-500 text-xs text-center">Failed. Please try again.</p>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Checkpoint summary */}
-          <Card className="shadow-sm">
-            <CardHeader className="pb-2 pt-4 px-4">
-              <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                <CalendarDays className="w-4 h-4 text-blue-700" /> Checkpoint Summary
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="px-4 pb-4 space-y-3">
-              {/* 1st service */}
-              <div>
-                <p className="text-[11px] font-bold text-blue-600 uppercase tracking-wider mb-1.5">1st Service</p>
-                {SERVICE_1.map(lbl => {
-                  const total = summary?.staff.length ?? 0;
-                  const count = summary?.staff.filter(s => s.checkpoints.find(c => c.intervalLabel === lbl)?.scanned).length ?? 0;
-                  const pct = total > 0 ? Math.round((count / total) * 100) : 0;
-                  return (
-                    <div key={lbl} className="mb-2">
-                      <div className="flex justify-between text-xs mb-1">
-                        <span className="text-gray-600 font-medium">{INTERVAL_DISPLAY[lbl]} AM</span>
-                        <span className={count > 0 ? "text-green-600 font-semibold" : "text-gray-400"}>
-                          {total > 0 ? `${count}/${total}` : "—"}
-                        </span>
-                      </div>
-                      {total > 0 && (
-                        <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                          <div className="h-full bg-green-500 rounded-full transition-all" style={{ width: `${pct}%` }} />
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-              {/* 2nd service */}
-              <div>
-                <p className="text-[11px] font-bold text-purple-600 uppercase tracking-wider mb-1.5">2nd Service</p>
-                {SERVICE_2.map(lbl => {
-                  const total = summary?.staff.length ?? 0;
-                  const count = summary?.staff.filter(s => s.checkpoints.find(c => c.intervalLabel === lbl)?.scanned).length ?? 0;
-                  const pct = total > 0 ? Math.round((count / total) * 100) : 0;
-                  const disp = lbl === "12:00" ? "12:00 PM" : `${INTERVAL_DISPLAY[lbl]} AM`;
-                  return (
-                    <div key={lbl} className="mb-2">
-                      <div className="flex justify-between text-xs mb-1">
-                        <span className="text-gray-600 font-medium">{disp}</span>
-                        <span className={count > 0 ? "text-green-600 font-semibold" : "text-gray-400"}>
-                          {total > 0 ? `${count}/${total}` : "—"}
-                        </span>
-                      </div>
-                      {total > 0 && (
-                        <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                          <div className="h-full bg-purple-500 rounded-full transition-all" style={{ width: `${pct}%` }} />
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-              <p className="text-[11px] text-gray-400">
-                WhatsApp reminders sent automatically at each checkpoint time.
-              </p>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* ── Compliance grid / cards ── */}
-        <Card className="shadow-sm">
-          <CardHeader className="pb-2 pt-4 px-4">
-            <CardTitle className="text-sm font-semibold flex items-center gap-2">
-              <Users className="w-4 h-4 text-blue-700" /> Staff Compliance
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="p-0">
-            {summaryLoading ? (
-              <div className="flex justify-center py-10">
-                <RefreshCw className="w-6 h-6 animate-spin text-blue-600" />
-              </div>
-            ) : !summary || summary.staff.length === 0 ? (
-              <div className="text-center py-10 text-gray-400">
-                <Users className="w-10 h-10 mx-auto mb-2 opacity-20" />
-                <p className="text-sm">No active staff found.</p>
-              </div>
-            ) : (
+          {/* QR display / generate */}
+          <div className="flex flex-col items-center gap-4">
+            {qrData ? (
               <>
-                {/* Mobile: expandable cards */}
-                <div className="md:hidden px-3 pb-3 space-y-2">
-                  <div className="flex items-center gap-3 px-1 py-2 text-[10px] text-gray-400 font-medium">
-                    <div className="flex items-center gap-0.5">
-                      {SERVICE_1.map(l => <div key={l} className="w-3.5 h-3.5 rounded-full bg-gray-200 flex items-center justify-center text-[8px] text-gray-500">{INTERVAL_DISPLAY[l].replace(":","")}</div>)}
-                      <div className="w-3.5 h-3.5 rounded-sm bg-gray-200 mx-0.5" title="Out 1st" />
-                      <div className="w-px h-3.5 bg-gray-200 mx-0.5" />
-                      {SERVICE_2.map(l => <div key={l} className="w-3.5 h-3.5 rounded-full bg-gray-200 flex items-center justify-center text-[8px] text-gray-500">{INTERVAL_DISPLAY[l].replace(":","")}</div>)}
-                      <div className="w-3.5 h-3.5 rounded-sm bg-gray-200 mx-0.5" title="Out 2nd" />
-                    </div>
-                    <span>tap to expand</span>
-                  </div>
-                  {summary.staff.map(row => <StaffCard key={row.userId} row={row} />)}
+                <div ref={printRef} className="bg-white p-3 rounded-xl shadow-md">
+                  <img src={qrData.qrPng} alt="QR code" className="w-48 h-48 block" />
                 </div>
-
-                {/* Desktop: full table */}
-                <div className="hidden md:block overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="bg-blue-50 border-b">
-                        <th className="text-left px-4 py-3 font-semibold text-blue-900 min-w-[180px]">Staff</th>
-                        {SERVICE_1.map(lbl => (
-                          <th key={lbl} className="px-2 py-3 text-center font-semibold text-blue-700 min-w-[64px]">
-                            <div className="text-xs">{INTERVAL_DISPLAY[lbl]}</div>
-                            <div className="text-[10px] text-blue-400 font-normal">1st</div>
-                          </th>
-                        ))}
-                        <th className="px-2 py-3 text-center min-w-[56px]">
-                          <div className="text-xs font-semibold text-amber-700">Out</div>
-                          <div className="text-[10px] text-amber-400 font-normal">1st</div>
-                        </th>
-                        {SERVICE_2.map(lbl => (
-                          <th key={lbl} className="px-2 py-3 text-center font-semibold text-purple-700 min-w-[64px]">
-                            <div className="text-xs">{INTERVAL_DISPLAY[lbl]}</div>
-                            <div className="text-[10px] text-purple-400 font-normal">2nd</div>
-                          </th>
-                        ))}
-                        <th className="px-2 py-3 text-center min-w-[56px]">
-                          <div className="text-xs font-semibold text-amber-700">Out</div>
-                          <div className="text-[10px] text-amber-400 font-normal">2nd</div>
-                        </th>
-                        <th className="px-3 py-3 text-center text-xs font-semibold text-gray-500 min-w-[56px]">Score</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {summary.staff.map((row, i) => <TableRow key={row.userId} row={row} i={i} />)}
-                    </tbody>
-                  </table>
+                <p className="text-xs text-gray-500 text-center">
+                  {qrData.existing ? "Existing QR for this date" : "New QR generated"}
+                </p>
+                <div className="flex gap-2 flex-wrap justify-center">
+                  <Button size="sm" variant="outline" onClick={handleDownload}>
+                    <Download className="w-4 h-4 mr-1" /> Download
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={handlePrint}>
+                    <Printer className="w-4 h-4 mr-1" /> Print
+                  </Button>
+                  <Button
+                    size="sm" variant="outline"
+                    onClick={() => generateMutation.mutate(date)}
+                    disabled={generateMutation.isPending}
+                  >
+                    <RefreshCw className={`w-4 h-4 mr-1 ${generateMutation.isPending ? "animate-spin" : ""}`} />
+                    Regenerate
+                  </Button>
                 </div>
               </>
+            ) : (
+              <Button
+                className="bg-blue-600 hover:bg-blue-700 text-white"
+                onClick={() => generateMutation.mutate(date)}
+                disabled={generateMutation.isPending}
+              >
+                {generateMutation.isPending
+                  ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                  : <QrCode className="w-4 h-4 mr-2" />}
+                {summary?.hasQr ? "Load Existing QR" : "Generate QR Code"}
+              </Button>
             )}
-          </CardContent>
-        </Card>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* ── Stats cards ── */}
+      {summary && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <Card className="border-blue-100">
+            <CardContent className="py-3 px-4 flex items-center gap-3">
+              <Users className="w-8 h-8 text-blue-500 flex-shrink-0" />
+              <div>
+                <p className="text-2xl font-bold text-blue-700">{summary.stats.total}</p>
+                <p className="text-xs text-gray-500">Total Staff</p>
+              </div>
+            </CardContent>
+          </Card>
+          <Card className="border-green-100">
+            <CardContent className="py-3 px-4 flex items-center gap-3">
+              <UserCheck className="w-8 h-8 text-green-500 flex-shrink-0" />
+              <div>
+                <p className="text-2xl font-bold text-green-700">{summary.stats.present}</p>
+                <p className="text-xs text-gray-500">Present</p>
+              </div>
+            </CardContent>
+          </Card>
+          <Card className="border-red-100">
+            <CardContent className="py-3 px-4 flex items-center gap-3">
+              <UserX className="w-8 h-8 text-red-400 flex-shrink-0" />
+              <div>
+                <p className="text-2xl font-bold text-red-600">{summary.stats.absent}</p>
+                <p className="text-xs text-gray-500">Absent</p>
+              </div>
+            </CardContent>
+          </Card>
+          <Card className="border-yellow-100">
+            <CardContent className="py-3 px-4 flex items-center gap-3">
+              <ShieldCheck className="w-8 h-8 text-yellow-500 flex-shrink-0" />
+              <div>
+                <p className="text-2xl font-bold text-yellow-600">{summary.stats.fullDay}</p>
+                <p className="text-xs text-gray-500">Full Score</p>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* ── Compliance table ── */}
+      <Card>
+        <CardHeader className="pb-3 flex flex-row items-center justify-between gap-2">
+          <CardTitle className="text-base flex items-center gap-2">
+            <ShieldCheck className="w-5 h-5 text-blue-600" />
+            Staff Compliance
+          </CardTitle>
+          <div className="flex items-center gap-3 flex-wrap">
+            {/* Legend */}
+            <div className="hidden md:flex items-center gap-3 text-[10px] text-gray-400">
+              <span className="flex items-center gap-1">
+                <span className="w-3 h-3 rounded-full bg-green-500 inline-block" /> Present
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="w-3 h-3 rounded-full bg-red-200 inline-block" /> Absent
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="w-3 h-3 rounded-full bg-orange-300 inline-block" /> Excused
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="w-3 h-3 rounded-full bg-gray-100 inline-block" /> N/A
+              </span>
+            </div>
+            <Button
+              size="sm" variant="ghost"
+              onClick={() => refetchSummary()}
+              disabled={summaryLoading}
+            >
+              <RefreshCw className={`w-4 h-4 ${summaryLoading ? "animate-spin" : ""}`} />
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent className="p-0">
+          {summaryLoading ? (
+            <div className="flex justify-center py-10">
+              <RefreshCw className="w-6 h-6 animate-spin text-blue-600" />
+            </div>
+          ) : !summary || summary.staff.length === 0 ? (
+            <div className="text-center py-10 text-gray-400">
+              <Users className="w-10 h-10 mx-auto mb-2 opacity-20" />
+              <p className="text-sm">No active staff found.</p>
+            </div>
+          ) : (
+            <>
+              {/* Mobile: expandable cards */}
+              <div className="md:hidden px-3 pb-3 space-y-2">
+                <div className="flex items-center gap-3 px-1 py-2 text-[10px] text-gray-400 font-medium">
+                  <div className="flex items-center gap-0.5">
+                    {SERVICE_1.map(l => <div key={l} className="w-3.5 h-3.5 rounded-full bg-gray-200 flex items-center justify-center text-[8px] text-gray-500">{INTERVAL_DISPLAY[l].replace(":","")}</div>)}
+                    <div className="w-3.5 h-3.5 rounded-sm bg-gray-200 mx-0.5" title="Out 1st" />
+                    <div className="w-px h-3.5 bg-gray-200 mx-0.5" />
+                    {SERVICE_2.map(l => <div key={l} className="w-3.5 h-3.5 rounded-full bg-gray-200 flex items-center justify-center text-[8px] text-gray-500">{INTERVAL_DISPLAY[l].replace(":","")}</div>)}
+                    <div className="w-3.5 h-3.5 rounded-sm bg-gray-200 mx-0.5" title="Out 2nd" />
+                  </div>
+                  <span>tap to expand</span>
+                </div>
+                {summary.staff.map(row => <StaffCard key={row.userId} row={row} />)}
+              </div>
+
+              {/* Desktop: full table */}
+              <div className="hidden md:block overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-blue-50 border-b">
+                      <th className="text-left px-4 py-3 font-semibold text-blue-900 min-w-[180px]">Staff</th>
+                      {SERVICE_1.map(lbl => (
+                        <th key={lbl} className="px-2 py-3 text-center font-semibold text-blue-700 min-w-[64px]">
+                          <div className="text-xs">{INTERVAL_DISPLAY[lbl]}</div>
+                          <div className="text-[10px] text-blue-400 font-normal">1st</div>
+                        </th>
+                      ))}
+                      <th className="px-2 py-3 text-center min-w-[56px]">
+                        <div className="text-xs font-semibold text-amber-700">Out</div>
+                        <div className="text-[10px] text-amber-400 font-normal">1st</div>
+                      </th>
+                      {SERVICE_2.map(lbl => (
+                        <th key={lbl} className="px-2 py-3 text-center font-semibold text-purple-700 min-w-[64px]">
+                          <div className="text-xs">{INTERVAL_DISPLAY[lbl]}</div>
+                          <div className="text-[10px] text-purple-400 font-normal">2nd</div>
+                        </th>
+                      ))}
+                      <th className="px-2 py-3 text-center min-w-[56px]">
+                        <div className="text-xs font-semibold text-amber-700">Out</div>
+                        <div className="text-[10px] text-amber-400 font-normal">2nd</div>
+                      </th>
+                      <th className="px-3 py-3 text-center text-xs font-semibold text-gray-500 min-w-[56px]">Score</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {summary.staff.map((row, i) => <TableRow key={row.userId} row={row} i={i} />)}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }
