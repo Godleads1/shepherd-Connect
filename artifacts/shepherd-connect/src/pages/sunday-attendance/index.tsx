@@ -248,7 +248,8 @@ function TableRow({ row, i }: { row: StaffRow; i: number }) {
           </div>
         </div>
       </td>
-      {ALL_INTERVALS.map(lbl => {
+      {/* 1st service checkpoints */}
+      {SERVICE_1.map(lbl => {
         const cp = row.checkpoints.find(c => c.intervalLabel === lbl);
         return (
           <td key={lbl} className="px-2 py-3 text-center">
@@ -265,6 +266,7 @@ function TableRow({ row, i }: { row: StaffRow; i: number }) {
           </td>
         );
       })}
+      {/* Clock-out 1st service */}
       <td className="px-2 py-3 text-center">
         {firstOut ? (
           <div className="flex flex-col items-center gap-0.5">
@@ -273,6 +275,25 @@ function TableRow({ row, i }: { row: StaffRow; i: number }) {
           </div>
         ) : <span className="text-gray-200 text-xs">—</span>}
       </td>
+      {/* 2nd service checkpoints */}
+      {SERVICE_2.map(lbl => {
+        const cp = row.checkpoints.find(c => c.intervalLabel === lbl);
+        return (
+          <td key={lbl} className="px-2 py-3 text-center">
+            {cp?.scanned ? (
+              <div className="flex flex-col items-center gap-0.5">
+                <CheckCircle2 className="w-4 h-4 text-green-500" />
+                {cp.scannedAt && (
+                  <span className="text-[10px] text-gray-400">{fmtTime(cp.scannedAt)}</span>
+                )}
+              </div>
+            ) : (
+              <XCircle className="w-4 h-4 text-red-200 mx-auto" />
+            )}
+          </td>
+        );
+      })}
+      {/* Clock-out 2nd service */}
       <td className="px-2 py-3 text-center">
         {secondOut ? (
           <div className="flex flex-col items-center gap-0.5">
