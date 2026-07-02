@@ -120,7 +120,7 @@ export default function Slide3AddChildren() {
         <div style={{ fontSize: "1vw", fontWeight: 400, color: "#c7c7cc", letterSpacing: "0.02em" }}>
           Shepherd Connect · Parent Guide
         </div>
-        <div style={{ fontSize: "1vw", fontWeight: 500, color: "#86868b" }}>03</div>
+        <div style={{ fontSize: "1vw", fontWeight: 500, color: "#86868b" }}>04</div>
       </div>
     </div>
   );

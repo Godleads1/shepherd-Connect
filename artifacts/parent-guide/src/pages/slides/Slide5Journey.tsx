@@ -191,7 +191,7 @@ export default function Slide5Journey() {
         <div style={{ fontSize: "1vw", fontWeight: 400, color: "#c7c7cc", letterSpacing: "0.02em" }}>
           Shepherd Connect · Parent Guide
         </div>
-        <div style={{ fontSize: "1vw", fontWeight: 500, color: "#86868b" }}>05</div>
+        <div style={{ fontSize: "1vw", fontWeight: 500, color: "#86868b" }}>06</div>
       </div>
     </div>
   );

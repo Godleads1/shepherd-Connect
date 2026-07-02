@@ -140,7 +140,7 @@ export default function Slide4CheckIn() {
         <div style={{ fontSize: "1vw", fontWeight: 400, color: "rgba(255,255,255,0.25)", letterSpacing: "0.02em" }}>
           Shepherd Connect · Parent Guide
         </div>
-        <div style={{ fontSize: "1vw", fontWeight: 500, color: "rgba(255,255,255,0.4)" }}>04</div>
+        <div style={{ fontSize: "1vw", fontWeight: 500, color: "rgba(255,255,255,0.4)" }}>05</div>
       </div>
     </div>
   );
