@@ -474,9 +474,124 @@ function SupportGuide() {
   );
 }
 
+function ParentInfographic() {
+  const steps = [
+    { icon: "📋", label: "Register",      sub: "Sign up online or at church",  bg: "#1e3a8a", text: "#fff" },
+    { icon: "👶", label: "Add Children",  sub: "Name, class & allergies",       bg: "#2563eb", text: "#fff" },
+    { icon: "📱", label: "QR Check-In",   sub: "Scan at the kiosk",             bg: "#1e3a8a", text: "#fff" },
+    { icon: "🏫", label: "In Class",      sub: "Learning & celebrated",         bg: "#f59e0b", text: "#1d1d1f" },
+    { icon: "🚶", label: "In Transit",    sub: "Teacher walks them to you",     bg: "#d97706", text: "#fff" },
+    { icon: "✅", label: "Picked Up",     sub: "Safely checked out",            bg: "#16a34a", text: "#fff" },
+  ];
+
+  const features = [
+    {
+      icon: "👥", color: "#1e3a8a", title: "Delegate Pickup",
+      items: ["Add a trusted person", "Get a 6-digit OTP", "Share OTP with them", "They present it at kiosk"],
+    },
+    {
+      icon: "📝", color: "#7c3aed", title: "Class Change",
+      items: ["Open My Family → child", "Choose new class + reason", "Admin reviews & approves", "Child auto-moved instantly"],
+    },
+    {
+      icon: "💬", color: "#15803d", title: "WhatsApp Bot",
+      items: ["\"Where is my child?\"", "\"Generate my OTP\"", "\"Show my notifications\"", "Sunday service reminders"],
+      note: "Save +2349012345678 · text anything",
+    },
+    {
+      icon: "🔔", color: "#dc2626", title: "Real-time Alerts",
+      items: ["Child checked in", "Teacher heading to you", "Pickup confirmed", "Church broadcasts"],
+    },
+  ];
+
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+      {/* Title bar */}
+      <div className="px-5 py-4 flex items-center gap-3 border-b border-gray-100"
+        style={{ background: "linear-gradient(135deg, #172554 0%, #1e3a8a 100%)" }}>
+        <span className="text-xl">🗺️</span>
+        <div>
+          <p className="font-bold text-white text-sm">App at a Glance</p>
+          <p className="text-white/60 text-xs">Everything a parent needs to know, pictured</p>
+        </div>
+      </div>
+
+      <div className="p-5 space-y-5">
+        {/* Journey */}
+        <div>
+          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3">
+            Your child's Sunday journey
+          </p>
+          <div className="flex gap-0 overflow-x-auto pb-1 -mx-1 px-1">
+            {steps.map((step, i) => (
+              <div key={step.label} className="flex items-center flex-shrink-0">
+                <div className="flex flex-col items-center text-center" style={{ minWidth: "72px" }}>
+                  <div
+                    className="w-12 h-12 rounded-full flex items-center justify-center text-xl mb-1.5 shadow-sm flex-shrink-0"
+                    style={{ backgroundColor: step.bg, color: step.text }}
+                  >
+                    {step.icon}
+                  </div>
+                  <p className="text-[11px] font-bold text-gray-800 leading-tight">{step.label}</p>
+                  <p className="text-[10px] text-gray-400 leading-tight mt-0.5 max-w-[64px]">{step.sub}</p>
+                </div>
+                {i < steps.length - 1 && (
+                  <span className="text-gray-300 text-base mx-0.5 mb-4 flex-shrink-0">→</span>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Feature cards */}
+        <div className="grid grid-cols-2 gap-2.5">
+          {features.map(feat => (
+            <div
+              key={feat.title}
+              className="rounded-xl border border-gray-100 p-3 relative overflow-hidden"
+              style={{ backgroundColor: "#fafafa" }}
+            >
+              <div
+                className="absolute top-0 left-0 right-0 h-1 rounded-t-xl"
+                style={{ backgroundColor: feat.color }}
+              />
+              <div className="flex items-center gap-2 mt-1 mb-2">
+                <div
+                  className="w-7 h-7 rounded-lg flex items-center justify-center text-base flex-shrink-0"
+                  style={{ backgroundColor: feat.color + "18" }}
+                >
+                  {feat.icon}
+                </div>
+                <p className="text-xs font-bold text-gray-800">{feat.title}</p>
+              </div>
+              <ul className="space-y-0.5">
+                {feat.items.map(item => (
+                  <li key={item} className="flex items-start gap-1.5 text-[11px] text-gray-600">
+                    <span className="mt-0.5 flex-shrink-0 text-[9px]" style={{ color: feat.color }}>●</span>
+                    {item}
+                  </li>
+                ))}
+              </ul>
+              {feat.note && (
+                <div
+                  className="mt-2 rounded-lg px-2 py-1 text-[10px] font-semibold text-center"
+                  style={{ backgroundColor: "#f0fdf4", color: "#15803d" }}
+                >
+                  {feat.note}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ParentGuide() {
   return (
     <div className="space-y-4">
+      <ParentInfographic />
       <Section icon={Home} title="Getting Started — Registration" color="#d97706">
         <p className="text-sm text-gray-600 mt-3">New to Shepherd Connect? Here is how to register your family in three steps.</p>
         <div className="space-y-2 mt-2">
