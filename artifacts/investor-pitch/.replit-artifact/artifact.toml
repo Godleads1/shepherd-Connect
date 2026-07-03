@@ -1,0 +1,31 @@
+kind = "slides"
+previewPath = "/investor-pitch/"
+title = "Shepherd Connect — Investor Pitch"
+version = "1.0.0"
+id = "artifacts/investor-pitch"
+router = "path"
+
+[[integratedSkills]]
+name = "slides"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/investor-pitch/" ]
+localPort = 21160
+
+[services.development]
+run = "pnpm --filter @workspace/investor-pitch run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/investor-pitch", "run", "build" ]
+publicDir = "artifacts/investor-pitch/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "21160"
+BASE_PATH = "/investor-pitch/"
