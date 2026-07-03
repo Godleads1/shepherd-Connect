@@ -1,1 +1,82 @@
-[]
+[
+  {
+    "id": "a1b2c3d4-0001-4000-8000-000000000001",
+    "position": 1,
+    "filepath": "src/pages/slides/Title.tsx",
+    "title": "Shepherd Connect",
+    "description": "Title slide with tagline and headline product stats",
+    "speakerNotes": ""
+  },
+  {
+    "id": "a1b2c3d4-0002-4000-8000-000000000002",
+    "position": 2,
+    "filepath": "src/pages/slides/Problem.tsx",
+    "title": "The Problem",
+    "description": "Pain points in current children's ministry check-in and pickup",
+    "speakerNotes": ""
+  },
+  {
+    "id": "a1b2c3d4-0003-4000-8000-000000000003",
+    "position": 3,
+    "filepath": "src/pages/slides/Solution.tsx",
+    "title": "The Solution",
+    "description": "Shepherd Connect platform overview and key capabilities",
+    "speakerNotes": ""
+  },
+  {
+    "id": "a1b2c3d4-0004-4000-8000-000000000004",
+    "position": 4,
+    "filepath": "src/pages/slides/BuiltToday.tsx",
+    "title": "Built and Working Today",
+    "description": "Product status: modules, roles, data model",
+    "speakerNotes": ""
+  },
+  {
+    "id": "a1b2c3d4-0005-4000-8000-000000000005",
+    "position": 5,
+    "filepath": "src/pages/slides/PickupFlow.tsx",
+    "title": "How Check-In and Pickup Work",
+    "description": "Five-step process from check-in to verified pickup",
+    "speakerNotes": ""
+  },
+  {
+    "id": "a1b2c3d4-0006-4000-8000-000000000006",
+    "position": 6,
+    "filepath": "src/pages/slides/Operations.tsx",
+    "title": "Built for the Realities of Ministry Operations",
+    "description": "Operational features: ratios, reports, approvals, class changes",
+    "speakerNotes": ""
+  },
+  {
+    "id": "a1b2c3d4-0007-4000-8000-000000000007",
+    "position": 7,
+    "filepath": "src/pages/slides/BusinessModel.tsx",
+    "title": "Business Model",
+    "description": "Two potential revenue paths and early target market",
+    "speakerNotes": ""
+  },
+  {
+    "id": "a1b2c3d4-0008-4000-8000-000000000008",
+    "position": 8,
+    "filepath": "src/pages/slides/WhyNow.tsx",
+    "title": "Why Now",
+    "description": "Market timing and differentiation from existing church software",
+    "speakerNotes": ""
+  },
+  {
+    "id": "a1b2c3d4-0009-4000-8000-000000000009",
+    "position": 9,
+    "filepath": "src/pages/slides/TheAsk.tsx",
+    "title": "The Ask",
+    "description": "Seed funding use of proceeds",
+    "speakerNotes": ""
+  },
+  {
+    "id": "a1b2c3d4-0010-4000-8000-000000000010",
+    "position": 10,
+    "filepath": "src/pages/slides/Closing.tsx",
+    "title": "Let's Talk",
+    "description": "Closing brand slide with contact placeholder",
+    "speakerNotes": ""
+  }
+]

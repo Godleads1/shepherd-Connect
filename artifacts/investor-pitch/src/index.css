@@ -38,11 +38,11 @@
 }
 
 :root {
-  /* Replace these with brand colors */
-  --slide-primary: #4f46e5;
-  --slide-accent: #06b6d4;
-  --slide-bg: #f8fafc;
-  --slide-text: #0f172a;
+  /* Shepherd Connect brand: Deep Royal Blue + Warm Gold on the Analytics Dashboard template */
+  --slide-primary: #1e3a8a;
+  --slide-accent: #f59e0b;
+  --slide-bg: #fafbfc;
+  --slide-text: #1e293b;
   --slide-muted: #64748b;
   --font-display-family: "Inter", system-ui, sans-serif;
   --font-body-family: "Inter", system-ui, sans-serif;
