@@ -12,20 +12,15 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 
-const INTERVAL_LABELS: Record<string, string> = {
-  "07:00": "7:00 AM — 1st Service",
-  "08:30": "8:30 AM — 1st Service",
-  "09:30": "9:30 AM — 1st Service",
-  "10:00": "10:00 AM — 2nd Service",
-  "11:00": "11:00 AM — 2nd Service",
-  "12:00": "12:00 PM — 2nd Service",
+const SERVICE_LABELS: Record<string, string> = {
+  "1st": "1st Service",
+  "2nd": "2nd Service",
 };
 
 type ScanResult = {
   ok: boolean;
   duplicate: boolean;
   message: string;
-  intervalLabel?: string;
   service?: string;
   scannedAt?: string;
 };
@@ -187,10 +182,10 @@ export default function ScanPage() {
   }
   if (!user) return null;
 
-  const checkpoints    = myScans.filter(s => s.scanType === "checkpoint");
+  const checkIns       = myScans.filter(s => s.scanType === "checkpoint");
   const clockOuts      = myScans.filter(s => s.scanType === "clock_out");
   const emergencyOuts  = myScans.filter(s => s.scanType === "emergency_out");
-  const alreadyIn      = checkpoints.length > 0;
+  const alreadyIn      = checkIns.length > 0;
   const alreadyOut     = clockOuts.length > 0 || emergencyOuts.length > 0 || clockOutDone || emergencyDone;
   const showClockOut   = (hasScanned || alreadyIn) && !alreadyOut;
 
@@ -340,10 +335,10 @@ export default function ScanPage() {
                   {scanResult.duplicate ? "Already Recorded" : "Checked In!"}
                 </p>
                 <p className="text-blue-200 text-sm">{scanResult.message}</p>
-                {scanResult.intervalLabel && (
+                {scanResult.service && (
                   <div className="bg-blue-900/60 rounded-lg px-3 py-2 inline-block">
                     <p className="text-yellow-400 font-medium text-sm">
-                      {INTERVAL_LABELS[scanResult.intervalLabel] ?? scanResult.intervalLabel}
+                      {SERVICE_LABELS[scanResult.service] ?? scanResult.service}
                     </p>
                   </div>
                 )}
@@ -407,14 +402,14 @@ export default function ScanPage() {
               <p className="text-blue-300 text-xs font-medium uppercase tracking-wider">
                 Your record today
               </p>
-              {checkpoints.map(s => (
+              {checkIns.map(s => (
                 <div key={s.id}
                   className="flex items-center justify-between bg-blue-800/30 rounded-xl px-3 py-2.5">
                   <div className="flex items-center gap-2">
                     <CheckCircle2 className="w-4 h-4 text-green-400 flex-shrink-0" />
                     <span className="text-white text-sm">
-                      {s.intervalLabel
-                        ? (INTERVAL_LABELS[s.intervalLabel] ?? s.intervalLabel)
+                      {s.service
+                        ? `Checked in — ${SERVICE_LABELS[s.service] ?? s.service}`
                         : "Checked in"}
                     </span>
                   </div>

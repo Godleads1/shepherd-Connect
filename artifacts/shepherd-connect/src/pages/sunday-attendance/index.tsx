@@ -9,21 +9,10 @@ import {
   ChevronDown, ChevronUp, AlertTriangle,
 } from "lucide-react";
 
-const SERVICE_1 = ["07:00", "08:30", "09:30"] as const;
-const SERVICE_2 = ["10:00", "11:00", "12:00"] as const;
-const ALL_INTERVALS = [...SERVICE_1, ...SERVICE_2] as const;
+const SERVICES = ["1st", "2nd"] as const;
 
-const INTERVAL_DISPLAY: Record<string, string> = {
-  "07:00": "7:00",
-  "08:30": "8:30",
-  "09:30": "9:30",
-  "10:00": "10:00",
-  "11:00": "11:00",
-  "12:00": "12:00",
-};
-
-type Checkpoint = { intervalLabel: string; scanned: boolean; scannedAt: string | null };
-type ClockOut   = { service: string | null; scannedAt: string };
+type CheckIn = { service: "1st" | "2nd"; scanned: boolean; scannedAt: string | null };
+type ClockOut = { service: string | null; scannedAt: string };
 type EmergencyOut = { service: string | null; exitedAt: Date; reason: string | null } | null;
 
 type StaffRow = {
@@ -32,7 +21,7 @@ type StaffRow = {
   lastName: string;
   role: string;
   photoUrl: string | null;
-  checkpoints: Checkpoint[];
+  checkIns: CheckIn[];
   clockOuts: ClockOut[];
   emergencyOut: EmergencyOut;
   scheduledService: "1st" | "2nd" | "both";
@@ -45,7 +34,7 @@ type StaffRow = {
 type SummaryData = {
   date: string;
   hasQr: boolean;
-  intervals: string[];
+  services: string[];
   staff: StaffRow[];
   stats: { total: number; present: number; absent: number; fullDay: number };
 };
@@ -79,30 +68,15 @@ function roleBadge(role: string) {
 
 function scoreColor(n: number, max: number) {
   if (n >= max) return "bg-green-100 text-green-700";
-  if (n >= Math.ceil(max / 2)) return "bg-yellow-100 text-yellow-700";
   if (n > 0)  return "bg-orange-100 text-orange-700";
   return "bg-red-50 text-red-400";
 }
 
-/** Is this interval in an unscheduled service for this staff member? */
-function isUnscheduled(intervalLabel: string, scheduledService: "1st" | "2nd" | "both"): boolean {
-  if (scheduledService === "both") return false;
-  if (scheduledService === "1st") return (SERVICE_2 as readonly string[]).includes(intervalLabel);
-  return (SERVICE_1 as readonly string[]).includes(intervalLabel);
-}
-
-/** Was an emergency exit from the service that owns this interval? */
-function isEmergencyService(intervalLabel: string, emergencyOut: EmergencyOut): boolean {
-  if (!emergencyOut?.service) return false;
-  const svc1 = (SERVICE_1 as readonly string[]).includes(intervalLabel) ? "1st" : "2nd";
-  return svc1 === emergencyOut.service;
-}
-
-/** Mini dot-row showing scanned/missed per interval */
+/** Mini dot-row showing check-in/out per service */
 function DotRow({
-  checkpoints, clockOuts, emergencyOut, scheduledService,
+  checkIns, clockOuts, emergencyOut, scheduledService,
 }: {
-  checkpoints: Checkpoint[];
+  checkIns: CheckIn[];
   clockOuts: ClockOut[];
   emergencyOut: EmergencyOut;
   scheduledService: "1st" | "2nd" | "both";
@@ -111,27 +85,21 @@ function DotRow({
   const secondOut = clockOuts.find(c => c.service === "2nd");
   const emg1st = emergencyOut?.service === "1st";
   const emg2nd = emergencyOut?.service === "2nd";
+  const in1st = checkIns.find(c => c.service === "1st")?.scanned;
+  const in2nd = checkIns.find(c => c.service === "2nd")?.scanned;
+
   return (
     <div className="flex items-center gap-0.5 flex-wrap">
       {/* 1st service */}
-      {SERVICE_1.map(lbl => {
-        const ok  = checkpoints.find(c => c.intervalLabel === lbl)?.scanned;
-        const na  = scheduledService === "2nd";
-        const exc = !ok && emg1st;
-        return (
-          <div
-            key={lbl}
-            title={na ? "Not scheduled" : `${INTERVAL_DISPLAY[lbl]} AM (1st)`}
-            className={`w-3.5 h-3.5 rounded-full ${
-              na  ? "bg-gray-100" :
-              ok  ? "bg-green-500" :
-              exc ? "bg-orange-300" :
-                    "bg-red-200"
-            }`}
-          />
-        );
-      })}
-      {/* clock-out 1st */}
+      <div
+        title={scheduledService === "2nd" ? "Not scheduled" : "1st Service check-in"}
+        className={`w-3.5 h-3.5 rounded-full ${
+          scheduledService === "2nd" ? "bg-gray-100" :
+          in1st ? "bg-green-500" :
+          emg1st ? "bg-orange-300" :
+                   "bg-red-200"
+        }`}
+      />
       <div
         title={emg1st ? "Emergency exit" : "Clock-out 1st"}
         className={`w-3.5 h-3.5 rounded-sm ${
@@ -142,24 +110,15 @@ function DotRow({
       />
       <div className="w-0.5 h-3.5 bg-gray-200 rounded mx-0.5" />
       {/* 2nd service */}
-      {SERVICE_2.map(lbl => {
-        const ok  = checkpoints.find(c => c.intervalLabel === lbl)?.scanned;
-        const na  = scheduledService === "1st";
-        const exc = !ok && emg2nd;
-        return (
-          <div
-            key={lbl}
-            title={na ? "Not scheduled" : `${INTERVAL_DISPLAY[lbl]} (2nd)`}
-            className={`w-3.5 h-3.5 rounded-full ${
-              na  ? "bg-gray-100" :
-              ok  ? "bg-green-500" :
-              exc ? "bg-orange-300" :
-                    "bg-red-200"
-            }`}
-          />
-        );
-      })}
-      {/* clock-out 2nd */}
+      <div
+        title={scheduledService === "1st" ? "Not scheduled" : "2nd Service check-in"}
+        className={`w-3.5 h-3.5 rounded-full ${
+          scheduledService === "1st" ? "bg-gray-100" :
+          in2nd ? "bg-green-500" :
+          emg2nd ? "bg-orange-300" :
+                   "bg-red-200"
+        }`}
+      />
       <div
         title={emg2nd ? "Emergency exit" : "Clock-out 2nd"}
         className={`w-3.5 h-3.5 rounded-sm ${
@@ -179,6 +138,8 @@ function StaffCard({ row }: { row: StaffRow }) {
   const secondOut = row.clockOuts.find(c => c.service === "2nd");
   const emg1st    = row.emergencyOut?.service === "1st";
   const emg2nd    = row.emergencyOut?.service === "2nd";
+  const in1st = row.checkIns.find(c => c.service === "1st");
+  const in2nd = row.checkIns.find(c => c.service === "2nd");
 
   return (
     <div className="border rounded-xl bg-white shadow-sm overflow-hidden">
@@ -211,7 +172,7 @@ function StaffCard({ row }: { row: StaffRow }) {
               {row.role}
             </span>
             <DotRow
-              checkpoints={row.checkpoints}
+              checkIns={row.checkIns}
               clockOuts={row.clockOuts}
               emergencyOut={row.emergencyOut}
               scheduledService={row.scheduledService}
@@ -237,41 +198,29 @@ function StaffCard({ row }: { row: StaffRow }) {
                 <span className="ml-2 font-normal text-gray-400 normal-case">(not scheduled)</span>
               )}
             </p>
-            <div className="grid grid-cols-3 gap-2">
-              {SERVICE_1.map(lbl => {
-                const cp  = row.checkpoints.find(c => c.intervalLabel === lbl);
-                const na  = row.scheduledService === "2nd";
-                const exc = !cp?.scanned && emg1st;
-                const disp = `${INTERVAL_DISPLAY[lbl]} AM`;
-                if (na) {
-                  return (
-                    <div key={lbl} className="rounded-lg p-2 text-center bg-gray-50 border border-gray-100">
-                      <p className="text-xs font-medium text-gray-400">{disp}</p>
-                      <span className="text-[10px] text-gray-300 mt-1 block">N/A</span>
-                    </div>
-                  );
-                }
-                return (
-                  <div key={lbl} className={`rounded-lg p-2 text-center ${
-                    cp?.scanned ? "bg-green-50 border border-green-200" :
-                    exc ? "bg-orange-50 border border-orange-100" :
-                    "bg-red-50 border border-red-100"
-                  }`}>
-                    <p className="text-xs font-medium text-gray-700">{disp}</p>
-                    {cp?.scanned ? (
-                      <>
-                        <CheckCircle2 className="w-4 h-4 text-green-500 mx-auto mt-1" />
-                        <p className="text-[10px] text-gray-500 mt-0.5">{cp.scannedAt ? fmtTime(cp.scannedAt) : ""}</p>
-                      </>
-                    ) : exc ? (
-                      <AlertTriangle className="w-4 h-4 text-orange-400 mx-auto mt-1" />
-                    ) : (
-                      <XCircle className="w-4 h-4 text-red-300 mx-auto mt-1" />
-                    )}
-                  </div>
-                );
-              })}
-            </div>
+            {row.scheduledService === "2nd" ? (
+              <div className="rounded-lg p-2 text-center bg-gray-50 border border-gray-100">
+                <span className="text-[10px] text-gray-300">N/A</span>
+              </div>
+            ) : (
+              <div className={`rounded-lg p-2 text-center ${
+                in1st?.scanned ? "bg-green-50 border border-green-200" :
+                emg1st ? "bg-orange-50 border border-orange-100" :
+                "bg-red-50 border border-red-100"
+              }`}>
+                <p className="text-xs font-medium text-gray-700">Check-in</p>
+                {in1st?.scanned ? (
+                  <>
+                    <CheckCircle2 className="w-4 h-4 text-green-500 mx-auto mt-1" />
+                    <p className="text-[10px] text-gray-500 mt-0.5">{in1st.scannedAt ? fmtTime(in1st.scannedAt) : ""}</p>
+                  </>
+                ) : emg1st ? (
+                  <AlertTriangle className="w-4 h-4 text-orange-400 mx-auto mt-1" />
+                ) : (
+                  <XCircle className="w-4 h-4 text-red-300 mx-auto mt-1" />
+                )}
+              </div>
+            )}
             {firstOut && row.scheduledService !== "2nd" && (
               <div className="mt-2 flex items-center gap-2 text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-1.5">
                 <LogOut className="w-3.5 h-3.5" />
@@ -293,41 +242,29 @@ function StaffCard({ row }: { row: StaffRow }) {
                 <span className="ml-2 font-normal text-gray-400 normal-case">(not scheduled)</span>
               )}
             </p>
-            <div className="grid grid-cols-3 gap-2">
-              {SERVICE_2.map(lbl => {
-                const cp  = row.checkpoints.find(c => c.intervalLabel === lbl);
-                const na  = row.scheduledService === "1st";
-                const exc = !cp?.scanned && emg2nd;
-                const disp = lbl === "12:00" ? "12:00 PM" : `${INTERVAL_DISPLAY[lbl]} AM`;
-                if (na) {
-                  return (
-                    <div key={lbl} className="rounded-lg p-2 text-center bg-gray-50 border border-gray-100">
-                      <p className="text-xs font-medium text-gray-400">{disp}</p>
-                      <span className="text-[10px] text-gray-300 mt-1 block">N/A</span>
-                    </div>
-                  );
-                }
-                return (
-                  <div key={lbl} className={`rounded-lg p-2 text-center ${
-                    cp?.scanned ? "bg-green-50 border border-green-200" :
-                    exc ? "bg-orange-50 border border-orange-100" :
-                    "bg-red-50 border border-red-100"
-                  }`}>
-                    <p className="text-xs font-medium text-gray-700">{disp}</p>
-                    {cp?.scanned ? (
-                      <>
-                        <CheckCircle2 className="w-4 h-4 text-green-500 mx-auto mt-1" />
-                        <p className="text-[10px] text-gray-500 mt-0.5">{cp.scannedAt ? fmtTime(cp.scannedAt) : ""}</p>
-                      </>
-                    ) : exc ? (
-                      <AlertTriangle className="w-4 h-4 text-orange-400 mx-auto mt-1" />
-                    ) : (
-                      <XCircle className="w-4 h-4 text-red-300 mx-auto mt-1" />
-                    )}
-                  </div>
-                );
-              })}
-            </div>
+            {row.scheduledService === "1st" ? (
+              <div className="rounded-lg p-2 text-center bg-gray-50 border border-gray-100">
+                <span className="text-[10px] text-gray-300">N/A</span>
+              </div>
+            ) : (
+              <div className={`rounded-lg p-2 text-center ${
+                in2nd?.scanned ? "bg-green-50 border border-green-200" :
+                emg2nd ? "bg-orange-50 border border-orange-100" :
+                "bg-red-50 border border-red-100"
+              }`}>
+                <p className="text-xs font-medium text-gray-700">Check-in</p>
+                {in2nd?.scanned ? (
+                  <>
+                    <CheckCircle2 className="w-4 h-4 text-green-500 mx-auto mt-1" />
+                    <p className="text-[10px] text-gray-500 mt-0.5">{in2nd.scannedAt ? fmtTime(in2nd.scannedAt) : ""}</p>
+                  </>
+                ) : emg2nd ? (
+                  <AlertTriangle className="w-4 h-4 text-orange-400 mx-auto mt-1" />
+                ) : (
+                  <XCircle className="w-4 h-4 text-red-300 mx-auto mt-1" />
+                )}
+              </div>
+            )}
             {secondOut && row.scheduledService !== "1st" && (
               <div className="mt-2 flex items-center gap-2 text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-1.5">
                 <LogOut className="w-3.5 h-3.5" />
@@ -368,21 +305,23 @@ function TableRow({ row, i }: { row: StaffRow; i: number }) {
   const secondOut = row.clockOuts.find(c => c.service === "2nd");
   const emg1st    = row.emergencyOut?.service === "1st";
   const emg2nd    = row.emergencyOut?.service === "2nd";
+  const in1st = row.checkIns.find(c => c.service === "1st");
+  const in2nd = row.checkIns.find(c => c.service === "2nd");
 
-  function checkpointCell(lbl: string) {
-    const cp  = row.checkpoints.find(c => c.intervalLabel === lbl);
-    const na  = isUnscheduled(lbl, row.scheduledService);
-    const exc = !cp?.scanned && isEmergencyService(lbl, row.emergencyOut);
+  function checkInCell(svc: "1st" | "2nd") {
+    const cp  = svc === "1st" ? in1st : in2nd;
+    const na  = row.scheduledService !== "both" && row.scheduledService !== svc;
+    const exc = !cp?.scanned && (svc === "1st" ? emg1st : emg2nd);
 
     if (na) {
       return (
-        <td key={lbl} className="px-2 py-3 text-center">
+        <td className="px-2 py-3 text-center">
           <span className="text-gray-200 text-xs">—</span>
         </td>
       );
     }
     return (
-      <td key={lbl} className="px-2 py-3 text-center">
+      <td className="px-2 py-3 text-center">
         {cp?.scanned ? (
           <div className="flex flex-col items-center gap-0.5">
             <CheckCircle2 className="w-4 h-4 text-green-500" />
@@ -430,8 +369,8 @@ function TableRow({ row, i }: { row: StaffRow; i: number }) {
         </div>
       </td>
 
-      {/* 1st service checkpoints */}
-      {SERVICE_1.map(lbl => checkpointCell(lbl))}
+      {/* 1st service check-in */}
+      {checkInCell("1st")}
 
       {/* Clock-out / Emergency — 1st service */}
       <td className="px-2 py-3 text-center">
@@ -450,8 +389,8 @@ function TableRow({ row, i }: { row: StaffRow; i: number }) {
         ) : <span className="text-gray-200 text-xs">—</span>}
       </td>
 
-      {/* 2nd service checkpoints */}
-      {SERVICE_2.map(lbl => checkpointCell(lbl))}
+      {/* 2nd service check-in */}
+      {checkInCell("2nd")}
 
       {/* Clock-out / Emergency — 2nd service */}
       <td className="px-2 py-3 text-center">
@@ -690,10 +629,10 @@ export default function SundayAttendancePage() {
               <div className="md:hidden px-3 pb-3 space-y-2">
                 <div className="flex items-center gap-3 px-1 py-2 text-[10px] text-gray-400 font-medium">
                   <div className="flex items-center gap-0.5">
-                    {SERVICE_1.map(l => <div key={l} className="w-3.5 h-3.5 rounded-full bg-gray-200 flex items-center justify-center text-[8px] text-gray-500">{INTERVAL_DISPLAY[l].replace(":","")}</div>)}
+                    <div className="w-3.5 h-3.5 rounded-full bg-gray-200 flex items-center justify-center text-[8px] text-gray-500">In</div>
                     <div className="w-3.5 h-3.5 rounded-sm bg-gray-200 mx-0.5" title="Out 1st" />
                     <div className="w-px h-3.5 bg-gray-200 mx-0.5" />
-                    {SERVICE_2.map(l => <div key={l} className="w-3.5 h-3.5 rounded-full bg-gray-200 flex items-center justify-center text-[8px] text-gray-500">{INTERVAL_DISPLAY[l].replace(":","")}</div>)}
+                    <div className="w-3.5 h-3.5 rounded-full bg-gray-200 flex items-center justify-center text-[8px] text-gray-500">In</div>
                     <div className="w-3.5 h-3.5 rounded-sm bg-gray-200 mx-0.5" title="Out 2nd" />
                   </div>
                   <span>tap to expand</span>
@@ -707,22 +646,18 @@ export default function SundayAttendancePage() {
                   <thead>
                     <tr className="bg-blue-50 border-b">
                       <th className="text-left px-4 py-3 font-semibold text-blue-900 min-w-[180px]">Staff</th>
-                      {SERVICE_1.map(lbl => (
-                        <th key={lbl} className="px-2 py-3 text-center font-semibold text-blue-700 min-w-[64px]">
-                          <div className="text-xs">{INTERVAL_DISPLAY[lbl]}</div>
-                          <div className="text-[10px] text-blue-400 font-normal">1st</div>
-                        </th>
-                      ))}
+                      <th className="px-2 py-3 text-center font-semibold text-blue-700 min-w-[64px]">
+                        <div className="text-xs">Check-in</div>
+                        <div className="text-[10px] text-blue-400 font-normal">1st</div>
+                      </th>
                       <th className="px-2 py-3 text-center min-w-[56px]">
                         <div className="text-xs font-semibold text-amber-700">Out</div>
                         <div className="text-[10px] text-amber-400 font-normal">1st</div>
                       </th>
-                      {SERVICE_2.map(lbl => (
-                        <th key={lbl} className="px-2 py-3 text-center font-semibold text-purple-700 min-w-[64px]">
-                          <div className="text-xs">{INTERVAL_DISPLAY[lbl]}</div>
-                          <div className="text-[10px] text-purple-400 font-normal">2nd</div>
-                        </th>
-                      ))}
+                      <th className="px-2 py-3 text-center font-semibold text-purple-700 min-w-[64px]">
+                        <div className="text-xs">Check-in</div>
+                        <div className="text-[10px] text-purple-400 font-normal">2nd</div>
+                      </th>
                       <th className="px-2 py-3 text-center min-w-[56px]">
                         <div className="text-xs font-semibold text-amber-700">Out</div>
                         <div className="text-[10px] text-amber-400 font-normal">2nd</div>

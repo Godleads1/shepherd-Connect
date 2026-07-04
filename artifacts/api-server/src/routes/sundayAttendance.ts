@@ -18,22 +18,11 @@ import { sendNotification } from "../lib/notify";
 const router = Router();
 
 export const STAFF_ROLES = ["teacher", "support", "attendant", "admin", "super_admin"];
-export const INTERVALS = ["07:00", "08:30", "09:30", "10:00", "11:00", "12:00"] as const;
 
 const WAT_OFFSET_MS = 60 * 60 * 1000;
 
 function toWAT(date: Date): Date {
   return new Date(date.getTime() + WAT_OFFSET_MS);
-}
-
-function getIntervalLabel(watHour: number, watMinute: number): string {
-  const totalMin = watHour * 60 + watMinute;
-  if (totalMin < 8 * 60 + 15) return "07:00";
-  if (totalMin < 9 * 60 + 15) return "08:30";
-  if (totalMin < 10 * 60)     return "09:30";
-  if (totalMin < 10 * 60 + 45) return "10:00";
-  if (totalMin < 11 * 60 + 45) return "11:00";
-  return "12:00";
 }
 
 function getService(watHour: number): "1st" | "2nd" {
@@ -136,7 +125,6 @@ router.post("/sunday-attendance/scan", authMiddleware, async (req, res): Promise
   const userId = req.user!.userId;
   const now = new Date();
   const wat = toWAT(now);
-  const intervalLabel = getIntervalLabel(wat.getUTCHours(), wat.getUTCMinutes());
   const service = getService(wat.getUTCHours());
 
   const todayScans = await db
@@ -145,15 +133,14 @@ router.post("/sunday-attendance/scan", authMiddleware, async (req, res): Promise
     .where(and(eq(staffScansTable.serviceDate, date), eq(staffScansTable.userId, userId)));
 
   const alreadyScanned = todayScans.some(
-    s => s.intervalLabel === intervalLabel && s.scanType === "checkpoint"
+    s => s.service === service && s.scanType === "checkpoint"
   );
 
   if (alreadyScanned) {
     res.json({
       ok: true,
       duplicate: true,
-      message: `Already recorded for the ${intervalLabel} checkpoint`,
-      intervalLabel,
+      message: `Already checked in for the ${service} service`,
       service,
       scannedAt: formatWAT(now),
     });
@@ -165,17 +152,16 @@ router.post("/sunday-attendance/scan", authMiddleware, async (req, res): Promise
     userId,
     scannedAt: now,
     scanType: "checkpoint",
-    intervalLabel,
+    intervalLabel: null,
     service,
   });
 
-  logger.info({ userId, date, intervalLabel, service }, "sunday-attendance: scan recorded");
+  logger.info({ userId, date, service }, "sunday-attendance: check-in recorded");
 
   res.json({
     ok: true,
     duplicate: false,
-    message: `Scan recorded at ${formatWAT(now)} WAT`,
-    intervalLabel,
+    message: `Checked in at ${formatWAT(now)} WAT`,
     service,
     scannedAt: formatWAT(now),
   });
@@ -372,9 +358,6 @@ router.get("/sunday-attendance/summary", authMiddleware, async (req, res): Promi
   );
   const excusedIds = new Set(confirmedSubs.map(s => s.requestingTeacherId));
 
-  const FIRST_SERVICE = ["07:00", "08:30", "09:30"] as const;
-  const SECOND_SERVICE = ["10:00", "11:00", "12:00"] as const;
-
   function getScheduledService(userId: number, role: string): "1st" | "2nd" | "both" {
     // Non-teacher roles (support, attendant) serve both services by default
     if (role !== "teacher") return "both";
@@ -388,13 +371,15 @@ router.get("/sunday-attendance/summary", authMiddleware, async (req, res): Promi
     return "both";
   }
 
+  const SERVICES = ["1st", "2nd"] as const;
+
   const staffRows = staff.map(s => {
     const userScans = scans.filter(sc => sc.userId === s.id);
-    const checkpoints = INTERVALS.map(label => {
+    const checkIns = SERVICES.map(svc => {
       const scan = userScans.find(
-        sc => sc.intervalLabel === label && sc.scanType === "checkpoint"
+        sc => sc.service === svc && sc.scanType === "checkpoint"
       );
-      return { intervalLabel: label, scanned: !!scan, scannedAt: scan?.scannedAt ?? null };
+      return { service: svc, scanned: !!scan, scannedAt: scan?.scannedAt ?? null };
     });
     const clockOuts = userScans
       .filter(sc => sc.scanType === "clock_out")
@@ -407,15 +392,13 @@ router.get("/sunday-attendance/summary", authMiddleware, async (req, res): Promi
 
     const scheduledService = getScheduledService(s.id, s.role as string);
 
-    // Score: count checkpoints relevant to their scheduled service
-    const relevantIntervals: readonly string[] =
-      scheduledService === "1st" ? FIRST_SERVICE :
-      scheduledService === "2nd" ? SECOND_SERVICE :
-      INTERVALS;
+    // Score: count service check-ins relevant to their scheduled service
+    const relevantServices: readonly string[] =
+      scheduledService === "both" ? SERVICES : [scheduledService];
     const totalScans = userScans.filter(
-      sc => sc.scanType === "checkpoint" && sc.intervalLabel !== null && relevantIntervals.includes(sc.intervalLabel)
+      sc => sc.scanType === "checkpoint" && sc.service !== null && relevantServices.includes(sc.service)
     ).length;
-    const scoreMax = scheduledService === "both" ? 6 : 3;
+    const scoreMax = scheduledService === "both" ? 2 : 1;
 
     return {
       userId: s.id,
@@ -423,7 +406,7 @@ router.get("/sunday-attendance/summary", authMiddleware, async (req, res): Promi
       lastName: s.lastName,
       role: s.role,
       photoUrl: s.photoUrl,
-      checkpoints,
+      checkIns,
       clockOuts,
       emergencyOut,
       scheduledService,
@@ -439,7 +422,7 @@ router.get("/sunday-attendance/summary", authMiddleware, async (req, res): Promi
   res.json({
     date,
     hasQr: !!qr,
-    intervals: INTERVALS,
+    services: SERVICES,
     staff: staffRows,
     stats: {
       total: staff.length,
