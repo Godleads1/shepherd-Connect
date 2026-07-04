@@ -432,8 +432,8 @@ export default function SundayAttendancePage() {
   });
 
   const generateMutation = useMutation({
-    mutationFn: (serviceDate: string) =>
-      apiPost<QrData>("/sunday-attendance/qr/generate", { serviceDate }),
+    mutationFn: ({ serviceDate, force }: { serviceDate: string; force?: boolean }) =>
+      apiPost<QrData>("/sunday-attendance/qr/generate", { serviceDate, force: !!force }),
     onSuccess: (data: QrData) => {
       setQrData(data);
       qc.invalidateQueries({ queryKey: ["sunday-attendance-summary", date] });
@@ -515,7 +515,7 @@ export default function SundayAttendancePage() {
                   </Button>
                   <Button
                     size="sm" variant="outline"
-                    onClick={() => generateMutation.mutate(date)}
+                    onClick={() => generateMutation.mutate({ serviceDate: date, force: true })}
                     disabled={generateMutation.isPending}
                   >
                     <RefreshCw className={`w-4 h-4 mr-1 ${generateMutation.isPending ? "animate-spin" : ""}`} />
@@ -526,7 +526,7 @@ export default function SundayAttendancePage() {
             ) : (
               <Button
                 className="bg-blue-600 hover:bg-blue-700 text-white"
-                onClick={() => generateMutation.mutate(date)}
+                onClick={() => generateMutation.mutate({ serviceDate: date })}
                 disabled={generateMutation.isPending}
               >
                 {generateMutation.isPending

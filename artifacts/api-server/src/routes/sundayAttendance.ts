@@ -58,15 +58,30 @@ router.post("/sunday-attendance/qr/generate", authMiddleware, async (req, res): 
 
   const serviceDate: string =
     (req.body.serviceDate as string) ?? new Date().toISOString().slice(0, 10);
+  const force: boolean = req.body.force === true;
 
   const [existing] = await db
     .select()
     .from(sundayQrCodesTable)
     .where(eq(sundayQrCodesTable.serviceDate, serviceDate));
 
-  if (existing) {
+  if (existing && !force) {
     const qrPng = await generateQrPng(existing.token, serviceDate);
     res.json({ token: existing.token, serviceDate, qrPng, existing: true });
+    return;
+  }
+
+  if (existing && force) {
+    const newToken = crypto.randomUUID();
+    const [qr] = await db
+      .update(sundayQrCodesTable)
+      .set({ token: newToken, createdById: req.user!.userId })
+      .where(eq(sundayQrCodesTable.serviceDate, serviceDate))
+      .returning();
+
+    const qrPng = await generateQrPng(qr.token, serviceDate);
+    logger.info({ serviceDate, token: qr.token }, "sunday-attendance: QR regenerated");
+    res.status(201).json({ token: qr.token, serviceDate, qrPng, existing: false });
     return;
   }
 
