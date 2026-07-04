@@ -104,7 +104,7 @@ router.get("/sunday-attendance/qr", authMiddleware, async (req, res): Promise<vo
   res.json({ token: qr.token, serviceDate: date, qrPng });
 });
 
-// POST /sunday-attendance/scan — staff scans QR code
+// POST /sunday-attendance/scan — staff scans QR code (toggles check-in → clock-out)
 router.post("/sunday-attendance/scan", authMiddleware, async (req, res): Promise<void> => {
   const { token, date } = req.body as { token?: string; date?: string };
   if (!token || !date) {
@@ -132,91 +132,69 @@ router.post("/sunday-attendance/scan", authMiddleware, async (req, res): Promise
     .from(staffScansTable)
     .where(and(eq(staffScansTable.serviceDate, date), eq(staffScansTable.userId, userId)));
 
-  const alreadyScanned = todayScans.some(
+  const hasCheckIn = todayScans.some(
     s => s.service === service && s.scanType === "checkpoint"
   );
+  const hasClockOut = todayScans.some(
+    s => s.service === service && s.scanType === "clock_out"
+  );
 
-  if (alreadyScanned) {
+  // Already completed the full cycle for this service — same QR, no more action
+  if (hasCheckIn && hasClockOut) {
     res.json({
       ok: true,
       duplicate: true,
-      message: `Already checked in for the ${service} service`,
+      action: "already_done",
+      message: `You've already checked in and clocked out for the ${service} service`,
       service,
       scannedAt: formatWAT(now),
     });
     return;
   }
 
-  await db.insert(staffScansTable).values({
-    serviceDate: date,
-    userId,
-    scannedAt: now,
-    scanType: "checkpoint",
-    intervalLabel: null,
-    service,
-  });
+  // First scan of this service → check in
+  if (!hasCheckIn) {
+    await db.insert(staffScansTable).values({
+      serviceDate: date,
+      userId,
+      scannedAt: now,
+      scanType: "checkpoint",
+      intervalLabel: null,
+      service,
+    });
 
-  logger.info({ userId, date, service }, "sunday-attendance: check-in recorded");
+    logger.info({ userId, date, service }, "sunday-attendance: check-in recorded");
 
-  res.json({
-    ok: true,
-    duplicate: false,
-    message: `Checked in at ${formatWAT(now)} WAT`,
-    service,
-    scannedAt: formatWAT(now),
-  });
-});
-
-// POST /sunday-attendance/clock-out — staff clocks out after service
-router.post("/sunday-attendance/clock-out", authMiddleware, async (req, res): Promise<void> => {
-  const { date, service } = req.body as { date?: string; service?: string };
-  if (!date) {
-    res.status(400).json({ error: "date is required" });
-    return;
-  }
-
-  const userId = req.user!.userId;
-  const now = new Date();
-  const wat = toWAT(now);
-  const derivedService = service ?? getService(wat.getUTCHours());
-
-  const existing = await db
-    .select()
-    .from(staffScansTable)
-    .where(
-      and(
-        eq(staffScansTable.serviceDate, date),
-        eq(staffScansTable.userId, userId),
-        eq(staffScansTable.scanType, "clock_out")
-      )
-    );
-
-  const alreadyOut = existing.some(s => s.service === derivedService);
-  if (alreadyOut) {
     res.json({
       ok: true,
-      duplicate: true,
-      message: `Already clocked out from ${derivedService} service`,
+      duplicate: false,
+      action: "checked_in",
+      message: `Checked in at ${formatWAT(now)} WAT`,
+      service,
+      scannedAt: formatWAT(now),
     });
     return;
   }
 
+  // Second scan of this service → clock out
   await db.insert(staffScansTable).values({
     serviceDate: date,
     userId,
     scannedAt: now,
     scanType: "clock_out",
     intervalLabel: null,
-    service: derivedService,
+    service,
   });
 
-  logger.info({ userId, date, service: derivedService }, "sunday-attendance: clock-out recorded");
+  logger.info({ userId, date, service }, "sunday-attendance: clock-out recorded via scan");
+
   res.json({
     ok: true,
     duplicate: false,
-    message: `Clocked out from ${derivedService} service at ${formatWAT(now)} WAT`,
-    service: derivedService,
-    clockedOutAt: formatWAT(now),
+    action: "clocked_out",
+    message: `Clocked out from ${service} service at ${formatWAT(now)} WAT`,
+    service,
+    scannedAt: formatWAT(now),
   });
 });
 

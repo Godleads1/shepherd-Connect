@@ -20,16 +20,10 @@ const SERVICE_LABELS: Record<string, string> = {
 type ScanResult = {
   ok: boolean;
   duplicate: boolean;
+  action?: "checked_in" | "clocked_out" | "already_done";
   message: string;
   service?: string;
   scannedAt?: string;
-};
-
-type ClockOutResult = {
-  ok: boolean;
-  duplicate: boolean;
-  message: string;
-  service?: string;
 };
 
 type EmergencyResult = {
@@ -64,8 +58,6 @@ export default function ScanPage() {
   const [scanError,             setScanError]             = useState<string | null>(null);
   const [scanning,              setScanning]              = useState(false);
   const [hasScanned,            setHasScanned]            = useState(false);
-  const [clockOutDone,          setClockOutDone]          = useState(false);
-  const [clockOutLoading,       setClockOutLoading]       = useState(false);
   const [clockOutError,         setClockOutError]         = useState<string | null>(null);
   const [emergencyDone,         setEmergencyDone]         = useState(false);
   const [emergencyLoading,      setEmergencyLoading]      = useState(false);
@@ -108,21 +100,6 @@ export default function ScanPage() {
       setScanning(false);
     }
   }, [loadMyScans]);
-
-  const doClockOut = async () => {
-    setClockOutLoading(true);
-    setClockOutError(null);
-    try {
-      await apiPost<ClockOutResult>("/sunday-attendance/clock-out", { date });
-      setClockOutDone(true);
-      await loadMyScans();
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Clock-out failed. Please try again.";
-      setClockOutError(msg);
-    } finally {
-      setClockOutLoading(false);
-    }
-  };
 
   const doEmergencyOut = async () => {
     setEmergencyLoading(true);
@@ -186,8 +163,8 @@ export default function ScanPage() {
   const clockOuts      = myScans.filter(s => s.scanType === "clock_out");
   const emergencyOuts  = myScans.filter(s => s.scanType === "emergency_out");
   const alreadyIn      = checkIns.length > 0;
-  const alreadyOut     = clockOuts.length > 0 || emergencyOuts.length > 0 || clockOutDone || emergencyDone;
-  const showClockOut   = (hasScanned || alreadyIn) && !alreadyOut;
+  const alreadyOut     = clockOuts.length > 0 || emergencyOuts.length > 0 || emergencyDone;
+  const showEmergency  = alreadyIn && !alreadyOut && !scanning;
 
   const homeHref =
     user.role === "teacher" ? "/my-class"
@@ -271,14 +248,16 @@ export default function ScanPage() {
 
           {/* ── Primary action buttons ── */}
           <div className="space-y-3">
-            {/* Check In button — always visible unless already checked in */}
-            {!alreadyIn && !scanning && (
+            {/* Scan button — same QR code checks in first, clocks out second */}
+            {!alreadyOut && !scanning && (
               <Button
                 className="w-full h-14 text-base font-semibold bg-yellow-400 hover:bg-yellow-300 text-blue-950 rounded-2xl shadow-lg"
                 onClick={() => setCameraOpen(true)}
               >
-                <Camera className="w-5 h-5 mr-2" />
-                Check In — Scan QR Code
+                {alreadyIn
+                  ? <LogOut className="w-5 h-5 mr-2" />
+                  : <Camera className="w-5 h-5 mr-2" />}
+                {alreadyIn ? "Scan QR Code — Clock Out" : "Scan QR Code — Check In"}
               </Button>
             )}
 
@@ -292,23 +271,8 @@ export default function ScanPage() {
               </Card>
             )}
 
-            {/* Clock Out button */}
-            {showClockOut && !scanning && (
-              <Button
-                variant="outline"
-                className="w-full h-14 text-base font-semibold border-2 border-yellow-400/60 text-yellow-300 hover:bg-yellow-400/10 rounded-2xl"
-                onClick={doClockOut}
-                disabled={clockOutLoading}
-              >
-                {clockOutLoading
-                  ? <RefreshCw className="w-5 h-5 animate-spin mr-2" />
-                  : <LogOut className="w-5 h-5 mr-2" />}
-                Clock Out
-              </Button>
-            )}
-
-            {/* Emergency Exit button — only shown when checked in */}
-            {showClockOut && !scanning && (
+            {/* Emergency Exit button — only shown when checked in but not yet clocked out */}
+            {showEmergency && (
               <button
                 className="w-full py-3 text-sm font-medium text-orange-300 flex items-center justify-center gap-2 hover:text-orange-200 transition-colors"
                 onClick={() => setShowEmergencyConfirm(true)}
@@ -326,13 +290,19 @@ export default function ScanPage() {
 
           {/* ── Scan result ── */}
           {scanResult && !scanning && (
-            <Card className={`border-0 ${scanResult.duplicate ? "bg-blue-800/50" : "bg-green-800/50"}`}>
+            <Card className={`border-0 ${scanResult.action === "already_done" ? "bg-blue-800/50" : scanResult.action === "clocked_out" ? "bg-yellow-900/40" : "bg-green-800/50"}`}>
               <CardContent className="py-5 space-y-2 text-center">
-                {scanResult.duplicate
+                {scanResult.action === "already_done"
                   ? <Clock className="w-10 h-10 text-yellow-400 mx-auto" />
+                  : scanResult.action === "clocked_out"
+                  ? <LogOut className="w-10 h-10 text-yellow-400 mx-auto" />
                   : <CheckCircle2 className="w-10 h-10 text-green-400 mx-auto" />}
                 <p className="text-white font-semibold text-lg">
-                  {scanResult.duplicate ? "Already Recorded" : "Checked In!"}
+                  {scanResult.action === "already_done"
+                    ? "Already Recorded"
+                    : scanResult.action === "clocked_out"
+                    ? "Clocked Out!"
+                    : "Checked In!"}
                 </p>
                 <p className="text-blue-200 text-sm">{scanResult.message}</p>
                 {scanResult.service && (
@@ -342,15 +312,17 @@ export default function ScanPage() {
                     </p>
                   </div>
                 )}
-                <Button
-                  variant="outline" size="sm"
-                  className="mt-1 border-blue-400 text-blue-200 hover:bg-blue-800"
-                  onClick={() => { setScanResult(null); setCameraOpen(true); }}
-                  disabled={scanning}
-                >
-                  <ScanLine className="w-4 h-4 mr-1" />
-                  Scan Again
-                </Button>
+                {!alreadyOut && (
+                  <Button
+                    variant="outline" size="sm"
+                    className="mt-1 border-blue-400 text-blue-200 hover:bg-blue-800"
+                    onClick={() => { setScanResult(null); setCameraOpen(true); }}
+                    disabled={scanning}
+                  >
+                    <ScanLine className="w-4 h-4 mr-1" />
+                    Scan Again
+                  </Button>
+                )}
               </CardContent>
             </Card>
           )}
@@ -374,8 +346,8 @@ export default function ScanPage() {
             </Card>
           )}
 
-          {/* ── Clock-out success ── */}
-          {(clockOutDone || (alreadyOut && !showClockOut && clockOuts.length > 0)) && (
+          {/* ── Clock-out success (persistent, after page reload) ── */}
+          {!scanResult && !scanning && clockOuts.length > 0 && (
             <Card className="border-0 bg-green-900/50">
               <CardContent className="py-4 text-center space-y-1">
                 <CheckCircle2 className="w-8 h-8 text-green-400 mx-auto" />
