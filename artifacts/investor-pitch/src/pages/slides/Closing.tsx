@@ -42,7 +42,7 @@ export default function Closing() {
         <div className="flex gap-[1vw]">
           <span>Confidential</span>
           <span>&bull;</span>
-          <span>Page 10</span>
+          <span>Page 11</span>
         </div>
       </div>
     </div>
