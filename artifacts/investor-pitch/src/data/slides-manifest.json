@@ -58,30 +58,46 @@
   {
     "id": "a1b2c3d4-0008-4000-8000-000000000008",
     "position": 8,
+    "filepath": "src/pages/slides/UserFlow.tsx",
+    "title": "Sunday Flow",
+    "description": "End-to-end Sunday journey across all roles — from setup to wrap-up",
+    "speakerNotes": ""
+  },
+  {
+    "id": "a1b2c3d4-0009-4000-8000-000000000009",
+    "position": 9,
+    "filepath": "src/pages/slides/WhatsAppFeatures.tsx",
+    "title": "WhatsApp Channel",
+    "description": "Outbound alerts, inbound bot commands, and why WhatsApp is the right channel",
+    "speakerNotes": ""
+  },
+  {
+    "id": "a1b2c3d4-0010-4000-8000-000000000010",
+    "position": 10,
     "filepath": "src/pages/slides/BusinessModel.tsx",
     "title": "Business Model",
     "description": "Two potential revenue paths and early target market",
     "speakerNotes": ""
   },
   {
-    "id": "a1b2c3d4-0009-4000-8000-000000000009",
-    "position": 9,
+    "id": "a1b2c3d4-0011-4000-8000-000000000011",
+    "position": 11,
     "filepath": "src/pages/slides/WhyNow.tsx",
     "title": "Why Now",
     "description": "Market timing and differentiation from existing church software",
     "speakerNotes": ""
   },
   {
-    "id": "a1b2c3d4-0010-4000-8000-000000000010",
-    "position": 10,
+    "id": "a1b2c3d4-0012-4000-8000-000000000012",
+    "position": 12,
     "filepath": "src/pages/slides/TheAsk.tsx",
     "title": "The Ask",
     "description": "Seed funding use of proceeds",
     "speakerNotes": ""
   },
   {
-    "id": "a1b2c3d4-0011-4000-8000-000000000011",
-    "position": 11,
+    "id": "a1b2c3d4-0013-4000-8000-000000000013",
+    "position": 13,
     "filepath": "src/pages/slides/Closing.tsx",
     "title": "Let's Talk",
     "description": "Closing brand slide with contact placeholder",

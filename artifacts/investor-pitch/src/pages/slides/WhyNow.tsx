@@ -52,7 +52,7 @@ export default function WhyNow() {
         <div className="flex gap-[1vw]">
           <span>Confidential</span>
           <span>&bull;</span>
-          <span>Page 9</span>
+          <span>Page 11</span>
         </div>
       </div>
     </div>
