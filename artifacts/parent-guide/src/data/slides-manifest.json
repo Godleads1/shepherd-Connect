@@ -24,8 +24,16 @@
     "speakerNotes": ""
   },
   {
-    "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567803",
+    "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567813",
     "position": 4,
+    "filepath": "src/pages/slides/SlideRegisterFamily.tsx",
+    "title": "Register Your Family",
+    "description": "Setting up the family profile — name, address, phone number",
+    "speakerNotes": ""
+  },
+  {
+    "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567803",
+    "position": 5,
     "filepath": "src/pages/slides/Slide3AddChildren.tsx",
     "title": "Add Your Children",
     "description": "How to add a child profile — name, class, allergies",
@@ -33,7 +41,7 @@
   },
   {
     "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567804",
-    "position": 5,
+    "position": 6,
     "filepath": "src/pages/slides/Slide4CheckIn.tsx",
     "title": "QR Code Check-In",
     "description": "How the QR-based check-in kiosk works",
@@ -41,7 +49,7 @@
   },
   {
     "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567805",
-    "position": 6,
+    "position": 7,
     "filepath": "src/pages/slides/Slide5Journey.tsx",
     "title": "Your Child's Journey",
     "description": "Drop-off → In class → In transit → Picked up timeline",
@@ -49,7 +57,7 @@
   },
   {
     "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567806",
-    "position": 7,
+    "position": 8,
     "filepath": "src/pages/slides/Slide6Delegate.tsx",
     "title": "Delegate Pickup",
     "description": "Adding a trusted delegate and sharing the OTP",
@@ -57,7 +65,7 @@
   },
   {
     "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567811",
-    "position": 8,
+    "position": 9,
     "filepath": "src/pages/slides/SlideClassChange.tsx",
     "title": "Class Change Request",
     "description": "How parents request a class change for their child",
@@ -65,7 +73,7 @@
   },
   {
     "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567807",
-    "position": 9,
+    "position": 10,
     "filepath": "src/pages/slides/Slide7Notifications.tsx",
     "title": "Notifications",
     "description": "Real-time alerts at every step of the child's day",
@@ -73,7 +81,7 @@
   },
   {
     "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567808",
-    "position": 10,
+    "position": 11,
     "filepath": "src/pages/slides/Slide8Profile.tsx",
     "title": "Your Profile",
     "description": "Managing personal details, communication preferences, and feedback",
@@ -81,7 +89,7 @@
   },
   {
     "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567809",
-    "position": 11,
+    "position": 12,
     "filepath": "src/pages/slides/Slide9WhatsAppBot.tsx",
     "title": "WhatsApp Bot",
     "description": "Full list of WhatsApp bot abilities — status, OTP, AI, reminders and more",
@@ -89,7 +97,7 @@
   },
   {
     "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567810",
-    "position": 12,
+    "position": 13,
     "filepath": "src/pages/slides/Slide9Closing.tsx",
     "title": "Safe. Known. Celebrated.",
     "description": "Closing slide with tagline and contact info",
