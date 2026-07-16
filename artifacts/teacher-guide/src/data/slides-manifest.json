@@ -1,0 +1,90 @@
+[
+  {
+    "id": "b1c2d3e4-f5a6-7890-bcde-fa1234567801",
+    "position": 1,
+    "filepath": "src/pages/slides/Slide1Welcome.tsx",
+    "title": "Welcome",
+    "description": "Title slide — Your Teacher Guide to Shepherd Connect",
+    "speakerNotes": ""
+  },
+  {
+    "id": "b1c2d3e4-f5a6-7890-bcde-fa1234567802",
+    "position": 2,
+    "filepath": "src/pages/slides/Slide2InfoGraphic.tsx",
+    "title": "App at a Glance",
+    "description": "Infographic — Sunday workflow and all teacher features",
+    "speakerNotes": ""
+  },
+  {
+    "id": "b1c2d3e4-f5a6-7890-bcde-fa1234567803",
+    "position": 3,
+    "filepath": "src/pages/slides/Slide3Account.tsx",
+    "title": "Create Your Account",
+    "description": "Three-step registration walkthrough — Teacher role, pending approval",
+    "speakerNotes": ""
+  },
+  {
+    "id": "b1c2d3e4-f5a6-7890-bcde-fa1234567804",
+    "position": 4,
+    "filepath": "src/pages/slides/Slide4MyClass.tsx",
+    "title": "My Class",
+    "description": "Class roster — children, allergy alerts, live check-in status",
+    "speakerNotes": ""
+  },
+  {
+    "id": "b1c2d3e4-f5a6-7890-bcde-fa1234567805",
+    "position": 5,
+    "filepath": "src/pages/slides/Slide5Attendance.tsx",
+    "title": "Attendance & Escorting",
+    "description": "How to mark attendance and escort children to the collection point",
+    "speakerNotes": ""
+  },
+  {
+    "id": "b1c2d3e4-f5a6-7890-bcde-fa1234567806",
+    "position": 6,
+    "filepath": "src/pages/slides/Slide6Appraisals.tsx",
+    "title": "Child Appraisals",
+    "description": "Writing child reports — behaviour, participation, and notes",
+    "speakerNotes": ""
+  },
+  {
+    "id": "b1c2d3e4-f5a6-7890-bcde-fa1234567807",
+    "position": 7,
+    "filepath": "src/pages/slides/Slide7ClassChange.tsx",
+    "title": "Class Change Requests",
+    "description": "Submitting a class change request — flow and status codes",
+    "speakerNotes": ""
+  },
+  {
+    "id": "b1c2d3e4-f5a6-7890-bcde-fa1234567808",
+    "position": 8,
+    "filepath": "src/pages/slides/Slide8Safeguarding.tsx",
+    "title": "Safeguarding",
+    "description": "Emergencies, child release protocol, and allergy alerts",
+    "speakerNotes": ""
+  },
+  {
+    "id": "b1c2d3e4-f5a6-7890-bcde-fa1234567809",
+    "position": 9,
+    "filepath": "src/pages/slides/Slide9ClockIn.tsx",
+    "title": "Clock In / Out",
+    "description": "Logging arrival and departure — session timeline",
+    "speakerNotes": ""
+  },
+  {
+    "id": "b1c2d3e4-f5a6-7890-bcde-fa1234567810",
+    "position": 10,
+    "filepath": "src/pages/slides/Slide10Profile.tsx",
+    "title": "Your Profile",
+    "description": "Managing personal details and notification preferences",
+    "speakerNotes": ""
+  },
+  {
+    "id": "b1c2d3e4-f5a6-7890-bcde-fa1234567811",
+    "position": 11,
+    "filepath": "src/pages/slides/Slide11Closing.tsx",
+    "title": "Safe. Known. Celebrated.",
+    "description": "Closing slide with tagline and contact info",
+    "speakerNotes": ""
+  }
+]
