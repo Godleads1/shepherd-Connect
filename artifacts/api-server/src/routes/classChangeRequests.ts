@@ -1,29 +1,40 @@
 import { Router } from "express";
-import { eq, and } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
 import { db, classChangeRequestsTable, childrenTable, classesTable, usersTable } from "@workspace/db";
 import { authMiddleware, requireRoles } from "../middlewares/auth";
 
 const router = Router();
 
-async function formatRequest(r: typeof classChangeRequestsTable.$inferSelect) {
-  const [child] = await db.select().from(childrenTable).where(eq(childrenTable.id, r.childId));
-  const currentClass = r.currentClassId
-    ? await db.select().from(classesTable).where(eq(classesTable.id, r.currentClassId)).then(rows => rows[0] || null)
-    : null;
-  const [requestedClass] = await db.select().from(classesTable).where(eq(classesTable.id, r.requestedClassId));
-  const [requestedByUser] = await db.select().from(usersTable).where(eq(usersTable.id, r.requestedBy));
-  return {
-    ...r,
-    child: child || null,
-    currentClass,
-    requestedClass: requestedClass || null,
-    requestedByUser: requestedByUser ? {
-      id: requestedByUser.id,
-      firstName: requestedByUser.firstName,
-      lastName: requestedByUser.lastName,
-      role: requestedByUser.role,
-    } : null,
-  };
+async function formatRequests(records: typeof classChangeRequestsTable.$inferSelect[]) {
+  if (records.length === 0) return [];
+
+  const childIds = [...new Set(records.map(r => r.childId))];
+  const classIds = [...new Set([
+    ...records.map(r => r.currentClassId).filter((id): id is number => id != null),
+    ...records.map(r => r.requestedClassId),
+  ])];
+  const userIds = [...new Set(records.map(r => r.requestedBy))];
+
+  const [children, classes, users] = await Promise.all([
+    db.select().from(childrenTable).where(inArray(childrenTable.id, childIds)),
+    classIds.length > 0 ? db.select().from(classesTable).where(inArray(classesTable.id, classIds)) : Promise.resolve([]),
+    db.select().from(usersTable).where(inArray(usersTable.id, userIds)),
+  ]);
+
+  const childMap = new Map(children.map(c => [c.id, c]));
+  const classMap = new Map(classes.map(c => [c.id, c]));
+  const userMap = new Map(users.map(u => [u.id, u]));
+
+  return records.map(r => {
+    const u = userMap.get(r.requestedBy);
+    return {
+      ...r,
+      child: childMap.get(r.childId) ?? null,
+      currentClass: r.currentClassId ? classMap.get(r.currentClassId) ?? null : null,
+      requestedClass: classMap.get(r.requestedClassId) ?? null,
+      requestedByUser: u ? { id: u.id, firstName: u.firstName, lastName: u.lastName, role: u.role } : null,
+    };
+  });
 }
 
 router.get("/class-change-requests", authMiddleware, async (req, res): Promise<void> => {
@@ -46,7 +57,7 @@ router.get("/class-change-requests", authMiddleware, async (req, res): Promise<v
       .orderBy(classChangeRequestsTable.createdAt);
   }
 
-  const formatted = await Promise.all(records.map(formatRequest));
+  const formatted = await formatRequests(records);
   res.json({ data: formatted, total: formatted.length });
 });
 

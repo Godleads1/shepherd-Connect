@@ -68,7 +68,10 @@ router.get("/families", authMiddleware, async (req, res): Promise<void> => {
     const parentIds = searchedParents.map(p => p.id);
     if (parentIds.length > 0) {
       families = await db.select().from(familiesTable)
-        .where(or(...parentIds.map(id => eq(familiesTable.parent1Id, id))))
+        .where(or(
+          ...parentIds.map(id => eq(familiesTable.parent1Id, id)),
+          ...parentIds.map(id => eq(familiesTable.parent2Id, id)),
+        ))
         .limit(limit).offset(offset);
     }
   } else {

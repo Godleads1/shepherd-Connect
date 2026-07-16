@@ -73,7 +73,6 @@ function Router() {
     <Switch>
       <Route path="/login" component={Login} />
       <Route path="/register" component={Register} />
-      <Route path="/scan" component={ScanPage} />
       <Route path="/classroom-display/:classId" component={ClassroomDisplay} />
       <Route path="/">
         <DefaultRedirect />

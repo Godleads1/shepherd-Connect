@@ -14,26 +14,37 @@ const UpdateTeacherUserBody = z.object({
 
 const router = Router();
 
+function sanitizeUser(user: typeof usersTable.$inferSelect) {
+  return { id: user.id, email: user.email, phone: user.phone, role: user.role, firstName: user.firstName, lastName: user.lastName, isActive: user.isActive, createdAt: user.createdAt };
+}
+
 async function formatTeacher(t: typeof teachersTable.$inferSelect) {
   const [user] = await db.select().from(usersTable).where(eq(usersTable.id, t.userId));
-  const sanitized = user ? { id: user.id, email: user.email, phone: user.phone, role: user.role, firstName: user.firstName, lastName: user.lastName, isActive: user.isActive, createdAt: user.createdAt } : null;
-  return { ...t, user: sanitized };
+  return { ...t, user: user ? sanitizeUser(user) : null };
 }
 
 router.get("/teachers", authMiddleware, async (_req, res): Promise<void> => {
   // Auto-sync: create teacher records for any active teacher users that don't have one yet
-  const teacherUsers = await db.select().from(usersTable).where(
-    and(eq(usersTable.role, "teacher"), eq(usersTable.isActive, true))
-  );
-  const existing = await db.select().from(teachersTable);
+  const [teacherUsers, existing] = await Promise.all([
+    db.select().from(usersTable).where(and(eq(usersTable.role, "teacher"), eq(usersTable.isActive, true))),
+    db.select().from(teachersTable),
+  ]);
   const existingUserIds = new Set(existing.map(t => t.userId));
   const missing = teacherUsers.filter(u => !existingUserIds.has(u.id));
   if (missing.length > 0) {
     await db.insert(teachersTable).values(missing.map(u => ({ userId: u.id })));
   }
 
-  const teachers = await db.select().from(teachersTable);
-  const formatted = await Promise.all(teachers.map(formatTeacher));
+  // Single join — no N+1
+  const rows = await db
+    .select()
+    .from(teachersTable)
+    .leftJoin(usersTable, eq(teachersTable.userId, usersTable.id));
+
+  const formatted = rows.map(row => ({
+    ...row.teachers,
+    user: row.users ? sanitizeUser(row.users) : null,
+  }));
   res.json(formatted);
 });
 
