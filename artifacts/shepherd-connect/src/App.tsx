@@ -117,6 +117,7 @@ function Router() {
               <Route path="/my-incidents" component={MyIncidents} />
               <Route path="/safeguarding-cases" component={SafeguardingCases} />
               <Route path="/sunday-attendance" component={SundayAttendance} />
+              <Route path="/scan" component={ScanPage} />
 
               {/* Fallback inside Layout */}
               <Route component={NotFound} />

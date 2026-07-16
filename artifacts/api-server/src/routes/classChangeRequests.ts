@@ -93,7 +93,7 @@ router.post("/class-change-requests", authMiddleware, async (req, res): Promise<
     requestedBy: req.user!.userId,
   }).returning();
 
-  const formatted = await formatRequest(record);
+  const [formatted] = await formatRequests([record]);
   res.status(201).json(formatted);
 });
 
@@ -118,7 +118,7 @@ router.put("/class-change-requests/:id/approve", authMiddleware, requireRoles("s
     .where(eq(childrenTable.id, request.childId));
 
   const [updated] = await db.select().from(classChangeRequestsTable).where(eq(classChangeRequestsTable.id, id));
-  const formatted = await formatRequest(updated);
+  const [formatted] = await formatRequests([updated]);
   res.json({ success: true, message: "Request approved. Child moved to new class.", request: formatted });
 });
 
@@ -136,7 +136,7 @@ router.put("/class-change-requests/:id/reject", authMiddleware, requireRoles("su
   }).where(eq(classChangeRequestsTable.id, id)).returning();
   if (!updated) { res.status(404).json({ error: "Not found", message: "Request not found" }); return; }
 
-  const formatted = await formatRequest(updated);
+  const [formatted] = await formatRequests([updated]);
   res.json({ success: true, message: "Request rejected.", request: formatted });
 });
 
