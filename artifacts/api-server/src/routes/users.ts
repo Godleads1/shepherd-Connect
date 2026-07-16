@@ -257,6 +257,11 @@ router.post("/users/:id/reassign-role", authMiddleware, requireRoles("super_admi
     .where(eq(usersTable.id, id))
     .returning();
 
+  if (role === "teacher") {
+    const [existingTeacher] = await db.select().from(teachersTable).where(eq(teachersTable.userId, id));
+    if (!existingTeacher) await db.insert(teachersTable).values({ userId: id });
+  }
+
   res.json({ success: true, user: sanitizeUser(updated), message: `Role updated to ${role}` });
 });
 
