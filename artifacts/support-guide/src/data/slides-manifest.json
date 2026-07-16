@@ -1,0 +1,82 @@
+[
+  {
+    "id": "c3d4e5f6-a7b8-9012-cdef-ab3456789001",
+    "position": 1,
+    "filepath": "src/pages/slides/Slide1Welcome.tsx",
+    "title": "Welcome",
+    "description": "Title slide — Attendant Guide to Shepherd Connect",
+    "speakerNotes": ""
+  },
+  {
+    "id": "c3d4e5f6-a7b8-9012-cdef-ab3456789002",
+    "position": 2,
+    "filepath": "src/pages/slides/Slide2AppAtAGlance.tsx",
+    "title": "App at a Glance",
+    "description": "Sunday workflow infographic — check-in through child release",
+    "speakerNotes": ""
+  },
+  {
+    "id": "c3d4e5f6-a7b8-9012-cdef-ab3456789003",
+    "position": 3,
+    "filepath": "src/pages/slides/Slide3QRCheckin.tsx",
+    "title": "Check-In Kiosk",
+    "description": "QR scan or name search, allergy alerts, confirm check-in",
+    "speakerNotes": ""
+  },
+  {
+    "id": "c3d4e5f6-a7b8-9012-cdef-ab3456789004",
+    "position": 4,
+    "filepath": "src/pages/slides/Slide4StandardCheckout.tsx",
+    "title": "Standard Checkout",
+    "description": "Parent checkout — find child, verify identity, confirm release",
+    "speakerNotes": ""
+  },
+  {
+    "id": "c3d4e5f6-a7b8-9012-cdef-ab3456789005",
+    "position": 5,
+    "filepath": "src/pages/slides/Slide5DelegateOTP.tsx",
+    "title": "Delegate OTP Checkout",
+    "description": "6-digit OTP flow — tab, enter code, verify delegate, confirm",
+    "speakerNotes": ""
+  },
+  {
+    "id": "c3d4e5f6-a7b8-9012-cdef-ab3456789006",
+    "position": 6,
+    "filepath": "src/pages/slides/Slide6NotPickedUp.tsx",
+    "title": "Not-Picked-Up Report",
+    "description": "Live report of children still on site with parent contact numbers",
+    "speakerNotes": ""
+  },
+  {
+    "id": "c3d4e5f6-a7b8-9012-cdef-ab3456789007",
+    "position": 7,
+    "filepath": "src/pages/slides/Slide7Safeguarding.tsx",
+    "title": "Safeguarding at the Kiosk",
+    "description": "Non-negotiable release rules and escalation scenarios",
+    "speakerNotes": ""
+  },
+  {
+    "id": "c3d4e5f6-a7b8-9012-cdef-ab3456789008",
+    "position": 8,
+    "filepath": "src/pages/slides/Slide8CommonIssues.tsx",
+    "title": "Common Issues",
+    "description": "Troubleshooting — QR failures, OTP errors, unknown adults",
+    "speakerNotes": ""
+  },
+  {
+    "id": "c3d4e5f6-a7b8-9012-cdef-ab3456789009",
+    "position": 9,
+    "filepath": "src/pages/slides/Slide9Profile.tsx",
+    "title": "Your Profile",
+    "description": "Profile completeness and communication preferences",
+    "speakerNotes": ""
+  },
+  {
+    "id": "c3d4e5f6-a7b8-9012-cdef-ab3456789010",
+    "position": 10,
+    "filepath": "src/pages/slides/Slide10Closing.tsx",
+    "title": "Safe. Known. Celebrated.",
+    "description": "Closing slide with tagline, demo attendant credentials",
+    "speakerNotes": ""
+  }
+]

@@ -1,0 +1,31 @@
+kind = "slides"
+previewPath = "/superadmin-guide/"
+title = "Shepherd Connect — Super Admin Guide"
+version = "1.0.0"
+id = "artifacts/superadmin-guide"
+router = "path"
+
+[[integratedSkills]]
+name = "slides"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/superadmin-guide/" ]
+localPort = 23925
+
+[services.development]
+run = "pnpm --filter @workspace/superadmin-guide run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/superadmin-guide", "run", "build" ]
+publicDir = "artifacts/superadmin-guide/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "23925"
+BASE_PATH = "/superadmin-guide/"

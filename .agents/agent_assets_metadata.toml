@@ -18,6 +18,18 @@ uri = "file://artifacts/teacher-guide/public/hero-teacher.png"
 type = "image"
 title = "generated_image"
 
+[[generated]]
+id = "YkNIKJUQBB5XHM0W7-d4A"
+uri = "file://artifacts/support-guide/public/hero-attendant.png"
+type = "image"
+title = "generated_image"
+
+[[generated]]
+id = "6rb7rtTTLlsC-pBEaMKo3"
+uri = "file://artifacts/superadmin-guide/public/hero-admin.png"
+type = "image"
+title = "generated_image"
+
 [[outputs]]
 id = "t3S0W6Q7jWiwZw7Mlor4O"
 uri = "file://reports/shepherd-connect-report.zip"
@@ -83,3 +95,9 @@ id = "NPHNrxjckCfzVa5KzBut9"
 uri = "file://ebook/shepherd-connect-build-guide.docx"
 type = "word_document"
 title = "Building Shepherd Connect — Developer Ebook (.docx)"
+
+[[outputs]]
+id = "vCvn0wuUfaJc7MYW2g497"
+uri = "file://.local/outputs/Shepherd-Connect.pdf"
+type = "pdf"
+title = "Shepherd Connect.pdf"
