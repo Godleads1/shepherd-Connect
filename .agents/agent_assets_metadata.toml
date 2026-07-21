@@ -101,3 +101,9 @@ id = "vCvn0wuUfaJc7MYW2g497"
 uri = "file://.local/outputs/Shepherd-Connect.pdf"
 type = "pdf"
 title = "Shepherd Connect.pdf"
+
+[[outputs]]
+id = "qNHN2gqtkId6so0WRFcqP"
+uri = "file://Shepherd_Connect_Implementation_Plan.xlsx"
+type = "table"
+title = "Shepherd Connect — Implementation Plan"
