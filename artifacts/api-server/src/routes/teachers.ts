@@ -24,9 +24,10 @@ async function formatTeacher(t: typeof teachersTable.$inferSelect) {
 }
 
 router.get("/teachers", authMiddleware, async (_req, res): Promise<void> => {
-  // Auto-sync: create teacher records for any active teacher users that don't have one yet
+  // Auto-sync: create teacher records for ALL teacher-role users (including pending approval)
+  // so they appear in allocation dropdowns even before their first login.
   const [teacherUsers, existing] = await Promise.all([
-    db.select().from(usersTable).where(and(eq(usersTable.role, "teacher"), eq(usersTable.isActive, true))),
+    db.select().from(usersTable).where(eq(usersTable.role, "teacher")),
     db.select().from(teachersTable),
   ]);
   const existingUserIds = new Set(existing.map(t => t.userId));
@@ -52,6 +53,11 @@ router.post("/teachers", authMiddleware, requireRoles("super_admin", "admin"), a
   const parsed = CreateTeacherBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: "Bad request", message: parsed.error.message }); return; }
   const [teacher] = await db.insert(teachersTable).values(parsed.data).returning();
+  // Promote the user to teacher role and activate them so they appear in all teacher
+  // dropdowns (including allocations) regardless of their original registration role.
+  await db.update(usersTable)
+    .set({ role: "teacher", isActive: true, status: "active" })
+    .where(eq(usersTable.id, parsed.data.userId));
   res.status(201).json(await formatTeacher(teacher));
 });
 
