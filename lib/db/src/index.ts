@@ -17,6 +17,14 @@ export const pool = new Pool({
   max: 25,
   min: 2,
 });
+
+// Prevent unhandled 'error' events on idle connections from crashing the
+// process. pg Pool emits 'error' when a kept-alive connection is dropped;
+// without a listener Node.js treats it as an uncaught exception and exits.
+pool.on("error", (err) => {
+  console.error("pg pool error:", err.message);
+});
+
 export const db = drizzle(pool, { schema });
 
 export * from "./schema";

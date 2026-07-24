@@ -8,6 +8,12 @@ import { errorMonitorMiddleware } from "./middleware/errorMonitor";
 
 const app: Express = express();
 
+// Trust Cloud Run / Replit's reverse proxy so express-rate-limit and
+// req.ip use the real client IP from X-Forwarded-For, not the proxy IP.
+// Without this, express-rate-limit v8 throws a ValidationError on every
+// request that has X-Forwarded-For set, resulting in a 500 response.
+app.set("trust proxy", 1);
+
 // Global rate limiter — 300 requests per minute per IP.
 // Tighter limits on specific sensitive routes (OTP, auth) are applied there.
 const globalLimiter = rateLimit({
