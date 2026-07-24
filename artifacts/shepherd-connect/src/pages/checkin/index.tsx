@@ -128,7 +128,7 @@ export default function CheckIn() {
   }, [scanFaceMutation, toast, refetchAttendance]);
 
   const isAlreadyCheckedIn = (childId: number) =>
-    (todayAttendance as any)?.data?.some((a: any) => a.childId === childId) ?? false;
+    attendanceList.some((a: any) => a.childId === childId);
 
   const checkInForSlots = async (childId: number, classId: number, slots: SlotChoice) => {
     const slotsToBook = slots === "both" ? ["7am", "10:30am"] : [slots];

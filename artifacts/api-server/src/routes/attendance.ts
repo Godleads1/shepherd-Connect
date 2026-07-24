@@ -300,7 +300,14 @@ router.post("/attendance/scan-qr", authMiddleware, async (req, res): Promise<voi
     const lastAttendance = recentAttendance.length > 0 ? recentAttendance[recentAttendance.length - 1] : null;
     return { ...child, age, currentClass, teacher: null, lastAttendance, attendanceHistory: recentAttendance };
   }));
-  res.json({ family, children: childrenWithDetails, hasAlerts: alerts.length > 0, alerts });
+  // Enrich family with parent name for the check-in UI
+  let parent1: { firstName: string; lastName: string } | null = null;
+  if (family.parent1Id) {
+    const [u] = await db.select({ firstName: usersTable.firstName, lastName: usersTable.lastName })
+      .from(usersTable).where(eq(usersTable.id, family.parent1Id));
+    if (u) parent1 = u;
+  }
+  res.json({ family: { ...family, parent1 }, children: childrenWithDetails, hasAlerts: alerts.length > 0, alerts });
 });
 
 router.post("/attendance/scan-face", authMiddleware, async (req, res): Promise<void> => {
