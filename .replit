@@ -30,35 +30,3 @@ VAPID_PUBLIC_KEY = "BB88w2cfDxROolrF2bLW8YCOGSvVznTwntz3hWiXFWMmKTqT-qH1xIZIqHCd
 VAPID_PRIVATE_KEY = "lSODexy9HxnSfTRj2FkscGYBm215pzUmWTtSaxyTSfg"
 VAPID_SUBJECT = "mailto:admin@shepherd-connect.rccg"
 TWILIO_WHATSAPP_NUMBER = "whatsapp:+16206474312"
-
-[[ports]]
-localPort = 8080
-externalPort = 80
-
-[[ports]]
-localPort = 8081
-externalPort = 8081
-
-[[ports]]
-localPort = 20688
-externalPort = 5000
-
-[[ports]]
-localPort = 21160
-externalPort = 3001
-
-[[ports]]
-localPort = 21734
-externalPort = 3002
-
-[[ports]]
-localPort = 23018
-externalPort = 3000
-
-[[ports]]
-localPort = 23925
-externalPort = 4200
-
-[[ports]]
-localPort = 23935
-externalPort = 3003
