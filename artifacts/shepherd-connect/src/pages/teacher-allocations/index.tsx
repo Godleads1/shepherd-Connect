@@ -532,7 +532,7 @@ export default function TeacherAllocations() {
               </label>
               <Select value={newTeacherId} onValueChange={setNewTeacherId}>
                 <SelectTrigger className="h-10"><SelectValue placeholder="Select teacher..." /></SelectTrigger>
-                <SelectContent>
+                <SelectContent className="max-h-64 overflow-y-auto">
                   {(teachers || []).map((t: any) => (
                     <SelectItem key={t.id} value={String(t.id)}>
                       {t.user?.firstName} {t.user?.lastName}
@@ -582,7 +582,7 @@ export default function TeacherAllocations() {
               <label className="text-sm font-medium text-gray-700 block mb-1.5">Teacher</label>
               <Select value={addTeacherId} onValueChange={setAddTeacherId}>
                 <SelectTrigger className="h-10"><SelectValue placeholder="Select teacher..." /></SelectTrigger>
-                <SelectContent>
+                <SelectContent className="max-h-64 overflow-y-auto">
                   {(teachers || []).map((t: any) => (
                     <SelectItem key={t.id} value={String(t.id)}>
                       {t.user?.firstName} {t.user?.lastName}
@@ -651,7 +651,7 @@ export default function TeacherAllocations() {
               <label className="text-sm font-medium text-gray-700 block mb-1.5">Teacher</label>
               <Select value={editTeacherId} onValueChange={setEditTeacherId}>
                 <SelectTrigger className="h-10"><SelectValue placeholder="Select teacher..." /></SelectTrigger>
-                <SelectContent>
+                <SelectContent className="max-h-64 overflow-y-auto">
                   {(teachers || []).map((t: any) => (
                     <SelectItem key={t.id} value={String(t.id)}>
                       {t.user?.firstName} {t.user?.lastName}
