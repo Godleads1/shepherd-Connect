@@ -1,10 +1,35 @@
 import { Router } from "express";
 import { eq, and, sql, desc } from "drizzle-orm";
-import { db, notificationsTable, usersTable } from "@workspace/db";
+import { db, notificationsTable, usersTable, churchSettingsTable } from "@workspace/db";
 import { ListNotificationsQueryParams } from "@workspace/api-zod";
 import { authMiddleware, requireRoles } from "../middlewares/auth";
 import { pushToUsers, pushToRole } from "../services/push";
 import { dispatchExternal } from "../lib/notify";
+
+const LOCATION_DEFAULTS = {
+  churchName: "RCCG City of David",
+  address: "Victoria Island, Lagos",
+  mapsUrl: "https://maps.app.goo.gl/uvgtpVETsCeqkzmDA",
+};
+
+async function getPickupLocation(): Promise<{ pickupAddress: string; mapsLink: string }> {
+  try {
+    const rows = await db.select().from(churchSettingsTable).where(eq(churchSettingsTable.id, 1));
+    const row = rows[0];
+    if (row) {
+      return {
+        pickupAddress: `${row.churchName}, ${row.address}`,
+        mapsLink: row.mapsUrl,
+      };
+    }
+  } catch {
+    // fall through to defaults
+  }
+  return {
+    pickupAddress: `${LOCATION_DEFAULTS.churchName}, ${LOCATION_DEFAULTS.address}`,
+    mapsLink: LOCATION_DEFAULTS.mapsUrl,
+  };
+}
 
 const router = Router();
 
@@ -86,8 +111,7 @@ router.post("/notifications/broadcast", authMiddleware, requireRoles("super_admi
 
 router.post("/notifications/pre-dismissal", authMiddleware, requireRoles("super_admin", "admin"), async (req, res): Promise<void> => {
   const { serviceSlot, minutesBefore = 15 } = req.body as { serviceSlot?: string; minutesBefore?: number };
-  const pickupAddress = "RCCG City of David, Victoria Island, Lagos";
-  const mapsLink = "https://maps.app.goo.gl/uvgtpVETsCeqkzmDA";
+  const { pickupAddress, mapsLink } = await getPickupLocation();
   const title = "Pre-Dismissal Alert";
   const message = serviceSlot
     ? `Children in the ${serviceSlot} service will be dismissed in approximately ${minutesBefore} minutes. Please proceed to the collection area.\n\n📍 Pickup Location: ${pickupAddress}\n🗺️ Directions: ${mapsLink}`

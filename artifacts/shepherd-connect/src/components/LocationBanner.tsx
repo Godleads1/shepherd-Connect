@@ -1,6 +1,31 @@
 import { MapPin, ExternalLink } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { apiGet } from "@/lib/api-call";
+import { Skeleton } from "@/components/ui/skeleton";
+
+interface LocationSettings {
+  churchName: string;
+  address: string;
+  mapsUrl: string;
+}
+
+const LOCATION_FALLBACK: LocationSettings = {
+  churchName: "RCCG City of David",
+  address: "Victoria Island, Lagos",
+  mapsUrl: "https://maps.app.goo.gl/uvgtpVETsCeqkzmDA",
+};
 
 export default function LocationBanner() {
+  const { data: location } = useQuery<LocationSettings>({
+    queryKey: ["settings-location"],
+    queryFn: () => apiGet<LocationSettings>("/settings/location"),
+    staleTime: 5 * 60 * 1000,
+    placeholderData: LOCATION_FALLBACK,
+  });
+
+  const { churchName, address, mapsUrl } = location ?? LOCATION_FALLBACK;
+  const displayName = `${churchName}, ${address}`;
+
   return (
     <div
       className="w-full flex items-center justify-between gap-3 px-4 py-3 rounded-2xl mb-6"
@@ -17,13 +42,17 @@ export default function LocationBanner() {
           <p className="text-xs font-bold uppercase tracking-widest" style={{ color: "#f59e0b" }}>
             Pickup / Drop-off Location
           </p>
-          <p className="text-sm font-semibold text-white leading-tight truncate">
-            RCCG City of David, Victoria Island, Lagos
-          </p>
+          {location ? (
+            <p className="text-sm font-semibold text-white leading-tight truncate">
+              {displayName}
+            </p>
+          ) : (
+            <Skeleton className="h-4 w-48 mt-1" />
+          )}
         </div>
       </div>
       <a
-        href="https://maps.app.goo.gl/uvgtpVETsCeqkzmDA"
+        href={mapsUrl}
         target="_blank"
         rel="noopener noreferrer"
         className="flex-shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all active:scale-95"
