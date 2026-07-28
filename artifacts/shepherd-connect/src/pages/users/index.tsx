@@ -271,7 +271,7 @@ export default function Users() {
   const isSuperAdmin = currentRole === "super_admin";
   const isAdmin = currentRole === "admin";
 
-  const { data, isLoading, isError, refetch } = useListUsers();
+  const { data, isLoading, isError, refetch } = useListUsers({ limit: 300, page: 1 });
   const createMutation = useCreateUser();
   const updateMutation = useUpdateUser();
   const { toast } = useToast();
