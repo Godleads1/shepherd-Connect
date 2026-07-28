@@ -1,41 +1,39 @@
 import type { Logger } from "pino";
-import nodemailer from "nodemailer";
+import { Resend } from "resend";
 
 const API_KEY  = process.env.TERMII_API_KEY;
 const BASE_URL = "https://v3.api.termii.com";
 const SENDER   = "N-Alert"; // Termii's pre-approved Nigerian system sender
-const APP_URL  = "https://sherpherdconnect.name.ng";
+const APP_URL  = "https://shepherdconnect.intelyticslimited.com";
 
-// ── Gmail SMTP ────────────────────────────────────────────────────────────────
-const GMAIL_USER = process.env.GMAIL_USER;
-const GMAIL_PASS = process.env.GMAIL_APP_PASSWORD;
+// ── Resend ────────────────────────────────────────────────────────────────────
+const RESEND_API_KEY = process.env.RESEND_API_KEY;
 
-function gmailConfigured() { return Boolean(GMAIL_USER && GMAIL_PASS); }
+function resendConfigured() { return Boolean(RESEND_API_KEY); }
 
-let _transporter: nodemailer.Transporter | null = null;
-function getTransporter() {
-  if (!_transporter) {
-    _transporter = nodemailer.createTransport({
-      service: "gmail",
-      auth: { user: GMAIL_USER, pass: GMAIL_PASS },
-    });
-  }
-  return _transporter;
+let _resend: Resend | null = null;
+function getResend() {
+  if (!_resend) _resend = new Resend(RESEND_API_KEY);
+  return _resend;
 }
 
 async function sendViaResend(to: string, subject: string, html: string, logger?: Logger): Promise<boolean> {
-  if (!gmailConfigured()) return false;
+  if (!resendConfigured()) return false;
   try {
-    await getTransporter().sendMail({
-      from: `"Shepherd Connect" <${GMAIL_USER}>`,
+    const { error } = await getResend().emails.send({
+      from: "Shepherd Connect <shepherdconnect@intelyticslimited.com>",
       to,
       subject,
       html,
     });
-    logger?.info({ to }, "Email sent via Gmail");
+    if (error) {
+      logger?.error({ to, err: error.message }, "Resend email error");
+      return false;
+    }
+    logger?.info({ to }, "Email sent via Resend");
     return true;
   } catch (err) {
-    logger?.error({ to, err: String(err) }, "Gmail email error");
+    logger?.error({ to, err: String(err) }, "Resend email error");
     return false;
   }
 }
