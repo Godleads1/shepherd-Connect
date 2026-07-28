@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useListNotifications, useMarkNotificationRead, useMarkAllNotificationsRead } from "@workspace/api-client-react";
-import { Bell, CheckCircle, Info, AlertTriangle, Check, CheckCheck, ShieldCheck, ShieldX } from "lucide-react";
+import { Bell, CheckCircle, Info, AlertTriangle, Check, CheckCheck, ShieldCheck, ShieldX, MapPin, ExternalLink } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiPost } from "@/lib/api-call";
 import { format } from "date-fns";
@@ -151,6 +151,32 @@ export default function Notifications() {
                 </div>
                 <p className={`text-sm ${notif.readStatus ? "text-gray-500" : "text-gray-700 font-medium"}`}>{notif.message}</p>
                 <p className="text-xs text-gray-400 mt-1 capitalize">{notif.channel?.replace("_", " ")} · {notif.type?.replace(/_/g, " ")}</p>
+
+                {notif.type === "pre_dismissal" && (() => {
+                  const meta = (() => { try { return JSON.parse(notif.metadataJson || "{}"); } catch { return {}; } })();
+                  const address = meta.pickupAddress || "RCCG City of David, Victoria Island, Lagos";
+                  const mapsLink = meta.mapsLink || "https://maps.app.goo.gl/uvgtpVETsCeqkzmDA";
+                  return (
+                    <div className="mt-3 flex items-center justify-between gap-3 px-4 py-3 rounded-xl"
+                      style={{ background: "#1e3a8a", color: "white" }}>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <div className="flex-shrink-0 w-7 h-7 rounded-lg flex items-center justify-center"
+                          style={{ background: "rgba(245,158,11,0.2)", border: "1.5px solid rgba(245,158,11,0.5)" }}>
+                          <MapPin className="w-3.5 h-3.5" style={{ color: "#f59e0b" }} />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-[10px] font-bold uppercase tracking-widest" style={{ color: "#f59e0b" }}>Pickup Location</p>
+                          <p className="text-xs font-semibold text-white leading-tight truncate">{address}</p>
+                        </div>
+                      </div>
+                      <a href={mapsLink} target="_blank" rel="noopener noreferrer"
+                        className="flex-shrink-0 flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all active:scale-95"
+                        style={{ background: "#f59e0b", color: "#172554" }}>
+                        Directions <ExternalLink className="w-3 h-3" />
+                      </a>
+                    </div>
+                  );
+                })()}
 
                 {isApprovalRequest && (
                   <DelegateApprovalActions notif={notif} onAction={() => { handleMarkRead(notif.id); refetch(); }} />

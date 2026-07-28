@@ -488,6 +488,7 @@ export interface Notification {
   channel: NotificationChannel;
   readStatus: boolean;
   createdAt: string;
+  metadataJson?: string | null;
 }
 
 export interface PaginatedNotifications {

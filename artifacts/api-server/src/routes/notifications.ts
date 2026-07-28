@@ -86,10 +86,12 @@ router.post("/notifications/broadcast", authMiddleware, requireRoles("super_admi
 
 router.post("/notifications/pre-dismissal", authMiddleware, requireRoles("super_admin", "admin"), async (req, res): Promise<void> => {
   const { serviceSlot, minutesBefore = 15 } = req.body as { serviceSlot?: string; minutesBefore?: number };
+  const pickupAddress = "RCCG City of David, Victoria Island, Lagos";
+  const mapsLink = "https://maps.app.goo.gl/uvgtpVETsCeqkzmDA";
   const title = "Pre-Dismissal Alert";
   const message = serviceSlot
-    ? `Children in the ${serviceSlot} service will be dismissed in approximately ${minutesBefore} minutes. Please proceed to the collection area.`
-    : `Children will be dismissed in approximately ${minutesBefore} minutes. Please proceed to the collection area.`;
+    ? `Children in the ${serviceSlot} service will be dismissed in approximately ${minutesBefore} minutes. Please proceed to the collection area.\n\n📍 Pickup Location: ${pickupAddress}\n🗺️ Directions: ${mapsLink}`
+    : `Children will be dismissed in approximately ${minutesBefore} minutes. Please proceed to the collection area.\n\n📍 Pickup Location: ${pickupAddress}\n🗺️ Directions: ${mapsLink}`;
 
   const parents = await db.select({ id: usersTable.id }).from(usersTable)
     .where(and(eq(usersTable.isActive, true), eq(usersTable.role, "parent")));
@@ -106,7 +108,7 @@ router.post("/notifications/pre-dismissal", authMiddleware, requireRoles("super_
     message,
     channel: "in_app" as const,
     readStatus: false,
-    metadataJson: JSON.stringify({ serviceSlot, minutesBefore }),
+    metadataJson: JSON.stringify({ serviceSlot, minutesBefore, pickupAddress, mapsLink }),
   }));
 
   await db.insert(notificationsTable).values(notifs);
