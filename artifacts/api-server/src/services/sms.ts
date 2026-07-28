@@ -21,7 +21,7 @@ async function sendViaResend(to: string, subject: string, html: string, logger?:
   if (!resendConfigured()) return false;
   try {
     const { error } = await getResend().emails.send({
-      from: "Shepherd Connect <shepherdconnect@intelyticslimited.com>",
+      from: "Shepherd Connect <noreply@shepherdconnect.intelyticslimited.com>",
       to,
       subject,
       html,
