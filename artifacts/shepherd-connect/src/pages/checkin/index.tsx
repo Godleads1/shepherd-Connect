@@ -11,17 +11,18 @@ import { enqueueCheckIn, getQueue, removeFromQueue, type QueuedCheckIn } from "@
 import { useAuth } from "@/contexts/auth";
 import FamilyAssist from "./FamilyAssist";
 import LocationBanner from "@/components/LocationBanner";
+import { useGeneralSettings } from "@/components/AnnouncementBanner";
 
 type Tab = "qr" | "face" | "assist";
 type SlotChoice = "7am" | "10:30am" | "both";
 
-const SERVICE_SLOTS: { value: SlotChoice; label: string; time: string }[] = [
+const DEFAULT_SERVICE_SLOTS: { value: SlotChoice; label: string; time: string }[] = [
   { value: "7am",     label: "1st Service",   time: "7:00 – 10:00 AM" },
   { value: "10:30am", label: "2nd Service",   time: "10:30 AM onwards" },
   { value: "both",    label: "Both Services", time: "All day" },
 ];
 
-const SLOT_OPTIONS: { value: SlotChoice; label: string }[] = [
+const DEFAULT_SLOT_OPTIONS: { value: SlotChoice; label: string }[] = [
   { value: "7am",     label: "1st" },
   { value: "10:30am", label: "2nd" },
   { value: "both",    label: "Both" },
@@ -34,13 +35,15 @@ function isSunday() {
 function ChildSlotPicker({
   value,
   onChange,
+  slotOptions,
 }: {
   value: SlotChoice;
   onChange: (v: SlotChoice) => void;
+  slotOptions: { value: SlotChoice; label: string }[];
 }) {
   return (
     <div className="flex gap-1 rounded-lg p-0.5 mb-4" style={{ background: "#f3f4f6" }}>
-      {SLOT_OPTIONS.map(opt => (
+      {slotOptions.map(opt => (
         <button
           key={opt.value}
           type="button"
@@ -63,6 +66,22 @@ export default function CheckIn() {
   const [qrCode, setQrCode] = useState("");
   const [activeTab, setActiveTab] = useState<Tab>("qr");
   const [serviceSlot, setServiceSlot] = useState<SlotChoice>("7am");
+
+  const { data: generalSettings } = useGeneralSettings();
+  const serviceSlots: { value: SlotChoice; label: string; time: string }[] = generalSettings
+    ? [
+        { value: "7am",     label: generalSettings.serviceSlot1Label, time: generalSettings.serviceSlot1Time },
+        { value: "10:30am", label: generalSettings.serviceSlot2Label, time: generalSettings.serviceSlot2Time },
+        { value: "both",    label: "Both Services", time: "All day" },
+      ]
+    : DEFAULT_SERVICE_SLOTS;
+  const slotOptions: { value: SlotChoice; label: string }[] = generalSettings
+    ? [
+        { value: "7am",     label: generalSettings.serviceSlot1Label.replace("Service", "").trim() || "1st" },
+        { value: "10:30am", label: generalSettings.serviceSlot2Label.replace("Service", "").trim() || "2nd" },
+        { value: "both",    label: "Both" },
+      ]
+    : DEFAULT_SLOT_OPTIONS;
   const [scanResult, setScanResult] = useState<any>(null);
   const [faceMatched, setFaceMatched] = useState(false);
   const [childSlots, setChildSlots] = useState<Record<number, SlotChoice>>({});
@@ -278,7 +297,7 @@ export default function CheckIn() {
           <div className="mt-2">
             <p className="text-xs font-bold uppercase tracking-widest text-blue-300 mb-3">Select Service</p>
             <div className="flex gap-3 justify-center">
-              {SERVICE_SLOTS.map(slot => (
+              {serviceSlots.map(slot => (
                 <button key={slot.value} onClick={() => setServiceSlot(slot.value)}
                   className="flex-1 max-w-[180px] py-3 px-4 rounded-2xl text-left transition-all duration-200 active:scale-95"
                   style={serviceSlot === slot.value
@@ -564,7 +583,7 @@ export default function CheckIn() {
                     {!alreadyIn && child.currentClass && (
                       <div>
                         <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">Service</p>
-                        <ChildSlotPicker value={slot} onChange={v => setChildSlot(child.id, v)} />
+                        <ChildSlotPicker value={slot} onChange={v => setChildSlot(child.id, v)} slotOptions={slotOptions} />
                       </div>
                     )}
 

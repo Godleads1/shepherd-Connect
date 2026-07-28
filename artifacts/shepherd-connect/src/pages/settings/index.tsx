@@ -3,13 +3,16 @@ import { useAuth } from "@/contexts/auth";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
-import { apiGet, apiPost, apiDelete } from "@/lib/api-call";
+import { apiGet, apiPost, apiDelete, apiPut } from "@/lib/api-call";
 import {
   Smartphone, Wifi, WifiOff, RefreshCw, Loader2, LogOut,
   CheckCircle2, Settings2, Copy, Check, QrCode, Phone,
+  Clock, Megaphone, Save,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useQueryClient } from "@tanstack/react-query";
 
 type WaStatus = "disconnected" | "connecting" | "pairing_code_ready" | "qr_ready" | "connected";
 
@@ -21,6 +24,171 @@ interface WaState {
 }
 
 type ConnectMode = "phone" | "qr";
+
+interface GeneralSettings {
+  serviceSlot1Label: string;
+  serviceSlot1Time: string;
+  serviceSlot2Label: string;
+  serviceSlot2Time: string;
+  supportPhone: string;
+  announcementBanner: string;
+}
+
+function GeneralSettingsCard() {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  const [settings, setSettings] = useState<GeneralSettings>({
+    serviceSlot1Label: "1st Service",
+    serviceSlot1Time: "7:00 – 10:00 AM",
+    serviceSlot2Label: "2nd Service",
+    serviceSlot2Time: "10:30 AM onwards",
+    supportPhone: "",
+    announcementBanner: "",
+  });
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    apiGet<GeneralSettings>("/settings/general")
+      .then(data => setSettings(data))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const updated = await apiPut<GeneralSettings>("/settings/general", settings);
+      setSettings(updated);
+      // Invalidate the cached query so components using useGeneralSettings() pick up changes
+      queryClient.invalidateQueries({ queryKey: ["general-settings"] });
+      toast({ title: "Settings saved", description: "Church-wide settings have been updated." });
+    } catch (e: any) {
+      toast({ variant: "destructive", title: "Could not save settings", description: e.message });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const set = (key: keyof GeneralSettings, value: string) =>
+    setSettings(prev => ({ ...prev, [key]: value }));
+
+  return (
+    <div className="border rounded-2xl bg-white overflow-hidden">
+      {/* Header */}
+      <div className="px-6 py-5 border-b bg-gray-50 flex items-center gap-3">
+        <div className="w-10 h-10 rounded-xl bg-blue-900 flex items-center justify-center">
+          <Settings2 className="w-5 h-5 text-white" />
+        </div>
+        <div>
+          <p className="font-semibold text-gray-900">General Settings</p>
+          <p className="text-xs text-gray-500">Church-wide text shown throughout the app</p>
+        </div>
+      </div>
+
+      <div className="px-6 py-6 space-y-6">
+        {loading ? (
+          <div className="flex justify-center py-6">
+            <Loader2 className="w-5 h-5 animate-spin text-gray-400" />
+          </div>
+        ) : (
+          <>
+            {/* Service times */}
+            <div>
+              <div className="flex items-center gap-2 mb-3">
+                <Clock className="w-4 h-4 text-blue-700" />
+                <p className="text-sm font-semibold text-gray-800">Service Slots</p>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-gray-600">1st Service — Label</label>
+                  <Input
+                    value={settings.serviceSlot1Label}
+                    onChange={e => set("serviceSlot1Label", e.target.value)}
+                    placeholder="e.g. 1st Service"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-gray-600">1st Service — Time</label>
+                  <Input
+                    value={settings.serviceSlot1Time}
+                    onChange={e => set("serviceSlot1Time", e.target.value)}
+                    placeholder="e.g. 7:00 – 10:00 AM"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-gray-600">2nd Service — Label</label>
+                  <Input
+                    value={settings.serviceSlot2Label}
+                    onChange={e => set("serviceSlot2Label", e.target.value)}
+                    placeholder="e.g. 2nd Service"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-gray-600">2nd Service — Time</label>
+                  <Input
+                    value={settings.serviceSlot2Time}
+                    onChange={e => set("serviceSlot2Time", e.target.value)}
+                    placeholder="e.g. 10:30 AM onwards"
+                  />
+                </div>
+              </div>
+              <p className="text-xs text-gray-400 mt-2">
+                These labels appear on the check-in screen's service selector.
+              </p>
+            </div>
+
+            <div className="border-t" />
+
+            {/* Support phone */}
+            <div className="space-y-1.5">
+              <div className="flex items-center gap-2 mb-1">
+                <Phone className="w-4 h-4 text-blue-700" />
+                <label className="text-sm font-semibold text-gray-800">Support Contact Number</label>
+              </div>
+              <Input
+                type="tel"
+                value={settings.supportPhone}
+                onChange={e => set("supportPhone", e.target.value)}
+                placeholder="e.g. 08012345678"
+              />
+              <p className="text-xs text-gray-400">
+                Displayed on parent-facing help screens. Leave blank to hide.
+              </p>
+            </div>
+
+            <div className="border-t" />
+
+            {/* Announcement banner */}
+            <div className="space-y-1.5">
+              <div className="flex items-center gap-2 mb-1">
+                <Megaphone className="w-4 h-4 text-blue-700" />
+                <label className="text-sm font-semibold text-gray-800">Announcement / Welcome Banner</label>
+              </div>
+              <Textarea
+                value={settings.announcementBanner}
+                onChange={e => set("announcementBanner", e.target.value)}
+                placeholder="e.g. Welcome to our special anniversary service! Children's church is in Hall B today."
+                rows={3}
+                className="resize-none"
+              />
+              <p className="text-xs text-gray-400">
+                Shown as a banner on the parent dashboard. Leave blank to hide.
+              </p>
+            </div>
+
+            <Button onClick={handleSave} disabled={saving} className="w-full">
+              {saving
+                ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Saving…</>
+                : <><Save className="w-4 h-4 mr-2" /> Save General Settings</>}
+            </Button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
 
 export default function Settings() {
   const { user } = useAuth();
@@ -126,6 +294,9 @@ export default function Settings() {
         </h1>
         <p className="text-gray-500 text-sm mt-1">Manage integrations and system settings</p>
       </div>
+
+      {/* General Settings card */}
+      <GeneralSettingsCard />
 
       <div className="border rounded-2xl bg-white overflow-hidden">
         {/* Header */}

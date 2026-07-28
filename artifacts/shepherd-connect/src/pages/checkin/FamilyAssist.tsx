@@ -2,14 +2,9 @@ import { useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { Input } from "@/components/ui/input";
 import { Search, UserPlus, ShieldCheck, Check, Copy, AlertCircle, Baby, Users2, CheckCircle, Printer, Plus, Trash2 } from "lucide-react";
+import { useGeneralSettings } from "@/components/AnnouncementBanner";
 
 type SlotChoice = "7am" | "10:30am" | "both";
-
-const SLOT_OPTIONS: { value: SlotChoice; label: string }[] = [
-  { value: "7am",     label: "1st Service" },
-  { value: "10:30am", label: "2nd Service" },
-  { value: "both",    label: "Both Services" },
-];
 
 async function apiCall(url: string, method: string, body?: object) {
   const token = localStorage.getItem("token");
@@ -26,10 +21,24 @@ async function apiCall(url: string, method: string, body?: object) {
   return data;
 }
 
-function SlotPicker({ value, onChange }: { value: SlotChoice; onChange: (v: SlotChoice) => void }) {
+const DEFAULT_SLOT_OPTIONS: { value: SlotChoice; label: string }[] = [
+  { value: "7am",     label: "1st Service" },
+  { value: "10:30am", label: "2nd Service" },
+  { value: "both",    label: "Both Services" },
+];
+
+function SlotPicker({
+  value,
+  onChange,
+  slotOptions,
+}: {
+  value: SlotChoice;
+  onChange: (v: SlotChoice) => void;
+  slotOptions: { value: SlotChoice; label: string }[];
+}) {
   return (
     <div className="flex gap-1 rounded-lg p-0.5" style={{ background: "#f3f4f6" }}>
-      {SLOT_OPTIONS.map(opt => (
+      {slotOptions.map(opt => (
         <button key={opt.value} type="button" onClick={() => onChange(opt.value)}
           className="flex-1 py-1.5 rounded-md text-xs font-bold transition-all"
           style={value === opt.value ? { background: "#1e3a8a", color: "white" } : { color: "#6b7280" }}>
@@ -44,6 +53,14 @@ type Path = "choose" | "find" | "walkin";
 
 export default function FamilyAssist() {
   const { toast } = useToast();
+  const { data: generalSettings } = useGeneralSettings();
+  const slotOptions: { value: SlotChoice; label: string }[] = generalSettings
+    ? [
+        { value: "7am",     label: generalSettings.serviceSlot1Label },
+        { value: "10:30am", label: generalSettings.serviceSlot2Label },
+        { value: "both",    label: "Both Services" },
+      ]
+    : DEFAULT_SLOT_OPTIONS;
   const [path, setPath] = useState<Path>("choose");
 
   const [searchQuery, setSearchQuery] = useState("");
@@ -281,7 +298,7 @@ export default function FamilyAssist() {
 
                   <div>
                     <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">Service</p>
-                    <SlotPicker value={slot} onChange={v => setChildSlots(p => ({ ...p, [child.id]: v }))} />
+                    <SlotPicker value={slot} onChange={v => setChildSlots(p => ({ ...p, [child.id]: v }))} slotOptions={slotOptions} />
                   </div>
 
                   <div className="flex gap-2">
@@ -526,7 +543,7 @@ export default function FamilyAssist() {
 
           <div>
             <p className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-2">Service</p>
-            <SlotPicker value={walkInForm.serviceSlot} onChange={v => setWalkInForm(p => ({ ...p, serviceSlot: v }))} />
+            <SlotPicker value={walkInForm.serviceSlot} onChange={v => setWalkInForm(p => ({ ...p, serviceSlot: v }))} slotOptions={slotOptions} />
           </div>
 
           <button type="submit" disabled={submittingGuest}

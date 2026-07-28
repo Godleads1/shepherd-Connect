@@ -17,6 +17,7 @@ import { apiGet, apiPost } from "@/lib/api-call";
 import { PhotoUploader, resolvePhotoUrl } from "@/components/PhotoUploader";
 import WelcomeModal, { shouldShowWelcome } from "@/components/WelcomeModal";
 import CollectionNoticeModal from "@/components/CollectionNoticeModal";
+import AnnouncementBanner from "@/components/AnnouncementBanner";
 
 function isBirthdayToday(dob: string): boolean {
   const d = new Date(dob);
@@ -536,6 +537,7 @@ export default function MyFamily() {
 
   return (
     <div className="max-w-2xl mx-auto space-y-6">
+      <AnnouncementBanner />
       {/* Hero */}
       <div className="rounded-2xl p-6 text-white relative overflow-hidden"
         style={{ background: "linear-gradient(135deg, #172554 0%, #1e3a8a 60%, #1d4ed8 100%)" }}>
