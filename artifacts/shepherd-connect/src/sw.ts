@@ -12,7 +12,11 @@ declare const self: ServiceWorkerGlobalScope;
 precacheAndRoute(self.__WB_MANIFEST);
 cleanupOutdatedCaches();
 
-// ── Navigation: serve app shell ───────────────────────────────────────────────
+// ── Lifecycle: take over immediately on new deploy ────────────────────────────
+self.addEventListener("install", (e) => {
+  e.waitUntil(self.skipWaiting());
+});
+
 self.addEventListener("activate", (e) => {
   e.waitUntil(self.clients.claim());
 });
