@@ -60,6 +60,11 @@ app.use(express.urlencoded({ extended: true }));
 
 app.use("/api", router);
 
+// JSON 404 for any unmatched /api/* path (must come before the error handler)
+app.use("/api", (_req, res) => {
+  res.status(404).json({ error: "Not found" });
+});
+
 app.use(errorMonitorMiddleware as any);
 
 export default app;

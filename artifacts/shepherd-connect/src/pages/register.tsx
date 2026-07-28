@@ -265,20 +265,29 @@ export default function Register() {
         if (s2d.nearestBusStop) addrParts.push(`Near: ${s2d.nearestBusStop}`);
         if (s2d.city) addrParts.push(s2d.city);
 
-        const famRes = await fetch("/api/families", {
+        const famRaw = await fetch("/api/families", {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${authRes.token}` },
           body: JSON.stringify({ parent1Id: authRes.user.id, parent2Id: null, address: addrParts.join(", "), emergencyContactName: s2d.emergencyContactName, emergencyContactPhone: s2d.emergencyContactPhone }),
-        }).then(r => r.json());
+        });
+        if (!famRaw.ok) {
+          const text = await famRaw.text();
+          throw new Error(text.startsWith("<") ? `Family creation failed (${famRaw.status})` : text);
+        }
+        const famRes = await famRaw.json();
 
         for (const child of (children ?? [])) {
           const age = calcAge(child.dobDay, child.dobMonth, child.dobYear);
           const matched = matchClassByAge(age, (classesList as any[]) ?? []);
-          await fetch("/api/children", {
+          const childRaw = await fetch("/api/children", {
             method: "POST",
             headers: { "Content-Type": "application/json", Authorization: `Bearer ${authRes.token}` },
             body: JSON.stringify({ familyId: famRes.id, firstName: child.firstName, lastName: child.lastName || step1Data.lastName, dob: buildDob(child.dobDay, child.dobMonth, child.dobYear), gender: child.gender, allergies: child.allergies, currentClassId: matched?.id ?? undefined }),
           });
+          if (!childRaw.ok) {
+            const text = await childRaw.text();
+            throw new Error(text.startsWith("<") ? `Child creation failed (${childRaw.status})` : text);
+          }
         }
       }
 
