@@ -14,6 +14,15 @@ const app: Express = express();
 // request that has X-Forwarded-For set, resulting in a 500 response.
 app.set("trust proxy", 1);
 
+// Redirect replit.app URL to custom domain
+app.use((req, res, next) => {
+  const host = req.headers.host ?? "";
+  if (host.includes("replit.app")) {
+    return res.redirect(301, `https://shepherdconnect.intelyticslimited.com${req.originalUrl}`);
+  }
+  next();
+});
+
 // Global rate limiter — 300 requests per minute per IP.
 // Tighter limits on specific sensitive routes (OTP, auth) are applied there.
 const globalLimiter = rateLimit({

@@ -31,6 +31,15 @@
       html.dark body { background: #0f172a; }
     </style>
 
+    <!-- Redirect replit.app URL to custom domain -->
+    <script>
+      (function () {
+        if (window.location.hostname.indexOf('replit.app') !== -1) {
+          window.location.replace('https://shepherdconnect.intelyticslimited.com' + window.location.pathname + window.location.search + window.location.hash);
+        }
+      })();
+    </script>
+
     <!-- Apply theme class synchronously before first paint to prevent flicker -->
     <script>
       (function () {
