@@ -10,12 +10,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { QrCode, Users, MapPin, ShieldCheck, Star, PlusCircle, AlertCircle, Download, X, Camera, Loader2, Cake, ChevronDown, ChevronUp, Calendar, CheckCircle, BellRing } from "lucide-react";
+import { QrCode, Users, MapPin, ShieldCheck, Star, PlusCircle, AlertCircle, Download, X, Camera, Loader2, Cake, ChevronDown, ChevronUp, Calendar, CheckCircle, BellRing, FileText } from "lucide-react";
 import { useAuth } from "@/contexts/auth";
 import { QRCodeSVG } from "qrcode.react";
 import { apiGet, apiPost } from "@/lib/api-call";
 import { PhotoUploader, resolvePhotoUrl } from "@/components/PhotoUploader";
 import WelcomeModal, { shouldShowWelcome } from "@/components/WelcomeModal";
+import CollectionNoticeModal from "@/components/CollectionNoticeModal";
 
 function isBirthdayToday(dob: string): boolean {
   const d = new Date(dob);
@@ -457,6 +458,7 @@ export default function MyFamily() {
 
   const [addChildOpen, setAddChildOpen] = useState(false);
   const [qrModalOpen, setQrModalOpen] = useState(false);
+  const [noticeOpen, setNoticeOpen] = useState(false);
   const [showWelcome, setShowWelcome] = useState(false);
   const [childForm, setChildForm] = useState({
     firstName: "", lastName: "", dob: "", gender: "male" as "male" | "female",
@@ -590,6 +592,30 @@ export default function MyFamily() {
         </div>
       )}
 
+      {/* Collection Notice Card */}
+      <div
+        className="bg-white rounded-2xl p-5 border cursor-pointer transition-all hover:shadow-md active:scale-[0.99]"
+        style={{ borderColor: "#f59e0b30", boxShadow: "0 2px 12px rgba(245,158,11,.08)" }}
+        onClick={() => setNoticeOpen(true)}
+      >
+        <div className="flex items-center gap-4">
+          <div className="p-3 rounded-xl flex-shrink-0" style={{ background: "#fffbeb" }}>
+            <FileText className="w-8 h-8" style={{ color: "#d97706" }} />
+          </div>
+          <div className="flex-1">
+            <div className="flex items-center gap-2 mb-1">
+              <MapPin className="w-4 h-4 text-[#d97706]" />
+              <p className="font-bold text-gray-900">Collection Notice</p>
+            </div>
+            <p className="text-sm text-gray-500">See pickup location & print a slip for dismissal</p>
+          </div>
+          <div className="text-[#d97706] font-semibold text-xs flex flex-col items-center gap-1">
+            <span className="text-xl">›</span>
+            <span>View</span>
+          </div>
+        </div>
+      </div>
+
       {/* Quick Actions */}
       <div className="grid grid-cols-3 gap-3">
         {[
@@ -658,6 +684,14 @@ export default function MyFamily() {
 
       {/* Family QR Modal */}
       {family && <FamilyQRModal family={family} open={qrModalOpen} onClose={() => setQrModalOpen(false)} />}
+
+      {/* Collection Notice Modal */}
+      <CollectionNoticeModal
+        open={noticeOpen}
+        onClose={() => setNoticeOpen(false)}
+        familyCode={family?.familyCode}
+        childNames={children.map((c: any) => c.firstName)}
+      />
 
       {/* Welcome Onboarding Modal — shown to first-time parents */}
       {showWelcome && (

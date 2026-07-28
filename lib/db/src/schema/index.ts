@@ -32,3 +32,4 @@ export * from "./botPendingApprovals";
 export * from "./botPhotoPending";
 export * from "./staffCheckpoints";
 export * from "./sundayAttendance";
+export * from "./churchSettings";
