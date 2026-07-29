@@ -409,6 +409,17 @@ router.delete("/users/:id", authMiddleware, requireRoles("super_admin", "admin")
       "DELETE FROM push_subscriptions WHERE user_id = $1",
       "UPDATE support_requests SET assigned_support_id = NULL WHERE assigned_support_id = $1",
       "DELETE FROM support_requests WHERE parent_user_id = $1",
+      "DELETE FROM bot_pending_approvals WHERE parent_user_id = $1",
+      "UPDATE bot_pending_approvals SET assigned_support_id = NULL WHERE assigned_support_id = $1",
+      "DELETE FROM bot_sessions WHERE active_user_id = $1",
+      "DELETE FROM bot_lid_cache WHERE user_id = $1",
+      "DELETE FROM parent_concerns WHERE parent_user_id = $1",
+      "DELETE FROM safeguarding_acknowledgements WHERE user_id = $1",
+      "DELETE FROM staff_checkpoint_logs WHERE user_id = $1",
+      "DELETE FROM staff_scans WHERE user_id = $1",
+      "UPDATE sunday_qr_codes SET created_by_id = NULL WHERE created_by_id = $1",
+      "DELETE FROM teacher_clock_ins WHERE user_id = $1",
+      "DELETE FROM teacher_incidents WHERE teacher_user_id = $1",
       "DELETE FROM users WHERE id = $1",
     ];
     for (const stmt of stmts) await client.query(stmt, [id]);
