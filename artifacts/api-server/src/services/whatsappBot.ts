@@ -22,6 +22,7 @@ import {
   notificationsTable,
   teachersTable,
   teacherAllocationsTable,
+  substituteRequestsTable,
   supportRequestsTable,
   botSessionsTable,
   botLidCacheTable,
@@ -54,6 +55,7 @@ type Step =
   | "concern_enter_desc"
   | "request_select_type"
   | "request_select_child"
+  | "teacher_sub_reason"
   | "awaiting_photo"
   | "awaiting_nudge";
 
@@ -259,6 +261,17 @@ async function getTodayAllocationForTeacher(teacherId: number) {
   return { ...row, className: cls?.name ?? "Unknown class" };
 }
 
+async function getTodayAllocationsForTeacher(teacherId: number) {
+  const today = new Date().toISOString().slice(0, 10);
+  const allRows = await db.select().from(teacherAllocationsTable).where(eq(teacherAllocationsTable.teacherId, teacherId));
+  const todayRows = allRows.filter(r => String(r.serviceDate).slice(0, 10) === today);
+  if (!todayRows.length) return [];
+  const classIds = [...new Set(todayRows.map(r => r.classId))];
+  const classes = await db.select().from(classesTable).where(inArray(classesTable.id, classIds));
+  const classMap = new Map(classes.map(c => [c.id, c.name]));
+  return todayRows.map(r => ({ ...r, className: classMap.get(r.classId) ?? "Unknown class" }));
+}
+
 async function getClassChildren(classId: number) {
   return db.select({ id: childrenTable.id, firstName: childrenTable.firstName, lastName: childrenTable.lastName, gender: childrenTable.gender })
     .from(childrenTable).where(eq(childrenTable.currentClassId, classId));
@@ -315,6 +328,8 @@ function teacherMenuText(firstName: string, lastAction?: string) {
     `*2* — 📋 Today's attendance summary\n` +
     `*3* — 🔔 Recent notifications\n` +
     `*4* — 💬 Submit a concern or feedback\n` +
+    `*5* — 🔄 Request a substitute\n` +
+    `*6* — 📅 My full schedule today\n` +
     lastActionShortcut(lastAction) +
     `\n\nOr just *type what you need* — I'll understand! 💬`
   );
@@ -481,6 +496,14 @@ async function executeTeacherIntent(
       session.step = "concern_select_type";
       await saveSession(fromJid, session);
       await reply(`💬 *Submit a Concern or Feedback*\n\n*1* — 🛡️ Safeguarding Concern\n*2* — ⚠️ Complaint\n*3* — 👍 Compliment\n*4* — 💬 General Feedback\n\n_Type *0* to cancel._`);
+      return true;
+    }
+    case "SUBSTITUTE_REQUEST": {
+      await _startTeacherSubRequest(userId, fromJid, session, reply);
+      return true;
+    }
+    case "MY_SCHEDULE": {
+      await _handleTeacherSchedule(userId, reply);
       return true;
     }
     case "GENERAL_QUESTION": {
@@ -684,7 +707,7 @@ export async function handleInboundMessage(
     session = await resetSession(fromJid, resolvedUserId, session.data.lastAction);
     if (isExplicitYes) {
       const menuHint = role === "teacher"
-        ? `*1* — Class roster  |  *2* — Attendance  |  *3* — Notifications  |  *4* — Concern`
+        ? `*1* — Class roster  |  *2* — Attendance  |  *3* — Notifications  |  *4* — Concern  |  *5* — Substitute  |  *6* — Schedule`
         : `*1* — Status  |  *2* — OTP  |  *3* — Children  |  *4* — Notifications  |  *5* — Concern  |  *6* — Support`;
       await reply(
         `Welcome back, *${user.firstName}!* 🎉\n\n` +
@@ -717,6 +740,43 @@ export async function handleInboundMessage(
     await resetSession(fromJid, resolvedUserId, "SUBMIT_CONCERN");
     logger.info({ userId: user.id, ref }, "Bot: concern submitted");
     await reply(`✅ *Concern submitted!*\n\nReference: *${ref}*\n\nThe safeguarding team will respond via the app.\n\nType *0* for the main menu.`); return;
+  }
+
+  // ── Multi-step: teacher substitute request ───────────────────────────────
+  if (session.step === "teacher_sub_reason") {
+    if (text.trim().length < 5) { await reply(`Please type your reason (e.g. "I'm sick today").\n\nType *0* to cancel.`); return; }
+    const classIds = (session.data.subClassIds ?? "").split(",").map(Number).filter(Boolean);
+    const serviceDate = session.data.subServiceDate ?? new Date().toISOString().slice(0, 10);
+    const classNames = session.data.subClassNames ?? "today's class";
+    for (const classId of classIds) {
+      await db.insert(substituteRequestsTable).values({
+        requestingTeacherId: user.id,
+        classId,
+        serviceDate,
+        reason: text.trim(),
+        status: "pending",
+      }).catch(err => logger.warn({ err }, "Bot: substitute request insert failed"));
+    }
+    // Notify all admins in-app
+    const admins = await db.select({ id: usersTable.id }).from(usersTable)
+      .where(or(eq(usersTable.role, "admin"), eq(usersTable.role, "super_admin")));
+    for (const admin of admins) {
+      await db.insert(notificationsTable).values({
+        userId: admin.id,
+        type: "substitute_request",
+        title: "Substitute Needed",
+        body: `${user.firstName} ${user.lastName} can't make it for ${classNames}. Reason: ${text.trim().slice(0, 80)}`,
+      }).catch(() => {});
+    }
+    await resetSession(fromJid, resolvedUserId, "SUBSTITUTE_REQUEST");
+    logger.info({ userId: user.id, classIds, serviceDate }, "Bot: substitute request submitted");
+    await reply(
+      `✅ *Substitute request sent!*\n\n` +
+      `Admin has been notified about *${classNames}*.\n\n` +
+      `You'll receive confirmation once a substitute is assigned.\n\n` +
+      `Type *0* for the main menu.`
+    );
+    return;
   }
 
   // ── Multi-step: support request ───────────────────────────────────────────
@@ -847,7 +907,7 @@ export async function handleInboundMessage(
   if (numberHandled !== null) {
     if (numberHandled) {
       // Save last action by number
-      const intentByNumber: Record<string, Intent> = { "1": role === "teacher" ? "MY_CHILDREN" : "CHECK_STATUS", "2": role === "teacher" ? "CHECK_STATUS" : "GET_OTP", "3": "NOTIFICATIONS", "4": role === "teacher" ? "SUBMIT_CONCERN" : "NOTIFICATIONS", "5": "SUBMIT_CONCERN", "6": "SUPPORT_REQUEST" };
+      const intentByNumber: Record<string, Intent> = { "1": role === "teacher" ? "MY_CHILDREN" : "CHECK_STATUS", "2": role === "teacher" ? "CHECK_STATUS" : "GET_OTP", "3": "NOTIFICATIONS", "4": role === "teacher" ? "SUBMIT_CONCERN" : "NOTIFICATIONS", "5": role === "teacher" ? "SUBSTITUTE_REQUEST" : "SUBMIT_CONCERN", "6": role === "teacher" ? "MY_SCHEDULE" : "SUPPORT_REQUEST" };
       const la = intentByNumber[input];
       if (la) { session.data.lastAction = la; await saveSession(fromJid, session); }
     }
@@ -877,7 +937,7 @@ export async function handleInboundMessage(
     } catch (err) {
       logger.warn({ err: String(err) }, "Bot: AI classification failed (teacher)");
     }
-    await reply(`🤔 I didn't quite understand that.\n\nTry:\n*1* — Class roster  |  *2* — Attendance  |  *3* — Notifications  |  *4* — Concern\n\nOr type *0* for the full menu.`);
+    await reply(`🤔 I didn't quite understand that.\n\nTry:\n*1* — Class roster  |  *2* — Attendance  |  *3* — Notifications  |  *4* — Concern  |  *5* — Substitute  |  *6* — Schedule\n\nOr type *0* for the full menu.`);
     return;
   }
 
@@ -928,7 +988,7 @@ export async function handleInboundMessage(
 
   // 3. Final fallback — brief "I didn't understand", not the full menu again
   const menuHint = role === "teacher"
-    ? `*1* — Class roster  |  *2* — Attendance  |  *3* — Notifications  |  *4* — Concern`
+    ? `*1* — Class roster  |  *2* — Attendance  |  *3* — Notifications  |  *4* — Concern  |  *5* — Substitute  |  *6* — Schedule`
     : `*1* — Status  |  *2* — OTP  |  *3* — Children  |  *4* — Notifications  |  *5* — Concern  |  *6* — Support`;
 
   await reply(
@@ -956,6 +1016,8 @@ async function _handleNumberedCommand(
       await reply(`💬 *Submit a Concern or Feedback*\n\n*1* — 🛡️ Safeguarding Concern\n*2* — ⚠️ Complaint\n*3* — 👍 Compliment\n*4* — 💬 General Feedback\n\n_Type *0* to cancel._`);
       return false;
     }
+    if (input === "5") { await _startTeacherSubRequest(userId, fromJid, session, reply); return false; }
+    if (input === "6") { await _handleTeacherSchedule(userId, reply); return true; }
     return null;
   }
 
@@ -1024,6 +1086,52 @@ async function _handleTeacherAttendance(userId: number, reply: (msg: string) => 
     `✅ Picked up: *${at.filter(a => a.status === "picked_up").length}*\n` +
     `⚪ Not checked in: *${ch.length - at.length}*\n\n` +
     `👥 Total enrolled: *${ch.length}*`
+  );
+}
+
+// ── Teacher schedule & substitute request helpers ─────────────────────────────
+
+async function _handleTeacherSchedule(userId: number, reply: (msg: string) => Promise<void>) {
+  const teacher = await getTeacherRecord(userId);
+  if (!teacher) { await reply(`ℹ️ No teacher profile found. Contact admin.`); return; }
+  const allocs = await getTodayAllocationsForTeacher(teacher.id);
+  if (!allocs.length) { await reply(`ℹ️ No class allocation for today.`); return; }
+  const slotLabel = (s: string) => s === "7am" ? "7:00 AM" : s === "10:30am" ? "10:30 AM" : s;
+  const lines = allocs.map(a => `• *${a.className}* — ${slotLabel(a.serviceSlot ?? "")}`);
+  await reply(
+    `📅 *My Schedule Today*\n` +
+    `${new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}\n\n` +
+    `${lines.join("\n")}\n\n` +
+    `_Type *1* for class roster · *2* for attendance · *5* to request a substitute._`
+  );
+}
+
+async function _startTeacherSubRequest(
+  userId: number,
+  fromJid: string,
+  session: Session,
+  reply: (msg: string) => Promise<void>,
+) {
+  const teacher = await getTeacherRecord(userId);
+  if (!teacher) { await reply(`ℹ️ No teacher profile found. Contact admin.`); return; }
+  const allocs = await getTodayAllocationsForTeacher(teacher.id);
+  if (!allocs.length) {
+    await reply(`ℹ️ You have no class allocation for today — no substitute needed.`); return;
+  }
+  const slotLabel = (s: string) => s === "7am" ? "7:00 AM" : s === "10:30am" ? "10:30 AM" : s;
+  const summary = allocs.length === 1
+    ? `You are scheduled for *${allocs[0]!.className}* at *${slotLabel(allocs[0]!.serviceSlot ?? "")}*.`
+    : `You have ${allocs.length} classes today:\n${allocs.map(a => `• ${a.className} (${slotLabel(a.serviceSlot ?? "")})`).join("\n")}`;
+  const classNames = allocs.map(a => a.className).join(", ");
+  session.step = "teacher_sub_reason";
+  session.data.subClassIds = allocs.map(a => a.classId).join(",");
+  session.data.subClassNames = classNames;
+  session.data.subServiceDate = new Date().toISOString().slice(0, 10);
+  await saveSession(fromJid, session);
+  await reply(
+    `🔄 *Request a Substitute*\n\n${summary}\n\n` +
+    `Please type your reason (e.g. "I'm sick", "family emergency"):\n\n` +
+    `_Type *0* to cancel._`
   );
 }
 

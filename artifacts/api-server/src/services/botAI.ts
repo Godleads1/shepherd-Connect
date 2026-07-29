@@ -30,6 +30,8 @@ export type Intent =
   | "NOTIFICATIONS"     // recent notifications
   | "SUBMIT_CONCERN"    // concern / feedback / complaint
   | "SUPPORT_REQUEST"   // check-in / check-out help
+  | "SUBSTITUTE_REQUEST" // teacher requests a substitute (can't make it)
+  | "MY_SCHEDULE"       // teacher views today's class schedule / allocations
   | "GENERAL_QUESTION"  // anything about the church
   | "MENU"              // show menu
   | "SWITCH"            // switch account/role
@@ -53,16 +55,18 @@ Your job: understand what parents and teachers want, and either:
   (b) answer general questions about the church / children's ministry.
 
 Known intents (return as "intent" field):
-  CHECK_STATUS       — wants to know if their child is checked in / where child is
-  GET_OTP            — wants delegate pickup OTP codes
-  MY_CHILDREN        — wants to see their children and class info
-  NOTIFICATIONS      — wants to see recent notifications
-  SUBMIT_CONCERN     — wants to submit a concern, complaint, compliment, or feedback
-  SUPPORT_REQUEST    — wants help with check-in, check-out, or delegate pickup
-  MENU               — wants to see the main menu
-  SWITCH             — wants to switch to a different account or role
-  GENERAL_QUESTION   — question about the church (answer it kindly and concisely)
-  UNKNOWN            — cannot determine intent (politely say so in "answer" field)
+  CHECK_STATUS         — wants to know if their child is checked in / where child is
+  GET_OTP              — wants delegate pickup OTP codes
+  MY_CHILDREN          — wants to see their children and class info
+  NOTIFICATIONS        — wants to see recent notifications
+  SUBMIT_CONCERN       — wants to submit a concern, complaint, compliment, or feedback
+  SUPPORT_REQUEST      — wants help with check-in, check-out, or delegate pickup
+  SUBSTITUTE_REQUEST   — teacher can't make it, needs a substitute (illness, emergency, etc.)
+  MY_SCHEDULE          — teacher wants to see today's class schedule / allocations
+  MENU                 — wants to see the main menu
+  SWITCH               — wants to switch to a different account or role
+  GENERAL_QUESTION     — question about the church (answer it kindly and concisely)
+  UNKNOWN              — cannot determine intent (politely say so in "answer" field)
 
 Church facts you know:
   - Church: RCCG City of David
@@ -132,6 +136,8 @@ const KEYWORD_MAP: Array<[RegExp, Intent]> = [
   [/\b(children|child|kids?|my.?kid|my.?child)\b/i, "MY_CHILDREN"],
   [/\b(notif|notify|message|alert|news)\b/i, "NOTIFICATIONS"],
   [/\b(concern|complaint|complain|feedback|compliment|issue|problem|report)\b/i, "SUBMIT_CONCERN"],
+  [/\b(substitute|sub|can.?t.?make|can.?t.?come|unavailable|sick|ill|emergency|won.?t.?be|not.?coming)\b/i, "SUBSTITUTE_REQUEST"],
+  [/\b(schedule|allocation|roster|my.?class|assigned|timetable|slot)\b/i, "MY_SCHEDULE"],
   [/\b(request|support|help|assist|check.?in|check.?out)\b/i, "SUPPORT_REQUEST"],
   [/\b(menu|home|main|start|options?|back)\b/i, "MENU"],
   [/\b(switch|change.?account|change.?role)\b/i, "SWITCH"],
