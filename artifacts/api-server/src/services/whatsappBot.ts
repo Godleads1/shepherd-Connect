@@ -314,6 +314,7 @@ function teacherMenuText(firstName: string, lastAction?: string) {
     `*1* — 🏫 My class roster today\n` +
     `*2* — 📋 Today's attendance summary\n` +
     `*3* — 🔔 Recent notifications\n` +
+    `*4* — 💬 Submit a concern or feedback\n` +
     lastActionShortcut(lastAction) +
     `\n\nOr just *type what you need* — I'll understand! 💬`
   );
@@ -476,6 +477,12 @@ async function executeTeacherIntent(
       await reply(teacherMenuText(firstName, session.data.lastAction));
       return true;
     }
+    case "SUBMIT_CONCERN": {
+      session.step = "concern_select_type";
+      await saveSession(fromJid, session);
+      await reply(`💬 *Submit a Concern or Feedback*\n\n*1* — 🛡️ Safeguarding Concern\n*2* — ⚠️ Complaint\n*3* — 👍 Compliment\n*4* — 💬 General Feedback\n\n_Type *0* to cancel._`);
+      return true;
+    }
     case "GENERAL_QUESTION": {
       if (aiAnswer) {
         await reply(`${aiAnswer}\n\n_Type *0* for the main menu._`);
@@ -579,7 +586,11 @@ export async function handleInboundMessage(
         }
         await resetSession(fromJid, matches[0]!.id);
         const user = await findUserById(matches[0]!.id);
-        if (user) await reply(parentMenuText(user.firstName));
+        if (user) {
+          if (user.role === "teacher") await reply(teacherMenuText(user.firstName));
+          else if (user.role === "support" || user.role === "attendant") await reply(supportMenuText(user.firstName));
+          else await reply(parentMenuText(user.firstName));
+        }
         return;
       } else {
         const s: Session = { step: "lid_verify_phone", data: {} };
@@ -673,7 +684,7 @@ export async function handleInboundMessage(
     session = await resetSession(fromJid, resolvedUserId, session.data.lastAction);
     if (isExplicitYes) {
       const menuHint = role === "teacher"
-        ? `*1* — Class roster  |  *2* — Attendance  |  *3* — Notifications`
+        ? `*1* — Class roster  |  *2* — Attendance  |  *3* — Notifications  |  *4* — Concern`
         : `*1* — Status  |  *2* — OTP  |  *3* — Children  |  *4* — Notifications  |  *5* — Concern  |  *6* — Support`;
       await reply(
         `Welcome back, *${user.firstName}!* 🎉\n\n` +
@@ -836,7 +847,7 @@ export async function handleInboundMessage(
   if (numberHandled !== null) {
     if (numberHandled) {
       // Save last action by number
-      const intentByNumber: Record<string, Intent> = { "1": role === "teacher" ? "MY_CHILDREN" : "CHECK_STATUS", "2": role === "teacher" ? "CHECK_STATUS" : "GET_OTP", "3": "NOTIFICATIONS", "4": "NOTIFICATIONS", "5": "SUBMIT_CONCERN", "6": "SUPPORT_REQUEST" };
+      const intentByNumber: Record<string, Intent> = { "1": role === "teacher" ? "MY_CHILDREN" : "CHECK_STATUS", "2": role === "teacher" ? "CHECK_STATUS" : "GET_OTP", "3": "NOTIFICATIONS", "4": role === "teacher" ? "SUBMIT_CONCERN" : "NOTIFICATIONS", "5": "SUBMIT_CONCERN", "6": "SUPPORT_REQUEST" };
       const la = intentByNumber[input];
       if (la) { session.data.lastAction = la; await saveSession(fromJid, session); }
     }
@@ -849,7 +860,28 @@ export async function handleInboundMessage(
     return;
   }
 
-  // Fetch children once — reused by both fuzzy and AI paths
+  // Teachers get their own NLP path — no parent children needed
+  if (role === "teacher") {
+    const fuzzyTeacher = fuzzyClassify(text);
+    if (fuzzyTeacher && fuzzyTeacher !== "UNKNOWN") {
+      const handled = await executeTeacherIntent(fuzzyTeacher, undefined, user.id, user.firstName, fromJid, session, reply);
+      if (handled) { session.data.lastAction = fuzzyTeacher; await saveSession(fromJid, session); return; }
+    }
+    try {
+      const classified = await classifyIntent(text, "teacher", []);
+      if (classified.confidence >= 0.5 && classified.intent !== "UNKNOWN") {
+        const handled = await executeTeacherIntent(classified.intent, classified.answer, user.id, user.firstName, fromJid, session, reply);
+        if (handled) { session.data.lastAction = classified.intent; await saveSession(fromJid, session); return; }
+      }
+      if (classified.answer) { await reply(`${classified.answer}\n\n_Type *0* for the main menu._`); return; }
+    } catch (err) {
+      logger.warn({ err: String(err) }, "Bot: AI classification failed (teacher)");
+    }
+    await reply(`🤔 I didn't quite understand that.\n\nTry:\n*1* — Class roster  |  *2* — Attendance  |  *3* — Notifications  |  *4* — Concern\n\nOr type *0* for the full menu.`);
+    return;
+  }
+
+  // Fetch children once — reused by both fuzzy and AI paths (parent path)
   const children = await getParentChildren(user.id);
   const childNames = children.map(c => `${c.firstName} ${c.lastName}`);
 
@@ -896,7 +928,7 @@ export async function handleInboundMessage(
 
   // 3. Final fallback — brief "I didn't understand", not the full menu again
   const menuHint = role === "teacher"
-    ? `*1* — Class roster  |  *2* — Attendance  |  *3* — Notifications`
+    ? `*1* — Class roster  |  *2* — Attendance  |  *3* — Notifications  |  *4* — Concern`
     : `*1* — Status  |  *2* — OTP  |  *3* — Children  |  *4* — Notifications  |  *5* — Concern  |  *6* — Support`;
 
   await reply(
@@ -918,6 +950,12 @@ async function _handleNumberedCommand(
     if (input === "1") { await _handleTeacherRoster(userId, reply); return true; }
     if (input === "2") { await _handleTeacherAttendance(userId, reply); return true; }
     if (input === "3") { const n = await getRecentNotifications(userId); await reply(notificationsText(n)); return true; }
+    if (input === "4") {
+      session.step = "concern_select_type";
+      await saveSession(fromJid, session);
+      await reply(`💬 *Submit a Concern or Feedback*\n\n*1* — 🛡️ Safeguarding Concern\n*2* — ⚠️ Complaint\n*3* — 👍 Compliment\n*4* — 💬 General Feedback\n\n_Type *0* to cancel._`);
+      return false;
+    }
     return null;
   }
 
