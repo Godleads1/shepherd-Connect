@@ -352,7 +352,7 @@ router.post("/auth/send-otp", async (req, res): Promise<void> => {
     }
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
     const pinId = crypto.randomUUID();
-    const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+    const expiresAt = new Date(Date.now() + 20 * 60 * 1000);
     otpSessions.set(pinId, { otp, phone: email.trim(), expiresAt });
     await emailRegistrationOtp(email.trim(), otp, req.log);
     res.json({ pinId, message: "OTP sent to your email" });
@@ -365,7 +365,7 @@ router.post("/auth/send-otp", async (req, res): Promise<void> => {
   }
   const otp = Math.floor(100000 + Math.random() * 900000).toString();
   const pinId = crypto.randomUUID();
-  const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+  const expiresAt = new Date(Date.now() + 20 * 60 * 1000);
   otpSessions.set(pinId, { otp, phone: phone.trim(), expiresAt });
 
   // Fire SMS/WhatsApp in background — don't block the response on it
