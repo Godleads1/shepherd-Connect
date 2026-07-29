@@ -1,6 +1,6 @@
 import { Router } from "express";
-import { eq, inArray } from "drizzle-orm";
-import { db, teachersTable, usersTable, classesTable } from "@workspace/db";
+import { eq, inArray, isNull, and } from "drizzle-orm";
+import { db, teachersTable, usersTable, classesTable, notificationsTable } from "@workspace/db";
 import { CreateTeacherBody } from "@workspace/api-zod";
 import { authMiddleware, requireRoles } from "../middlewares/auth";
 import { z } from "zod";
@@ -112,6 +112,63 @@ router.put("/teachers/:id", authMiddleware, requireRoles("super_admin", "admin")
     await db.update(usersTable).set(updates).where(eq(usersTable.id, teacher.userId));
   }
   res.json(await formatTeacher(teacher));
+});
+
+// Admin: notify all active teachers who haven't picked a class yet
+router.post("/teachers/notify-select-class", authMiddleware, requireRoles("super_admin", "admin"), async (req, res): Promise<void> => {
+  // Find all active teacher-role users with no primaryClassId
+  const unassigned = await db
+    .select({ id: usersTable.id, firstName: usersTable.firstName, email: usersTable.email, phone: usersTable.phone })
+    .from(usersTable)
+    .where(and(
+      eq(usersTable.role, "teacher"),
+      eq(usersTable.isActive, true),
+      isNull(usersTable.primaryClassId),
+    ));
+
+  if (unassigned.length === 0) {
+    res.json({ success: true, sent: 0, message: "All active teachers already have a class assigned." });
+    return;
+  }
+
+  const title = "Action Required: Pick Your Class 📚";
+  const message = "You haven't selected your permanent class yet. Please log in to Shepherd Connect and go to My Class to pick your class. It only takes a few seconds!";
+
+  // Insert in-app notifications in one batch
+  await db.insert(notificationsTable).values(
+    unassigned.map(u => ({
+      userId: u.id,
+      type: "broadcast" as const,
+      title,
+      message,
+      channel: "in_app" as const,
+      readStatus: false,
+    }))
+  );
+
+  // Send WhatsApp/email to each in background
+  const { sendWhatsAppWithFallback, emailWelcome } = await import("../services/sms");
+  const appUrl = process.env.REPLIT_DEV_DOMAIN ? `https://${process.env.REPLIT_DEV_DOMAIN}/shepherd-connect/my-class` : "https://shepherdconnect.intelyticslimited.com/my-class";
+  const fullMessage = `${message}\n\n👉 ${appUrl}`;
+
+  Promise.all(
+    unassigned.map(async u => {
+      if (u.phone) sendWhatsAppWithFallback(u.phone, `*${title}*\n\n${fullMessage}`, req.log).catch(() => {});
+      if (u.email) {
+        // reuse the email infrastructure via direct Resend call pattern
+        const { Resend } = await import("resend");
+        const resend = new Resend(process.env.RESEND_API_KEY);
+        resend.emails.send({
+          from: "Shepherd Connect <no-reply@shepherdconnect.intelyticslimited.com>",
+          to: u.email,
+          subject: title,
+          html: `<p>Hi ${u.firstName},</p><p>${message}</p><p><a href="${appUrl}">Log in and pick your class →</a></p>`,
+        }).catch(() => {});
+      }
+    })
+  ).catch(() => {});
+
+  res.json({ success: true, sent: unassigned.length, message: `Notified ${unassigned.length} teacher(s) to select their class.` });
 });
 
 // Teachers can self-select their primary class (only if they have none yet, or always — admin supersedes via PUT)

@@ -7,7 +7,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { UserCog, Pencil, Phone, Mail, Calendar, CheckCircle2, XCircle, ShieldCheck, Clock, AlertTriangle, School } from "lucide-react";
+import { UserCog, Pencil, Phone, Mail, Calendar, CheckCircle2, XCircle, ShieldCheck, Clock, AlertTriangle, School, Bell } from "lucide-react";
 import { resolvePhotoUrl } from "@/components/PhotoUploader";
 import { QueryError } from "@/components/QueryError";
 import { format } from "date-fns";
@@ -279,6 +279,17 @@ export default function Teachers() {
 
   const canEdit = user?.role === "super_admin" || user?.role === "admin";
 
+  const notifyMut = useMutation({
+    mutationFn: () => fetch("/api/teachers/notify-select-class", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
+    }).then(r => r.json()),
+    onSuccess: (data: any) => {
+      toast({ title: data.sent > 0 ? `Notified ${data.sent} teacher(s) ✓` : "All teachers already have a class", description: data.message });
+    },
+    onError: () => toast({ variant: "destructive", title: "Failed to send notifications" }),
+  });
+
   const { data: teachers = [], isLoading, isError } = useQuery({
     queryKey: ["teachers"],
     queryFn: () => apiGet<any[]>("/teachers"),
@@ -502,7 +513,20 @@ export default function Teachers() {
       )}
 
       {canEdit && (
-        <div className="flex justify-end pt-1">
+        <div className="flex flex-wrap justify-end gap-3 pt-1">
+          <button
+            onClick={() => {
+              if (window.confirm("This will send a WhatsApp, email, and in-app notification to every active teacher who hasn't picked a class yet. Continue?")) {
+                notifyMut.mutate();
+              }
+            }}
+            disabled={notifyMut.isPending}
+            className="flex items-center gap-2 text-sm font-semibold px-4 py-2 rounded-xl border transition-colors disabled:opacity-60"
+            style={{ borderColor: "#fbbf24", color: "#92400e", background: "#fefce8" }}
+          >
+            <Bell className="w-4 h-4" />
+            {notifyMut.isPending ? "Sending…" : "Notify Teachers to Pick Class"}
+          </button>
           <a href="/safeguarding"
             className="flex items-center gap-2 text-sm font-semibold px-4 py-2 rounded-xl border border-blue-200 text-blue-700 bg-blue-50 hover:bg-blue-100 transition-colors">
             <ShieldCheck className="w-4 h-4" />
