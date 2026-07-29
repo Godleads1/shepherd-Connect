@@ -368,13 +368,16 @@ router.post("/auth/send-otp", async (req, res): Promise<void> => {
   const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
   otpSessions.set(pinId, { otp, phone: phone.trim(), expiresAt });
 
-  // Deliver OTP via SMS (dnd route) plus email as backup
-  await smsRegistrationOtp(phone.trim(), otp, req.log);
+  // Fire SMS/WhatsApp in background — don't block the response on it
+  smsRegistrationOtp(phone.trim(), otp, req.log).catch(() => {});
+
+  // Always send email backup so the user gets the code even if SMS/WhatsApp fails
   if (email && typeof email === "string") {
     await emailRegistrationOtp(email.trim(), otp, req.log);
+    res.json({ pinId, message: "OTP sent to your phone and email" });
+  } else {
+    res.json({ pinId, message: "OTP sent to your phone" });
   }
-
-  res.json({ pinId, message: "OTP sent successfully" });
 });
 
 router.post("/auth/verify-otp", async (req, res): Promise<void> => {

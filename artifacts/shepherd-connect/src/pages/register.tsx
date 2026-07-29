@@ -498,7 +498,12 @@ export default function Register() {
             ) : (
               <div className="space-y-4">
                 <div className="p-3 rounded-xl text-center text-sm" style={{ background: "rgba(26,35,126,0.06)", border: "1px solid rgba(26,35,126,0.15)", color: LOGO_NAVY }}>
-                  ✓ Code sent via {otpChannel === "whatsapp" ? "WhatsApp" : otpChannel === "email" ? "email" : "SMS"} — check your {otpChannel === "email" ? "inbox" : "messages"}
+                  ✓ Code sent via {otpChannel === "whatsapp" ? "WhatsApp" : otpChannel === "email" ? "email" : "SMS"}
+                  {otpChannel !== "email" && (
+                    <span className="block text-xs mt-1" style={{ color: "#64748b" }}>
+                      Also sent to your email inbox — check there if you don't receive it
+                    </span>
+                  )}
                 </div>
 
                 <div className="relative">
