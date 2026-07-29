@@ -9,7 +9,7 @@ import { apiGet, apiPost, apiDelete, apiPut } from "@/lib/api-call";
 import {
   Smartphone, Wifi, WifiOff, RefreshCw, Loader2, LogOut,
   CheckCircle2, Settings2, Copy, Check, QrCode, Phone,
-  Clock, Megaphone, Save,
+  Clock, Megaphone, Save, MapPin, ExternalLink,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useQueryClient } from "@tanstack/react-query";
@@ -32,6 +32,124 @@ interface GeneralSettings {
   serviceSlot2Time: string;
   supportPhone: string;
   announcementBanner: string;
+}
+
+interface LocationSettings {
+  churchName: string;
+  address: string;
+  mapsUrl: string;
+}
+
+function LocationSettingsCard() {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  const [settings, setSettings] = useState<LocationSettings>({
+    churchName: "RCCG City of David",
+    address: "Victoria Island, Lagos",
+    mapsUrl: "https://maps.app.goo.gl/uvgtpVETsCeqkzmDA",
+  });
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    apiGet<LocationSettings>("/settings/location")
+      .then(data => setSettings(data))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const updated = await apiPut<LocationSettings>("/settings/location", settings);
+      setSettings(updated);
+      // Refresh LocationBanner and CollectionNotice everywhere
+      queryClient.invalidateQueries({ queryKey: ["settings-location"] });
+      toast({ title: "Location saved", description: "Pickup location has been updated." });
+    } catch (e: any) {
+      toast({ variant: "destructive", title: "Could not save location", description: e.message });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const set = (key: keyof LocationSettings, value: string) =>
+    setSettings(prev => ({ ...prev, [key]: value }));
+
+  return (
+    <div className="border rounded-2xl bg-white overflow-hidden">
+      {/* Header */}
+      <div className="px-6 py-5 border-b bg-gray-50 flex items-center gap-3">
+        <div className="w-10 h-10 rounded-xl bg-amber-500 flex items-center justify-center">
+          <MapPin className="w-5 h-5 text-white" />
+        </div>
+        <div>
+          <p className="font-semibold text-gray-900">Pickup Location</p>
+          <p className="text-xs text-gray-500">Shown on the parent dashboard and collection notices</p>
+        </div>
+      </div>
+
+      <div className="px-6 py-6 space-y-5">
+        {loading ? (
+          <div className="flex justify-center py-6">
+            <Loader2 className="w-5 h-5 animate-spin text-gray-400" />
+          </div>
+        ) : (
+          <>
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-gray-600">Church Name</label>
+              <Input
+                value={settings.churchName}
+                onChange={e => set("churchName", e.target.value)}
+                placeholder="e.g. RCCG City of David"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-gray-600">Address</label>
+              <Input
+                value={settings.address}
+                onChange={e => set("address", e.target.value)}
+                placeholder="e.g. Victoria Island, Lagos"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <div className="flex items-center gap-1.5">
+                <label className="text-xs font-medium text-gray-600">Google Maps URL</label>
+                {settings.mapsUrl && (
+                  <a
+                    href={settings.mapsUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-600 hover:text-blue-800"
+                  >
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
+                )}
+              </div>
+              <Input
+                type="url"
+                value={settings.mapsUrl}
+                onChange={e => set("mapsUrl", e.target.value)}
+                placeholder="https://maps.app.goo.gl/…"
+              />
+              <p className="text-xs text-gray-400">
+                The "Get Directions" link on the parent dashboard and collection notices.
+              </p>
+            </div>
+
+            <Button onClick={handleSave} disabled={saving} className="w-full">
+              {saving
+                ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Saving…</>
+                : <><Save className="w-4 h-4 mr-2" /> Save Location</>}
+            </Button>
+          </>
+        )}
+      </div>
+    </div>
+  );
 }
 
 function GeneralSettingsCard() {
@@ -297,6 +415,9 @@ export default function Settings() {
 
       {/* General Settings card */}
       <GeneralSettingsCard />
+
+      {/* Pickup Location card */}
+      <LocationSettingsCard />
 
       <div className="border rounded-2xl bg-white overflow-hidden">
         {/* Header */}
