@@ -407,6 +407,8 @@ router.delete("/users/:id", authMiddleware, requireRoles("super_admin", "admin")
       "DELETE FROM consent_forms WHERE parent_id = $1",
       "DELETE FROM messages WHERE sender_id = $1 OR recipient_id = $1",
       "DELETE FROM push_subscriptions WHERE user_id = $1",
+      "UPDATE support_requests SET assigned_support_id = NULL WHERE assigned_support_id = $1",
+      "DELETE FROM support_requests WHERE parent_user_id = $1",
       "DELETE FROM users WHERE id = $1",
     ];
     for (const stmt of stmts) await client.query(stmt, [id]);
