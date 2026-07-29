@@ -1,4 +1,4 @@
-import { pgTable, serial, text, boolean, timestamp, pgEnum, date } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, boolean, timestamp, pgEnum, date, integer } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -39,6 +39,7 @@ export const usersTable = pgTable("users", {
   pendingRoles: text("pending_roles"),
   resetToken: text("reset_token"),
   resetTokenExpiry: timestamp("reset_token_expiry"),
+  primaryClassId: integer("primary_class_id"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

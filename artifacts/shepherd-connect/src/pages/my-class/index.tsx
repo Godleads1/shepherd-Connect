@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useListAttendance, useMarkArrived, useListTeachers, useListTeacherAllocations } from "@workspace/api-client-react";
 import { QueryError } from "@/components/QueryError";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -9,8 +9,8 @@ import {
   Clock, ArrowRight, UserCheck, CalendarCheck, ShieldCheck, Calendar,
   Cake, CalendarClock, PartyPopper, Tv, LockKeyhole,
 } from "lucide-react";
+import { apiGet, apiPost } from "@/lib/api-call";
 import { TeacherClockIn } from "@/components/TeacherClockIn";
-import { apiGet } from "@/lib/api-call";
 import { useAuth } from "@/contexts/auth";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
@@ -45,11 +45,30 @@ export default function MyClass() {
     enabled: activeTab === "schedule" && !!user?.id,
   });
 
+  const qc = useQueryClient();
+
   // Resolve: current user → teacher record → today's allocated class
   const { data: allTeachers } = useListTeachers();
   const myTeacher = Array.isArray(allTeachers)
     ? (allTeachers as any[]).find((t) => t.userId === user?.id)
     : null;
+
+  // For class self-selection banner
+  const hasPrimaryClass = !!(myTeacher?.primaryClass || myTeacher?.user?.primaryClassId);
+  const [selfSelectClassId, setSelfSelectClassId] = useState<number | null>(null);
+  const { data: allClasses = [] } = useQuery<any[]>({
+    queryKey: ["classes"],
+    queryFn: () => apiGet<any[]>("/classes"),
+    enabled: !hasPrimaryClass && !!myTeacher,
+  });
+  const uniqueClasses = (() => {
+    const seen = new Set<string>();
+    return (allClasses as any[]).filter((c: any) => { if (seen.has(c.name)) return false; seen.add(c.name); return true; });
+  })();
+  const selectClassMut = useMutation({
+    mutationFn: (primaryClassId: number) => apiPost("/teachers/me/select-class", { primaryClassId }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["teachers"] }),
+  });
 
   const { data: myAllocations } = useListTeacherAllocations(
     { teacherId: myTeacher?.id },
@@ -129,6 +148,53 @@ export default function MyClass() {
 
   return (
     <div className="max-w-5xl mx-auto space-y-5">
+
+      {/* ── No Primary Class Banner ── */}
+      {!hasPrimaryClass && myTeacher && (
+        <div className="rounded-2xl border-2 border-amber-300 bg-amber-50 p-5">
+          <div className="flex items-start gap-3">
+            <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0">
+              <School className="w-5 h-5 text-amber-600" />
+            </div>
+            <div className="flex-1">
+              <p className="font-bold text-amber-900">You haven't been assigned a class yet</p>
+              <p className="text-sm text-amber-700 mt-0.5 mb-3">
+                Select the class you normally teach. This becomes your permanent class until an admin reassigns you.
+              </p>
+              {selectClassMut.isSuccess ? (
+                <p className="text-sm font-semibold text-green-700">✓ Class saved! Refreshing…</p>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  {uniqueClasses.map((cls: any) => (
+                    <button
+                      key={cls.id}
+                      type="button"
+                      onClick={() => setSelfSelectClassId(cls.id)}
+                      className="px-3 py-1.5 rounded-xl text-sm font-semibold border-2 transition-all"
+                      style={selfSelectClassId === cls.id
+                        ? { background: "#1e3a8a", color: "#fff", borderColor: "#1e3a8a" }
+                        : { background: "#fff", color: "#1e3a8a", borderColor: "#bfdbfe" }}
+                    >
+                      {cls.name}
+                    </button>
+                  ))}
+                  {selfSelectClassId && (
+                    <button
+                      type="button"
+                      disabled={selectClassMut.isPending}
+                      onClick={() => selectClassMut.mutate(selfSelectClassId)}
+                      className="px-4 py-1.5 rounded-xl text-sm font-bold transition-all disabled:opacity-60"
+                      style={{ background: "#1e3a8a", color: "#fff" }}
+                    >
+                      {selectClassMut.isPending ? "Saving…" : "Confirm Selection"}
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Header ── */}
       <div className="rounded-2xl p-6 text-white relative overflow-hidden shadow-lg"

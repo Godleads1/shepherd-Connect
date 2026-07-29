@@ -122,6 +122,7 @@ router.post("/auth/register", async (req, res): Promise<void> => {
     return;
   }
   const { email, password, firstName, lastName, phone, role } = parsed.data;
+  const primaryClassId = (req.body as any).primaryClassId ? Number((req.body as any).primaryClassId) : null;
   const [existing] = await db.select().from(usersTable).where(eq(usersTable.email, email));
 
   if (existing) {
@@ -196,6 +197,7 @@ router.post("/auth/register", async (req, res): Promise<void> => {
       role: role as "super_admin" | "admin" | "teacher" | "support" | "parent",
       status: userStatus,
       isActive,
+      ...(role === "teacher" && primaryClassId ? { primaryClassId } : {}),
     })
     .returning();
 

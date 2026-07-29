@@ -125,7 +125,7 @@ const focusOut = (e: React.FocusEvent<HTMLInputElement | HTMLSelectElement>) => 
 
 // ── Main component ────────────────────────────────────────────────────────────
 export default function Register() {
-  const [step, setStep] = useState<number | "otp">(1);
+  const [step, setStep] = useState<number | "otp" | "teacher-class">(1);
   const [, setLocation] = useLocation();
   const { login: localLogin } = useAuth();
   const { toast } = useToast();
@@ -136,6 +136,7 @@ export default function Register() {
   const [selectedRole, setSelectedRole] = useState<"parent"|"teacher"|"admin"|"support">("parent");
   const [showPw, setShowPw] = useState(false);
   const [regPhotoUrl, setRegPhotoUrl] = useState("");
+  const [selectedPrimaryClassId, setSelectedPrimaryClassId] = useState<number | null>(null);
 
   const [otpPinId, setOtpPinId]     = useState("");
   const [otpCode, setOtpCode]       = useState("");
@@ -178,8 +179,11 @@ export default function Register() {
       });
       const data = await res.json() as { verified?: boolean; message?: string };
       if (!res.ok || !data.verified) throw new Error(data.message ?? "Incorrect code");
-      if (selectedRole !== "parent") {
-        // Teachers, admins, attendants: register immediately — no family details needed
+      if (selectedRole === "teacher") {
+        // Teachers pick their class before submitting
+        setStep("teacher-class");
+      } else if (selectedRole !== "parent") {
+        // Admins, support: register immediately
         await handleFinish();
       } else {
         setStep(2);
@@ -235,7 +239,7 @@ export default function Register() {
     const s2d = s2 ?? step2Data;
     try {
       const authRes = await regMutation.mutateAsync({
-        data: { firstName: step1Data.firstName, lastName: step1Data.lastName, email: step1Data.email, phone: step1Data.phone, password: step1Data.password, role: selectedRole }
+        data: { firstName: step1Data.firstName, lastName: step1Data.lastName, email: step1Data.email, phone: step1Data.phone, password: step1Data.password, role: selectedRole, ...(selectedRole === "teacher" && selectedPrimaryClassId ? { primaryClassId: selectedPrimaryClassId } : {}) } as any
       }) as any;
 
       if (authRes.pending) {
@@ -537,6 +541,89 @@ export default function Register() {
 
             <div className="pt-1">
               <BackBtn onClick={() => setStep(1)} />
+            </div>
+          </div>
+        )}
+
+        {/* ── STEP TEACHER-CLASS — Class Selection (teachers only) ── */}
+        {step === "teacher-class" && (
+          <div className="space-y-5 animate-in fade-in zoom-in-95 duration-300">
+            <div className="text-center">
+              <div className="w-14 h-14 rounded-full flex items-center justify-center mx-auto mb-3" style={{ background: "rgba(26,35,126,0.08)" }}>
+                <span className="text-2xl">📚</span>
+              </div>
+              <h3 className="font-bold text-base" style={{ color: "#0f172a" }}>Which class do you teach?</h3>
+              <p className="text-sm mt-1" style={{ color: "#64748b" }}>
+                Select your permanent class. An admin can reassign you later if needed.
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              {(() => {
+                // Deduplicate classes by name (classes exist per service slot)
+                const seen = new Set<string>();
+                const unique = ((classesList as any[]) ?? []).filter((c: any) => {
+                  if (seen.has(c.name)) return false;
+                  seen.add(c.name);
+                  return true;
+                });
+                return unique.map((cls: any, idx: number) => {
+                  const color = CLASS_COLORS[idx % CLASS_COLORS.length];
+                  const isSelected = selectedPrimaryClassId === cls.id;
+                  return (
+                    <button
+                      key={cls.id}
+                      type="button"
+                      onClick={() => setSelectedPrimaryClassId(cls.id)}
+                      className="w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl text-sm transition-all text-left"
+                      style={isSelected
+                        ? { background: LOGO_NAVY, color: "#fff", border: `2px solid ${LOGO_NAVY}`, boxShadow: "0 2px 12px rgba(26,35,126,0.20)" }
+                        : { background: "rgba(26,35,126,0.04)", border: "1.5px solid rgba(26,35,126,0.14)", color: "#0f172a" }}
+                    >
+                      <span className="w-8 h-8 rounded-full flex-shrink-0 flex items-center justify-center text-xs font-bold text-white" style={{ background: color }}>
+                        {cls.name.charAt(0)}
+                      </span>
+                      <span>
+                        <span className="block font-bold" style={{ color: isSelected ? "#fff" : LOGO_NAVY }}>{cls.name}</span>
+                        {(cls.ageMin != null && cls.ageMax != null) && (
+                          <span className="block text-xs font-normal mt-0.5" style={{ color: isSelected ? "rgba(255,255,255,0.75)" : "#94a3b8" }}>
+                            Ages {cls.ageMin}–{cls.ageMax}
+                          </span>
+                        )}
+                      </span>
+                      {isSelected && <span className="ml-auto text-white text-lg">✓</span>}
+                    </button>
+                  );
+                });
+              })()}
+            </div>
+
+            <p className="text-[11px] text-center" style={{ color: "#94a3b8" }}>
+              Not sure? You can skip for now — an admin will assign you after approval.
+            </p>
+
+            <div className="flex justify-between items-center pt-2">
+              <BackBtn onClick={() => setStep("otp")} />
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => { setSelectedPrimaryClassId(null); handleFinish(); }}
+                  disabled={isSubmitting}
+                  className="px-5 py-2.5 rounded-full font-medium text-sm transition-all"
+                  style={{ background: "rgba(26,35,126,0.07)", color: LOGO_NAVY, border: "1px solid rgba(26,35,126,0.15)" }}
+                >
+                  Skip
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleFinish()}
+                  disabled={isSubmitting || !selectedPrimaryClassId}
+                  className="flex items-center gap-2 px-7 py-2.5 rounded-full font-semibold text-sm transition-all disabled:opacity-60"
+                  style={{ background: LOGO_NAVY, color: "#fff", boxShadow: "0 4px 14px rgba(26,35,126,0.25)" }}
+                >
+                  {isSubmitting ? <><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Submitting…</> : <>Submit Application <ChevronRight className="w-4 h-4" /></>}
+                </button>
+              </div>
             </div>
           </div>
         )}

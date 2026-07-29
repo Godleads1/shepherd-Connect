@@ -7,7 +7,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { UserCog, Pencil, Phone, Mail, Calendar, CheckCircle2, XCircle, ShieldCheck, Clock, AlertTriangle } from "lucide-react";
+import { UserCog, Pencil, Phone, Mail, Calendar, CheckCircle2, XCircle, ShieldCheck, Clock, AlertTriangle, School } from "lucide-react";
 import { resolvePhotoUrl } from "@/components/PhotoUploader";
 import { QueryError } from "@/components/QueryError";
 import { format } from "date-fns";
@@ -27,13 +27,14 @@ function TeacherAvatar({ teacher }: { teacher: any }) {
   );
 }
 
-function EditTeacherModal({ teacher, onClose }: { teacher: any; onClose: () => void }) {
+function EditTeacherModal({ teacher, classes, onClose }: { teacher: any; classes: any[]; onClose: () => void }) {
   const { toast } = useToast();
   const qc = useQueryClient();
   const [form, setForm] = useState({
-    firstName: teacher?.user?.firstName ?? "",
-    lastName:  teacher?.user?.lastName  ?? "",
-    phone:     teacher?.user?.phone     ?? "",
+    firstName:      teacher?.user?.firstName ?? "",
+    lastName:       teacher?.user?.lastName  ?? "",
+    phone:          teacher?.user?.phone     ?? "",
+    primaryClassId: teacher?.user?.primaryClassId ?? null as number | null,
   });
 
   const mut = useMutation({
@@ -45,6 +46,10 @@ function EditTeacherModal({ teacher, onClose }: { teacher: any; onClose: () => v
     },
     onError: (e: any) => toast({ variant: "destructive", title: e.message || "Update failed" }),
   });
+
+  // Deduplicate classes by name
+  const seen = new Set<string>();
+  const uniqueClasses = classes.filter((c: any) => { if (seen.has(c.name)) return false; seen.add(c.name); return true; });
 
   return (
     <Dialog open onOpenChange={v => { if (!v) onClose(); }}>
@@ -80,6 +85,26 @@ function EditTeacherModal({ teacher, onClose }: { teacher: any; onClose: () => v
             <Input value={form.phone}
               onChange={e => setForm(p => ({ ...p, phone: e.target.value }))}
               placeholder="+234 800 000 0000" className="rounded-xl" />
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5 flex items-center gap-1.5">
+              <School className="w-3.5 h-3.5" /> Assigned Class
+            </label>
+            <select
+              value={form.primaryClassId ?? ""}
+              onChange={e => setForm(p => ({ ...p, primaryClassId: e.target.value ? Number(e.target.value) : null }))}
+              className="w-full border rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 bg-white"
+            >
+              <option value="">— No class assigned —</option>
+              {uniqueClasses.map((c: any) => (
+                <option key={c.id} value={c.id}>{c.name}{c.ageMin != null ? ` (Ages ${c.ageMin}–${c.ageMax})` : ""}</option>
+              ))}
+            </select>
+            {teacher?.user?.primaryClassId && form.primaryClassId !== teacher?.user?.primaryClassId && (
+              <p className="text-[11px] mt-1 text-amber-600 font-medium">
+                ⚠ This will reassign the teacher from their current class permanently.
+              </p>
+            )}
           </div>
           <div className="flex gap-3 pt-2">
             <Button variant="outline" className="flex-1 rounded-xl" onClick={onClose}>
@@ -259,6 +284,12 @@ export default function Teachers() {
     queryFn: () => apiGet<any[]>("/teachers"),
   });
 
+  const { data: classes = [] } = useQuery<any[]>({
+    queryKey: ["classes"],
+    queryFn: () => apiGet<any[]>("/classes"),
+    enabled: canEdit,
+  });
+
   const { data: safeguardingData } = useQuery({
     queryKey: ["safeguarding"],
     queryFn: () => apiGet<any[]>("/safeguarding"),
@@ -342,6 +373,17 @@ export default function Teachers() {
               <div className="flex items-center gap-2 text-xs text-gray-500">
                 <Phone className="w-3.5 h-3.5 flex-shrink-0 text-gray-400" />
                 <span>{teacher.user.phone}</span>
+              </div>
+            )}
+            {teacher.primaryClass ? (
+              <div className="flex items-center gap-2 text-xs text-blue-700 font-semibold">
+                <School className="w-3.5 h-3.5 flex-shrink-0 text-blue-500" />
+                <span>{teacher.primaryClass.name}</span>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 text-xs text-amber-600">
+                <School className="w-3.5 h-3.5 flex-shrink-0" />
+                <span className="italic">No class assigned</span>
               </div>
             )}
             <div className="flex items-center gap-2 text-xs text-gray-400">
@@ -470,7 +512,7 @@ export default function Teachers() {
       )}
 
       {editTarget && (
-        <EditTeacherModal teacher={editTarget} onClose={() => setEditTarget(null)} />
+        <EditTeacherModal teacher={editTarget} classes={classes as any[]} onClose={() => setEditTarget(null)} />
       )}
       </>}
     </div>
