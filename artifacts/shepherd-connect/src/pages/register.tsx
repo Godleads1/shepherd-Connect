@@ -32,7 +32,10 @@ const step1Schema = z.object({
   firstName: z.string().min(1, "Required"),
   lastName:  z.string().min(1, "Required"),
   email:     z.string().email("Invalid email address"),
-  phone:     z.string().regex(PHONE_RE, phoneMsg),
+  phone:     z.preprocess(
+    v => typeof v === "string" ? normalizePhone(v.trim()) : v,
+    z.string().regex(PHONE_RE, phoneMsg)
+  ),
   password:  z.string().min(6, "Minimum 6 characters"),
 });
 
