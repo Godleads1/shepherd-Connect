@@ -123,7 +123,7 @@ export default function MyClass() {
     { key: "schedule",  label: "Schedule",    count: scheduleData?.total ?? null },
   ];
 
-  // If the teacher has no allocation today, show a locked-out screen
+  // If the teacher has no allocation today, show a locked-out screen (but still show the class-picker banner if they have no primary class)
   const isLoadingAllocation = !myAllocations && !!myTeacher?.id;
   if (!isLoadingAllocation && myTeacher && !hasAllocationToday) {
     return (
@@ -135,6 +135,47 @@ export default function MyClass() {
           </h1>
           <p className="text-blue-200 text-sm mt-1">{format(new Date(), "EEEE, d MMMM yyyy")}</p>
         </div>
+
+        {/* Show class-picker banner even when not scheduled today */}
+        {!hasPrimaryClass && (
+          <div className="rounded-2xl border-2 border-amber-300 bg-amber-50 p-5">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0">
+                <School className="w-5 h-5 text-amber-600" />
+              </div>
+              <div className="flex-1">
+                <p className="font-bold text-amber-900">You haven't been assigned a class yet</p>
+                <p className="text-sm text-amber-700 mt-0.5 mb-3">
+                  Select the class you normally teach. This becomes your permanent class until an admin reassigns you.
+                </p>
+                {selectClassMut.isSuccess ? (
+                  <p className="text-sm font-semibold text-green-700">✓ Class saved! You're all set.</p>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    {uniqueClasses.map((cls: any) => (
+                      <button key={cls.id} type="button" onClick={() => setSelfSelectClassId(cls.id)}
+                        className="px-3 py-1.5 rounded-xl text-sm font-semibold border-2 transition-all"
+                        style={selfSelectClassId === cls.id
+                          ? { background: "#1e3a8a", color: "#fff", borderColor: "#1e3a8a" }
+                          : { background: "#fff", color: "#1e3a8a", borderColor: "#bfdbfe" }}>
+                        {cls.name}
+                      </button>
+                    ))}
+                    {selfSelectClassId && (
+                      <button type="button" disabled={selectClassMut.isPending}
+                        onClick={() => selectClassMut.mutate(selfSelectClassId)}
+                        className="px-4 py-1.5 rounded-xl text-sm font-bold transition-all disabled:opacity-60"
+                        style={{ background: "#1e3a8a", color: "#fff" }}>
+                        {selectClassMut.isPending ? "Saving…" : "Confirm Selection"}
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className="flex flex-col items-center justify-center py-24 bg-white rounded-2xl border border-dashed border-gray-200 text-center px-6">
           <LockKeyhole className="w-14 h-14 text-gray-300 mb-4" />
           <h2 className="text-xl font-bold text-gray-700 mb-2">Not Assigned Today</h2>
