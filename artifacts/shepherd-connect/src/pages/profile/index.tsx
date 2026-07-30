@@ -9,10 +9,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
-import { User, Phone, Briefcase, Bell, Save, CheckCircle, MessageSquare, Smartphone, ShieldCheck, ShieldOff, QrCode, Loader2, KeyRound, Mail, BellRing, EyeOff } from "lucide-react";
+import { User, Phone, Briefcase, Bell, Save, CheckCircle, MessageSquare, Smartphone, ShieldCheck, ShieldOff, QrCode, Loader2, KeyRound, Mail, BellRing, EyeOff, HelpCircle } from "lucide-react";
 import { usePushNotifications } from "@/hooks/usePushNotifications";
 import { QRCodeSVG } from "qrcode.react";
 import { PhotoUploader, resolvePhotoUrl } from "@/components/PhotoUploader";
+import { useGeneralSettings } from "@/components/AnnouncementBanner";
 
 interface CommPrefs {
   inApp: boolean;
@@ -314,6 +315,33 @@ function ChangePasswordSection() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function HelpSection() {
+  const { data: settings } = useGeneralSettings();
+  const phone = settings?.supportPhone?.trim();
+  if (!phone) return null;
+
+  return (
+    <div className="bg-white border rounded-2xl p-5">
+      <h2 className="font-semibold text-gray-900 mb-1 flex items-center gap-2">
+        <HelpCircle className="w-4 h-4 text-[#1e3a8a]" /> Help &amp; Support
+      </h2>
+      <p className="text-xs text-gray-500 mb-4">Need assistance? Reach out to our support team</p>
+      <a
+        href={`tel:${phone}`}
+        className="flex items-center gap-3 p-3 rounded-xl border bg-blue-50 border-blue-200 hover:bg-blue-100 transition-colors active:scale-[0.98] select-none"
+      >
+        <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-[#1e3a8a]">
+          <Phone className="w-4 h-4 text-white" />
+        </div>
+        <div>
+          <p className="text-sm font-medium text-gray-900">Call Support</p>
+          <p className="text-xs text-[#1e3a8a] font-semibold">{phone}</p>
+        </div>
+      </a>
     </div>
   );
 }
@@ -623,6 +651,9 @@ export default function Profile() {
 
       {/* Change Password */}
       <ChangePasswordSection />
+
+      {/* Help & Support */}
+      <HelpSection />
 
       {editing && (
         <Button className="w-full flex items-center gap-2 py-6 text-base" style={{ background: "linear-gradient(135deg, #1e3a8a, #1d4ed8)" }}
