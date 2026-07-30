@@ -28,7 +28,7 @@ function parseSecondaryRoles(raw: string | null | undefined): UserRole[] {
 }
 
 function buildUserPayload(user: typeof usersTable.$inferSelect, activeRole?: UserRole) {
-  const secondary = parseSecondaryRoles(user.secondaryRoles);
+  const secondary = parseSecondaryRoles(user.secondaryRoles).filter(r => r !== user.role);
   const allRoles: UserRole[] = [user.role, ...secondary];
   const role = activeRole ?? user.role;
   return {
@@ -90,7 +90,7 @@ router.post("/auth/login", async (req, res): Promise<void> => {
   }
 
   const { requestedRole } = req.body as { requestedRole?: string };
-  const secondary = parseSecondaryRoles(user.secondaryRoles);
+  const secondary = parseSecondaryRoles(user.secondaryRoles).filter(r => r !== user.role);
   const allRoles: UserRole[] = [user.role, ...secondary];
 
   // If user has multiple roles and no requestedRole given, ask them to pick
@@ -479,7 +479,7 @@ router.post("/auth/switch-role", authMiddleware, async (req, res): Promise<void>
   const [user] = await db.select().from(usersTable).where(eq(usersTable.id, req.user!.userId));
   if (!user) { res.status(404).json({ error: "Not found", message: "User not found" }); return; }
 
-  const secondary = parseSecondaryRoles(user.secondaryRoles);
+  const secondary = parseSecondaryRoles(user.secondaryRoles).filter(r => r !== user.role);
   const allRoles: UserRole[] = [user.role, ...secondary];
 
   if (!allRoles.includes(requestedRole as UserRole)) {
