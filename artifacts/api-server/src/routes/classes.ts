@@ -115,7 +115,8 @@ router.delete("/classes/:classId/waitlist/:entryId", authMiddleware, async (req,
   const classId = parseInt(req.params.classId as string, 10);
   const entryId = parseInt(req.params.entryId as string, 10);
   if (isNaN(classId) || isNaN(entryId)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
-  await db.update(classWaitlistTable).set({ status: "cancelled" }).where(eq(classWaitlistTable.id, entryId));
+  await db.update(classWaitlistTable).set({ status: "cancelled" })
+    .where(and(eq(classWaitlistTable.id, entryId), eq(classWaitlistTable.classId, classId)));
   res.json({ success: true });
 });
 

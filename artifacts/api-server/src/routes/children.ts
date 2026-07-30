@@ -36,18 +36,17 @@ router.get("/children", authMiddleware, async (req, res): Promise<void> => {
   if (classId) conditions.push(eq(childrenTable.currentClassId, classId));
   if (familyId) conditions.push(eq(childrenTable.familyId, familyId));
   if (unassigned) conditions.push(isNull(childrenTable.currentClassId));
-  const offset = (page - 1) * limit;
-  let children = await db.select().from(childrenTable)
-    .where(conditions.length ? and(...conditions) : undefined)
-    .limit(limit).offset(offset);
   if (search) {
-    children = children.filter(c =>
-      c.firstName.toLowerCase().includes(search.toLowerCase()) ||
-      c.lastName.toLowerCase().includes(search.toLowerCase())
-    );
+    const term = `%${search}%`;
+    conditions.push(or(ilike(childrenTable.firstName, term), ilike(childrenTable.lastName, term))!);
   }
+  const offset = (page - 1) * limit;
+  const whereClause = conditions.length ? and(...conditions) : undefined;
+  const children = await db.select().from(childrenTable)
+    .where(whereClause)
+    .limit(limit).offset(offset);
   const [{ count }] = await db.select({ count: sql<number>`count(*)` }).from(childrenTable)
-    .where(conditions.length ? and(...conditions) : undefined);
+    .where(whereClause);
   const formatted = await Promise.all(children.map(formatChild));
   res.json({ data: formatted, total: Number(count), page, limit });
 });

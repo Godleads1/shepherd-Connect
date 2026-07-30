@@ -134,11 +134,11 @@ router.post("/auth/register", async (req, res): Promise<void> => {
     if (existing.role === role) {
       res.status(409).json({ error: "Conflict", message: "You already have this role" }); return;
     }
-    const currentSecondary: string[] = existing.secondaryRoles ? JSON.parse(existing.secondaryRoles) : [];
+    const currentSecondary: string[] = parseSecondaryRoles(existing.secondaryRoles);
     if (currentSecondary.includes(role)) {
       res.status(409).json({ error: "Conflict", message: "You already have this role" }); return;
     }
-    const currentPending: string[] = existing.pendingRoles ? JSON.parse(existing.pendingRoles) : [];
+    const currentPending: string[] = (() => { try { return existing.pendingRoles ? JSON.parse(existing.pendingRoles) : []; } catch { return []; } })();
     if (currentPending.includes(role)) {
       res.status(409).json({ error: "Conflict", message: "A request for this role is already pending approval" }); return;
     }
@@ -297,7 +297,7 @@ router.post("/auth/forgot-password", async (req, res): Promise<void> => {
     return;
   }
   // App generates the code — Termii is only the delivery channel
-  const code = Math.floor(100000 + Math.random() * 900000).toString();
+  const code = crypto.getRandomValues(new Uint32Array(1))[0] % 900000 + 100000;
   const expiry = new Date(Date.now() + 15 * 60 * 1000);
   // Store plaintext — verified by direct string comparison (same pattern as delegate OTP)
   await db.update(usersTable)

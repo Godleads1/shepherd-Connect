@@ -157,7 +157,7 @@ router.get("/families/:id/tree", authMiddleware, async (req, res): Promise<void>
       }
       const lastAttendanceRecord = await db.select().from(attendanceTable)
         .where(eq(attendanceTable.childId, child.id))
-        .orderBy(attendanceTable.serviceDate).limit(1);
+        .orderBy(sql`${attendanceTable.serviceDate} desc`).limit(1);
       const lastAttendance = lastAttendanceRecord[0]?.serviceDate || null;
       const attendanceHistory = await db.select().from(attendanceTable)
         .where(eq(attendanceTable.childId, child.id))
