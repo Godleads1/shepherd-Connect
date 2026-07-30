@@ -296,8 +296,34 @@ export default function Register() {
       }
 
       setLocation(selectedRole === "parent" ? "/my-family" : "/dashboard");
-    } catch {
-      toast({ variant: "destructive", title: "Registration failed", description: "Please try again." });
+    } catch (err: any) {
+      const status = err?.status as number | undefined;
+      const apiMsg: string = typeof err?.message === "string" ? err.message : "";
+
+      if (status === 409 && apiMsg.toLowerCase().includes("already have this role")) {
+        toast({
+          variant: "destructive",
+          title: "Account already exists",
+          description: "You're already registered with this role. Please log in instead.",
+        });
+        setTimeout(() => setLocation("/login"), 2000);
+        return;
+      }
+      if (status === 409 && apiMsg.toLowerCase().includes("pending approval")) {
+        toast({
+          title: "Already submitted",
+          description: "Your application is already pending admin approval. You'll be notified once approved.",
+        });
+        setTimeout(() => setLocation("/login"), 2000);
+        return;
+      }
+
+      const friendly = apiMsg.replace(/^HTTP \d+ \w+:\s*/i, "");
+      toast({
+        variant: "destructive",
+        title: "Registration failed",
+        description: friendly || "Please try again.",
+      });
     }
   };
 
