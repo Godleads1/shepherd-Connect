@@ -17,8 +17,16 @@ const LOGO_NAVY  = "#1a237e";
 const LOGO_GREEN = "#1b5e20";
 
 // ── Schemas ──────────────────────────────────────────────────────────────────
-const PHONE_RE = /^\d{11}$/;
-const phoneMsg = "Must be exactly 11 digits";
+const PHONE_RE = /^(\+?234|0)[789]\d{8}$/;
+const phoneMsg = "Enter a valid Nigerian number (e.g. 08012345678 or +2348012345678)";
+
+/** Strip spaces/dashes, convert +234 or 234 prefix to 0 */
+function normalizePhone(raw: string): string {
+  let p = raw.replace(/[\s\-\.]/g, "");
+  if (p.startsWith("+234")) p = "0" + p.slice(4);
+  else if (/^234[789]/.test(p)) p = "0" + p.slice(3);
+  return p;
+}
 
 const step1Schema = z.object({
   firstName: z.string().min(1, "Required"),
@@ -220,7 +228,7 @@ export default function Register() {
   const { fields: childFields, append: appendChild, remove: removeChild } = useFieldArray({ control: form3.control, name: "children" });
 
   const onStep1 = (d: z.infer<typeof step1Schema>) => {
-    setStep1Data(d);
+    setStep1Data({ ...d, phone: normalizePhone(d.phone) });
     setStep("otp");
   };
   const onStep2 = (d: z.infer<typeof step2Schema>) => {
@@ -465,7 +473,7 @@ export default function Register() {
               <Field form={form1} name="lastName"  label="Last Name"   data-testid="reg-lname" />
             </div>
             <Field form={form1} name="email" label="Email address" type="email" icon={Mail} data-testid="reg-email" />
-            <Field form={form1} name="phone" label="Phone number"  icon={Phone} data-testid="reg-phone" />
+            <Field form={form1} name="phone" label="Phone number (e.g. 08012345678)"  icon={Phone} data-testid="reg-phone" />
 
             {/* Password with show/hide */}
             <div className="relative">
