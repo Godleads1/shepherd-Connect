@@ -106,11 +106,10 @@ router.put("/teachers/:id", authMiddleware, requireRoles("super_admin", "admin")
   const parsed = UpdateTeacherUserBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: "Bad request", message: parsed.error.message }); return; }
   const { primaryClassId, ...userUpdates } = parsed.data;
-  const updates: Record<string, any> = { ...userUpdates };
+  // Always promote to teacher role and ensure active — mirrors the POST handler.
+  const updates: Record<string, any> = { ...userUpdates, role: "teacher", isActive: true, status: "active" };
   if (primaryClassId !== undefined) updates.primaryClassId = primaryClassId;
-  if (Object.keys(updates).length > 0) {
-    await db.update(usersTable).set(updates).where(eq(usersTable.id, teacher.userId));
-  }
+  await db.update(usersTable).set(updates).where(eq(usersTable.id, teacher.userId));
   res.json(await formatTeacher(teacher));
 });
 
