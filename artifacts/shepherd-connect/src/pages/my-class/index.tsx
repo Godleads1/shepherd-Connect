@@ -176,11 +176,25 @@ export default function MyClass() {
           </div>
         )}
 
-        <div className="flex flex-col items-center justify-center py-24 bg-white rounded-2xl border border-dashed border-gray-200 text-center px-6">
+        {hasPrimaryClass && (
+          <div className="rounded-2xl p-5 border border-blue-100 bg-blue-50 flex items-center gap-4">
+            <div className="w-12 h-12 rounded-full flex items-center justify-center flex-shrink-0"
+              style={{ background: "linear-gradient(135deg, #172554, #1d4ed8)" }}>
+              <School className="w-6 h-6 text-white" />
+            </div>
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-widest text-blue-500 mb-0.5">Your Assigned Class</p>
+              <p className="text-xl font-bold text-blue-900">{myTeacher?.primaryClass?.name ?? "Class"}</p>
+              <p className="text-xs text-blue-600 mt-0.5">Permanent assignment — contact an admin to change</p>
+            </div>
+          </div>
+        )}
+
+        <div className="flex flex-col items-center justify-center py-16 bg-white rounded-2xl border border-dashed border-gray-200 text-center px-6">
           <LockKeyhole className="w-14 h-14 text-gray-300 mb-4" />
-          <h2 className="text-xl font-bold text-gray-700 mb-2">Not Assigned Today</h2>
+          <h2 className="text-xl font-bold text-gray-700 mb-2">Not Scheduled Today</h2>
           <p className="text-gray-500 text-sm max-w-sm">
-            You are not allocated to any class for today's service. Please contact an admin to be assigned to a class before you can view attendance.
+            You are not on the schedule for today. Your assigned class will appear with full attendance tools on your next service day.
           </p>
         </div>
       </div>
