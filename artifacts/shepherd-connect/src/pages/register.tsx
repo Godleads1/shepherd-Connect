@@ -17,7 +17,7 @@ const LOGO_NAVY  = "#1a237e";
 const LOGO_GREEN = "#1b5e20";
 
 // ── Schemas ──────────────────────────────────────────────────────────────────
-const PHONE_RE = /^(\+?234|0)[789]\d{8}$/;
+const PHONE_RE = /^(\+?234|0)[789]\d{9}$/;
 const phoneMsg = "Enter a valid Nigerian number (e.g. 08012345678 or +2348012345678)";
 
 /** Strip spaces/dashes, convert +234 or 234 prefix to 0 */
