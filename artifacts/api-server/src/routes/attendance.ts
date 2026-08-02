@@ -143,12 +143,27 @@ router.post("/attendance", authMiddleware, requireRoles("super_admin", "admin", 
     res.json(await formatAttendance(existing));
     return;
   }
-  const [record] = await db.insert(attendanceTable).values({
-    childId, classId, serviceDate, serviceSlot,
-    checkedInBy: req.user!.userId,
-    checkInTime: new Date(),
-    status: "dropped_off",
-  }).returning();
+  // Use INSERT … RETURNING so the unique constraint (childId, serviceDate, serviceSlot) acts as
+  // an atomic guard against concurrent check-ins by two staff members at the same moment.
+  let record: typeof attendanceTable.$inferSelect;
+  try {
+    const [inserted] = await db.insert(attendanceTable).values({
+      childId, classId, serviceDate, serviceSlot,
+      checkedInBy: req.user!.userId,
+      checkInTime: new Date(),
+      status: "dropped_off",
+    }).returning();
+    record = inserted;
+  } catch (err: any) {
+    if (err?.code === "23505") {
+      // Unique constraint violation — another staff member checked in this child a split-second ago.
+      // Fetch and return the winning record so the UI still shows a success state.
+      const [race] = await db.select().from(attendanceTable)
+        .where(and(eq(attendanceTable.childId, childId), eq(attendanceTable.serviceDate, serviceDate), eq(attendanceTable.serviceSlot, serviceSlot)));
+      if (race) { res.json(await formatAttendance(race)); return; }
+    }
+    throw err;
+  }
 
   notifyChildCheckedIn(childId, classId, serviceSlot).catch((err) => {
     req.log.error({ err, childId, classId }, "notifyChildCheckedIn failed");

@@ -3,6 +3,12 @@ import { pgTable, serial, text, timestamp } from "drizzle-orm/pg-core";
 /**
  * Single-row table storing church-wide configuration.
  * Always query by id = 1 (upsert on that row).
+ *
+ * lastBroadcastAt / lastPreDismissalAt are used as atomic rate-limit locks:
+ *   UPDATE church_settings SET last_broadcast_at = now()
+ *   WHERE id = 1 AND (last_broadcast_at IS NULL OR last_broadcast_at < now() - interval '60 seconds')
+ *   RETURNING id
+ * If no row is returned the request is rejected (duplicate broadcast within 60 s).
  */
 export const churchSettingsTable = pgTable("church_settings", {
   id: serial("id").primaryKey(),
@@ -17,4 +23,7 @@ export const churchSettingsTable = pgTable("church_settings", {
   supportPhone:      text("support_phone").notNull().default(""),
   announcementBanner: text("announcement_banner").notNull().default(""),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  // Rate-limit locks for broadcast endpoints (atomic single-row UPDATE pattern)
+  lastBroadcastAt: timestamp("last_broadcast_at"),
+  lastPreDismissalAt: timestamp("last_pre_dismissal_at"),
 });

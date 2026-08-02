@@ -2,6 +2,7 @@ import cron from "node-cron";
 import { eq, and } from "drizzle-orm";
 import {
   db,
+  pool,
   pickupDelegatesTable,
   familiesTable,
   childrenTable,
@@ -12,6 +13,31 @@ import {
 } from "@workspace/db";
 import { logger } from "./logger";
 import { sendNotification } from "./notify";
+
+/**
+ * Attempt to acquire a named scheduler lock using an atomic DB upsert.
+ * Returns true if this instance should run the job, false if another instance
+ * already ran it within the given window (default 5 minutes).
+ *
+ * Pattern: INSERT … ON CONFLICT DO UPDATE … WHERE locked_at is old enough → RETURNING
+ * If the row was NOT updated (another instance holds a fresh lock), returns 0 rows → false.
+ */
+async function acquireSchedulerLock(jobName: string, windowMinutes = 5): Promise<boolean> {
+  try {
+    const { rows } = await pool.query<{ job_name: string }>(
+      `INSERT INTO scheduler_locks (job_name, locked_at) VALUES ($1, now())
+       ON CONFLICT (job_name) DO UPDATE
+         SET locked_at = now()
+         WHERE scheduler_locks.locked_at < now() - ($2 || ' minutes')::interval
+       RETURNING job_name`,
+      [jobName, String(windowMinutes)],
+    );
+    return rows.length > 0;
+  } catch {
+    // If the lock table doesn't exist yet or any DB error, default to running the job.
+    return true;
+  }
+}
 
 // WAT = UTC+1. All cron expressions below are in UTC.
 const SUNDAY_CHECKPOINTS = [
@@ -49,6 +75,10 @@ export function startScheduler() {
   //   1. Delete all pickup delegates (clean for next service)
   //   2. Delete all guest families + their children
   cron.schedule("0 14 * * 0", async () => {
+    if (!await acquireSchedulerLock("sunday_cleanup", 30)) {
+      logger.info("scheduler: sunday_cleanup already ran on another instance — skipping");
+      return;
+    }
     logger.info("scheduler: Sunday 3 pm WAT — running service cleanup");
     try {
       const delegates = await db
@@ -79,6 +109,11 @@ export function startScheduler() {
   // Sunday attendance checkpoint notifications (service-aware)
   for (const checkpoint of SUNDAY_CHECKPOINTS) {
     cron.schedule(checkpoint.cron, async () => {
+      const lockKey = `checkpoint_${checkpoint.slot}_${checkpoint.label.replace(/\s+/g, "_")}`;
+      if (!await acquireSchedulerLock(lockKey, 10)) {
+        logger.info({ interval: checkpoint.label }, "scheduler: checkpoint already ran on another instance — skipping");
+        return;
+      }
       logger.info(
         { interval: checkpoint.label, service: checkpoint.service },
         "scheduler: Sunday attendance checkpoint — sending notifications"
@@ -130,6 +165,10 @@ export function startScheduler() {
   // Clock-out reminders — only send to staff who have scanned today for that service
   for (const reminder of CLOCK_OUT_REMINDERS) {
     cron.schedule(reminder.cron, async () => {
+      if (!await acquireSchedulerLock(`clockout_reminder_${reminder.service}`, 10)) {
+        logger.info({ service: reminder.service }, "scheduler: clock-out reminder already ran on another instance — skipping");
+        return;
+      }
       logger.info(
         { service: reminder.service },
         "scheduler: clock-out reminder — sending notifications"

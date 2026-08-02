@@ -1,4 +1,4 @@
-import { pgTable, serial, integer, date, text, timestamp, pgEnum } from "drizzle-orm/pg-core";
+import { pgTable, serial, integer, date, text, timestamp, pgEnum, uniqueIndex } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { childrenTable } from "./children";
@@ -28,7 +28,10 @@ export const attendanceTable = pgTable("attendance", {
   checkedOutBy: integer("checked_out_by").references(() => usersTable.id),
   status: attendanceStatusEnum("status").notNull().default("dropped_off"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+}, (t) => [
+  // A child can only have one attendance record per service slot per day
+  uniqueIndex("uq_attendance_child_slot").on(t.childId, t.serviceDate, t.serviceSlot),
+]);
 
 export const insertAttendanceSchema = createInsertSchema(attendanceTable).omit({
   id: true,

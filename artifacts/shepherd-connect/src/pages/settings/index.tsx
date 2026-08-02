@@ -49,26 +49,48 @@ function LocationSettingsCard() {
     address: "Victoria Island, Lagos",
     mapsUrl: "https://maps.app.goo.gl/uvgtpVETsCeqkzmDA",
   });
+  const [loadedAt, setLoadedAt] = useState<string | null>(null); // updatedAt snapshot for optimistic lock
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => {
-    apiGet<LocationSettings>("/settings/location")
-      .then(data => setSettings(data))
+  const reload = () => {
+    setLoading(true);
+    apiGet<LocationSettings & { updatedAt?: string }>("/settings/location")
+      .then(data => {
+        const { updatedAt, ...rest } = data as any;
+        setSettings(rest);
+        setLoadedAt(updatedAt ?? null);
+      })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, []);
+  };
+
+  useEffect(reload, []);
 
   const handleSave = async () => {
     setSaving(true);
     try {
-      const updated = await apiPut<LocationSettings>("/settings/location", settings);
-      setSettings(updated);
+      const updated = await apiPut<LocationSettings & { updatedAt?: string }>("/settings/location", {
+        ...settings,
+        ...(loadedAt ? { currentUpdatedAt: loadedAt } : {}),
+      });
+      const { updatedAt, ...rest } = updated as any;
+      setSettings(rest);
+      setLoadedAt(updatedAt ?? null);
       // Refresh LocationBanner and CollectionNotice everywhere
       queryClient.invalidateQueries({ queryKey: ["settings-location"] });
       toast({ title: "Location saved", description: "Pickup location has been updated." });
     } catch (e: any) {
-      toast({ variant: "destructive", title: "Could not save location", description: e.message });
+      if (e?.status === 409 || e?.message?.includes("someone else")) {
+        toast({
+          variant: "destructive",
+          title: "Settings changed by another admin",
+          description: "Someone else saved new settings while you were editing. Reloading the latest version.",
+        });
+        reload();
+      } else {
+        toast({ variant: "destructive", title: "Could not save location", description: e.message });
+      }
     } finally {
       setSaving(false);
     }
@@ -164,26 +186,48 @@ function GeneralSettingsCard() {
     supportPhone: "",
     announcementBanner: "",
   });
+  const [loadedAt, setLoadedAt] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => {
-    apiGet<GeneralSettings>("/settings/general")
-      .then(data => setSettings(data))
+  const reload = () => {
+    setLoading(true);
+    apiGet<GeneralSettings & { updatedAt?: string }>("/settings/general")
+      .then(data => {
+        const { updatedAt, ...rest } = data as any;
+        setSettings(rest);
+        setLoadedAt(updatedAt ?? null);
+      })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, []);
+  };
+
+  useEffect(reload, []);
 
   const handleSave = async () => {
     setSaving(true);
     try {
-      const updated = await apiPut<GeneralSettings>("/settings/general", settings);
-      setSettings(updated);
+      const updated = await apiPut<GeneralSettings & { updatedAt?: string }>("/settings/general", {
+        ...settings,
+        ...(loadedAt ? { currentUpdatedAt: loadedAt } : {}),
+      });
+      const { updatedAt, ...rest } = updated as any;
+      setSettings(rest);
+      setLoadedAt(updatedAt ?? null);
       // Invalidate the cached query so components using useGeneralSettings() pick up changes
       queryClient.invalidateQueries({ queryKey: ["general-settings"] });
       toast({ title: "Settings saved", description: "Church-wide settings have been updated." });
     } catch (e: any) {
-      toast({ variant: "destructive", title: "Could not save settings", description: e.message });
+      if (e?.status === 409 || e?.message?.includes("someone else")) {
+        toast({
+          variant: "destructive",
+          title: "Settings changed by another admin",
+          description: "Someone else saved new settings while you were editing. Reloading the latest version.",
+        });
+        reload();
+      } else {
+        toast({ variant: "destructive", title: "Could not save settings", description: e.message });
+      }
     } finally {
       setSaving(false);
     }

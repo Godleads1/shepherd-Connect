@@ -1,4 +1,4 @@
-import { pgTable, serial, integer, date, text, timestamp, pgEnum } from "drizzle-orm/pg-core";
+import { pgTable, serial, integer, date, text, timestamp, pgEnum, uniqueIndex } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { teachersTable } from "./teachers";
@@ -19,7 +19,10 @@ export const teacherAllocationsTable = pgTable("teacher_allocations", {
   serviceSlot: text("service_slot").notNull(),
   status: allocationStatusEnum("status").notNull().default("scheduled"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+}, (t) => [
+  // Prevent two allocations for the same teacher in the same service slot
+  uniqueIndex("uq_teacher_alloc_slot").on(t.teacherId, t.serviceDate, t.serviceSlot),
+]);
 
 export const insertTeacherAllocationSchema = createInsertSchema(teacherAllocationsTable).omit({
   id: true,

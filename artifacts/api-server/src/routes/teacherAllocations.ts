@@ -35,7 +35,11 @@ router.get("/teacher-allocations", authMiddleware, async (req, res): Promise<voi
 router.post("/teacher-allocations", authMiddleware, requireRoles("super_admin", "admin"), async (req, res): Promise<void> => {
   const parsed = CreateTeacherAllocationBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: "Bad request", message: parsed.error.message }); return; }
-  const [allocation] = await db.insert(teacherAllocationsTable).values(parsed.data).returning();
+  const [allocation] = await db.insert(teacherAllocationsTable).values(parsed.data).onConflictDoNothing().returning();
+  if (!allocation) {
+    res.status(409).json({ error: "Conflict", message: "This teacher is already allocated to a class for this date and slot." });
+    return;
+  }
   res.status(201).json(await formatAllocation(allocation));
 });
 
@@ -87,22 +91,16 @@ router.post("/teacher-allocations/assign-duty", authMiddleware, requireRoles("su
     const [cls] = await db.select().from(classesTable).where(eq(classesTable.id, user.primaryClassId));
 
     for (const slot of serviceSlots) {
-      // Skip if already assigned for this teacher/date/slot
-      const [existing] = await db.select().from(teacherAllocationsTable)
-        .where(and(
-          eq(teacherAllocationsTable.teacherId, teacherId),
-          eq(teacherAllocationsTable.serviceDate, serviceDate),
-          eq(teacherAllocationsTable.serviceSlot, slot),
-        ));
-      if (existing) continue;
-
+      // ON CONFLICT DO NOTHING is the atomic guard — the pre-check above reduces noise
+      // but two concurrent requests can both pass it; the unique constraint catches the second.
       const [alloc] = await db.insert(teacherAllocationsTable).values({
         teacherId,
         classId: user.primaryClassId,
         serviceDate,
         serviceSlot: slot,
         status: "scheduled",
-      }).returning();
+      }).onConflictDoNothing().returning();
+      if (!alloc) continue; // already allocated — silently skip
       created.push(alloc.id);
 
       await sendNotification({
@@ -197,7 +195,8 @@ router.post("/teacher-allocations/auto-schedule", authMiddleware, requireRoles("
           serviceDate,
           serviceSlot: slot,
           status: "scheduled",
-        }).returning();
+        }).onConflictDoNothing().returning();
+        if (!alloc) continue; // concurrent auto-schedule claimed this slot first
         created.push(alloc.id);
         assigned.totalServices++;
         teacherHours.sort((a, b) => a.totalServices - b.totalServices);

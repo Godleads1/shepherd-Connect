@@ -40,8 +40,8 @@ router.get("/settings/location", async (_req, res): Promise<void> => {
     res.json(LOCATION_DEFAULTS);
     return;
   }
-  const { churchName, address, mapsUrl } = row;
-  res.json({ churchName, address, mapsUrl });
+  const { churchName, address, mapsUrl, updatedAt } = row;
+  res.json({ churchName, address, mapsUrl, updatedAt });
 });
 
 /**
@@ -49,13 +49,29 @@ router.get("/settings/location", async (_req, res): Promise<void> => {
  * Admin-only — update location settings.
  */
 router.put("/settings/location", authMiddleware, requireRoles("super_admin", "admin"), async (req, res): Promise<void> => {
-  const { churchName, address, mapsUrl } = req.body as {
+  const { churchName, address, mapsUrl, currentUpdatedAt } = req.body as {
     churchName?: string;
     address?: string;
     mapsUrl?: string;
+    currentUpdatedAt?: string; // ISO timestamp the client loaded — used for optimistic locking
   };
 
   const existing = await db.select().from(churchSettingsTable).where(eq(churchSettingsTable.id, 1));
+
+  // Optimistic concurrency check: if the client sent the timestamp it loaded and it no longer
+  // matches the DB, another admin saved in the meantime — reject so no data is silently lost.
+  if (existing.length > 0 && currentUpdatedAt) {
+    const dbTs = new Date(existing[0].updatedAt).getTime();
+    const clientTs = new Date(currentUpdatedAt).getTime();
+    if (Math.abs(dbTs - clientTs) > 1000) {
+      res.status(409).json({
+        error: "Conflict",
+        message: "Settings were updated by someone else while you were editing. Please reload and try again.",
+        serverUpdatedAt: existing[0].updatedAt,
+      });
+      return;
+    }
+  }
 
   if (existing.length === 0) {
     await db.insert(churchSettingsTable).values({
@@ -97,6 +113,7 @@ router.get("/settings/general", async (_req, res): Promise<void> => {
     serviceSlot2Time:  row.serviceSlot2Time  ?? GENERAL_DEFAULTS.serviceSlot2Time,
     supportPhone:      row.supportPhone      ?? GENERAL_DEFAULTS.supportPhone,
     announcementBanner: row.announcementBanner ?? GENERAL_DEFAULTS.announcementBanner,
+    updatedAt: row.updatedAt,
   });
 });
 
@@ -116,9 +133,24 @@ router.put(
       serviceSlot2Time,
       supportPhone,
       announcementBanner,
-    } = req.body as Partial<typeof GENERAL_DEFAULTS>;
+      currentUpdatedAt,
+    } = req.body as Partial<typeof GENERAL_DEFAULTS> & { currentUpdatedAt?: string };
 
     const existing = await db.select().from(churchSettingsTable).where(eq(churchSettingsTable.id, 1));
+
+    // Optimistic concurrency check
+    if (existing.length > 0 && currentUpdatedAt) {
+      const dbTs = new Date(existing[0].updatedAt).getTime();
+      const clientTs = new Date(currentUpdatedAt).getTime();
+      if (Math.abs(dbTs - clientTs) > 1000) {
+        res.status(409).json({
+          error: "Conflict",
+          message: "Settings were updated by someone else while you were editing. Please reload and try again.",
+          serverUpdatedAt: existing[0].updatedAt,
+        });
+        return;
+      }
+    }
 
     if (existing.length === 0) {
       await db.insert(churchSettingsTable).values({

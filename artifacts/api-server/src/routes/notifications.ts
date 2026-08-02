@@ -79,6 +79,21 @@ router.post("/notifications/broadcast", authMiddleware, requireRoles("super_admi
     res.status(400).json({ error: "Bad request", message: "title and message are required" });
     return;
   }
+
+  // ── Broadcast rate-limit lock (prevents duplicate sends from concurrent admins) ─
+  // Atomically claim the lock: only succeeds if no broadcast was sent in the last 60 s.
+  await db.execute(sql`INSERT INTO church_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING`);
+  const [locked] = await db.update(churchSettingsTable)
+    .set({ lastBroadcastAt: new Date() })
+    .where(sql`id = 1 AND (last_broadcast_at IS NULL OR last_broadcast_at < now() - interval '60 seconds')`)
+    .returning({ id: churchSettingsTable.id });
+  if (!locked) {
+    res.status(429).json({
+      error: "Too many requests",
+      message: "A broadcast was just sent. Please wait at least 60 seconds before sending another to avoid duplicate messages.",
+    });
+    return;
+  }
   const roleFilter = targetRole ? eq(usersTable.role, targetRole as "super_admin" | "admin" | "teacher" | "support" | "parent") : undefined;
   const recipients = await db.select({ id: usersTable.id }).from(usersTable)
     .where(and(eq(usersTable.isActive, true), roleFilter));
@@ -116,6 +131,20 @@ router.post("/notifications/broadcast", authMiddleware, requireRoles("super_admi
 
 router.post("/notifications/pre-dismissal", authMiddleware, requireRoles("super_admin", "admin"), async (req, res): Promise<void> => {
   const { serviceSlot, minutesBefore = 15 } = req.body as { serviceSlot?: string; minutesBefore?: number };
+
+  // ── Pre-dismissal rate-limit lock (prevents duplicate alerts from concurrent admins) ─
+  await db.execute(sql`INSERT INTO church_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING`);
+  const [locked] = await db.update(churchSettingsTable)
+    .set({ lastPreDismissalAt: new Date() })
+    .where(sql`id = 1 AND (last_pre_dismissal_at IS NULL OR last_pre_dismissal_at < now() - interval '60 seconds')`)
+    .returning({ id: churchSettingsTable.id });
+  if (!locked) {
+    res.status(429).json({
+      error: "Too many requests",
+      message: "A pre-dismissal alert was just sent. Please wait at least 60 seconds to avoid sending it twice.",
+    });
+    return;
+  }
   const { pickupAddress, mapsLink } = await getPickupLocation();
   const title = "Pre-Dismissal Alert";
   const message = serviceSlot

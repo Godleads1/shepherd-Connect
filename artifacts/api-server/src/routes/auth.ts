@@ -2,22 +2,21 @@ import { Router } from "express";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import * as OTPAuth from "otpauth";
-import { eq } from "drizzle-orm";
-import { db, usersTable } from "@workspace/db";
+import { eq, lt } from "drizzle-orm";
+import { db, usersTable, otpSessionsTable } from "@workspace/db";
 import { LoginBody, RegisterBody } from "@workspace/api-zod";
 import { generateToken, authMiddleware } from "../middlewares/auth";
 import { smsWelcome, smsPendingApproval, smsPasswordResetCode, smsRegistrationOtp, emailRegistrationOtp, emailWelcome, emailPendingApproval, emailPasswordResetCode } from "../services/sms";
 import { withDbRetry } from "../lib/db-retry";
 
-// ── In-memory OTP sessions (phone verification during registration) ────────────
-// key: random session ID returned to client as "pinId"
-// value: { otp, phone, expiresAt }
-// For multi-instance deployments swap this for a Redis store or a DB table.
-const otpSessions = new Map<string, { otp: string; phone: string; expiresAt: Date }>();
-setInterval(() => {
-  const now = new Date();
-  for (const [key, s] of otpSessions) { if (s.expiresAt < now) otpSessions.delete(key); }
-}, 60_000); // prune expired sessions every minute
+// ── DB-backed OTP sessions (phone/email verification during registration) ──────
+// Stored in the otp_sessions table so they survive restarts and work across
+// multiple API instances. Expired rows are pruned every 5 minutes.
+setInterval(async () => {
+  try {
+    await db.delete(otpSessionsTable).where(lt(otpSessionsTable.expiresAt, new Date()));
+  } catch { /* non-fatal */ }
+}, 5 * 60_000);
 
 const VALID_ROLES = ["super_admin", "admin", "teacher", "support", "parent"] as const;
 type UserRole = typeof VALID_ROLES[number];
@@ -358,7 +357,7 @@ router.post("/auth/send-otp", async (req, res): Promise<void> => {
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
     const pinId = crypto.randomUUID();
     const expiresAt = new Date(Date.now() + 20 * 60 * 1000);
-    otpSessions.set(pinId, { otp, phone: email.trim(), expiresAt });
+    await db.insert(otpSessionsTable).values({ pinId, otp, contact: email.trim(), expiresAt });
     await emailRegistrationOtp(email.trim(), otp, req.log);
     res.json({ pinId, message: "OTP sent to your email" });
     return;
@@ -371,7 +370,7 @@ router.post("/auth/send-otp", async (req, res): Promise<void> => {
   const otp = Math.floor(100000 + Math.random() * 900000).toString();
   const pinId = crypto.randomUUID();
   const expiresAt = new Date(Date.now() + 20 * 60 * 1000);
-  otpSessions.set(pinId, { otp, phone: phone.trim(), expiresAt });
+  await db.insert(otpSessionsTable).values({ pinId, otp, contact: phone.trim(), expiresAt });
 
   // Fire SMS/WhatsApp in background — don't block the response on it
   smsRegistrationOtp(phone.trim(), otp, req.log).catch(() => {});
@@ -391,12 +390,13 @@ router.post("/auth/verify-otp", async (req, res): Promise<void> => {
     res.status(400).json({ error: "Bad request", message: "pinId and otp are required" });
     return;
   }
-  const session = otpSessions.get(pinId);
+  const [session] = await db.select().from(otpSessionsTable).where(eq(otpSessionsTable.pinId, pinId));
   if (!session || session.expiresAt < new Date() || session.otp !== otp.trim()) {
     res.status(400).json({ error: "Bad request", message: "Incorrect or expired code. Please try again." });
     return;
   }
-  otpSessions.delete(pinId); // one-time use — invalidate immediately after verification
+  // One-time use — delete immediately after successful verification
+  await db.delete(otpSessionsTable).where(eq(otpSessionsTable.pinId, pinId));
   res.json({ verified: true });
 });
 

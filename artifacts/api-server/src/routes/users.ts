@@ -137,10 +137,10 @@ router.put("/users/:id/approve", authMiddleware, requireRoles("super_admin", "ad
     .where(eq(usersTable.id, id))
     .returning();
   if (!user) { res.status(404).json({ error: "Not found", message: "User not found" }); return; }
-  // Auto-create teacher profile when a teacher account is approved
+  // Auto-create teacher profile when a teacher account is approved.
+  // Uses ON CONFLICT DO NOTHING — safe if two admins approve simultaneously.
   if (user.role === "teacher") {
-    const [existing] = await db.select().from(teachersTable).where(eq(teachersTable.userId, user.id));
-    if (!existing) await db.insert(teachersTable).values({ userId: user.id });
+    await db.insert(teachersTable).values({ userId: user.id }).onConflictDoNothing();
   }
   smsAccountApproved(user.phone, user.firstName, req.log).catch(() => {});
   emailAccountApproved(user.email, user.firstName, req.log).catch(() => {});
@@ -291,10 +291,10 @@ router.post("/users/:id/approve-role", authMiddleware, requireRoles("super_admin
     .where(eq(usersTable.id, id))
     .returning();
 
-  // Auto-create teacher profile when a teacher secondary role is approved
+  // Auto-create teacher profile when a teacher secondary role is approved.
+  // Uses ON CONFLICT DO NOTHING — safe if two super admins approve simultaneously.
   if (role === "teacher") {
-    const [existingTeacher] = await db.select().from(teachersTable).where(eq(teachersTable.userId, id));
-    if (!existingTeacher) await db.insert(teachersTable).values({ userId: id });
+    await db.insert(teachersTable).values({ userId: id }).onConflictDoNothing();
   }
 
   // Notify user
