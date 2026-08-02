@@ -21,7 +21,13 @@ export async function sendNotification(opts: {
     readStatus: false,
     metadataJson: opts.metadata ? JSON.stringify(opts.metadata) : null,
   });
-  dispatchExternal(opts.userId, opts.title, opts.message).catch(() => {});
+  dispatchExternal(opts.userId, opts.title, opts.message).then(({ delivered }) => {
+    if (!delivered) {
+      logger.warn({ userId: opts.userId }, "sendNotification: external delivery skipped or failed");
+    }
+  }).catch((err) => {
+    logger.warn({ userId: opts.userId, err }, "sendNotification: external delivery threw unexpectedly");
+  });
 }
 
 /**
@@ -29,26 +35,28 @@ export async function sendNotification(opts: {
  * saved communicationPrefs. Safe to call for any notification — silently
  * skips users without a phone or without WhatsApp enabled.
  */
-export async function dispatchExternal(userId: number, title: string, message: string): Promise<void> {
+export async function dispatchExternal(userId: number, title: string, message: string): Promise<{ delivered: boolean }> {
   try {
     const [user] = await db.select({
       phone: usersTable.phone,
       communicationPrefs: usersTable.communicationPrefs,
     }).from(usersTable).where(eq(usersTable.id, userId));
-    if (!user?.phone) return;
+    if (!user?.phone) return { delivered: false };
 
     let prefs: { inApp?: boolean; whatsapp?: boolean; sms?: boolean; email?: boolean } = {};
     if (user.communicationPrefs) {
       try { prefs = JSON.parse(user.communicationPrefs); } catch { /* ignore malformed JSON */ }
     }
 
-    if (prefs.whatsapp) {
-      const { sendWhatsAppWithFallback } = await import("../services/sms");
-      const text = `*${title}*\n\n${message}`;
-      await sendWhatsAppWithFallback(user.phone, text, logger);
-    }
+    if (!prefs.whatsapp) return { delivered: false };
+
+    const { sendWhatsAppWithFallback } = await import("../services/sms");
+    const text = `*${title}*\n\n${message}`;
+    await sendWhatsAppWithFallback(user.phone, text, logger);
+    return { delivered: true };
   } catch (err) {
     logger.warn({ userId, err }, "dispatchExternal: delivery failed");
+    return { delivered: false };
   }
 }
 
@@ -373,7 +381,14 @@ export async function broadcastEmergency(opts: {
         metadataJson: JSON.stringify(meta),
       }))
     );
-    Promise.all(userIds.map(uid => dispatchExternal(uid, title, message))).catch(() => {});
+    Promise.allSettled(userIds.map(uid => dispatchExternal(uid, title, message))).then((results) => {
+      const failed = results.filter(r => r.status === "rejected" || (r.status === "fulfilled" && !r.value.delivered));
+      if (failed.length > 0) {
+        logger.warn({ totalTargets: userIds.length, failedCount: failed.length, level: opts.level }, "broadcastEmergency: some external deliveries failed or were skipped");
+      }
+    }).catch((err) => {
+      logger.warn({ err, level: opts.level }, "broadcastEmergency: external dispatch tracking failed");
+    });
   };
 
   if (opts.level === "L1") {

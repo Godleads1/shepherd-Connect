@@ -103,10 +103,15 @@ router.post("/notifications/broadcast", authMiddleware, requireRoles("super_admi
   const recipientIds = recipients.map(r => r.id);
   pushToUsers(recipientIds, { title, body: message, icon: "/pwa-192.png", url: "/notifications" }, req.log).catch(() => {});
 
-  // WhatsApp delivery for users who have it enabled
-  Promise.all(recipients.map(r => dispatchExternal(r.id, title, message))).catch(() => {});
+  // WhatsApp delivery for users who have it enabled — track results so failures are visible
+  const broadcastDeliveryResults = await Promise.allSettled(recipients.map(r => dispatchExternal(r.id, title, message)));
+  const broadcastDelivered = broadcastDeliveryResults.filter(r => r.status === "fulfilled" && r.value.delivered).length;
+  const broadcastFailed = broadcastDeliveryResults.filter(r => r.status === "rejected" || (r.status === "fulfilled" && !r.value.delivered)).length;
+  if (broadcastFailed > 0) {
+    req.log.warn({ broadcastDelivered, broadcastFailed, total: recipients.length }, "broadcast: some external deliveries failed or were skipped");
+  }
 
-  res.json({ success: true, sent: recipients.length, message: `Notification sent to ${recipients.length} user(s)` });
+  res.json({ success: true, sent: recipients.length, externalDelivered: broadcastDelivered, externalFailed: broadcastFailed, message: `Notification sent to ${recipients.length} user(s)` });
 });
 
 router.post("/notifications/pre-dismissal", authMiddleware, requireRoles("super_admin", "admin"), async (req, res): Promise<void> => {
@@ -140,10 +145,21 @@ router.post("/notifications/pre-dismissal", authMiddleware, requireRoles("super_
   // Browser push to all parents
   pushToRole("parent", { title, body: message, icon: "/pwa-192.png", url: "/notifications" }, req.log).catch(() => {});
 
-  // WhatsApp delivery for parents who have it enabled
-  Promise.all(parents.map(p => dispatchExternal(p.id, title, message))).catch(() => {});
+  // WhatsApp delivery for parents who have it enabled — await results so failures are logged and counted
+  const deliveryResults = await Promise.allSettled(parents.map(p => dispatchExternal(p.id, title, message)));
+  const externalDelivered = deliveryResults.filter(r => r.status === "fulfilled" && r.value.delivered).length;
+  const externalFailed = deliveryResults.filter(r => r.status === "rejected" || (r.status === "fulfilled" && !r.value.delivered)).length;
+  if (externalFailed > 0) {
+    req.log.warn({ externalDelivered, externalFailed, total: parents.length, serviceSlot }, "pre-dismissal: some external deliveries failed or were skipped — manual follow-up may be needed");
+  }
 
-  res.json({ success: true, sent: parents.length, message: `Pre-dismissal alert sent to ${parents.length} parent(s)` });
+  res.json({
+    success: true,
+    sent: parents.length,
+    externalDelivered,
+    externalFailed,
+    message: `Pre-dismissal alert sent to ${parents.length} parent(s)`,
+  });
 });
 
 export default router;
