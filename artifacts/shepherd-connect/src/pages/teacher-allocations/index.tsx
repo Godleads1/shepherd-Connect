@@ -37,6 +37,7 @@ export default function TeacherAllocations() {
   const [tab, setTab] = useState<"schedule" | "hours" | "substitute" | "auto">("schedule");
   const [autoDate, setAutoDate] = useState(format(new Date(), "yyyy-MM-dd"));
   const [autoSlots, setAutoSlots] = useState("7am,10:30am");
+  const [autoTeachersPerClass, setAutoTeachersPerClass] = useState(1);
   const [showAutoDialog, setShowAutoDialog] = useState(false);
 
   // Delete confirmation
@@ -148,6 +149,7 @@ export default function TeacherAllocations() {
     mutationFn: () => apiPost<any>("/teacher-allocations/auto-schedule", {
       serviceDate: autoDate,
       serviceSlots: autoSlots.split(",").map(s => s.trim()).filter(Boolean),
+      teachersPerClass: autoTeachersPerClass,
     }),
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: allocQueryKey });
@@ -461,6 +463,19 @@ export default function TeacherAllocations() {
               <label className="text-sm font-medium text-gray-700 block mb-1.5">Service Slots (comma-separated)</label>
               <Input value={autoSlots} onChange={e => setAutoSlots(e.target.value)} placeholder="7am,10:30am" />
               <p className="text-xs text-gray-500 mt-1">Sunday services only: 7am (1st) and/or 10:30am (2nd)</p>
+            </div>
+            <div>
+              <label className="text-sm font-medium text-gray-700 block mb-1.5">Teachers per class</label>
+              <div className="flex items-center gap-3">
+                {[1, 2, 3].map(n => (
+                  <button key={n} type="button"
+                    onClick={() => setAutoTeachersPerClass(n)}
+                    className={`w-10 h-10 rounded-lg border-2 text-sm font-semibold transition-colors ${autoTeachersPerClass === n ? "border-blue-600 bg-blue-50 text-blue-700" : "border-gray-200 text-gray-600 hover:border-gray-300"}`}>
+                    {n}
+                  </button>
+                ))}
+              </div>
+              <p className="text-xs text-gray-500 mt-1">How many teachers to assign to each class per slot</p>
             </div>
           </div>
           <div className="flex gap-3 pt-2">

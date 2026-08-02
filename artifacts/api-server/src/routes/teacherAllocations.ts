@@ -78,8 +78,9 @@ router.get("/teacher-allocations/service-hours", authMiddleware, requireRoles("s
 });
 
 router.post("/teacher-allocations/auto-schedule", authMiddleware, requireRoles("super_admin", "admin"), async (req, res): Promise<void> => {
-  const { serviceDate, serviceSlots = ["7am", "10:30am"] } = req.body as { serviceDate: string; serviceSlots?: string[] };
+  const { serviceDate, serviceSlots = ["7am", "10:30am"], teachersPerClass = 1 } = req.body as { serviceDate: string; serviceSlots?: string[]; teachersPerClass?: number };
   if (!serviceDate) { res.status(400).json({ error: "Bad request", message: "serviceDate is required" }); return; }
+  const perClass = Math.max(1, Math.floor(teachersPerClass));
 
   const teachers = await db.select().from(teachersTable);
   const classes = await db.select().from(classesTable);
@@ -100,37 +101,42 @@ router.post("/teacher-allocations/auto-schedule", authMiddleware, requireRoles("
 
   for (const slot of serviceSlots) {
     for (const cls of classes) {
+      // Count how many teachers are already assigned to this class/slot
       const existing = await db.select().from(teacherAllocationsTable)
         .where(and(eq(teacherAllocationsTable.classId, cls.id), eq(teacherAllocationsTable.serviceDate, serviceDate), eq(teacherAllocationsTable.serviceSlot, slot)));
-      if (existing.length > 0) continue;
+      const needed = perClass - existing.length;
+      if (needed <= 0) continue; // already has enough teachers
 
-      // Skip teachers already allocated in this slot to avoid double-booking
-      let attempts = 0;
-      while (attempts < teacherHours.length) {
-        const candidate = teacherHours[teacherIdx % teacherHours.length];
-        const alreadyBooked = await db.select().from(teacherAllocationsTable)
-          .where(and(
-            eq(teacherAllocationsTable.teacherId, candidate.teacher.id),
-            eq(teacherAllocationsTable.serviceDate, serviceDate),
-            eq(teacherAllocationsTable.serviceSlot, slot)
-          ));
-        if (alreadyBooked.length === 0) break;
+      for (let i = 0; i < needed; i++) {
+        // Skip teachers already allocated in this slot (prevent same teacher in two classes)
+        let attempts = 0;
+        while (attempts < teacherHours.length) {
+          const candidate = teacherHours[teacherIdx % teacherHours.length];
+          const alreadyBooked = await db.select().from(teacherAllocationsTable)
+            .where(and(
+              eq(teacherAllocationsTable.teacherId, candidate.teacher.id),
+              eq(teacherAllocationsTable.serviceDate, serviceDate),
+              eq(teacherAllocationsTable.serviceSlot, slot)
+            ));
+          if (alreadyBooked.length === 0) break;
+          teacherIdx++;
+          attempts++;
+        }
+        if (attempts >= teacherHours.length) break; // no available teachers left
+        const assigned = teacherHours[teacherIdx % teacherHours.length];
         teacherIdx++;
-        attempts++;
-      }
-      const assigned = teacherHours[teacherIdx % teacherHours.length];
-      teacherIdx++;
 
-      const [alloc] = await db.insert(teacherAllocationsTable).values({
-        teacherId: assigned.teacher.id,
-        classId: cls.id,
-        serviceDate,
-        serviceSlot: slot,
-        status: "scheduled",
-      }).returning();
-      created.push(alloc.id);
-      assigned.totalServices++;
-      teacherHours.sort((a, b) => a.totalServices - b.totalServices);
+        const [alloc] = await db.insert(teacherAllocationsTable).values({
+          teacherId: assigned.teacher.id,
+          classId: cls.id,
+          serviceDate,
+          serviceSlot: slot,
+          status: "scheduled",
+        }).returning();
+        created.push(alloc.id);
+        assigned.totalServices++;
+        teacherHours.sort((a, b) => a.totalServices - b.totalServices);
+      }
     }
   }
 
