@@ -52,148 +52,193 @@ async function formatFamily(family: typeof familiesTable.$inferSelect) {
 }
 
 router.get("/families", authMiddleware, async (req, res): Promise<void> => {
-  const params = ListFamiliesQueryParams.safeParse(req.query);
-  if (!params.success) {
-    res.status(400).json({ error: "Bad request", message: params.error.message });
-    return;
-  }
-  const { search, page = 1, limit = 300 } = params.data;
-  const offset = (page - 1) * limit;
-  let families: typeof familiesTable.$inferSelect[] = [];
-  const [{ count }] = await db.select({ count: sql<number>`count(*)` }).from(familiesTable);
-  if (search) {
-    const searchedParents = await db.select().from(usersTable).where(
-      or(ilike(usersTable.firstName, `%${search}%`), ilike(usersTable.lastName, `%${search}%`))
-    );
-    const parentIds = searchedParents.map(p => p.id);
-    if (parentIds.length > 0) {
-      families = await db.select().from(familiesTable)
-        .where(or(
-          ...parentIds.map(id => eq(familiesTable.parent1Id, id)),
-          ...parentIds.map(id => eq(familiesTable.parent2Id, id)),
-        ))
-        .limit(limit).offset(offset);
+  try {
+    const params = ListFamiliesQueryParams.safeParse(req.query);
+    if (!params.success) {
+      res.status(400).json({ error: "Bad request", message: params.error.message });
+      return;
     }
-  } else {
-    families = await db.select().from(familiesTable).limit(limit).offset(offset);
+    const { search, page = 1, limit = 300 } = params.data;
+    const offset = (page - 1) * limit;
+    let families: typeof familiesTable.$inferSelect[] = [];
+    const [{ count }] = await db.select({ count: sql<number>`count(*)` }).from(familiesTable);
+    if (search) {
+      const searchedParents = await db.select().from(usersTable).where(
+        or(ilike(usersTable.firstName, `%${search}%`), ilike(usersTable.lastName, `%${search}%`))
+      );
+      const parentIds = searchedParents.map(p => p.id);
+      if (parentIds.length > 0) {
+        families = await db.select().from(familiesTable)
+          .where(or(
+            ...parentIds.map(id => eq(familiesTable.parent1Id, id)),
+            ...parentIds.map(id => eq(familiesTable.parent2Id, id)),
+          ))
+          .limit(limit).offset(offset);
+      }
+    } else {
+      families = await db.select().from(familiesTable).limit(limit).offset(offset);
+    }
+    const formatted = await Promise.all(families.map(formatFamily));
+    res.json({ data: formatted, total: Number(count), page, limit });
+  } catch (err) {
+    req.log.error({ err }, "Failed to list families");
+    res.status(500).json({ error: "Failed to list families" });
   }
-  const formatted = await Promise.all(families.map(formatFamily));
-  res.json({ data: formatted, total: Number(count), page, limit });
 });
 
 router.post("/families", authMiddleware, async (req, res): Promise<void> => {
-  const parsed = CreateFamilyBody.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: "Bad request", message: parsed.error.message });
-    return;
+  try {
+    const parsed = CreateFamilyBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "Bad request", message: parsed.error.message });
+      return;
+    }
+    const familyCode = generateFamilyCode();
+    const [family] = await db.insert(familiesTable).values({ ...parsed.data, familyCode }).returning();
+    const formatted = await formatFamily(family);
+    res.status(201).json(formatted);
+  } catch (err) {
+    req.log.error({ err }, "Failed to create family");
+    res.status(500).json({ error: "Failed to create family" });
   }
-  const familyCode = generateFamilyCode();
-  const [family] = await db.insert(familiesTable).values({ ...parsed.data, familyCode }).returning();
-  const formatted = await formatFamily(family);
-  res.status(201).json(formatted);
 });
 
 router.get("/families/my", authMiddleware, requireRoles("parent"), async (req, res): Promise<void> => {
-  const userId = req.user!.userId;
-  const [family] = await db.select().from(familiesTable).where(
-    or(eq(familiesTable.parent1Id, userId), eq(familiesTable.parent2Id, userId))
-  );
-  if (!family) {
-    res.json(null);
-    return;
+  try {
+    const userId = req.user!.userId;
+    const [family] = await db.select().from(familiesTable).where(
+      or(eq(familiesTable.parent1Id, userId), eq(familiesTable.parent2Id, userId))
+    );
+    if (!family) {
+      res.json(null);
+      return;
+    }
+    const formatted = await formatFamily(family);
+    res.json(formatted);
+  } catch (err) {
+    req.log.error({ err }, "Failed to load my family");
+    res.status(500).json({ error: "Failed to load family" });
   }
-  const formatted = await formatFamily(family);
-  res.json(formatted);
 });
 
 router.get("/families/:id", authMiddleware, async (req, res): Promise<void> => {
-  const id = parseInt(req.params.id as string, 10);
-  if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
-  const [family] = await db.select().from(familiesTable).where(eq(familiesTable.id, id));
-  if (!family) { res.status(404).json({ error: "Not found", message: "Family not found" }); return; }
-  const formatted = await formatFamily(family);
-  res.json(formatted);
+  try {
+    const id = parseInt(req.params.id as string, 10);
+    if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
+    const [family] = await db.select().from(familiesTable).where(eq(familiesTable.id, id));
+    if (!family) { res.status(404).json({ error: "Not found", message: "Family not found" }); return; }
+    const formatted = await formatFamily(family);
+    res.json(formatted);
+  } catch (err) {
+    req.log.error({ err }, "Failed to get family");
+    res.status(500).json({ error: "Failed to get family" });
+  }
 });
 
 router.put("/families/:id", authMiddleware, async (req, res): Promise<void> => {
-  const id = parseInt(req.params.id as string, 10);
-  if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
-  const parsed = CreateFamilyBody.safeParse(req.body);
-  if (!parsed.success) { res.status(400).json({ error: "Bad request", message: parsed.error.message }); return; }
-  const [family] = await db.update(familiesTable).set(parsed.data).where(eq(familiesTable.id, id)).returning();
-  if (!family) { res.status(404).json({ error: "Not found", message: "Family not found" }); return; }
-  const formatted = await formatFamily(family);
-  res.json(formatted);
+  try {
+    const id = parseInt(req.params.id as string, 10);
+    if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
+    const parsed = CreateFamilyBody.safeParse(req.body);
+    if (!parsed.success) { res.status(400).json({ error: "Bad request", message: parsed.error.message }); return; }
+    const [family] = await db.update(familiesTable).set(parsed.data).where(eq(familiesTable.id, id)).returning();
+    if (!family) { res.status(404).json({ error: "Not found", message: "Family not found" }); return; }
+    const formatted = await formatFamily(family);
+    res.json(formatted);
+  } catch (err) {
+    req.log.error({ err }, "Failed to update family");
+    res.status(500).json({ error: "Failed to update family" });
+  }
 });
 
 router.get("/families/:id/tree", authMiddleware, async (req, res): Promise<void> => {
-  const id = parseInt(req.params.id as string, 10);
-  if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
-  const [family] = await db.select().from(familiesTable).where(eq(familiesTable.id, id));
-  if (!family) { res.status(404).json({ error: "Not found", message: "Family not found" }); return; }
+  try {
+    const id = parseInt(req.params.id as string, 10);
+    if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
+    const [family] = await db.select().from(familiesTable).where(eq(familiesTable.id, id));
+    if (!family) { res.status(404).json({ error: "Not found", message: "Family not found" }); return; }
 
-  const parents = [];
-  if (family.parent1Id) {
-    const [p] = await db.select().from(usersTable).where(eq(usersTable.id, family.parent1Id));
-    if (p) parents.push({ id: p.id, email: p.email, phone: p.phone, role: p.role, firstName: p.firstName, lastName: p.lastName, isActive: p.isActive, createdAt: p.createdAt });
+    const parents = [];
+    if (family.parent1Id) {
+      const [p] = await db.select().from(usersTable).where(eq(usersTable.id, family.parent1Id));
+      if (p) parents.push({ id: p.id, email: p.email, phone: p.phone, role: p.role, firstName: p.firstName, lastName: p.lastName, isActive: p.isActive, createdAt: p.createdAt });
+    }
+    if (family.parent2Id) {
+      const [p] = await db.select().from(usersTable).where(eq(usersTable.id, family.parent2Id));
+      if (p) parents.push({ id: p.id, email: p.email, phone: p.phone, role: p.role, firstName: p.firstName, lastName: p.lastName, isActive: p.isActive, createdAt: p.createdAt });
+    }
+
+    const children = await db.select().from(childrenTable).where(eq(childrenTable.familyId, id));
+    const childrenWithDetails = await Promise.all(
+      children.map(async (child) => {
+        const dob = new Date(child.dob);
+        const now = new Date();
+        const age = now.getFullYear() - dob.getFullYear() -
+          (now < new Date(now.getFullYear(), dob.getMonth(), dob.getDate()) ? 1 : 0);
+        let currentClass = null;
+        let teacher = null;
+        if (child.currentClassId) {
+          const [cls] = await db.select().from(classesTable).where(eq(classesTable.id, child.currentClassId));
+          currentClass = cls || null;
+        }
+        const lastAttendanceRecord = await db.select().from(attendanceTable)
+          .where(eq(attendanceTable.childId, child.id))
+          .orderBy(sql`${attendanceTable.serviceDate} desc`).limit(1);
+        const lastAttendance = lastAttendanceRecord[0]?.serviceDate || null;
+        const attendanceHistory = await db.select().from(attendanceTable)
+          .where(eq(attendanceTable.childId, child.id))
+          .orderBy(attendanceTable.createdAt);
+        return { ...child, age, currentClass, teacher, lastAttendance, attendanceHistory };
+      })
+    );
+
+    res.json({ family, parents, children: childrenWithDetails });
+  } catch (err) {
+    req.log.error({ err }, "Failed to get family tree");
+    res.status(500).json({ error: "Failed to get family tree" });
   }
-  if (family.parent2Id) {
-    const [p] = await db.select().from(usersTable).where(eq(usersTable.id, family.parent2Id));
-    if (p) parents.push({ id: p.id, email: p.email, phone: p.phone, role: p.role, firstName: p.firstName, lastName: p.lastName, isActive: p.isActive, createdAt: p.createdAt });
-  }
-
-  const children = await db.select().from(childrenTable).where(eq(childrenTable.familyId, id));
-  const childrenWithDetails = await Promise.all(
-    children.map(async (child) => {
-      const dob = new Date(child.dob);
-      const now = new Date();
-      const age = now.getFullYear() - dob.getFullYear() -
-        (now < new Date(now.getFullYear(), dob.getMonth(), dob.getDate()) ? 1 : 0);
-      let currentClass = null;
-      let teacher = null;
-      if (child.currentClassId) {
-        const [cls] = await db.select().from(classesTable).where(eq(classesTable.id, child.currentClassId));
-        currentClass = cls || null;
-      }
-      const lastAttendanceRecord = await db.select().from(attendanceTable)
-        .where(eq(attendanceTable.childId, child.id))
-        .orderBy(sql`${attendanceTable.serviceDate} desc`).limit(1);
-      const lastAttendance = lastAttendanceRecord[0]?.serviceDate || null;
-      const attendanceHistory = await db.select().from(attendanceTable)
-        .where(eq(attendanceTable.childId, child.id))
-        .orderBy(attendanceTable.createdAt);
-      return { ...child, age, currentClass, teacher, lastAttendance, attendanceHistory };
-    })
-  );
-
-  res.json({ family, parents, children: childrenWithDetails });
 });
 
 router.delete("/families/:id", authMiddleware, requireRoles("super_admin", "admin"), async (req, res): Promise<void> => {
-  const id = parseInt(req.params.id as string, 10);
-  if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
-  const [family] = await db.select().from(familiesTable).where(eq(familiesTable.id, id));
-  if (!family) { res.status(404).json({ error: "Not found", message: "Family not found" }); return; }
-  await db.delete(childrenTable).where(eq(childrenTable.familyId, id));
-  await db.delete(familiesTable).where(eq(familiesTable.id, id));
-  res.json({ success: true });
+  try {
+    const id = parseInt(req.params.id as string, 10);
+    if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
+    const [family] = await db.select().from(familiesTable).where(eq(familiesTable.id, id));
+    if (!family) { res.status(404).json({ error: "Not found", message: "Family not found" }); return; }
+    await db.delete(childrenTable).where(eq(childrenTable.familyId, id));
+    await db.delete(familiesTable).where(eq(familiesTable.id, id));
+    res.json({ success: true });
+  } catch (err) {
+    req.log.error({ err }, "Failed to delete family");
+    res.status(500).json({ error: "Failed to delete family" });
+  }
 });
 
 router.patch("/families/:id/notes", authMiddleware, requireRoles("super_admin", "admin"), async (req, res): Promise<void> => {
-  const id = parseInt(req.params.id as string, 10);
-  if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
-  const { notes } = req.body as { notes?: string };
-  const [family] = await db.update(familiesTable).set({ notes: notes ?? null }).where(eq(familiesTable.id, id)).returning();
-  if (!family) { res.status(404).json({ error: "Not found", message: "Family not found" }); return; }
-  res.json({ success: true, notes: family.notes });
+  try {
+    const id = parseInt(req.params.id as string, 10);
+    if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
+    const { notes } = req.body as { notes?: string };
+    const [family] = await db.update(familiesTable).set({ notes: notes ?? null }).where(eq(familiesTable.id, id)).returning();
+    if (!family) { res.status(404).json({ error: "Not found", message: "Family not found" }); return; }
+    res.json({ success: true, notes: family.notes });
+  } catch (err) {
+    req.log.error({ err }, "Failed to update family notes");
+    res.status(500).json({ error: "Failed to update notes" });
+  }
 });
 
 router.get("/families/:id/qr-code", authMiddleware, async (req, res): Promise<void> => {
-  const id = parseInt(req.params.id as string, 10);
-  if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
-  const [family] = await db.select().from(familiesTable).where(eq(familiesTable.id, id));
-  if (!family) { res.status(404).json({ error: "Not found", message: "Family not found" }); return; }
-  res.json({ qrCode: `QR:${family.id}`, familyCode: family.familyCode, familyId: family.id });
+  try {
+    const id = parseInt(req.params.id as string, 10);
+    if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
+    const [family] = await db.select().from(familiesTable).where(eq(familiesTable.id, id));
+    if (!family) { res.status(404).json({ error: "Not found", message: "Family not found" }); return; }
+    res.json({ qrCode: `QR:${family.id}`, familyCode: family.familyCode, familyId: family.id });
+  } catch (err) {
+    req.log.error({ err }, "Failed to get family QR code");
+    res.status(500).json({ error: "Failed to get QR code" });
+  }
 });
 
 export default router;
