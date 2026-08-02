@@ -154,7 +154,10 @@ router.post("/auth/register", async (req, res): Promise<void> => {
       // Queue for admin approval
       const updatedPending = [...currentPending, role];
       await db.update(usersTable)
-        .set({ pendingRoles: JSON.stringify(updatedPending) })
+        .set({
+          pendingRoles: JSON.stringify(updatedPending),
+          ...(role === "teacher" && primaryClassId ? { primaryClassId } : {}),
+        })
         .where(eq(usersTable.id, existing.id));
       smsPendingApproval(existing.phone ?? "", existing.firstName, req.log).catch(() => {});
       emailPendingApproval(existing.email, existing.firstName, req.log).catch(() => {});

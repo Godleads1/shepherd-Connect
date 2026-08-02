@@ -171,7 +171,7 @@ router.post("/teachers/notify-select-class", authMiddleware, requireRoles("super
 });
 
 // Teachers can self-select their primary class (only if they have none yet, or always — admin supersedes via PUT)
-router.post("/teachers/me/select-class", authMiddleware, async (req, res): Promise<void> => {
+router.post("/teachers/me/select-class", authMiddleware, requireRoles("teacher", "admin", "super_admin"), async (req, res): Promise<void> => {
   const userId = (req as any).user?.userId;
   if (!userId) { res.status(401).json({ error: "Unauthorized" }); return; }
 

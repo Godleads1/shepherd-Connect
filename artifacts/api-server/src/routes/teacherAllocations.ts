@@ -104,6 +104,20 @@ router.post("/teacher-allocations/auto-schedule", authMiddleware, requireRoles("
         .where(and(eq(teacherAllocationsTable.classId, cls.id), eq(teacherAllocationsTable.serviceDate, serviceDate), eq(teacherAllocationsTable.serviceSlot, slot)));
       if (existing.length > 0) continue;
 
+      // Skip teachers already allocated in this slot to avoid double-booking
+      let attempts = 0;
+      while (attempts < teacherHours.length) {
+        const candidate = teacherHours[teacherIdx % teacherHours.length];
+        const alreadyBooked = await db.select().from(teacherAllocationsTable)
+          .where(and(
+            eq(teacherAllocationsTable.teacherId, candidate.teacher.id),
+            eq(teacherAllocationsTable.serviceDate, serviceDate),
+            eq(teacherAllocationsTable.serviceSlot, slot)
+          ));
+        if (alreadyBooked.length === 0) break;
+        teacherIdx++;
+        attempts++;
+      }
       const assigned = teacherHours[teacherIdx % teacherHours.length];
       teacherIdx++;
 
@@ -120,15 +134,30 @@ router.post("/teacher-allocations/auto-schedule", authMiddleware, requireRoles("
     }
   }
 
-  const adminUsers = await db.select({ id: usersTable.id }).from(usersTable)
-    .where(and(eq(usersTable.isActive, true), eq(usersTable.role, "teacher")));
-  await Promise.all(adminUsers.map(u => sendNotification({
-    userId: u.id,
-    type: "schedule_published",
-    title: "New Schedule Published",
-    message: `Your schedule for ${serviceDate} has been published. Please check your allocations.`,
-    metadata: { serviceDate },
-  })));
+  // Notify only the teachers who were actually assigned in this batch
+  if (created.length > 0) {
+    const assignedAllocs = await db.select().from(teacherAllocationsTable)
+      .where(and(eq(teacherAllocationsTable.serviceDate, serviceDate)));
+    const assignedTeacherIds = [...new Set(
+      assignedAllocs.filter(a => created.includes(a.id)).map(a => a.teacherId)
+    )];
+    const assignedTeachers = await db.select({ userId: teachersTable.userId })
+      .from(teachersTable)
+      .where(and(eq(teachersTable.isActive, true)));
+    const notifyUserIds = assignedTeachers
+      .filter(t => assignedTeacherIds.length === 0 || assignedTeacherIds.some(
+        id => assignedAllocs.find(a => a.id && a.teacherId === id)
+      ))
+      .map(t => t.userId)
+      .filter(Boolean);
+    await Promise.all(notifyUserIds.map(userId => sendNotification({
+      userId: userId!,
+      type: "schedule_published",
+      title: "New Schedule Published",
+      message: `Your schedule for ${serviceDate} has been published. Please check your allocations.`,
+      metadata: { serviceDate },
+    })));
+  }
 
   res.json({ success: true, created: created.length, allocationIds: created, message: `Auto-scheduled ${created.length} teacher allocation(s) for ${serviceDate}` });
 });
@@ -175,6 +204,16 @@ router.post("/teacher-allocations/:id/mark-unavailable", authMiddleware, async (
 
   const [alloc] = await db.select().from(teacherAllocationsTable).where(eq(teacherAllocationsTable.id, id));
   if (!alloc) { res.status(404).json({ error: "Not found", message: "Allocation not found" }); return; }
+
+  // Teachers can only cancel their own allocations; admins/super_admins can cancel any
+  const reqUser = (req as any).user;
+  const isAdmin = reqUser?.role === "admin" || reqUser?.role === "super_admin";
+  if (!isAdmin) {
+    const [teacher] = await db.select().from(teachersTable).where(eq(teachersTable.id, alloc.teacherId));
+    if (!teacher || teacher.userId !== reqUser?.userId) {
+      res.status(403).json({ error: "Forbidden", message: "You can only cancel your own allocations" }); return;
+    }
+  }
 
   const [updated] = await db.update(teacherAllocationsTable)
     .set({ status: "cancelled" })
