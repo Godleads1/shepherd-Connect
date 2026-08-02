@@ -9,7 +9,7 @@ import { Search, LogOut, CheckCircle, Clock, ShieldCheck, KeyRound, Bell, Timer,
 import { useToast } from "@/hooks/use-toast";
 import { format, differenceInMinutes, differenceInSeconds, formatDistanceToNow } from "date-fns";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { apiPost, apiGet } from "@/lib/api-call";
+import { apiPost, apiGet, apiDelete } from "@/lib/api-call";
 import { useAuth } from "@/contexts/auth";
 import LocationBanner from "@/components/LocationBanner";
 
@@ -185,11 +185,7 @@ function PickupQueue({ activeRecords, onCheckout }: { activeRecords: any[]; onCh
       if (rec) {
         await checkoutMutation.mutateAsync({ id: rec.id, data: {} });
       }
-      await apiGet(`/pickup-requests/${item.id}`).catch(() => {});
-      await fetch(`/api/pickup-requests/${item.id}`, {
-        method: "DELETE",
-        headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
-      });
+      await apiDelete(`/pickup-requests/${item.id}`);
       setQueue(prev => prev.filter(q => q.id !== item.id));
       onCheckout();
       toast({ title: "Child handed over", description: `${item.childName} checked out and removed from queue` });

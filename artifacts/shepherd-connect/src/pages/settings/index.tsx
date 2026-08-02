@@ -61,7 +61,9 @@ function LocationSettingsCard() {
         setSettings(rest);
         setLoadedAt(updatedAt ?? null);
       })
-      .catch(() => {})
+      .catch(() => {
+        toast({ variant: "destructive", title: "Could not load location settings", description: "Check your connection and try refreshing." });
+      })
       .finally(() => setLoading(false));
   };
 
@@ -198,7 +200,9 @@ function GeneralSettingsCard() {
         setSettings(rest);
         setLoadedAt(updatedAt ?? null);
       })
-      .catch(() => {})
+      .catch(() => {
+        toast({ variant: "destructive", title: "Could not load church settings", description: "Check your connection and try refreshing." });
+      })
       .finally(() => setLoading(false));
   };
 
