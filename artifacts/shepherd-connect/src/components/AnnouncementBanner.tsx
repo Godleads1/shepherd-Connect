@@ -15,7 +15,7 @@ export function useGeneralSettings() {
   return useQuery<GeneralSettings>({
     queryKey: ["general-settings"],
     queryFn: () => apiGet<GeneralSettings>("/settings/general"),
-    staleTime: 5 * 60 * 1000, // cache 5 min
+    staleTime: 30 * 1000, // cache 30 s — short TTL so settings changes propagate quickly across sessions
   });
 }
 
