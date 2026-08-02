@@ -9,8 +9,9 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Checkbox } from "@/components/ui/checkbox";
 import { format } from "date-fns";
-import { Zap, BarChart3, RefreshCw, Calendar, AlertTriangle, UserMinus, UserCheck, ArrowLeftRight, Pencil, Trash2 } from "lucide-react";
+import { ClipboardList, BarChart3, RefreshCw, Calendar, AlertTriangle, UserMinus, UserCheck, ArrowLeftRight, Pencil, Trash2, School } from "lucide-react";
 import { apiGet, apiPost, apiPut, apiDelete } from "@/lib/api-call";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/auth";
@@ -39,6 +40,12 @@ export default function TeacherAllocations() {
   const [autoSlots, setAutoSlots] = useState("7am,10:30am");
   const [autoTeachersPerClass, setAutoTeachersPerClass] = useState(1);
   const [showAutoDialog, setShowAutoDialog] = useState(false);
+
+  // Duty roster
+  const [showDutyDialog, setShowDutyDialog] = useState(false);
+  const [dutyDate, setDutyDate] = useState(format(new Date(), "yyyy-MM-dd"));
+  const [dutySlots, setDutySlots] = useState<"7am" | "10:30am" | "both">("both");
+  const [selectedTeacherIds, setSelectedTeacherIds] = useState<Set<number>>(new Set());
 
   // Delete confirmation
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
@@ -82,7 +89,7 @@ export default function TeacherAllocations() {
   const { data: teachers } = useQuery({
     queryKey: ["teachers-list-alloc"],
     queryFn: () => apiGet<Teacher[]>("/teachers"),
-    enabled: showSubstituteDialog || showEditDialog || showAddDialog,
+    enabled: showSubstituteDialog || showEditDialog || showAddDialog || showDutyDialog,
   });
 
   type ClassItem = { id: number; name: string };
@@ -159,6 +166,31 @@ export default function TeacherAllocations() {
     onError: () => toast({ variant: "destructive", title: "Auto-schedule failed" }),
   });
 
+  const assignDuty = useMutation({
+    mutationFn: () => {
+      const slots = dutySlots === "both" ? ["7am", "10:30am"] : [dutySlots];
+      return apiPost<any>("/teacher-allocations/assign-duty", {
+        serviceDate: dutyDate,
+        serviceSlots: slots,
+        teacherIds: Array.from(selectedTeacherIds),
+      });
+    },
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: allocQueryKey });
+      setShowDutyDialog(false);
+      setSelectedTeacherIds(new Set());
+      if (data.warnings?.length) {
+        toast({ title: `${data.created} allocation(s) created`, description: data.warnings[0] });
+      } else {
+        toast({ title: "Duty roster assigned", description: `${data.created} allocation(s) created for ${dutyDate}.` });
+      }
+    },
+    onError: () => toast({ variant: "destructive", title: "Failed to assign duty roster" }),
+  });
+
+  // Teachers with a permanent class (for duty roster)
+  const activeTeachersForDuty = (teachers || []) as any[];
+
   const markUnavailable = useMutation({
     mutationFn: ({ id, reason }: { id: number; reason: string }) =>
       apiPost(`/teacher-allocations/${id}/mark-unavailable`, { reason }),
@@ -203,12 +235,12 @@ export default function TeacherAllocations() {
           <div className="flex items-center gap-2">
             <button onClick={() => { setAddDate(format(new Date(), "yyyy-MM-dd")); setAddTeacherId(""); setAddClassId(""); setAddSlot("7am"); setShowAddDialog(true); }}
               className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold border border-blue-200 text-blue-700 bg-blue-50 hover:bg-blue-100 transition-colors">
-              <Pencil className="h-4 w-4" /> Add Allocation
+              <Pencil className="h-4 w-4" /> Add Manual
             </button>
-            <button onClick={() => setShowAutoDialog(true)}
+            <button onClick={() => { setDutyDate(format(new Date(), "yyyy-MM-dd")); setDutySlots("both"); setSelectedTeacherIds(new Set()); setShowDutyDialog(true); }}
               className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-white text-sm font-bold transition-colors"
               style={{ background: "linear-gradient(135deg, #1e3a8a, #1d4ed8)" }}>
-              <Zap className="h-4 w-4" /> Auto-Schedule
+              <ClipboardList className="h-4 w-4" /> Assign Duty Roster
             </button>
           </div>
         )}
@@ -289,7 +321,7 @@ export default function TeacherAllocations() {
                 ) : (allocations || []).length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={isAdmin ? 6 : 5} className="text-center py-10 text-gray-400">
-                      No allocations yet. Use Auto-Schedule to get started.
+                      No allocations yet. Use "Assign Duty Roster" to schedule teachers for a Sunday.
                     </TableCell>
                   </TableRow>
                 ) : (allocations || []).map((alloc: any) => (
@@ -444,6 +476,123 @@ export default function TeacherAllocations() {
           )}
         </div>
       )}
+
+      {/* Assign Duty Roster dialog */}
+      <Dialog open={showDutyDialog} onOpenChange={v => { setShowDutyDialog(v); if (!v) setSelectedTeacherIds(new Set()); }}>
+        <DialogContent className="sm:max-w-lg rounded-2xl max-h-[90vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-[#1e3a8a]">
+              <ClipboardList className="h-5 w-5" /> Assign Sunday Duty Roster
+            </DialogTitle>
+            <DialogDescription>
+              Select who is on duty this Sunday. Each teacher will be scheduled for their permanent class.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2 overflow-y-auto flex-1">
+            {/* Date */}
+            <div>
+              <label className="text-sm font-medium text-gray-700 block mb-1.5">Service Date</label>
+              <Input type="date" value={dutyDate} onChange={e => setDutyDate(e.target.value)} />
+            </div>
+
+            {/* Service slot pills */}
+            <div>
+              <label className="text-sm font-medium text-gray-700 block mb-2">Service</label>
+              <div className="flex gap-2">
+                {([
+                  { value: "7am", label: "7:00 AM — 1st Service" },
+                  { value: "10:30am", label: "10:30 AM — 2nd Service" },
+                  { value: "both", label: "Both Services" },
+                ] as const).map(opt => (
+                  <button key={opt.value} type="button"
+                    onClick={() => setDutySlots(opt.value)}
+                    className={`flex-1 py-2 px-3 rounded-xl text-xs font-semibold border-2 transition-colors ${
+                      dutySlots === opt.value
+                        ? "border-blue-600 bg-blue-50 text-blue-700"
+                        : "border-gray-200 text-gray-600 hover:border-gray-300"
+                    }`}>
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Teacher list */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-sm font-medium text-gray-700">
+                  Teachers
+                  {activeTeachersForDuty.length > 0 && (
+                    <span className="ml-1.5 text-gray-400 font-normal">({selectedTeacherIds.size} selected)</span>
+                  )}
+                </label>
+                <div className="flex gap-2">
+                  <button type="button" onClick={() => {
+                    const withClass = activeTeachersForDuty.filter((t: any) => t.primaryClass || t.user?.primaryClassId);
+                    setSelectedTeacherIds(new Set(withClass.map((t: any) => t.id)));
+                  }} className="text-xs text-blue-600 hover:underline">Select all</button>
+                  <span className="text-gray-300">|</span>
+                  <button type="button" onClick={() => setSelectedTeacherIds(new Set())} className="text-xs text-gray-500 hover:underline">Clear</button>
+                </div>
+              </div>
+
+              {!teachers ? (
+                <div className="space-y-2">{Array(4).fill(0).map((_, i) => <Skeleton key={i} className="h-12 w-full rounded-xl" />)}</div>
+              ) : activeTeachersForDuty.length === 0 ? (
+                <p className="text-sm text-gray-400 text-center py-6">No active teachers found.</p>
+              ) : (
+                <div className="space-y-1.5 max-h-64 overflow-y-auto pr-1">
+                  {activeTeachersForDuty.map((t: any) => {
+                    const hasClass = !!(t.primaryClass?.name || t.user?.primaryClassId);
+                    const className = t.primaryClass?.name ?? "No class assigned";
+                    const checked = selectedTeacherIds.has(t.id);
+                    return (
+                      <label key={t.id}
+                        className={`flex items-center gap-3 px-3 py-2.5 rounded-xl border cursor-pointer transition-colors ${
+                          checked ? "border-blue-200 bg-blue-50" : "border-gray-100 hover:bg-gray-50"
+                        } ${!hasClass ? "opacity-60" : ""}`}>
+                        <Checkbox
+                          checked={checked}
+                          onCheckedChange={v => {
+                            const next = new Set(selectedTeacherIds);
+                            v ? next.add(t.id) : next.delete(t.id);
+                            setSelectedTeacherIds(next);
+                          }}
+                        />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-gray-900 truncate">
+                            {t.user?.firstName} {t.user?.lastName}
+                          </p>
+                          <p className={`text-xs flex items-center gap-1 ${hasClass ? "text-blue-600" : "text-amber-600"}`}>
+                            <School className="h-3 w-3 flex-shrink-0" />
+                            {className}
+                            {!hasClass && " — assign a class first"}
+                          </p>
+                        </div>
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="flex gap-3 pt-3 border-t">
+            <Button variant="outline" className="flex-1" onClick={() => setShowDutyDialog(false)}>Cancel</Button>
+            <Button
+              className="flex-1 flex items-center gap-2"
+              style={{ background: "linear-gradient(135deg, #1e3a8a, #1d4ed8)" }}
+              disabled={selectedTeacherIds.size === 0 || assignDuty.isPending}
+              onClick={() => assignDuty.mutate()}>
+              {assignDuty.isPending
+                ? <><RefreshCw className="h-4 w-4 animate-spin" /> Assigning...</>
+                : <><ClipboardList className="h-4 w-4" /> Assign {selectedTeacherIds.size > 0 ? `${selectedTeacherIds.size} Teacher${selectedTeacherIds.size > 1 ? "s" : ""}` : "Duty Roster"}</>
+              }
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Auto-schedule dialog */}
       <Dialog open={showAutoDialog} onOpenChange={setShowAutoDialog}>

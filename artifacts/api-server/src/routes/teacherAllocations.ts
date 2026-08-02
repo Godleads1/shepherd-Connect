@@ -63,6 +63,71 @@ router.delete("/teacher-allocations/:id", authMiddleware, requireRoles("super_ad
   res.json({ success: true, id });
 });
 
+// Assign a duty roster — picks teachers by their permanent class for a specific Sunday
+router.post("/teacher-allocations/assign-duty", authMiddleware, requireRoles("super_admin", "admin"), async (req, res): Promise<void> => {
+  const { serviceDate, serviceSlots = ["7am", "10:30am"], teacherIds } = req.body as {
+    serviceDate: string; serviceSlots?: string[]; teacherIds: number[];
+  };
+  if (!serviceDate) { res.status(400).json({ error: "Bad request", message: "serviceDate is required" }); return; }
+  if (!Array.isArray(teacherIds) || teacherIds.length === 0) {
+    res.status(400).json({ error: "Bad request", message: "teacherIds must be a non-empty array" }); return;
+  }
+
+  const created: number[] = [];
+  const noClass: string[] = [];
+
+  for (const teacherId of teacherIds) {
+    const [teacher] = await db.select().from(teachersTable).where(eq(teachersTable.id, teacherId));
+    if (!teacher) continue;
+    const [user] = await db.select().from(usersTable).where(eq(usersTable.id, teacher.userId));
+    if (!user?.primaryClassId) {
+      noClass.push(`${user?.firstName ?? "Unknown"} ${user?.lastName ?? ""}`);
+      continue;
+    }
+    const [cls] = await db.select().from(classesTable).where(eq(classesTable.id, user.primaryClassId));
+
+    for (const slot of serviceSlots) {
+      // Skip if already assigned for this teacher/date/slot
+      const [existing] = await db.select().from(teacherAllocationsTable)
+        .where(and(
+          eq(teacherAllocationsTable.teacherId, teacherId),
+          eq(teacherAllocationsTable.serviceDate, serviceDate),
+          eq(teacherAllocationsTable.serviceSlot, slot),
+        ));
+      if (existing) continue;
+
+      const [alloc] = await db.insert(teacherAllocationsTable).values({
+        teacherId,
+        classId: user.primaryClassId,
+        serviceDate,
+        serviceSlot: slot,
+        status: "scheduled",
+      }).returning();
+      created.push(alloc.id);
+
+      await sendNotification({
+        userId: user.id,
+        type: "schedule_published",
+        title: "Sunday Duty Assigned",
+        message: `You are on duty ${slot} on ${serviceDate}${cls ? ` — ${cls.name}` : ""}. Please log in to confirm.`,
+        metadata: { serviceDate, serviceSlot: slot, allocationId: alloc.id },
+      });
+    }
+  }
+
+  const warnings = noClass.length > 0
+    ? [`${noClass.join(", ")} skipped — no permanent class assigned. Use "Add Allocation" to schedule them manually.`]
+    : [];
+
+  res.json({
+    success: true,
+    created: created.length,
+    allocationIds: created,
+    warnings,
+    message: `${created.length} allocation(s) created for ${serviceDate}.${warnings.length ? " " + warnings[0] : ""}`,
+  });
+});
+
 router.get("/teacher-allocations/service-hours", authMiddleware, requireRoles("super_admin", "admin"), async (req, res): Promise<void> => {
   const teachers = await db.select().from(teachersTable);
   const result = await Promise.all(teachers.map(async (teacher) => {
