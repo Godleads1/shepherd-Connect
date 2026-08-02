@@ -719,6 +719,19 @@ export async function handleInboundMessage(
     // else: fall through so their actual typed message is handled normally
   }
 
+  // ── Early escape: typing "0" during any multi-step flow returns to main menu ─
+  const MULTI_STEP_STEPS: Step[] = [
+    "concern_select_type", "concern_enter_desc",
+    "request_select_type", "request_select_child",
+    "teacher_sub_reason",
+  ];
+  if (input === "0" && MULTI_STEP_STEPS.includes(session.step)) {
+    await resetSession(fromJid, resolvedUserId, session.data.lastAction);
+    if (role === "teacher") { await reply(teacherMenuText(user.firstName, session.data.lastAction)); return; }
+    if (role === "support" || role === "attendant") { await reply(supportMenuText(user.firstName)); return; }
+    await reply(parentMenuText(user.firstName, session.data.lastAction)); return;
+  }
+
   // ── Multi-step: concern ───────────────────────────────────────────────────
   if (session.step === "concern_select_type") {
     const typeMap: Record<string, string> = { "1": "safeguarding_concern", "2": "complaint", "3": "compliment", "4": "general_feedback" };
