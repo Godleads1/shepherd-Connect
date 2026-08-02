@@ -42,7 +42,8 @@ function buildUserPayload(user: typeof usersTable.$inferSelect, activeRole?: Use
   };
 }
 
-const JWT_SECRET = process.env.SESSION_SECRET || "shepherd-connect-secret";
+const JWT_SECRET = process.env.SESSION_SECRET;
+if (!JWT_SECRET) throw new Error("SESSION_SECRET environment variable is required but not set.");
 
 const router = Router();
 
