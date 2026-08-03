@@ -266,7 +266,7 @@ export function Layout({ children }: { children: ReactNode }) {
       items.push({ href: "/messages",              label: "Messages",            icon: MessageSquare, badge: msgUnreadCount });
       if (role === "super_admin") items.push({ href: "/users", label: t.nav.users, icon: ShieldCheck });
       if (role === "super_admin" || role === "admin") items.push({ href: "/sunday-attendance", label: "Service Attendance", icon: QrCode });
-      if (role === "super_admin") items.push({ href: "/settings", label: "Settings", icon: Grid3x3 });
+      if (role === "super_admin" || role === "admin") items.push({ href: "/settings", label: "Settings", icon: Grid3x3 });
     } else if (role === "parent") {
       items.push({ href: "/my-family",        label: t.nav.myFamily,   icon: Home });
       items.push({ href: "/my-children",      label: t.nav.myChildren, icon: Baby });
@@ -288,6 +288,7 @@ export function Layout({ children }: { children: ReactNode }) {
       items.push({ href: "/checkin",  label: t.nav.checkin,  icon: ClipboardCheck });
       items.push({ href: "/checkout", label: t.nav.checkout, icon: CheckSquare });
       items.push({ href: "/scan",     label: "Service Attendance", icon: QrCode });
+      items.push({ href: "/settings", label: "Sunday Setup",       icon: Grid3x3 });
     }
     items.push({ href: "/notifications", label: t.nav.notifications, icon: Bell, badge: unreadCount });
     items.push({ href: "/profile", label: "My Profile", icon: UserCircle });

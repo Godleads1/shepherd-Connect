@@ -35,3 +35,5 @@ export * from "./sundayAttendance";
 export * from "./churchSettings";
 export * from "./otpSessions";
 export * from "./schedulerLocks";
+export * from "./classMerges";
+export * from "./hallSessions";

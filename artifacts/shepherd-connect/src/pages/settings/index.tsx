@@ -10,6 +10,7 @@ import {
   Smartphone, Wifi, WifiOff, RefreshCw, Loader2, LogOut,
   CheckCircle2, Settings2, Copy, Check, QrCode, Phone,
   Clock, Megaphone, Save, MapPin, ExternalLink,
+  Music, Merge, Trash2, Plus, ChevronRight,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useQueryClient } from "@tanstack/react-query";
@@ -356,6 +357,324 @@ function GeneralSettingsCard() {
   );
 }
 
+// ─── Hall Session Card ──────────────────────────────────────────────────────
+
+interface HallSession {
+  id: number;
+  serviceDate: string;
+  serviceSlot: "7am" | "10:30am" | null;
+}
+
+function HallSessionCard() {
+  const { toast } = useToast();
+  const [sessions, setSessions] = useState<HallSession[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [slot, setSlot] = useState<"both" | "7am" | "10:30am">("both");
+
+  const today = new Date().toISOString().slice(0, 10);
+
+  const reload = () => {
+    setLoading(true);
+    apiGet<HallSession[]>(`/hall-sessions?date=${today}`)
+      .then(setSessions)
+      .catch(() => toast({ variant: "destructive", title: "Could not load hall sessions" }))
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(reload, []);
+
+  const isActive = sessions.length > 0;
+
+  const handleActivate = async () => {
+    setSaving(true);
+    try {
+      await apiPost("/hall-sessions", {
+        serviceDate: today,
+        serviceSlot: slot === "both" ? null : slot,
+      });
+      toast({ title: "Hall session activated", description: "En-route notifications now reflect the hall session." });
+      reload();
+    } catch (e: any) {
+      if (e?.status === 409) {
+        toast({ variant: "destructive", title: "Already active", description: "A hall session for this slot is already set." });
+      } else {
+        toast({ variant: "destructive", title: "Could not activate", description: e.message });
+      }
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleRemove = async (id: number) => {
+    try {
+      await apiDelete(`/hall-sessions/${id}`);
+      toast({ title: "Hall session removed" });
+      reload();
+    } catch (e: any) {
+      toast({ variant: "destructive", title: "Could not remove", description: e.message });
+    }
+  };
+
+  const slotLabel = (s: "7am" | "10:30am" | null) =>
+    s === "7am" ? "1st Service" : s === "10:30am" ? "2nd Service" : "Both Services";
+
+  return (
+    <div className="border rounded-2xl bg-white overflow-hidden">
+      <div className="px-6 py-5 border-b bg-gray-50 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-purple-600 flex items-center justify-center">
+            <Music className="w-5 h-5 text-white" />
+          </div>
+          <div>
+            <p className="font-semibold text-gray-900">Hall Session</p>
+            <p className="text-xs text-gray-500">Children attend general hall before going to class</p>
+          </div>
+        </div>
+        {isActive && <Badge className="bg-purple-100 text-purple-700 border-purple-200">Active Today</Badge>}
+      </div>
+
+      <div className="px-6 py-6 space-y-4">
+        {loading ? (
+          <div className="flex justify-center py-4"><Loader2 className="w-5 h-5 animate-spin text-gray-400" /></div>
+        ) : (
+          <>
+            {isActive ? (
+              <div className="space-y-2">
+                <p className="text-sm text-gray-600">
+                  Active sessions today — en-route messages will say children are in the general hall first.
+                </p>
+                {sessions.map(s => (
+                  <div key={s.id} className="flex items-center justify-between bg-purple-50 border border-purple-100 rounded-xl px-4 py-3">
+                    <div>
+                      <p className="text-sm font-medium text-purple-900">{slotLabel(s.serviceSlot)}</p>
+                      <p className="text-xs text-purple-600">Parents & teachers notified about the hall</p>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="text-red-500 hover:text-red-700 hover:bg-red-50"
+                      onClick={() => handleRemove(s.id)}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  </div>
+                ))}
+                <p className="text-xs text-gray-400">Remove when children have gone to their classes.</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <p className="text-sm text-gray-600">
+                  Mark this Sunday as having a hall session so parents aren't confused by en-route notifications before children reach their classes.
+                </p>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-gray-600">Which service?</label>
+                  <div className="flex rounded-xl border overflow-hidden">
+                    {(["both", "7am", "10:30am"] as const).map(s => (
+                      <button
+                        key={s}
+                        onClick={() => setSlot(s)}
+                        className={cn(
+                          "flex-1 py-2 text-xs font-medium transition-colors",
+                          slot === s ? "bg-purple-600 text-white" : "bg-white text-gray-500 hover:bg-gray-50",
+                        )}
+                      >
+                        {s === "both" ? "Both" : s === "7am" ? "1st (7am)" : "2nd (10:30am)"}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <Button onClick={handleActivate} disabled={saving} className="w-full bg-purple-600 hover:bg-purple-700">
+                  {saving
+                    ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Activating…</>
+                    : <><Plus className="w-4 h-4 mr-2" /> Activate Hall Session</>}
+                </Button>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Class Merge Card ───────────────────────────────────────────────────────
+
+interface ClassItem { id: number; name: string; }
+interface ClassMerge {
+  id: number;
+  sourceClassId: number;
+  targetClassId: number;
+  sourceClassName: string;
+  targetClassName: string;
+  serviceDate: string;
+  serviceSlot: "7am" | "10:30am" | null;
+}
+
+function ClassMergeCard() {
+  const { toast } = useToast();
+  const [merges, setMerges] = useState<ClassMerge[]>([]);
+  const [classes, setClasses] = useState<ClassItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [sourceId, setSourceId] = useState<number | "">("");
+  const [targetId, setTargetId] = useState<number | "">("");
+  const [mergeDate, setMergeDate] = useState(new Date().toISOString().slice(0, 10));
+
+  const reload = () => {
+    setLoading(true);
+    Promise.all([
+      apiGet<ClassMerge[]>(`/class-merges?date=${mergeDate}`),
+      apiGet<ClassItem[]>("/classes"),
+    ])
+      .then(([m, c]) => { setMerges(m); setClasses(c); })
+      .catch(() => toast({ variant: "destructive", title: "Could not load class data" }))
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(reload, [mergeDate]);
+
+  const handleAdd = async () => {
+    if (!sourceId || !targetId) {
+      toast({ variant: "destructive", title: "Select both classes" });
+      return;
+    }
+    if (sourceId === targetId) {
+      toast({ variant: "destructive", title: "A class cannot merge with itself" });
+      return;
+    }
+    setSaving(true);
+    try {
+      await apiPost("/class-merges", { sourceClassId: sourceId, targetClassId: targetId, serviceDate: mergeDate });
+      toast({ title: "Merge saved", description: "Pickup notifications will be rerouted to the host class." });
+      setSourceId("");
+      setTargetId("");
+      reload();
+    } catch (e: any) {
+      if (e?.status === 409) {
+        toast({ variant: "destructive", title: "Already merged", description: "This class is already merged on that date." });
+      } else {
+        toast({ variant: "destructive", title: "Could not save merge", description: e.message });
+      }
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleRemove = async (id: number) => {
+    try {
+      await apiDelete(`/class-merges/${id}`);
+      toast({ title: "Merge removed" });
+      reload();
+    } catch (e: any) {
+      toast({ variant: "destructive", title: "Could not remove merge", description: e.message });
+    }
+  };
+
+  return (
+    <div className="border rounded-2xl bg-white overflow-hidden">
+      <div className="px-6 py-5 border-b bg-gray-50 flex items-center gap-3">
+        <div className="w-10 h-10 rounded-xl bg-orange-500 flex items-center justify-center">
+          <Merge className="w-5 h-5 text-white" />
+        </div>
+        <div>
+          <p className="font-semibold text-gray-900">Class Merges</p>
+          <p className="text-xs text-gray-500">Route pickup notifications when classes share a room</p>
+        </div>
+      </div>
+
+      <div className="px-6 py-6 space-y-5">
+        {loading ? (
+          <div className="flex justify-center py-4"><Loader2 className="w-5 h-5 animate-spin text-gray-400" /></div>
+        ) : (
+          <>
+            {/* Date picker */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-gray-600">Sunday date</label>
+              <Input
+                type="date"
+                value={mergeDate}
+                onChange={e => setMergeDate(e.target.value)}
+              />
+            </div>
+
+            {/* Existing merges for selected date */}
+            {merges.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-xs font-medium text-gray-600">Active merges on {mergeDate}</p>
+                {merges.map(m => (
+                  <div key={m.id} className="flex items-center justify-between bg-orange-50 border border-orange-100 rounded-xl px-4 py-3">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-orange-900">{m.sourceClassName}</span>
+                      <ChevronRight className="w-3 h-3 text-orange-400" />
+                      <span className="text-sm font-medium text-orange-900">{m.targetClassName}</span>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="text-red-500 hover:text-red-700 hover:bg-red-50"
+                      onClick={() => handleRemove(m.id)}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  </div>
+                ))}
+                <p className="text-xs text-gray-400">
+                  Pickup messages for children in the left class go to the right class's teacher.
+                </p>
+              </div>
+            )}
+
+            {/* Add new merge */}
+            <div className="border-t pt-4 space-y-3">
+              <p className="text-xs font-medium text-gray-600">Add a merge</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-xs text-gray-500">Absorbed class</label>
+                  <select
+                    value={sourceId}
+                    onChange={e => setSourceId(Number(e.target.value))}
+                    className="w-full border rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-orange-300"
+                  >
+                    <option value="">Select class…</option>
+                    {classes.map(c => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs text-gray-500">Host class (room)</label>
+                  <select
+                    value={targetId}
+                    onChange={e => setTargetId(Number(e.target.value))}
+                    className="w-full border rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-orange-300"
+                  >
+                    <option value="">Select class…</option>
+                    {classes.map(c => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <Button
+                onClick={handleAdd}
+                disabled={saving || !sourceId || !targetId}
+                className="w-full bg-orange-500 hover:bg-orange-600"
+              >
+                {saving
+                  ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Saving…</>
+                  : <><Plus className="w-4 h-4 mr-2" /> Add Merge</>}
+              </Button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+
 export default function Settings() {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -389,10 +708,15 @@ export default function Settings() {
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, [waState.status]);
 
-  if (!user || user.role !== "super_admin") {
+  const isSuperAdmin = user?.role === "super_admin";
+  const isAdmin = user?.role === "admin";
+  const isSupport = user?.role === "support";
+  const isStaff = isSuperAdmin || isAdmin || isSupport;
+
+  if (!isStaff) {
     return (
       <div className="flex items-center justify-center h-64">
-        <p className="text-gray-500">Access restricted to Super Admin.</p>
+        <p className="text-gray-500">Access restricted to staff.</p>
       </div>
     );
   }
@@ -456,16 +780,20 @@ export default function Settings() {
       <div>
         <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
           <Settings2 className="w-6 h-6 text-blue-900" />
-          Settings
+          {isSupport ? "Sunday Setup" : "Settings"}
         </h1>
-        <p className="text-gray-500 text-sm mt-1">Manage integrations and system settings</p>
+        <p className="text-gray-500 text-sm mt-1">
+          {isSupport ? "Configure this Sunday's service details" : "Manage integrations and system settings"}
+        </p>
       </div>
 
-      {/* General Settings card */}
-      <GeneralSettingsCard />
+      {/* Sunday-specific operational cards — visible to support, admin, super_admin */}
+      <HallSessionCard />
+      {(isSuperAdmin || isAdmin) && <ClassMergeCard />}
 
-      {/* Pickup Location card */}
-      <LocationSettingsCard />
+      {/* Admin / super-admin settings */}
+      {(isSuperAdmin || isAdmin) && <LocationSettingsCard />}
+      {isSuperAdmin && <GeneralSettingsCard />}
 
       <div className="border rounded-2xl bg-white overflow-hidden">
         {/* Header */}

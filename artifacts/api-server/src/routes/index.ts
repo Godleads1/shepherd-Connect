@@ -35,6 +35,8 @@ import safeguardingPortalRouter from "./safeguardingPortal";
 import teacherIncidentsRouter from "./teacherIncidents";
 import sundayAttendanceRouter from "./sundayAttendance";
 import settingsRouter from "./settings";
+import classMergesRouter from "./classMerges";
+import hallSessionsRouter from "./hallSessions";
 
 const router: IRouter = Router();
 
@@ -74,5 +76,7 @@ router.use(safeguardingPortalRouter);
 router.use(teacherIncidentsRouter);
 router.use(sundayAttendanceRouter);
 router.use(settingsRouter);
+router.use(classMergesRouter);
+router.use(hallSessionsRouter);
 
 export default router;

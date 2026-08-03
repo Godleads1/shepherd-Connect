@@ -1,6 +1,58 @@
-import { db, notificationsTable, usersTable, familiesTable, childrenTable, classesTable, teachersTable, teacherAllocationsTable, attendanceTable } from "@workspace/db";
-import { eq, and } from "drizzle-orm";
+import { db, notificationsTable, usersTable, familiesTable, childrenTable, classesTable, teachersTable, teacherAllocationsTable, attendanceTable, hallSessionsTable, classMergesTable } from "@workspace/db";
+import { eq, and, isNull, or } from "drizzle-orm";
 import { logger } from "./logger";
+
+/**
+ * Returns true if a hall session is active for the given date and (optionally) slot.
+ * A row with serviceSlot = null covers both slots.
+ */
+async function isHallSessionActive(serviceDate: string, serviceSlot?: string | null): Promise<boolean> {
+  try {
+    const rows = await db
+      .select({ id: hallSessionsTable.id })
+      .from(hallSessionsTable)
+      .where(
+        and(
+          eq(hallSessionsTable.serviceDate, serviceDate),
+          serviceSlot
+            ? or(eq(hallSessionsTable.serviceSlot, serviceSlot as "7am" | "10:30am"), isNull(hallSessionsTable.serviceSlot))
+            : isNull(hallSessionsTable.serviceSlot),
+        ),
+      )
+      .limit(1);
+    return rows.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * If the child's class is merged into another class today, returns the host class id and name.
+ * Returns null if no merge is in effect.
+ */
+async function getActiveMergeTarget(
+  classId: number,
+  serviceDate: string,
+): Promise<{ targetClassId: number; targetClassName: string } | null> {
+  try {
+    const [merge] = await db
+      .select({ targetClassId: classMergesTable.targetClassId })
+      .from(classMergesTable)
+      .where(and(
+        eq(classMergesTable.sourceClassId, classId),
+        eq(classMergesTable.serviceDate, serviceDate),
+      ))
+      .limit(1);
+    if (!merge) return null;
+    const [hostClass] = await db
+      .select({ name: classesTable.name })
+      .from(classesTable)
+      .where(eq(classesTable.id, merge.targetClassId));
+    return { targetClassId: merge.targetClassId, targetClassName: hostClass?.name ?? "host class" };
+  } catch {
+    return null;
+  }
+}
 
 type Channel = "in_app" | "whatsapp" | "sms" | "email";
 
@@ -110,7 +162,7 @@ export async function notifyChildCheckedIn(childId: number, classId: number, ser
   }
 }
 
-export async function notifyChildInTransit(childId: number, classId: number) {
+export async function notifyChildInTransit(childId: number, classId: number, serviceDate?: string) {
   const [child] = await db.select().from(childrenTable).where(eq(childrenTable.id, childId));
   if (!child) return;
   const [cls] = await db.select().from(classesTable).where(eq(classesTable.id, classId));
@@ -121,19 +173,27 @@ export async function notifyChildInTransit(childId: number, classId: number) {
   if (family?.parent1Id) parentIds.push(family.parent1Id);
   if (family?.parent2Id) parentIds.push(family.parent2Id);
 
+  const today = serviceDate ?? new Date().toISOString().slice(0, 10);
+  const hallActive = await isHallSessionActive(today);
+
+  const message = hallActive
+    ? `${child.firstName} is in the general hall for praise & worship — they will be escorted to ${className} after the session.`
+    : `${child.firstName} is being escorted to ${className} right now.`;
+
   for (const uid of parentIds) {
     await sendNotification({
       userId: uid,
       type: "child_in_transit",
-      title: "Child En Route to Class",
-      message: `${child.firstName} is being escorted to ${className} right now.`,
-      metadata: { childId, classId },
+      title: hallActive ? "Child in General Hall" : "Child En Route to Class",
+      message,
+      metadata: { childId, classId, hallSession: hallActive },
     });
   }
 }
 
 /**
  * Notify every teacher allocated to a class when a child is being escorted there (in_transit).
+ * Respects class merges (routes to host class) and hall session flags (adjusts message text).
  */
 export async function notifyTeachersChildInTransit(
   childId: number,
@@ -144,17 +204,25 @@ export async function notifyTeachersChildInTransit(
   if (!child) return;
 
   const [cls] = await db.select().from(classesTable).where(eq(classesTable.id, classId));
-  const className = cls?.name ?? "your class";
+  const homeClassName = cls?.name ?? "your class";
 
   const childName = `${child.firstName} ${child.lastName}`;
   const now = new Date().toLocaleTimeString("en-NG", { hour: "2-digit", minute: "2-digit" });
   const today = serviceDate ?? new Date().toISOString().slice(0, 10);
 
+  // Check if this class is merged into another today — route to host class teachers if so.
+  const mergeTarget = await getActiveMergeTarget(classId, today);
+  const routingClassId = mergeTarget?.targetClassId ?? classId;
+  const routingClassName = mergeTarget?.targetClassName ?? homeClassName;
+
+  // Check if a hall session is active — if so, adjust the message.
+  const hallActive = await isHallSessionActive(today);
+
   let allocations = await db
     .select()
     .from(teacherAllocationsTable)
     .where(and(
-      eq(teacherAllocationsTable.classId, classId),
+      eq(teacherAllocationsTable.classId, routingClassId),
       eq(teacherAllocationsTable.serviceDate, today),
     ));
 
@@ -162,15 +230,29 @@ export async function notifyTeachersChildInTransit(
     allocations = await db
       .select()
       .from(teacherAllocationsTable)
-      .where(eq(teacherAllocationsTable.classId, classId))
+      .where(eq(teacherAllocationsTable.classId, routingClassId))
       .orderBy(teacherAllocationsTable.serviceDate)
       .limit(5);
   }
 
   if (allocations.length === 0) {
-    logger.warn({ classId, today }, "notifyTeachersChildInTransit: no allocations found — no teacher notified");
+    logger.warn({ classId, routingClassId, today }, "notifyTeachersChildInTransit: no allocations found — no teacher notified");
     return;
   }
+
+  // Build the notification text
+  const childLabel = mergeTarget
+    ? `${childName} (from ${homeClassName})`
+    : childName;
+
+  let message: string;
+  if (hallActive) {
+    message = `${childLabel} will be brought to ${routingClassName} after the hall session — please expect them shortly.`;
+  } else {
+    message = `${childLabel} is being escorted to ${routingClassName} right now — expect them shortly (${now}).`;
+  }
+
+  const title = hallActive ? "Child Coming From Hall Session" : "Child En Route to Your Class";
 
   const seenTeacherIds = new Set<number>();
   for (const alloc of allocations) {
@@ -180,14 +262,17 @@ export async function notifyTeachersChildInTransit(
     const [teacher] = await db.select().from(teachersTable).where(eq(teachersTable.id, alloc.teacherId));
     if (!teacher) continue;
 
-    logger.info({ teacherId: alloc.teacherId, userId: teacher.userId, childId, classId }, "notifyTeachersChildInTransit: sending notification");
+    logger.info(
+      { teacherId: alloc.teacherId, userId: teacher.userId, childId, classId, routingClassId, hallActive },
+      "notifyTeachersChildInTransit: sending notification",
+    );
 
     await sendNotification({
       userId: teacher.userId,
       type: "child_in_transit",
-      title: "Child En Route to Your Class",
-      message: `${childName} is being escorted to ${className} right now — expect them shortly (${now}).`,
-      metadata: { childId, classId, serviceDate },
+      title,
+      message,
+      metadata: { childId, classId, routingClassId, serviceDate, hallSession: hallActive, merged: !!mergeTarget },
     });
   }
 }

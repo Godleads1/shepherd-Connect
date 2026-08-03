@@ -3,7 +3,7 @@ import { authMiddleware, requireRoles } from "../middlewares/auth";
 import { db } from "@workspace/db";
 import {
   attendanceTable, childrenTable, classesTable, usersTable,
-  teachersTable, teacherAllocationsTable,
+  teachersTable, teacherAllocationsTable, classMergesTable,
 } from "@workspace/db/schema";
 import { eq, and } from "drizzle-orm";
 import { sendNotification } from "../lib/notify";
@@ -115,7 +115,7 @@ router.post("/pickup-requests", authMiddleware, async (req, res): Promise<void> 
   }
 
   const childName = `${child.children.firstName} ${child.children.lastName}`;
-  const className = child.classes?.name ?? "Unknown Class";
+  const childClassName = child.classes?.name ?? "Unknown Class";
 
   const [parent] = await db
     .select({ firstName: usersTable.firstName, lastName: usersTable.lastName })
@@ -124,38 +124,64 @@ router.post("/pickup-requests", authMiddleware, async (req, res): Promise<void> 
 
   const parentName = parent ? `${parent.firstName} ${parent.lastName}` : "A parent";
 
+  // Check if this class is merged into another class today — if so, route to the host class.
+  const [merge] = await db
+    .select({ targetClassId: classMergesTable.targetClassId })
+    .from(classMergesTable)
+    .where(and(
+      eq(classMergesTable.sourceClassId, classId),
+      eq(classMergesTable.serviceDate, today),
+    ))
+    .limit(1);
+
+  const routingClassId = merge?.targetClassId ?? classId;
+  let routingClassName = childClassName;
+  if (merge) {
+    const [hostClass] = await db
+      .select({ name: classesTable.name })
+      .from(classesTable)
+      .where(eq(classesTable.id, merge.targetClassId));
+    if (hostClass) routingClassName = hostClass.name;
+  }
+
   const request = {
     id: `${childId}-${Date.now()}`,
     childId,
     childName,
     parentName,
-    classId,
-    className,
+    classId: routingClassId,
+    className: routingClassName,
+    // Surface the child's home class when merged so the teacher knows where they're from
+    homeClassName: merge ? childClassName : undefined,
     requestedAt: new Date().toISOString(),
   };
 
-  if (!pickupQueue.has(classId)) pickupQueue.set(classId, []);
-  const queue = pickupQueue.get(classId)!;
+  if (!pickupQueue.has(routingClassId)) pickupQueue.set(routingClassId, []);
+  const queue = pickupQueue.get(routingClassId)!;
   const existingIdx = queue.findIndex(q => q.childId === childId);
   if (existingIdx !== -1) queue.splice(existingIdx, 1);
   queue.push(request);
 
-  broadcastToClass(classId, { type: "pickup", request, queue });
+  broadcastToClass(routingClassId, { type: "pickup", request, queue });
 
   const allocations = await db
     .select({ userId: teachersTable.userId })
     .from(teacherAllocationsTable)
     .innerJoin(teachersTable, eq(teacherAllocationsTable.teacherId, teachersTable.id))
     .where(and(
-      eq(teacherAllocationsTable.classId, classId),
+      eq(teacherAllocationsTable.classId, routingClassId),
       eq(teacherAllocationsTable.serviceDate, today),
     ));
+
+  const pickupMsg = merge
+    ? `${parentName} is here to collect ${childName} (from ${childClassName}, merged with ${routingClassName}). Please prepare for handover.`
+    : `${parentName} is here to collect ${childName} from ${childClassName}. Please prepare for handover.`;
 
   await Promise.all(allocations.map(a => sendNotification({
     userId: a.userId,
     type: "pickup_request",
     title: "Pickup Request",
-    message: `${parentName} is here to collect ${childName} from ${className}. Please prepare for handover.`,
+    message: pickupMsg,
   })));
 
   req.log.info({ childId, classId, parentName }, "Parent signalled pickup");
