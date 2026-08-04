@@ -212,8 +212,7 @@ router.post("/teacher-allocations/auto-schedule", authMiddleware, requireRoles("
       assignedAllocs.filter(a => created.includes(a.id)).map(a => a.teacherId)
     )];
     const assignedTeachers = await db.select({ userId: teachersTable.userId })
-      .from(teachersTable)
-      .where(and(eq(teachersTable.isActive, true)));
+      .from(teachersTable);
     const notifyUserIds = assignedTeachers
       .filter(t => assignedTeacherIds.length === 0 || assignedTeacherIds.some(
         id => assignedAllocs.find(a => a.id && a.teacherId === id)

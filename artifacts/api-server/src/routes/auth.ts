@@ -304,11 +304,11 @@ router.post("/auth/forgot-password", async (req, res): Promise<void> => {
   const expiry = new Date(Date.now() + 15 * 60 * 1000);
   // Store plaintext — verified by direct string comparison (same pattern as delegate OTP)
   await db.update(usersTable)
-    .set({ resetToken: code, resetTokenExpiry: expiry })
+    .set({ resetToken: String(code), resetTokenExpiry: expiry })
     .where(eq(usersTable.id, user.id));
 
-  smsPasswordResetCode(user.phone, code, req.log).catch(() => {});
-  emailPasswordResetCode(user.email, user.firstName, code, req.log).catch(() => {});
+  smsPasswordResetCode(user.phone, String(code), req.log).catch(() => {});
+  emailPasswordResetCode(user.email, user.firstName, String(code), req.log).catch(() => {});
 
   // Do NOT return the code in the response — the user must check their SMS / email
   res.json({ success: true, expiresInMinutes: 15, message: "Reset code sent to your phone and email." });

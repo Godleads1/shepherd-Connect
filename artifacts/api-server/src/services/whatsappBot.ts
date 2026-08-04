@@ -611,7 +611,7 @@ export async function handleInboundMessage(
         const user = await findUserById(matches[0]!.id);
         if (user) {
           if (user.role === "teacher") await reply(teacherMenuText(user.firstName));
-          else if (user.role === "support" || user.role === "attendant") await reply(supportMenuText(user.firstName));
+          else if (user.role === "support") await reply(supportMenuText(user.firstName));
           else await reply(parentMenuText(user.firstName));
         }
         return;
@@ -778,7 +778,7 @@ export async function handleInboundMessage(
         userId: admin.id,
         type: "substitute_request",
         title: "Substitute Needed",
-        body: `${user.firstName} ${user.lastName} can't make it for ${classNames}. Reason: ${text.trim().slice(0, 80)}`,
+        message: `${user.firstName} ${user.lastName} can't make it for ${classNames}. Reason: ${text.trim().slice(0, 80)}`,
       }).catch(() => {});
     }
     await resetSession(fromJid, resolvedUserId, "SUBSTITUTE_REQUEST");
@@ -962,10 +962,7 @@ export async function handleInboundMessage(
   const fuzzyIntent = fuzzyClassify(text);
 
   if (fuzzyIntent && fuzzyIntent !== "UNKNOWN") {
-    const handler = role === "teacher"
-      ? executeTeacherIntent(fuzzyIntent, undefined, user.id, user.firstName, fromJid, session, reply)
-      : executeParentIntent(fuzzyIntent, undefined, user.id, user.firstName, fromJid, session, reply);
-    const handled = await handler;
+    const handled = await executeParentIntent(fuzzyIntent, undefined, user.id, user.firstName, fromJid, session, reply);
     if (handled) {
       if (fuzzyIntent !== "MENU") { session.data.lastAction = fuzzyIntent; await saveSession(fromJid, session); }
       return;
@@ -974,13 +971,10 @@ export async function handleInboundMessage(
 
   // 2. AI intent classification (handles everything else: typos, questions, complex phrasing)
   try {
-    const classified = await classifyIntent(text, role as any, childNames);
+    const classified = await classifyIntent(text, "parent", childNames);
 
     if (classified.confidence >= 0.5 && classified.intent !== "UNKNOWN") {
-      const handler = role === "teacher"
-        ? executeTeacherIntent(classified.intent, classified.answer, user.id, user.firstName, fromJid, session, reply)
-        : executeParentIntent(classified.intent, classified.answer, user.id, user.firstName, fromJid, session, reply);
-      const handled = await handler;
+      const handled = await executeParentIntent(classified.intent, classified.answer, user.id, user.firstName, fromJid, session, reply);
       if (handled) {
         if (classified.intent !== "MENU" && classified.intent !== "GENERAL_QUESTION") {
           session.data.lastAction = classified.intent;
@@ -1000,9 +994,7 @@ export async function handleInboundMessage(
   }
 
   // 3. Final fallback — brief "I didn't understand", not the full menu again
-  const menuHint = role === "teacher"
-    ? `*1* — Class roster  |  *2* — Attendance  |  *3* — Notifications  |  *4* — Concern  |  *5* — Substitute  |  *6* — Schedule`
-    : `*1* — Status  |  *2* — OTP  |  *3* — Children  |  *4* — Notifications  |  *5* — Concern  |  *6* — Support`;
+  const menuHint = `*1* — Status  |  *2* — OTP  |  *3* — Children  |  *4* — Notifications  |  *5* — Concern  |  *6* — Support`;
 
   await reply(
     `🤔 I didn't quite understand that.\n\n` +
