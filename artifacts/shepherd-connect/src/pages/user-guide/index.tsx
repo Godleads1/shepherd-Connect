@@ -616,7 +616,7 @@ function ParentGuide() {
       </Section>
 
       <Section icon={Bell} title="Notifications" color="#d97706">
-        <p className="text-sm text-gray-600 mt-3">Admins send you important updates through the notification system — service announcements, pre-dismissal alerts, and class change outcomes.</p>
+        <p className="text-sm text-gray-600 mt-3">Admins send you important updates through the notification system — service announcements, pre-dismissal alerts, and general church communications.</p>
         <QuickRef rows={[
           ["See all notifications", "Bell icon in the nav bar → opens Notifications page"],
           ["Unread count", "Red badge number on the Bell icon"],
