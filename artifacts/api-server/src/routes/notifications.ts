@@ -5,6 +5,7 @@ import { ListNotificationsQueryParams } from "@workspace/api-zod";
 import { authMiddleware, requireRoles } from "../middlewares/auth";
 import { pushToUsers, pushToRole } from "../services/push";
 import { dispatchExternal } from "../lib/notify";
+import { pushEventToUsers } from "../lib/sse";
 
 const LOCATION_DEFAULTS = {
   churchName: "RCCG City of David",
@@ -114,8 +115,11 @@ router.post("/notifications/broadcast", authMiddleware, requireRoles("super_admi
 
   await db.insert(notificationsTable).values(notifs);
 
-  // Also send browser push to all recipients
+  // Push real-time SSE events so recipients' apps update instantly
   const recipientIds = recipients.map(r => r.id);
+  pushEventToUsers(recipientIds, "new_notification", { type: type || "broadcast" });
+
+  // Also send browser push to all recipients
   pushToUsers(recipientIds, { title, body: message, icon: "/pwa-192.png", url: "/notifications" }, req.log).catch(() => {});
 
   // WhatsApp delivery for users who have it enabled — track results so failures are visible
@@ -170,6 +174,9 @@ router.post("/notifications/pre-dismissal", authMiddleware, requireRoles("super_
   }));
 
   await db.insert(notificationsTable).values(notifs);
+
+  // Push real-time SSE events to all parents instantly
+  pushEventToUsers(parents.map(p => p.id), "new_notification", { type: "pre_dismissal" });
 
   // Browser push to all parents
   pushToRole("parent", { title, body: message, icon: "/pwa-192.png", url: "/notifications" }, req.log).catch(() => {});

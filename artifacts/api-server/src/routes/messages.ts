@@ -3,6 +3,7 @@ import { eq, or, and, desc, inArray } from "drizzle-orm";
 import { db, messagesTable, usersTable, childrenTable } from "@workspace/db";
 import { authMiddleware } from "../middlewares/auth";
 import { dispatchExternal } from "../lib/notify";
+import { pushEvent } from "../lib/sse";
 import { z } from "zod";
 
 const router = Router();
@@ -117,6 +118,9 @@ router.post("/messages", authMiddleware, async (req, res): Promise<void> => {
     `${subject} from ${senderName}`,
     parsed.data.body,
   ).catch(() => {});
+
+  // Push real-time SSE event so the recipient's app updates instantly
+  pushEvent(parsed.data.recipientId, "new_message", { senderId: req.user!.userId });
 
   res.status(201).json(formatted);
 });

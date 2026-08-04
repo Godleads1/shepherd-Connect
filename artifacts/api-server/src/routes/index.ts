@@ -37,6 +37,7 @@ import sundayAttendanceRouter from "./sundayAttendance";
 import settingsRouter from "./settings";
 import classMergesRouter from "./classMerges";
 import hallSessionsRouter from "./hallSessions";
+import eventsRouter from "./events";
 
 const router: IRouter = Router();
 
@@ -78,5 +79,6 @@ router.use(sundayAttendanceRouter);
 router.use(settingsRouter);
 router.use(classMergesRouter);
 router.use(hallSessionsRouter);
+router.use(eventsRouter);
 
 export default router;

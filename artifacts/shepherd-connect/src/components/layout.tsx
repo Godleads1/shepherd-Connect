@@ -7,6 +7,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import { usePullToRefresh } from "@/hooks/usePullToRefresh";
 import { PullToRefreshIndicator } from "@/components/PullToRefreshIndicator";
+import { useSSE } from "@/hooks/use-sse";
 import {
   LayoutDashboard, Users, Baby, School, ClipboardCheck, CheckSquare, CheckCircle2,
   LogOut, Menu, Bell, MessageSquare, AlertTriangle, UserCog, FileText, Star,
@@ -211,7 +212,7 @@ export function Layout({ children }: { children: ReactNode }) {
   const { data: notifData } = useQuery({
     queryKey: ["layout-notifications"],
     queryFn: () => apiGet<{ unreadCount: number }>("/notifications?unreadOnly=true&limit=1"),
-    refetchInterval: 30000,
+    refetchInterval: 5 * 60 * 1000, // 5-min safety fallback — SSE handles instant updates
     enabled: !!user,
   });
   const unreadCount = notifData?.unreadCount ?? 0;
@@ -219,10 +220,25 @@ export function Layout({ children }: { children: ReactNode }) {
   const { data: msgCountData } = useQuery({
     queryKey: ["layout-msg-unread"],
     queryFn: () => apiGet<{ count: number }>("/messages/unread-count"),
-    refetchInterval: 30000,
+    refetchInterval: 5 * 60 * 1000, // 5-min safety fallback — SSE handles instant updates
     enabled: !!user,
   });
   const msgUnreadCount = msgCountData?.count ?? 0;
+
+  // Real-time updates via SSE — invalidate badge counts the instant the server
+  // pushes an event instead of waiting for the 5-minute polling fallback.
+  useSSE(
+    {
+      new_notification: () => {
+        qc.invalidateQueries({ queryKey: ["layout-notifications"] });
+      },
+      new_message: () => {
+        qc.invalidateQueries({ queryKey: ["layout-msg-unread"] });
+        qc.invalidateQueries({ queryKey: ["messages"] });
+      },
+    },
+    !!user,
+  );
 
   useEffect(() => {
     if (prevUnreadRef.current !== 0 && unreadCount > prevUnreadRef.current) {
