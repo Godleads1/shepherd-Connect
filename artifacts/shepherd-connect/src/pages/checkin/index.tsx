@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect } from "react";
 import { useScanQrCode, useCheckIn, useEscortToClass, useScanFace, useListAttendance } from "@workspace/api-client-react";
 import { Input } from "@/components/ui/input";
-import { AlertTriangle, CheckCircle, QrCode, Scan, Truck, ShieldCheck, Users, Camera, WifiOff, Upload, HandHelping } from "lucide-react";
+import { AlertTriangle, CheckCircle, QrCode, Scan, Truck, ShieldCheck, Users, Camera, WifiOff, Upload, HandHelping, Music, Send } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import FaceCapture from "@/components/FaceCapture";
@@ -12,6 +12,7 @@ import { useAuth } from "@/contexts/auth";
 import FamilyAssist from "./FamilyAssist";
 import LocationBanner from "@/components/LocationBanner";
 import { useGeneralSettings } from "@/components/AnnouncementBanner";
+import { apiGet, apiPost, apiDelete } from "@/lib/api-call";
 
 type Tab = "qr" | "face" | "assist";
 type SlotChoice = "7am" | "10:30am" | "both";
@@ -101,6 +102,44 @@ export default function CheckIn() {
 
   const { data: todayAttendance, refetch: refetchAttendance } = useListAttendance({ serviceDate: today, serviceSlot });
   const attendanceList: any[] = Array.isArray(todayAttendance) ? todayAttendance : [];
+
+  // Hall session state — fetched once on mount and after bulk-escort clears it
+  const [hallSessionActive, setHallSessionActive] = useState(false);
+  const [hallSessionId, setHallSessionId] = useState<number | null>(null);
+  const [bulkEscorting, setBulkEscorting] = useState(false);
+
+  const fetchHallSession = useCallback(() => {
+    apiGet<{ active: boolean; sessions: { id: number }[] }>("/hall-sessions/today")
+      .then(data => {
+        setHallSessionActive(data.active);
+        setHallSessionId(data.sessions[0]?.id ?? null);
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => { fetchHallSession(); }, [fetchHallSession]);
+
+  const handleBulkEscort = async () => {
+    setBulkEscorting(true);
+    try {
+      const result = await apiPost<{ count: number }>("/attendance/bulk-escort", {
+        serviceDate: today,
+        ...(serviceSlot !== "both" ? { serviceSlot } : {}),
+      });
+      toast({
+        title: `${result.count} ${result.count === 1 ? "child" : "children"} sent to class`,
+        description: "Parents and teachers have been notified. Teachers will confirm each arrival.",
+      });
+      // Backend cleared the hall session — update local state
+      setHallSessionActive(false);
+      setHallSessionId(null);
+      refetchAttendance();
+    } catch (e: any) {
+      toast({ variant: "destructive", title: "Could not send children", description: e.message });
+    } finally {
+      setBulkEscorting(false);
+    }
+  };
 
   const getChildSlot = (child: any): SlotChoice => {
     if (childSlots[child.id] !== undefined) return childSlots[child.id];
@@ -313,6 +352,36 @@ export default function CheckIn() {
       </div>
 
       <LocationBanner />
+
+      {/* ── Hall Session Banner ── */}
+      {hallSessionActive && canAssist && (
+        <div className="w-full mb-6 rounded-2xl overflow-hidden shadow-sm"
+          style={{ background: "linear-gradient(135deg, #4c1d95 0%, #6d28d9 100%)" }}>
+          <div className="px-5 py-4 flex items-start gap-4">
+            <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center flex-shrink-0 mt-0.5">
+              <Music className="w-5 h-5 text-white" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="font-bold text-white text-sm">Hall session is active</p>
+              <p className="text-xs text-purple-200 mt-0.5">
+                {droppedOff.length > 0
+                  ? `${droppedOff.length} ${droppedOff.length === 1 ? "child is" : "children are"} waiting. When praise ends, tap the button to send everyone to their classes at once.`
+                  : "No children waiting yet. Tap the button when praise ends to dispatch any who check in."}
+              </p>
+              <button
+                onClick={handleBulkEscort}
+                disabled={bulkEscorting || droppedOff.length === 0}
+                className="mt-3 flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all active:scale-95 disabled:opacity-50"
+                style={{ background: "rgba(255,255,255,0.95)", color: "#4c1d95" }}
+              >
+                {bulkEscorting
+                  ? <><span className="w-4 h-4 border-2 border-purple-600 border-t-transparent rounded-full animate-spin" />&nbsp;Sending…</>
+                  : <><Send className="w-4 h-4" /> Praise is done — send all {droppedOff.length > 0 ? `${droppedOff.length} ` : ""}to class</>}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Transit/dropped-off live strip */}
       {(droppedOff.length > 0 || inTransit.length > 0) && (

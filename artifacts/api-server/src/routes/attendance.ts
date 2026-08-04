@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { eq, and, ne, inArray } from "drizzle-orm";
-import { db, attendanceTable, childrenTable, classesTable, familiesTable, usersTable, notificationsTable, teachersTable, teacherAllocationsTable } from "@workspace/db";
+import { db, attendanceTable, childrenTable, classesTable, familiesTable, usersTable, notificationsTable, teachersTable, teacherAllocationsTable, hallSessionsTable } from "@workspace/db";
 import { CheckInBody, CheckOutBody, ListAttendanceQueryParams, ScanQrCodeBody } from "@workspace/api-zod";
 import { authMiddleware, requireRoles } from "../middlewares/auth";
 import { notifyChildCheckedIn, notifyChildInTransit, notifyChildArrivedInClass, notifyChildPickedUp, notifyTeachersChildDroppedOff, notifyTeachersChildInTransit, sendNotification } from "../lib/notify";
@@ -184,6 +184,48 @@ router.post("/attendance", authMiddleware, requireRoles("super_admin", "admin", 
   }).catch(() => {});
 
   res.status(201).json(await formatAttendance(record));
+});
+
+/**
+ * POST /attendance/bulk-escort
+ * Transitions ALL dropped_off children for today → in_transit in one action.
+ * Fires parent + teacher notifications for each child asynchronously.
+ * Also clears any active hall session for today so future en-route messages
+ * revert to the normal "being escorted to class" wording.
+ */
+router.post("/attendance/bulk-escort", authMiddleware, requireRoles("super_admin", "admin", "support", "attendant"), async (req, res): Promise<void> => {
+  const { serviceDate, serviceSlot } = req.body as { serviceDate?: string; serviceSlot?: "7am" | "10:30am" };
+  const today = serviceDate ?? new Date().toISOString().slice(0, 10);
+  const now = new Date();
+
+  const conditions = [
+    eq(attendanceTable.serviceDate, today),
+    eq(attendanceTable.status, "dropped_off"),
+  ];
+  if (serviceSlot) conditions.push(eq(attendanceTable.serviceSlot, serviceSlot));
+
+  const records = await db
+    .update(attendanceTable)
+    .set({ status: "in_transit", escortTime: now, escortedBy: req.user!.userId })
+    .where(and(...conditions))
+    .returning();
+
+  // Fire all parent + teacher notifications asynchronously — don't block the response
+  for (const record of records) {
+    notifyChildInTransit(record.childId, record.classId, today).catch(() => {});
+    notifyTeachersChildInTransit(record.childId, record.classId, today).catch((err) => {
+      req.log.error({ err, childId: record.childId, classId: record.classId }, "bulk-escort: notifyTeachersChildInTransit failed");
+    });
+  }
+
+  // Auto-clear the hall session for today so subsequent escort notifications
+  // revert to normal wording ("being escorted to class")
+  db.delete(hallSessionsTable)
+    .where(eq(hallSessionsTable.serviceDate, today))
+    .catch((err) => req.log.warn({ err }, "bulk-escort: could not clear hall sessions"));
+
+  req.log.info({ count: records.length, today, serviceSlot }, "bulk-escort: dispatched all dropped-off children");
+  res.json({ success: true, count: records.length });
 });
 
 router.put("/attendance/:id/escort", authMiddleware, requireRoles("super_admin", "admin", "support", "attendant"), async (req, res): Promise<void> => {
