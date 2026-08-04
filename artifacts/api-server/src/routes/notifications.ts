@@ -6,6 +6,7 @@ import { authMiddleware, requireRoles } from "../middlewares/auth";
 import { pushToUsers, pushToRole } from "../services/push";
 import { dispatchExternal } from "../lib/notify";
 import { pushEventToUsers } from "../lib/sse";
+import { enqueueWhatsAppBroadcast } from "../lib/whatsapp-queue";
 
 const LOCATION_DEFAULTS = {
   churchName: "RCCG City of David",
@@ -122,15 +123,12 @@ router.post("/notifications/broadcast", authMiddleware, requireRoles("super_admi
   // Also send browser push to all recipients
   pushToUsers(recipientIds, { title, body: message, icon: "/pwa-192.png", url: "/notifications" }, req.log).catch(() => {});
 
-  // WhatsApp delivery for users who have it enabled — track results so failures are visible
-  const broadcastDeliveryResults = await Promise.allSettled(recipients.map(r => dispatchExternal(r.id, title, message)));
-  const broadcastDelivered = broadcastDeliveryResults.filter(r => r.status === "fulfilled" && r.value.delivered).length;
-  const broadcastFailed = broadcastDeliveryResults.filter(r => r.status === "rejected" || (r.status === "fulfilled" && !r.value.delivered)).length;
-  if (broadcastFailed > 0) {
-    req.log.warn({ broadcastDelivered, broadcastFailed, total: recipients.length }, "broadcast: some external deliveries failed or were skipped");
-  }
+  // WhatsApp delivery — throttled queue (220 ms between sends) to avoid
+  // WhatsApp banning the number for bulk/spam. Runs in the background so the
+  // admin's UI responds immediately; results are logged to the server logger.
+  enqueueWhatsAppBroadcast(recipients, title, message, "broadcast");
 
-  res.json({ success: true, sent: recipients.length, externalDelivered: broadcastDelivered, externalFailed: broadcastFailed, message: `Notification sent to ${recipients.length} user(s)` });
+  res.json({ success: true, sent: recipients.length, message: `Notification sent to ${recipients.length} user(s). WhatsApp delivery is queued and will complete shortly.` });
 });
 
 router.post("/notifications/pre-dismissal", authMiddleware, requireRoles("super_admin", "admin"), async (req, res): Promise<void> => {
@@ -181,20 +179,13 @@ router.post("/notifications/pre-dismissal", authMiddleware, requireRoles("super_
   // Browser push to all parents
   pushToRole("parent", { title, body: message, icon: "/pwa-192.png", url: "/notifications" }, req.log).catch(() => {});
 
-  // WhatsApp delivery for parents who have it enabled — await results so failures are logged and counted
-  const deliveryResults = await Promise.allSettled(parents.map(p => dispatchExternal(p.id, title, message)));
-  const externalDelivered = deliveryResults.filter(r => r.status === "fulfilled" && r.value.delivered).length;
-  const externalFailed = deliveryResults.filter(r => r.status === "rejected" || (r.status === "fulfilled" && !r.value.delivered)).length;
-  if (externalFailed > 0) {
-    req.log.warn({ externalDelivered, externalFailed, total: parents.length, serviceSlot }, "pre-dismissal: some external deliveries failed or were skipped — manual follow-up may be needed");
-  }
+  // WhatsApp delivery — throttled queue to avoid banning. Background, non-blocking.
+  enqueueWhatsAppBroadcast(parents, title, message, "pre-dismissal");
 
   res.json({
     success: true,
     sent: parents.length,
-    externalDelivered,
-    externalFailed,
-    message: `Pre-dismissal alert sent to ${parents.length} parent(s)`,
+    message: `Pre-dismissal alert sent to ${parents.length} parent(s). WhatsApp delivery is queued and will complete shortly.`,
   });
 });
 
