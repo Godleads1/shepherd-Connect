@@ -87,11 +87,6 @@ export default function Slide10Closing() {
           </div>
           <div style={{ width: "0.1vw", backgroundColor: "rgba(255,255,255,0.15)" }} />
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.8vh" }}>
-            <div style={{ fontSize: "1vw", fontWeight: 600, color: "#f59e0b", letterSpacing: "0.1em", textTransform: "uppercase" }}>Demo Super Admin</div>
-            <div style={{ fontSize: "1.3vw", fontWeight: 300, color: "rgba(255,255,255,0.6)" }}>superadmin@shepherd.com</div>
-          </div>
-          <div style={{ width: "0.1vw", backgroundColor: "rgba(255,255,255,0.15)" }} />
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.8vh" }}>
             <div style={{ fontSize: "1vw", fontWeight: 600, color: "#f59e0b", letterSpacing: "0.1em", textTransform: "uppercase" }}>Questions</div>
             <div style={{ fontSize: "1.3vw", fontWeight: 300, color: "rgba(255,255,255,0.6)" }}>Speak to any super admin</div>
           </div>
