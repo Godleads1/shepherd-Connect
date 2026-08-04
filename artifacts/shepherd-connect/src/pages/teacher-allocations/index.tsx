@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Checkbox } from "@/components/ui/checkbox";
 import { format } from "date-fns";
-import { ClipboardList, BarChart3, RefreshCw, Calendar, AlertTriangle, UserMinus, UserCheck, ArrowLeftRight, Pencil, Trash2, School } from "lucide-react";
+import { ClipboardList, BarChart3, RefreshCw, Calendar, AlertTriangle, UserMinus, UserCheck, ArrowLeftRight, Pencil, Trash2, School, Zap } from "lucide-react";
 import { apiGet, apiPost, apiPut, apiDelete } from "@/lib/api-call";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/auth";
