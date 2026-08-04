@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { eq, and, sql, desc } from "drizzle-orm";
-import { db, notificationsTable, usersTable, churchSettingsTable } from "@workspace/db";
+import { db, notificationsTable, usersTable, churchSettingsTable, whatsappBroadcastsTable } from "@workspace/db";
 import { ListNotificationsQueryParams } from "@workspace/api-zod";
 import { authMiddleware, requireRoles } from "../middlewares/auth";
 import { pushToUsers, pushToRole } from "../services/push";
@@ -187,6 +187,16 @@ router.post("/notifications/pre-dismissal", authMiddleware, requireRoles("super_
     sent: parents.length,
     message: `Pre-dismissal alert sent to ${parents.length} parent(s). WhatsApp delivery is queued and will complete shortly.`,
   });
+});
+
+// ── WhatsApp broadcast history (admin/super_admin only) ──────────────────────
+router.get("/notifications/whatsapp-broadcasts", authMiddleware, requireRoles("super_admin", "admin"), async (req, res): Promise<void> => {
+  const rows = await db
+    .select()
+    .from(whatsappBroadcastsTable)
+    .orderBy(desc(whatsappBroadcastsTable.createdAt))
+    .limit(20);
+  res.json(rows);
 });
 
 export default router;

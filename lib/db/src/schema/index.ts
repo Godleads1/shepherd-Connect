@@ -37,3 +37,4 @@ export * from "./otpSessions";
 export * from "./schedulerLocks";
 export * from "./classMerges";
 export * from "./hallSessions";
+export * from "./whatsappBroadcasts";

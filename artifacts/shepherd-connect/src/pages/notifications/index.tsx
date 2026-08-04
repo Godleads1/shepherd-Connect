@@ -1,11 +1,105 @@
 import { useState } from "react";
 import { useListNotifications, useMarkNotificationRead, useMarkAllNotificationsRead } from "@workspace/api-client-react";
-import { Bell, CheckCircle, Info, AlertTriangle, Check, CheckCheck, ShieldCheck, ShieldX, MapPin, ExternalLink } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { Bell, CheckCircle, Info, AlertTriangle, Check, CheckCheck, ShieldCheck, ShieldX, MapPin, ExternalLink, Send, Loader2, Radio } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { apiPost } from "@/lib/api-call";
-import { format } from "date-fns";
+import { apiPost, apiGet } from "@/lib/api-call";
+import { useAuth } from "@/contexts/auth";
+import { format, formatDistanceToNow } from "date-fns";
 
 type TabKey = "all" | "unread" | "read";
+
+type WhatsappBroadcast = {
+  id: string;
+  context: string;
+  title: string;
+  message: string;
+  totalCount: number;
+  deliveredCount: number;
+  failedCount: number;
+  skippedCount: number;
+  status: "running" | "completed";
+  createdAt: string;
+  completedAt: string | null;
+};
+
+function BroadcastHistory() {
+  const { data, isLoading } = useQuery<WhatsappBroadcast[]>({
+    queryKey: ["whatsapp-broadcasts"],
+    queryFn: () => apiGet("/notifications/whatsapp-broadcasts"),
+    refetchInterval: (query) => {
+      const data = query.state.data as WhatsappBroadcast[] | undefined;
+      return data?.some(b => b.status === "running") ? 8000 : false;
+    },
+  });
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center gap-2 text-sm text-gray-400 py-4">
+        <Loader2 className="w-4 h-4 animate-spin" /> Loading broadcast history…
+      </div>
+    );
+  }
+
+  if (!data || data.length === 0) {
+    return (
+      <div className="text-sm text-gray-400 py-4 text-center">No WhatsApp broadcasts sent yet.</div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      {data.map(b => {
+        const isRunning = b.status === "running";
+        const delivered = b.deliveredCount;
+        const failed = b.failedCount;
+        const skipped = b.skippedCount;
+        const processed = delivered + failed + skipped;
+        const pct = b.totalCount > 0 ? Math.round((processed / b.totalCount) * 100) : 0;
+
+        return (
+          <div key={b.id} className="p-4 rounded-2xl bg-white border border-gray-100 shadow-sm">
+            <div className="flex items-start justify-between gap-3 mb-2">
+              <div className="flex items-center gap-2 min-w-0">
+                {isRunning
+                  ? <Radio className="w-4 h-4 text-blue-500 animate-pulse flex-shrink-0" />
+                  : <Send className="w-4 h-4 text-green-600 flex-shrink-0" />}
+                <div className="min-w-0">
+                  <p className="font-bold text-sm text-gray-900 truncate">{b.title}</p>
+                  <p className="text-xs text-gray-500 capitalize">{b.context}</p>
+                </div>
+              </div>
+              <span className="text-xs text-gray-400 whitespace-nowrap flex-shrink-0">
+                {formatDistanceToNow(new Date(b.createdAt), { addSuffix: true })}
+              </span>
+            </div>
+
+            {/* Progress bar */}
+            <div className="mb-2">
+              <div className="flex justify-between text-xs text-gray-500 mb-1">
+                <span>{isRunning ? `Sending… ${processed} / ${b.totalCount}` : `Sent to ${b.totalCount} recipients`}</span>
+                <span>{pct}%</span>
+              </div>
+              <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden">
+                <div
+                  className="h-full rounded-full transition-all duration-500"
+                  style={{ width: `${pct}%`, background: isRunning ? "#3b82f6" : "#16a34a" }}
+                />
+              </div>
+            </div>
+
+            {/* Delivery counts */}
+            <div className="flex gap-3 text-xs font-semibold">
+              <span className="text-green-700">✓ {delivered} delivered</span>
+              {skipped > 0 && <span className="text-gray-400">– {skipped} skipped</span>}
+              {failed > 0 && <span className="text-red-600">✗ {failed} failed</span>}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 function DelegateApprovalActions({ notif, onAction }: { notif: any; onAction: () => void }) {
   const { toast } = useToast();
@@ -66,6 +160,8 @@ export default function Notifications() {
   const markReadMutation = useMarkNotificationRead();
   const markAllReadMutation = useMarkAllNotificationsRead();
   const { toast } = useToast();
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin" || user?.role === "super_admin";
 
   const handleMarkRead = async (id: number) => {
     try { await markReadMutation.mutateAsync({ id }); refetch(); }
@@ -204,6 +300,19 @@ export default function Notifications() {
           </div>
         )}
       </div>
+
+      {isAdmin && (
+        <div className="mt-10 border-t border-gray-100 pt-8">
+          <div className="flex items-center gap-2 mb-4">
+            <Send className="w-5 h-5 text-blue-900" />
+            <h2 className="text-xl font-bold text-gray-900" style={{ fontFamily: "'Playfair Display', serif" }}>
+              WhatsApp Broadcast History
+            </h2>
+          </div>
+          <p className="text-sm text-gray-500 mb-4">Delivery results for recent broadcasts and pre-dismissal alerts sent via WhatsApp.</p>
+          <BroadcastHistory />
+        </div>
+      )}
     </div>
   );
 }

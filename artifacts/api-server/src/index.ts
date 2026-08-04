@@ -2,6 +2,7 @@ import app from "./app";
 import { logger } from "./lib/logger";
 import { startScheduler } from "./lib/scheduler";
 import { initWhatsApp, closeWhatsAppClean } from "./services/whatsapp";
+import { recoverPendingQueue } from "./lib/whatsapp-queue";
 
 const rawPort = process.env["PORT"];
 
@@ -39,4 +40,5 @@ app.listen(port, async (err) => {
   logger.info({ port }, "Server listening");
   startScheduler();
   initWhatsApp().catch(() => { /* no session yet — admin will connect via Settings */ });
+  recoverPendingQueue().catch(() => { /* non-fatal — logged inside */ });
 });
