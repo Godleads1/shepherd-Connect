@@ -4,10 +4,10 @@ import { useAuth } from "@/contexts/auth";
 import {
   LayoutDashboard, Users, Baby, School, ClipboardCheck, CheckSquare,
   Bell, MessageSquare, AlertTriangle, UserCog, FileText, Star,
-  Clock, ShieldCheck, Home, ArrowLeftRight, UserCircle, BarChart3,
+  Clock, ShieldCheck, Home, UserCircle, BarChart3,
   ChevronRight, ChevronDown, Info, Lightbulb, TriangleAlert, BookOpen,
-  ListOrdered, CalendarClock, QrCode, Phone, KeyRound, Eye, Upload,
-  CheckCircle2, XCircle, ArrowRight, Settings, BadgeCheck, Hash, Printer,
+  CalendarClock, QrCode, Phone, KeyRound,
+  CheckCircle2, ArrowRight, BadgeCheck, Printer,
 } from "lucide-react";
 
 type RoleTab = "admin" | "teacher" | "support" | "parent";
@@ -173,7 +173,7 @@ function AdminGuide() {
             <p>The <strong>Reports → Analytics</strong> tab shows a grouped bar chart of enrolled vs capacity for every class. Red bars indicate over-enrolled classes.</p>
           </Step>
         </div>
-        <Tip>Children can only be in one class at a time. Moving a child via a Class Change Request auto-updates their assignment and logs the action in the audit trail.</Tip>
+        <Tip>Children can only be in one class at a time. Class assignments are managed by admins — contact your admin if a child needs to move class.</Tip>
       </Section>
 
       <Section icon={UserCog} title="Teachers & Allocations">
@@ -215,21 +215,6 @@ function AdminGuide() {
           </Step>
         </div>
         <Warn>All emergency records are permanent and audited. They cannot be deleted — only resolved.</Warn>
-      </Section>
-
-      <Section icon={ArrowLeftRight} title="Class Change Requests">
-        <p className="text-sm text-gray-600 mt-3">Parents or teachers can request that a child moves to a different class. Admins review and approve or reject requests.</p>
-        <div className="space-y-2 mt-2">
-          <Step n={1} title="Review pending requests">
-            <p>Go to <strong>Class Changes</strong> → select the <strong>Pending</strong> tab. Each card shows the child, current class, requested class, and the reason given.</p>
-          </Step>
-          <Step n={2} title="Approve a request">
-            <p>Click <strong>Approve</strong>. Optionally add an admin note. The child is immediately moved to the new class and the requester is notified.</p>
-          </Step>
-          <Step n={3} title="Reject a request">
-            <p>Click <strong>Reject</strong> and add a note explaining why. The child stays in their current class.</p>
-          </Step>
-        </div>
       </Section>
 
       <Section icon={BarChart3} title="Reports">
@@ -283,15 +268,6 @@ function AdminGuide() {
           ["Who made a change?", "Each log entry shows the user's name and role"],
         ]} />
         <Warn>Audit logs are read-only. They cannot be edited or deleted by anyone.</Warn>
-      </Section>
-
-      <Section icon={ListOrdered} title="Waitlist">
-        <p className="text-sm text-gray-600 mt-3">Families waiting for a space in a full class are tracked on the Waitlist page.</p>
-        <QuickRef rows={[
-          ["Add to waitlist", "Waitlist page → + Add to Waitlist → select child and class"],
-          ["Mark as enrolled", "Click Enrol next to a waitlist entry when a space opens"],
-          ["Remove from waitlist", "Click Remove if the family no longer needs a space"],
-        ]} />
       </Section>
 
       <Section icon={CalendarClock} title="Substitute Requests">
@@ -361,18 +337,6 @@ function TeacherGuide() {
           ["Absence history for a child", "Children profile → Attendance tab"],
           ["Mark a note on attendance", "Contact your admin — only admins can edit attendance records"],
         ]} />
-      </Section>
-
-      <Section icon={ArrowLeftRight} title="Class Change Requests" color="#059669">
-        <p className="text-sm text-gray-600 mt-3">If you believe a child would be better served in a different class, you can raise a class change request for admin review.</p>
-        <div className="space-y-2 mt-2">
-          <Step n={1} title="Submit a request">
-            <p>Go to <strong>Class Changes</strong> → click <strong>+ New Request</strong>. Select the child, the class you recommend they move to, and write a clear reason (e.g. age, behaviour, learning need).</p>
-          </Step>
-          <Step n={2} title="Track your request">
-            <p>Your submitted requests appear under the <strong>Pending</strong> tab. Once the admin acts, they move to the <strong>Resolved</strong> tab with any admin notes.</p>
-          </Step>
-        </div>
       </Section>
 
       <Section icon={MessageSquare} title="Messages" color="#059669">
@@ -488,10 +452,6 @@ function ParentInfographic() {
     {
       icon: "👥", color: "#1e3a8a", title: "Delegate Pickup",
       items: ["Add a trusted person", "Get a 6-digit OTP", "Share OTP with them", "They present it at kiosk"],
-    },
-    {
-      icon: "📝", color: "#7c3aed", title: "Class Change",
-      items: ["Open My Family → child", "Choose new class + reason", "Admin reviews & approves", "Child auto-moved instantly"],
     },
     {
       icon: "💬", color: "#15803d", title: "WhatsApp Bot",
@@ -624,7 +584,6 @@ function ParentGuide() {
           ["See which class my child is in", "My Children → child card shows current class"],
           ["View attendance history", "My Children → expand a child's card → Attendance tab"],
           ["Read teacher appraisals", "My Children → expand a child's card → Appraisals section with star ratings"],
-          ["Request a class change", "My Children → Class Change Requests → + New Request"],
         ]} />
         <Tip>Teacher appraisals include star ratings for Participation, Scripture Engagement, and Social Interaction, plus personal notes. These are updated after each service.</Tip>
       </Section>
@@ -644,19 +603,6 @@ function ParentGuide() {
         </div>
         <Warn>OTPs are valid for 24 hours and can only be used once. If the delegate loses the code, delete the delegate and add them again to generate a new OTP.</Warn>
         <Note>You can have multiple delegates at the same time — each gets their own unique OTP.</Note>
-      </Section>
-
-      <Section icon={ArrowLeftRight} title="Class Change Requests" color="#d97706">
-        <p className="text-sm text-gray-600 mt-3">If you feel your child would benefit from a different class, submit a class change request for admin review.</p>
-        <div className="space-y-2 mt-2">
-          <Step n={1} title="Submit a request">
-            <p>Go to <strong>Class Changes</strong> → click <strong>+ New Request</strong>. Select your child, the class you are requesting, and write a reason. Click <strong>Submit</strong>.</p>
-          </Step>
-          <Step n={2} title="Track the status">
-            <p>Your request appears on the <strong>Pending</strong> tab. The admin will approve or reject it — check the <strong>Resolved</strong> tab for the outcome and any admin notes.</p>
-          </Step>
-        </div>
-        <Note>If approved, your child is moved to the new class automatically. You will receive a notification.</Note>
       </Section>
 
       <Section icon={Star} title="Feedback" color="#d97706">
@@ -838,29 +784,6 @@ export default function UserGuide() {
       <div className={activeTab === "parent" ? "" : "hidden print:block"}>
         <div className="print-section-heading print-page-break" style={{ display: "none" }}>Parent Guide</div>
         <ParentGuide />
-      </div>
-
-      {/* Demo accounts quick ref */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-        <h2 className="font-bold text-gray-900 flex items-center gap-2 mb-3">
-          <Hash className="w-4 h-4 text-gray-400" /> Demo Login Accounts
-        </h2>
-        <div className="rounded-xl border border-gray-100 overflow-hidden text-sm">
-          {[
-            ["Super Admin", "superadmin@shepherd.com", "admin123"],
-            ["Admin",       "admin@shepherd.com",      "admin123"],
-            ["Teacher",     "teacher1@shepherd.com",   "teacher123"],
-            ["Support",   "support@shepherd.com",  "attend123"],
-            ["Parent",      "parent1@shepherd.com",    "parent123"],
-          ].map(([role, email, pass], i) => (
-            <div key={role} className={`flex items-center gap-4 px-4 py-2.5 ${i % 2 === 0 ? "bg-gray-50" : "bg-white"}`}>
-              <span className="font-semibold text-gray-700 min-w-[90px]">{role}</span>
-              <span className="text-gray-500 flex-1">{email}</span>
-              <code className="text-xs bg-gray-100 px-2 py-0.5 rounded font-mono text-gray-600">{pass}</code>
-            </div>
-          ))}
-        </div>
-        <p className="text-xs text-gray-400 mt-2">These accounts are for testing only. Use the Register page to create real accounts.</p>
       </div>
 
       {/* Support footer */}
