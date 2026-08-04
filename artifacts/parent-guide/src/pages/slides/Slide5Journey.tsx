@@ -187,6 +187,17 @@ export default function Slide5Journey() {
         </div>
       </div>
 
+      {/* Hall session note */}
+      <div style={{ width: "78vw", margin: "0 auto", backgroundColor: "#fdf4ff", border: "0.1vw solid #e9d5ff", borderRadius: "1vw", padding: "1.4vh 2vw", display: "flex", gap: "1.5vw", alignItems: "center" }}>
+        <div style={{ fontSize: "2vw", flexShrink: 0 }}>🎵</div>
+        <div>
+          <span style={{ fontSize: "1.05vw", fontWeight: 700, color: "#7e22ce" }}>On hall-session Sundays — </span>
+          <span style={{ fontSize: "1.05vw", fontWeight: 400, color: "#6b21a8" }}>
+            if the whole congregation worships together first, your notification will say your child is <em>"in the general hall for praise &amp; worship"</em> and will head to class after the session. No action needed — you'll get a second message when they're on their way.
+          </span>
+        </div>
+      </div>
+
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end" }}>
         <div style={{ fontSize: "1vw", fontWeight: 400, color: "#c7c7cc", letterSpacing: "0.02em" }}>
           Shepherd Connect · Parent Guide
