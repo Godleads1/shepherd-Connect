@@ -246,6 +246,49 @@ router.put("/attendance/:id/escort", authMiddleware, requireRoles("super_admin",
   res.json(await formatAttendance(record));
 });
 
+/**
+ * POST /attendance/bulk-arrive
+ * Confirms ALL in_transit children for a given class → in_class in one action.
+ * Teachers use this after a bulk escort so they don't have to tap each child individually.
+ * Fires notifyChildArrivedInClass for every confirmed child.
+ */
+router.post("/attendance/bulk-arrive", authMiddleware, requireRoles("super_admin", "admin", "teacher", "support", "attendant"), async (req, res): Promise<void> => {
+  const { classId, serviceDate } = req.body as { classId?: number; serviceDate?: string };
+  if (!classId) { res.status(400).json({ error: "Bad request", message: "classId is required" }); return; }
+
+  const today = serviceDate ?? new Date().toISOString().slice(0, 10);
+
+  // Teachers may only confirm arrivals for their allocated class
+  if (req.user!.role === "teacher") {
+    const allocatedClassIds = await getTeacherAllocatedClassIds(req.user!.userId);
+    if (!allocatedClassIds.includes(classId)) {
+      res.status(403).json({ error: "Forbidden", message: "You are not allocated to this class today" });
+      return;
+    }
+  }
+
+  const records = await db
+    .update(attendanceTable)
+    .set({
+      status: "in_class",
+      classArrivalTime: new Date(),
+      confirmedByTeacherId: req.user!.userId,
+    })
+    .where(and(
+      eq(attendanceTable.classId, classId),
+      eq(attendanceTable.serviceDate, today),
+      eq(attendanceTable.status, "in_transit"),
+    ))
+    .returning();
+
+  for (const record of records) {
+    notifyChildArrivedInClass(record.childId, record.classId).catch(() => {});
+  }
+
+  req.log.info({ count: records.length, classId, today }, "bulk-arrive: confirmed all in-transit children");
+  res.json({ success: true, count: records.length });
+});
+
 router.put("/attendance/:id/arrive", authMiddleware, requireRoles("super_admin", "admin", "teacher", "support", "attendant"), async (req, res): Promise<void> => {
   const id = parseInt(req.params.id as string, 10);
   if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }

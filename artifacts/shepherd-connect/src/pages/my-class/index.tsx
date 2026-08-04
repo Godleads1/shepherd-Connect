@@ -38,6 +38,7 @@ export default function MyClass() {
   const today = format(new Date(), "yyyy-MM-dd");
   const [activeTab, setActiveTab] = useState<"pending" | "roster" | "birthdays" | "schedule">("pending");
   const [confirming, setConfirming] = useState<number | null>(null);
+  const [bulkArriving, setBulkArriving] = useState(false);
 
   const { data: scheduleData } = useQuery({
     queryKey: ["teacher-schedule", user?.id],
@@ -107,6 +108,28 @@ export default function MyClass() {
       toast({ variant: "destructive", title: "Could not confirm arrival" });
     } finally {
       setConfirming(null);
+    }
+  };
+
+  const inTransitList = attendance.filter((a: any) => a.status === "in_transit");
+
+  const handleBulkArrive = async () => {
+    if (!myClassId) return;
+    setBulkArriving(true);
+    try {
+      const result = await apiPost<{ count: number }>("/attendance/bulk-arrive", {
+        classId: myClassId,
+        serviceDate: today,
+      });
+      toast({
+        title: `${result.count} ${result.count === 1 ? "child" : "children"} confirmed in class`,
+        description: "All parents have been notified.",
+      });
+      refetch();
+    } catch {
+      toast({ variant: "destructive", title: "Could not confirm arrivals" });
+    } finally {
+      setBulkArriving(false);
     }
   };
 
@@ -355,6 +378,22 @@ export default function MyClass() {
               </p>
             </div>
           ) : (
+            <>
+              {/* Bulk-arrive button — appears when 2+ children are in transit */}
+              {inTransitList.length >= 2 && (
+                <button
+                  onClick={handleBulkArrive}
+                  disabled={bulkArriving}
+                  className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-2xl text-sm font-bold transition-all active:scale-95 disabled:opacity-60 mb-2"
+                  style={{ background: "linear-gradient(135deg, #1e3a8a, #2563eb)", color: "white", boxShadow: "0 2px 12px rgba(30,58,138,.35)" }}
+                >
+                  {bulkArriving ? (
+                    <><span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" /> Confirming…</>
+                  ) : (
+                    <><CheckCircle2 className="w-4 h-4" /> All {inTransitList.length} in transit — mark all arrived</>
+                  )}
+                </button>
+              )}
             <div className="grid gap-4 md:grid-cols-2">
               {pending.map((a: any) => {
                 const isTransit   = a.status === "in_transit";
@@ -447,6 +486,7 @@ export default function MyClass() {
                 );
               })}
             </div>
+            </>
           )}
         </>
       ) : activeTab === "roster" ? (
