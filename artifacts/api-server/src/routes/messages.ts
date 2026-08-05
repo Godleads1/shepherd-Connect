@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { eq, or, and, desc, inArray } from "drizzle-orm";
-import { db, messagesTable, usersTable, childrenTable } from "@workspace/db";
+import { db, messagesTable, usersTable, childrenTable, familiesTable, teachersTable, teacherAllocationsTable } from "@workspace/db";
 import { authMiddleware } from "../middlewares/auth";
 import { dispatchExternal } from "../lib/notify";
 import { pushEvent } from "../lib/sse";
@@ -81,23 +81,120 @@ router.get("/messages/unread-count", authMiddleware, async (req, res): Promise<v
   res.json({ count: messages.length });
 });
 
-router.get("/messages/contacts", authMiddleware, async (req, res): Promise<void> => {
-  const role = req.user!.role;
-  let targetRoles: string[] = [];
-  if (role === "parent") targetRoles = ["teacher", "admin", "super_admin"];
-  else if (role === "teacher") targetRoles = ["parent", "admin", "super_admin"];
-  else targetRoles = ["parent", "teacher", "admin", "super_admin"];
+// Returns the users this account is allowed to message, based on role scope:
+// parents ↔ teachers of their children's classes; everyone ↔ admins/support.
+// Used by both the contacts dropdown AND the send endpoint so the scope
+// cannot be bypassed by POSTing an arbitrary recipientId.
+async function getAllowedContacts(userId: number, role: string) {
   const users = await db.select().from(usersTable)
     .where(eq(usersTable.isActive, true));
-  const contacts = users
-    .filter(u => targetRoles.includes(u.role) && u.id !== req.user!.userId)
-    .map(u => ({ id: u.id, firstName: u.firstName, lastName: u.lastName, role: u.role, email: u.email, photoUrl: u.photoUrl }));
-  res.json(contacts);
+
+  // Admins and support can always be contacted; they can also contact anyone.
+  const admins = users.filter(u => ["admin", "super_admin"].includes(u.role) && u.id !== userId);
+
+  let scoped: typeof users = [];
+
+  if (role === "parent") {
+    // Parents only see teachers of the classes their own children are in.
+    const family = await db.select().from(familiesTable)
+      .where(or(eq(familiesTable.parent1Id, userId), eq(familiesTable.parent2Id, userId)))
+      .limit(1);
+    if (family[0]) {
+      const kids = await db.select().from(childrenTable)
+        .where(eq(childrenTable.familyId, family[0].id));
+      const classIds = [...new Set(kids.map(k => k.currentClassId).filter((id): id is number => id != null))];
+      if (classIds.length > 0) {
+        // Teachers via primary class + active teacher allocations
+        const allocs = await db.select().from(teacherAllocationsTable)
+          .where(inArray(teacherAllocationsTable.classId, classIds));
+        const teacherRows = allocs.length > 0
+          ? await db.select().from(teachersTable).where(inArray(teachersTable.id, allocs.map(a => a.teacherId)))
+          : [];
+        const allocatedUserIds = new Set(teacherRows.map(t => t.userId));
+        scoped = users.filter(u =>
+          u.role === "teacher" &&
+          (allocatedUserIds.has(u.id) || (u.primaryClassId != null && classIds.includes(u.primaryClassId)))
+        );
+      }
+    }
+  } else if (role === "teacher") {
+    // Teachers only see parents of children in their class(es).
+    const teacherRow = await db.select().from(teachersTable)
+      .where(eq(teachersTable.userId, userId)).limit(1);
+    const me = users.find(u => u.id === userId);
+    const classIds = new Set<number>();
+    if (me?.primaryClassId != null) classIds.add(me.primaryClassId);
+    if (teacherRow[0]) {
+      const allocs = await db.select().from(teacherAllocationsTable)
+        .where(eq(teacherAllocationsTable.teacherId, teacherRow[0].id));
+      for (const a of allocs) classIds.add(a.classId);
+    }
+    if (classIds.size > 0) {
+      const kids = await db.select().from(childrenTable)
+        .where(inArray(childrenTable.currentClassId, [...classIds]));
+      const familyIds = [...new Set(kids.map(k => k.familyId).filter((id): id is number => id != null))];
+      if (familyIds.length > 0) {
+        const fams = await db.select().from(familiesTable)
+          .where(inArray(familiesTable.id, familyIds));
+        const parentIds = new Set(fams.flatMap(f => [f.parent1Id, f.parent2Id]).filter((id): id is number => id != null));
+        scoped = users.filter(u => u.role === "parent" && parentIds.has(u.id));
+      }
+    }
+  } else {
+    // Admins / super admins can message everyone.
+    scoped = users.filter(u => ["parent", "teacher"].includes(u.role));
+  }
+
+  return [...scoped, ...admins]
+    .filter((u, i, arr) => u.id !== userId && arr.findIndex(x => x.id === u.id) === i);
+}
+
+router.get("/messages/contacts", authMiddleware, async (req, res): Promise<void> => {
+  const allowed = await getAllowedContacts(req.user!.userId, req.user!.role);
+  res.json(allowed.map(u => ({ id: u.id, firstName: u.firstName, lastName: u.lastName, role: u.role, email: u.email, photoUrl: u.photoUrl })));
 });
+
+// Verifies the sender is entitled to reference this child in a message:
+// parents must own the child; teachers must have the child in one of their
+// classes; admins/super_admins may reference any child.
+async function canReferenceChild(userId: number, role: string, childId: number): Promise<boolean> {
+  if (["admin", "super_admin"].includes(role)) return true;
+  const [child] = await db.select().from(childrenTable).where(eq(childrenTable.id, childId)).limit(1);
+  if (!child) return false;
+  if (role === "parent") {
+    if (child.familyId == null) return false;
+    const [family] = await db.select().from(familiesTable).where(eq(familiesTable.id, child.familyId)).limit(1);
+    return !!family && (family.parent1Id === userId || family.parent2Id === userId);
+  }
+  if (role === "teacher") {
+    if (child.currentClassId == null) return false;
+    const [me] = await db.select().from(usersTable).where(eq(usersTable.id, userId)).limit(1);
+    if (me?.primaryClassId === child.currentClassId) return true;
+    const [teacherRow] = await db.select().from(teachersTable).where(eq(teachersTable.userId, userId)).limit(1);
+    if (!teacherRow) return false;
+    const allocs = await db.select().from(teacherAllocationsTable)
+      .where(and(eq(teacherAllocationsTable.teacherId, teacherRow.id), eq(teacherAllocationsTable.classId, child.currentClassId)));
+    return allocs.length > 0;
+  }
+  return false;
+}
 
 router.post("/messages", authMiddleware, async (req, res): Promise<void> => {
   const parsed = SendMessageBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: "Bad request", message: parsed.error.message }); return; }
+
+  // Enforce the same contact scope as the dropdown — a parent/teacher cannot
+  // bypass the UI and POST an arbitrary recipientId.
+  const allowed = await getAllowedContacts(req.user!.userId, req.user!.role);
+  if (!allowed.some(u => u.id === parsed.data.recipientId)) {
+    res.status(403).json({ error: "Forbidden", message: "You are not allowed to message this user." });
+    return;
+  }
+  if (parsed.data.childId != null && !(await canReferenceChild(req.user!.userId, req.user!.role, parsed.data.childId))) {
+    res.status(403).json({ error: "Forbidden", message: "You are not allowed to reference this child." });
+    return;
+  }
+
   const [message] = await db.insert(messagesTable).values({
     senderId: req.user!.userId,
     recipientId: parsed.data.recipientId,
