@@ -156,7 +156,7 @@ function DelegateApprovalActions({ notif, onAction }: { notif: any; onAction: ()
 
 export default function Notifications() {
   const [activeTab, setActiveTab] = useState<TabKey>("all");
-  const { data: notifications, refetch } = useListNotifications();
+  const { data: notifications, refetch, isError: notifError } = useListNotifications();
   const markReadMutation = useMarkNotificationRead();
   const markAllReadMutation = useMarkAllNotificationsRead();
   const { toast } = useToast();
@@ -188,6 +188,17 @@ export default function Notifications() {
     { key: "unread", label: "Unread", count: all.filter(n => !n.readStatus).length },
     { key: "read", label: "Read", count: all.filter(n => n.readStatus).length },
   ];
+
+  if (notifError) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 gap-3 text-center max-w-3xl mx-auto">
+        <Bell className="w-10 h-10 text-gray-300" />
+        <p className="font-bold text-gray-800">Could not load notifications</p>
+        <p className="text-sm text-gray-500">Check your connection and try again.</p>
+        <button onClick={() => refetch()} className="mt-2 px-4 py-2 bg-blue-900 text-white text-sm font-semibold rounded-xl">Retry</button>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 max-w-3xl mx-auto py-4">

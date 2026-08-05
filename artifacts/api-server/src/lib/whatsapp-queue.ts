@@ -1,5 +1,5 @@
 import { db, whatsappBroadcastsTable, whatsappQueueItemsTable } from "@workspace/db";
-import { eq, and, lt, sql } from "drizzle-orm";
+import { eq, and, lt, isNull, sql } from "drizzle-orm";
 import { logger } from "./logger";
 import { dispatchExternal } from "./notify";
 
@@ -23,6 +23,21 @@ async function runQueue(
     const recipient = recipients[i]!;
     let itemStatus: "delivered" | "failed" | "skipped" = "skipped";
 
+    // Claim this item atomically BEFORE sending — sets processedAt so that
+    // the restart-recovery path (which filters processedAt IS NULL) won't
+    // re-enqueue an already in-flight message and cause a double-send.
+    await db
+      .update(whatsappQueueItemsTable)
+      .set({ processedAt: new Date() })
+      .where(
+        and(
+          eq(whatsappQueueItemsTable.broadcastId, broadcastId),
+          eq(whatsappQueueItemsTable.userId, recipient.id),
+          eq(whatsappQueueItemsTable.status, "pending"),
+        ),
+      )
+      .catch(() => { /* non-fatal */ });
+
     try {
       const result = await dispatchExternal(recipient.id, title, message);
       itemStatus = result.delivered ? "delivered" : "skipped";
@@ -33,18 +48,17 @@ async function runQueue(
       failed++;
     }
 
-    // Mark this item done in DB
+    // Update final status
     await db
       .update(whatsappQueueItemsTable)
-      .set({ status: itemStatus, processedAt: new Date() })
+      .set({ status: itemStatus })
       .where(
         and(
           eq(whatsappQueueItemsTable.broadcastId, broadcastId),
           eq(whatsappQueueItemsTable.userId, recipient.id),
-          eq(whatsappQueueItemsTable.status, "pending"),
         ),
       )
-      .catch(() => { /* non-fatal — delivery already happened */ });
+      .catch(() => { /* non-fatal */ });
 
     // Throttle: wait between sends (skip after last item)
     if (i < recipients.length - 1) {
@@ -146,6 +160,9 @@ export async function recoverPendingQueue(): Promise<void> {
 
     for (const broadcast of stale) {
       // Fetch only the items that weren't processed yet
+      // Only recover items that were never claimed (processedAt IS NULL).
+      // Items with processedAt set were already in-flight when the server
+      // died — their delivery may have succeeded; we must not re-send them.
       const pending = await db
         .select({ userId: whatsappQueueItemsTable.userId })
         .from(whatsappQueueItemsTable)
@@ -153,6 +170,7 @@ export async function recoverPendingQueue(): Promise<void> {
           and(
             eq(whatsappQueueItemsTable.broadcastId, broadcast.id),
             eq(whatsappQueueItemsTable.status, "pending"),
+            isNull(whatsappQueueItemsTable.processedAt),
           ),
         );
 

@@ -2,12 +2,23 @@ import { Router } from "express";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import * as OTPAuth from "otpauth";
+import rateLimit from "express-rate-limit";
 import { eq, lt } from "drizzle-orm";
 import { db, usersTable, otpSessionsTable } from "@workspace/db";
 import { LoginBody, RegisterBody } from "@workspace/api-zod";
 import { generateToken, authMiddleware } from "../middlewares/auth";
 import { smsWelcome, smsPendingApproval, smsPasswordResetCode, smsRegistrationOtp, emailRegistrationOtp, emailWelcome, emailPendingApproval, emailPasswordResetCode } from "../services/sms";
 import { withDbRetry } from "../lib/db-retry";
+
+// Tight limiter for password-reset verification — prevents brute-forcing the
+// 6-digit code (1,000,000 combinations) by capping to 5 attempts / 15 min / IP.
+const resetPasswordLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many attempts", message: "Too many password reset attempts. Please wait 15 minutes before trying again." },
+});
 
 // ── DB-backed OTP sessions (phone/email verification during registration) ──────
 // Stored in the otp_sessions table so they survive restarts and work across
@@ -314,7 +325,7 @@ router.post("/auth/forgot-password", async (req, res): Promise<void> => {
   res.json({ success: true, expiresInMinutes: 15, message: "Reset code sent to your phone and email." });
 });
 
-router.post("/auth/reset-password", async (req, res): Promise<void> => {
+router.post("/auth/reset-password", resetPasswordLimiter, async (req, res): Promise<void> => {
   const { email, code, newPassword } = req.body as { email?: string; code?: string; newPassword?: string };
   if (!email || !code || !newPassword) {
     res.status(400).json({ error: "Bad request", message: "email, code, and newPassword are required" });

@@ -425,7 +425,7 @@ export default function SundayAttendancePage() {
   const [qrData, setQrData] = useState<QrData | null>(null);
   const printRef = useRef<HTMLDivElement>(null);
 
-  const { data: summary, isLoading: summaryLoading, refetch: refetchSummary } = useQuery<SummaryData>({
+  const { data: summary, isLoading: summaryLoading, isError: summaryError, refetch: refetchSummary } = useQuery<SummaryData>({
     queryKey: ["sunday-attendance-summary", date],
     queryFn: () => apiGet<SummaryData>(`/sunday-attendance/summary?date=${date}`),
     enabled: !!date,
@@ -465,6 +465,17 @@ export default function SundayAttendancePage() {
     `);
     win.document.close();
     win.print();
+  }
+
+  if (summaryError) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 gap-3 text-center">
+        <AlertTriangle className="w-10 h-10 text-red-400" />
+        <p className="font-bold text-gray-800">Could not load attendance data</p>
+        <p className="text-sm text-gray-500">Check your connection and try again.</p>
+        <button onClick={() => refetchSummary()} className="mt-2 px-4 py-2 bg-blue-900 text-white text-sm font-semibold rounded-xl">Retry</button>
+      </div>
+    );
   }
 
   return (
