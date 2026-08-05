@@ -281,7 +281,7 @@ export default function Messages() {
               <label className="text-xs font-semibold text-gray-600 block mb-1.5 uppercase tracking-wide">To *</label>
               <Select value={form.recipientId} onValueChange={v => setForm(p => ({ ...p, recipientId: v }))}>
                 <SelectTrigger><SelectValue placeholder="Select recipient…" /></SelectTrigger>
-                <SelectContent>
+                <SelectContent className="max-h-[45vh] overflow-y-auto">
                   {(contacts as any[]).map((c: any) => (
                     <SelectItem key={c.id} value={String(c.id)}>
                       {c.firstName} {c.lastName} · <span className="capitalize">{c.role.replace("_", " ")}</span>
