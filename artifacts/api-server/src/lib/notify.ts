@@ -430,6 +430,12 @@ export async function broadcastEmergency(opts: {
   description: string;
   emergencyId: number;
   childId?: number | null;
+  /**
+   * When true, the alert is routed ONLY to admins/super_admins regardless of
+   * level — used when a teacher (or other non-admin) reports an emergency.
+   * Parents are never notified until an admin reviews and escalates it.
+   */
+  adminsOnly?: boolean;
 }) {
   const levelLabel: Record<string, string> = {
     L1: "Local — Staff Alert",
@@ -475,6 +481,15 @@ export async function broadcastEmergency(opts: {
       logger.warn({ err, level: opts.level }, "broadcastEmergency: external dispatch tracking failed");
     });
   };
+
+  if (opts.adminsOnly) {
+    // Teacher/staff-reported emergency — admins alone are alerted. They review
+    // and escalate, which is what triggers any parent-facing broadcast.
+    const allUsers = await db.select({ id: usersTable.id, role: usersTable.role }).from(usersTable).where(eq(usersTable.isActive, true));
+    const targets = allUsers.filter(u => u.role === "admin" || u.role === "super_admin").map(u => u.id);
+    await insertNotifs(targets, `[STAFF REPORT — ADMIN REVIEW REQUIRED] ${baseMessage} Reported by staff; review and escalate if parents must be alerted.`);
+    return;
+  }
 
   if (opts.level === "L1") {
     // Teachers + Admins only

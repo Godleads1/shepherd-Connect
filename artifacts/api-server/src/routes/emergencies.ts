@@ -54,12 +54,16 @@ router.post("/emergencies", authMiddleware, async (req, res): Promise<void> => {
     status: "active",
   }).returning();
 
+  // Only admins/super_admins may alert parents. Emergencies reported by
+  // teachers (or any other role) are routed to admins alone for review.
+  const isAdmin = ["admin", "super_admin"].includes(req.user!.role);
   await broadcastEmergency({
     type: emergency.type,
     level: emergency.level,
     description: emergency.description,
     emergencyId: emergency.id,
     childId: emergency.childId,
+    adminsOnly: !isAdmin,
   });
 
   await db.insert(emergencyUpdatesTable).values({
@@ -101,7 +105,7 @@ router.put("/emergencies/:id", authMiddleware, async (req, res): Promise<void> =
   res.json(await formatEmergency(emergency));
 });
 
-router.put("/emergencies/:id/escalate", authMiddleware, async (req, res): Promise<void> => {
+router.put("/emergencies/:id/escalate", authMiddleware, requireRoles("super_admin", "admin"), async (req, res): Promise<void> => {
   const id = parseInt(req.params.id as string, 10);
   if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
   const { newLevel, reason } = req.body as { newLevel?: string; reason?: string };
