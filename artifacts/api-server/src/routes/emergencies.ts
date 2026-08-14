@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { eq, and } from "drizzle-orm";
+import { eq, and, like } from "drizzle-orm";
 import { db, emergenciesTable, emergencyUpdatesTable, childrenTable, usersTable, notificationsTable, attendanceTable } from "@workspace/db";
 import { TriggerEmergencyBody, UpdateEmergencyBody, ListEmergenciesQueryParams } from "@workspace/api-zod";
 import { authMiddleware, requireRoles } from "../middlewares/auth";
@@ -31,7 +31,12 @@ async function formatUpdate(u: typeof emergencyUpdatesTable.$inferSelect) {
   };
 }
 
-router.get("/emergencies", authMiddleware, async (req, res): Promise<void> => {
+// Emergency records are staff-facing operational data. Parents are informed
+// through notifications when a broadcast targets them — they must not be able
+// to read or modify the underlying incident records.
+const STAFF_ROLES = ["teacher", "support", "admin", "super_admin"] as const;
+
+router.get("/emergencies", authMiddleware, requireRoles(...STAFF_ROLES), async (req, res): Promise<void> => {
   const params = ListEmergenciesQueryParams.safeParse(req.query);
   if (!params.success) { res.status(400).json({ error: "Bad request", message: params.error.message }); return; }
   const { status, level } = params.data;
@@ -45,7 +50,7 @@ router.get("/emergencies", authMiddleware, async (req, res): Promise<void> => {
   res.json(formatted);
 });
 
-router.post("/emergencies", authMiddleware, async (req, res): Promise<void> => {
+router.post("/emergencies", authMiddleware, requireRoles(...STAFF_ROLES), async (req, res): Promise<void> => {
   const parsed = TriggerEmergencyBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: "Bad request", message: parsed.error.message }); return; }
   const [emergency] = await db.insert(emergenciesTable).values({
@@ -76,7 +81,7 @@ router.post("/emergencies", authMiddleware, async (req, res): Promise<void> => {
   res.status(201).json(await formatEmergency(emergency));
 });
 
-router.get("/emergencies/:id", authMiddleware, async (req, res): Promise<void> => {
+router.get("/emergencies/:id", authMiddleware, requireRoles(...STAFF_ROLES), async (req, res): Promise<void> => {
   const id = parseInt(req.params.id as string, 10);
   if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
   const [emergency] = await db.select().from(emergenciesTable).where(eq(emergenciesTable.id, id));
@@ -88,11 +93,21 @@ router.get("/emergencies/:id", authMiddleware, async (req, res): Promise<void> =
   res.json({ ...(await formatEmergency(emergency)), updates: formattedUpdates });
 });
 
-router.put("/emergencies/:id", authMiddleware, async (req, res): Promise<void> => {
+const VALID_STATUSES = ["active", "monitoring", "resolved"] as const;
+const VALID_LEVELS = ["L1", "L2", "L3", "L4"] as const;
+const VALID_UPDATE_TYPES = ["update", "escalation", "all_clear", "note"] as const;
+
+router.put("/emergencies/:id", authMiddleware, requireRoles("super_admin", "admin"), async (req, res): Promise<void> => {
   const id = parseInt(req.params.id as string, 10);
   if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
   const parsed = UpdateEmergencyBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: "Bad request", message: parsed.error.message }); return; }
+  if (parsed.data.status && !VALID_STATUSES.includes(parsed.data.status as any)) {
+    res.status(400).json({ error: "Bad request", message: `Invalid status. Must be one of: ${VALID_STATUSES.join(", ")}` }); return;
+  }
+  if (parsed.data.level && !VALID_LEVELS.includes(parsed.data.level as any)) {
+    res.status(400).json({ error: "Bad request", message: `Invalid level. Must be one of: ${VALID_LEVELS.join(", ")}` }); return;
+  }
   const updates: Partial<typeof emergenciesTable.$inferInsert> = {};
   if (parsed.data.status) {
     updates.status = parsed.data.status as "active" | "monitoring" | "resolved";
@@ -109,6 +124,9 @@ router.put("/emergencies/:id/escalate", authMiddleware, requireRoles("super_admi
   const id = parseInt(req.params.id as string, 10);
   if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
   const { newLevel, reason } = req.body as { newLevel?: string; reason?: string };
+  if (newLevel && !VALID_LEVELS.includes(newLevel as any)) {
+    res.status(400).json({ error: "Bad request", message: `Invalid level. Must be one of: ${VALID_LEVELS.join(", ")}` }); return;
+  }
   const [emergency] = await db.select().from(emergenciesTable).where(eq(emergenciesTable.id, id));
   if (!emergency) { res.status(404).json({ error: "Not found", message: "Emergency not found" }); return; }
 
@@ -136,11 +154,14 @@ router.put("/emergencies/:id/escalate", authMiddleware, requireRoles("super_admi
   res.json(await formatEmergency(updated));
 });
 
-router.post("/emergencies/:id/update", authMiddleware, async (req, res): Promise<void> => {
+router.post("/emergencies/:id/update", authMiddleware, requireRoles(...STAFF_ROLES), async (req, res): Promise<void> => {
   const id = parseInt(req.params.id as string, 10);
   if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
   const { message, updateType } = req.body as { message: string; updateType?: string };
   if (!message) { res.status(400).json({ error: "Bad request", message: "message is required" }); return; }
+  if (updateType && !VALID_UPDATE_TYPES.includes(updateType as any)) {
+    res.status(400).json({ error: "Bad request", message: `Invalid updateType. Must be one of: ${VALID_UPDATE_TYPES.join(", ")}` }); return;
+  }
   const [emergency] = await db.select().from(emergenciesTable).where(eq(emergenciesTable.id, id));
   if (!emergency) { res.status(404).json({ error: "Not found", message: "Emergency not found" }); return; }
   const [update] = await db.insert(emergencyUpdatesTable).values({
@@ -170,12 +191,20 @@ router.post("/emergencies/:id/all-clear", authMiddleware, requireRoles("super_ad
     updateType: "all_clear",
   });
 
-  const allUsers = await db.select({ id: usersTable.id }).from(usersTable).where(eq(usersTable.isActive, true));
+  // Send the all-clear ONLY to the people who received the original alert —
+  // otherwise resolving a staff-only report would leak it to every parent.
+  const alerted = await db.select({ userId: notificationsTable.userId })
+    .from(notificationsTable)
+    .where(and(
+      eq(notificationsTable.type, "emergency_alert"),
+      like(notificationsTable.metadataJson, `%"emergencyId":${id},%`),
+    ));
+  const targetIds = [...new Set(alerted.map(a => a.userId))];
   const allClearMsg = notes
     ? `The emergency has been resolved. ${notes}`
     : "The emergency situation has been fully resolved. All children are safe. Normal operations resuming.";
-  await Promise.all(allUsers.map(u => sendNotification({
-    userId: u.id,
+  await Promise.all(targetIds.map(uid => sendNotification({
+    userId: uid,
     type: "emergency_all_clear",
     title: "✅ ALL CLEAR — Emergency Resolved",
     message: allClearMsg,
@@ -185,7 +214,7 @@ router.post("/emergencies/:id/all-clear", authMiddleware, requireRoles("super_ad
   res.json(await formatEmergency(emergency));
 });
 
-router.get("/emergencies/:id/updates", authMiddleware, async (req, res): Promise<void> => {
+router.get("/emergencies/:id/updates", authMiddleware, requireRoles(...STAFF_ROLES), async (req, res): Promise<void> => {
   const id = parseInt(req.params.id as string, 10);
   if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
   const updates = await db.select().from(emergencyUpdatesTable)

@@ -90,7 +90,7 @@ async function getAllowedContacts(userId: number, role: string) {
     .where(eq(usersTable.isActive, true));
 
   // Admins and support can always be contacted; they can also contact anyone.
-  const admins = users.filter(u => ["admin", "super_admin"].includes(u.role) && u.id !== userId);
+  const admins = users.filter(u => ["admin", "super_admin", "support"].includes(u.role) && u.id !== userId);
 
   let scoped: typeof users = [];
 
@@ -141,7 +141,7 @@ async function getAllowedContacts(userId: number, role: string) {
       }
     }
   } else {
-    // Admins / super admins can message everyone.
+    // Admins / super admins / support can message everyone.
     scoped = users.filter(u => ["parent", "teacher"].includes(u.role));
   }
 

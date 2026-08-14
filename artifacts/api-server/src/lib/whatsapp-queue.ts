@@ -159,6 +159,21 @@ export async function recoverPendingQueue(): Promise<void> {
     logger.info({ count: stale.length }, "WhatsApp queue: recovering orphaned broadcasts");
 
     for (const broadcast of stale) {
+      // Items that were claimed (processedAt set) but never finalized (still
+      // "pending") were in-flight when the process died. Delivery is uncertain,
+      // so we don't re-send — but we mark them "failed" so they show up in the
+      // broadcast history instead of being silently skipped.
+      await db
+        .update(whatsappQueueItemsTable)
+        .set({ status: "failed" })
+        .where(
+          and(
+            eq(whatsappQueueItemsTable.broadcastId, broadcast.id),
+            eq(whatsappQueueItemsTable.status, "pending"),
+            sql`${whatsappQueueItemsTable.processedAt} IS NOT NULL`,
+          ),
+        );
+
       // Fetch only the items that weren't processed yet
       // Only recover items that were never claimed (processedAt IS NULL).
       // Items with processedAt set were already in-flight when the server
