@@ -2,6 +2,7 @@ import { Router } from "express";
 import { eq, and } from "drizzle-orm";
 import { db, consentFormsTable, childrenTable, usersTable } from "@workspace/db";
 import { authMiddleware } from "../middlewares/auth";
+import { parentOwnsChild } from "../lib/parentScope";
 import { z } from "zod";
 
 const router = Router();
@@ -18,6 +19,9 @@ const UpsertConsentBody = z.object({
 router.get("/children/:childId/consent-forms", authMiddleware, async (req, res): Promise<void> => {
   const childId = parseInt(req.params.childId as string, 10);
   if (isNaN(childId)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
+  if (req.user!.role === "parent" && !(await parentOwnsChild(req.user!.userId, childId))) {
+    res.status(403).json({ error: "Forbidden", message: "You can only access your own children" }); return;
+  }
   const forms = await db.select().from(consentFormsTable).where(eq(consentFormsTable.childId, childId));
   const allTypes: typeof CONSENT_TYPES[number][] = [...CONSENT_TYPES];
   const formsMap = Object.fromEntries(forms.map(f => [f.type, f]));
@@ -30,6 +34,9 @@ router.get("/children/:childId/consent-forms", authMiddleware, async (req, res):
 router.put("/children/:childId/consent-forms", authMiddleware, async (req, res): Promise<void> => {
   const childId = parseInt(req.params.childId as string, 10);
   if (isNaN(childId)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
+  if (req.user!.role === "parent" && !(await parentOwnsChild(req.user!.userId, childId))) {
+    res.status(403).json({ error: "Forbidden", message: "You can only access your own children" }); return;
+  }
   const parsed = UpsertConsentBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: "Bad request", message: parsed.error.message }); return; }
 

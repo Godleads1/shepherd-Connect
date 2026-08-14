@@ -8,7 +8,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { AlertCircle, Eye, Award, ChevronDown, ChevronUp, Star, MessageSquare, HandHeart, CheckCircle2 } from "lucide-react";
 import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
-import { apiPost } from "@/lib/api-call";
+import { useQuery } from "@tanstack/react-query";
+import { apiPost, apiGet } from "@/lib/api-call";
 
 const LEVEL_STYLE: Record<string, string> = {
   excellent:           "bg-green-100 text-green-800",
@@ -87,10 +88,11 @@ function AppraisalHistory({ childId }: { childId: number }) {
   );
 }
 
-function ChildCard({ child, onSignalPickup, pickupSent }: {
+function ChildCard({ child, onSignalPickup, pickupSent, isCheckedIn }: {
   child: any;
   onSignalPickup: (childId: number) => Promise<void>;
   pickupSent: boolean;
+  isCheckedIn: boolean;
 }) {
   const [showAppraisals, setShowAppraisals] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -156,7 +158,7 @@ function ChildCard({ child, onSignalPickup, pickupSent }: {
             <CheckCircle2 className="w-4 h-4" />
             Pickup signal sent — the teacher has been notified
           </div>
-        ) : (
+        ) : isCheckedIn ? (
           <button
             type="button"
             onClick={handlePickup}
@@ -165,6 +167,11 @@ function ChildCard({ child, onSignalPickup, pickupSent }: {
             <HandHeart className="w-4 h-4" />
             {loading ? "Signalling…" : "I'm here to collect"}
           </button>
+        ) : (
+          <div className="mt-3 w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-gray-50 border border-gray-200 text-gray-400 text-sm font-semibold">
+            <HandHeart className="w-4 h-4" />
+            Not checked in today
+          </div>
         )}
       </div>
 
@@ -181,6 +188,20 @@ export default function MyChildren() {
   const { data: family, isLoading, isError } = useGetMyFamily();
   const { toast } = useToast();
   const [pickupSent, setPickupSent] = useState<Set<number>>(new Set());
+
+  // Today's attendance for my children — enables "I'm here to collect" only for
+  // children who are actually checked in (avoids a guaranteed error otherwise).
+  const today = new Date().toISOString().split("T")[0];
+  const { data: todayAttendance } = useQuery({
+    queryKey: ["my-children-attendance", today],
+    queryFn: () => apiGet<any[]>(`/attendance?serviceDate=${today}`),
+    refetchInterval: 60 * 1000,
+  });
+  const checkedInChildIds = new Set(
+    (todayAttendance ?? [])
+      .filter((a: any) => a.status && a.status !== "picked_up")
+      .map((a: any) => a.childId),
+  );
 
   const handleSignalPickup = async (childId: number) => {
     try {
@@ -225,6 +246,7 @@ export default function MyChildren() {
               child={child}
               onSignalPickup={handleSignalPickup}
               pickupSent={pickupSent.has(child.id)}
+              isCheckedIn={checkedInChildIds.has(child.id)}
             />
           ))}
         </div>

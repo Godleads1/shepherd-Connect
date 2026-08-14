@@ -231,6 +231,8 @@ export function Layout({ children }: { children: ReactNode }) {
     {
       new_notification: () => {
         qc.invalidateQueries({ queryKey: ["layout-notifications"] });
+        // Also refresh the Notifications page list if it's open
+        qc.invalidateQueries({ queryKey: ["/api/notifications"] });
       },
       new_message: () => {
         qc.invalidateQueries({ queryKey: ["layout-msg-unread"] });

@@ -1,10 +1,11 @@
 import { Router } from "express";
-import { eq, and } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
 import { db, childAppraisalsTable, childrenTable, teachersTable, familiesTable, usersTable } from "@workspace/db";
 import { CreateAppraisalBody, ListAppraisalsQueryParams } from "@workspace/api-zod";
 import { authMiddleware, requireRoles } from "../middlewares/auth";
 import { emailShepherdsReport } from "../services/sms";
 import { pushToUsers } from "../services/push";
+import { getParentChildIds } from "../lib/parentScope";
 
 const router = Router();
 
@@ -18,6 +19,18 @@ router.get("/appraisals", authMiddleware, async (req, res): Promise<void> => {
   if (!params.success) { res.status(400).json({ error: "Bad request", message: params.error.message }); return; }
   const { childId, teacherId, serviceDate } = params.data;
   const conditions = [];
+  // Parents may only see appraisals for their own children.
+  if (req.user!.role === "parent") {
+    const ownChildIds = await getParentChildIds(req.user!.userId);
+    if (ownChildIds.length === 0) { res.json([]); return; }
+    if (childId !== undefined) {
+      if (!ownChildIds.includes(childId)) {
+        res.status(403).json({ error: "Forbidden", message: "Access denied" }); return;
+      }
+    } else {
+      conditions.push(inArray(childAppraisalsTable.childId, ownChildIds));
+    }
+  }
   if (childId) conditions.push(eq(childAppraisalsTable.childId, childId));
   if (teacherId) conditions.push(eq(childAppraisalsTable.teacherId, teacherId));
   if (serviceDate) conditions.push(eq(childAppraisalsTable.serviceDate, serviceDate));

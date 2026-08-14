@@ -3,8 +3,17 @@ import { eq, and, isNull, ilike, or, sql } from "drizzle-orm";
 import { db, childrenTable, classesTable, attendanceTable, classAssignmentsTable, pickupDelegatesTable, childAppraisalsTable, classChangeRequestsTable, classWaitlistTable, emergenciesTable, familiesTable } from "@workspace/db";
 import { CreateChildBody, ListChildrenQueryParams } from "@workspace/api-zod";
 import { authMiddleware, requireRoles } from "../middlewares/auth";
+import { getParentFamilyIds, parentOwnsChild, parentOwnsFamily } from "../lib/parentScope";
 
 const router = Router();
+
+/** For parent-role users, sends 403 unless the child belongs to their family. Returns true if allowed. */
+async function assertParentOwnsChild(req: import("express").Request, res: import("express").Response, childId: number): Promise<boolean> {
+  if (req.user!.role !== "parent") return true;
+  if (await parentOwnsChild(req.user!.userId, childId)) return true;
+  res.status(403).json({ error: "Forbidden", message: "You can only access your own children" });
+  return false;
+}
 
 function calcAge(dob: string): number {
   const d = new Date(dob);
@@ -41,6 +50,15 @@ router.get("/children", authMiddleware, async (req, res): Promise<void> => {
       const term = `%${search}%`;
       conditions.push(or(ilike(childrenTable.firstName, term), ilike(childrenTable.lastName, term))!);
     }
+    // Parents only ever see their own family's children.
+    if (req.user!.role === "parent") {
+      const familyIds = await getParentFamilyIds(req.user!.userId);
+      if (familyIds.length === 0) { res.json({ data: [], total: 0, page, limit }); return; }
+      if (familyId && !familyIds.includes(familyId)) {
+        res.status(403).json({ error: "Forbidden", message: "You can only access your own family" }); return;
+      }
+      conditions.push(sql`${childrenTable.familyId} IN (${sql.join(familyIds.map(id => sql`${id}`), sql`, `)})`);
+    }
     const offset = (page - 1) * limit;
     const whereClause = conditions.length ? and(...conditions) : undefined;
     const children = await db.select().from(childrenTable)
@@ -60,6 +78,10 @@ router.post("/children", authMiddleware, async (req, res): Promise<void> => {
   try {
     const parsed = CreateChildBody.safeParse(req.body);
     if (!parsed.success) { res.status(400).json({ error: "Bad request", message: parsed.error.message }); return; }
+    // Parents may only add children to their own family.
+    if (req.user!.role === "parent" && !(await parentOwnsFamily(req.user!.userId, parsed.data.familyId))) {
+      res.status(403).json({ error: "Forbidden", message: "You can only add children to your own family" }); return;
+    }
     // Auto-assign class based on age calculated from DOB
     const age = calcAge(parsed.data.dob);
     const [matchedClass] = await db.select().from(classesTable)
@@ -77,6 +99,7 @@ router.get("/children/:id", authMiddleware, async (req, res): Promise<void> => {
   try {
     const id = parseInt(req.params.id as string, 10);
     if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
+    if (!(await assertParentOwnsChild(req, res, id))) return;
     const [child] = await db.select().from(childrenTable).where(eq(childrenTable.id, id));
     if (!child) { res.status(404).json({ error: "Not found", message: "Child not found" }); return; }
     res.json(await formatChild(child));
@@ -90,6 +113,7 @@ router.put("/children/:id", authMiddleware, async (req, res): Promise<void> => {
   try {
     const id = parseInt(req.params.id as string, 10);
     if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
+    if (!(await assertParentOwnsChild(req, res, id))) return;
     const parsed = CreateChildBody.safeParse(req.body);
     if (!parsed.success) { res.status(400).json({ error: "Bad request", message: parsed.error.message }); return; }
     // Auto-assign class based on updated DOB (ignore any manually-supplied currentClassId)
@@ -111,6 +135,7 @@ router.get("/children/:id/qr-code", authMiddleware, async (req, res): Promise<vo
   try {
     const id = parseInt(req.params.id as string, 10);
     if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
+    if (!(await assertParentOwnsChild(req, res, id))) return;
     const [child] = await db.select().from(childrenTable).where(eq(childrenTable.id, id));
     if (!child) { res.status(404).json({ error: "Not found", message: "Child not found" }); return; }
     const [family] = await db.select().from(familiesTable).where(eq(familiesTable.id, child.familyId));
@@ -126,6 +151,7 @@ router.put("/children/:id/face-descriptor", authMiddleware, async (req, res): Pr
   try {
     const id = parseInt(req.params.id as string, 10);
     if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
+    if (!(await assertParentOwnsChild(req, res, id))) return;
     const { descriptorJson, consentGiven } = req.body as { descriptorJson: string; consentGiven: boolean };
     if (!descriptorJson || typeof descriptorJson !== "string") {
       res.status(400).json({ error: "Bad request", message: "descriptorJson is required" }); return;
@@ -273,6 +299,7 @@ router.delete("/children/:id/face-descriptor", authMiddleware, async (req, res):
   try {
     const id = parseInt(req.params.id as string, 10);
     if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
+    if (!(await assertParentOwnsChild(req, res, id))) return;
     const [child] = await db.update(childrenTable)
       .set({ faceDescriptorJson: null })
       .where(eq(childrenTable.id, id))

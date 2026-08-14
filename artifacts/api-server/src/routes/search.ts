@@ -87,13 +87,19 @@ router.get("/search", authMiddleware, async (req, res): Promise<void> => {
   }
 
   if (role === "parent") {
-    const parentUser = await db.select({ familyId: usersTable.id }).from(usersTable).where(eq(usersTable.id, userId));
-    const familyRows = await db.select().from(familiesTable)
-      .where(ilike(familiesTable.familyCode, like))
-      .limit(4);
+    // Parents can only search within their own family — never other families' children or codes.
+    const ownFamilies = await db.select().from(familiesTable)
+      .where(or(eq(familiesTable.parent1Id, userId), eq(familiesTable.parent2Id, userId)));
+    if (ownFamilies.length === 0) {
+      res.json({ children: [], families: [], users: [] });
+      return;
+    }
+    const ownFamilyIds = ownFamilies.map(f => f.id);
+    const familyRows = ownFamilies.filter(f => f.familyCode.toLowerCase().includes(query.toLowerCase())).slice(0, 4);
     const children = await db.select().from(childrenTable)
       .where(or(ilike(childrenTable.firstName, like), ilike(childrenTable.lastName, like)))
-      .limit(8);
+      .limit(50)
+      .then(rows => rows.filter(c => ownFamilyIds.includes(c.familyId)).slice(0, 8));
     res.json({
       children: children.map(c => ({ id: c.id, name: `${c.firstName} ${c.lastName}`, type: "child" as const, href: `/my-children` })),
       families: familyRows.map(f => ({ id: f.id, name: f.familyCode, type: "family" as const, href: `/my-family` })),

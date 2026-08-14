@@ -6,6 +6,7 @@ import { CreatePickupDelegateBody, VerifyDelegateOtpBody, ListPickupDelegatesQue
 import { authMiddleware } from "../middlewares/auth";
 import { smsDelegateOtp } from "../services/sms";
 import { sendNotification } from "../lib/notify";
+import { getParentChildIds as getOwnedChildIds } from "../lib/parentScope";
 
 const createDelegateLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
@@ -30,19 +31,10 @@ function generateOTP(): string {
   return Math.floor(100000 + Math.random() * 900000).toString();
 }
 
-/** Returns the set of childIds belonging to the authenticated parent's family, or null if not a parent. */
+/** Returns the set of childIds belonging to the authenticated parent (all owned families), or null if not a parent. */
 async function getParentChildIds(userId: number, role: string): Promise<number[] | null> {
   if (role !== "parent") return null;
-  const [family] = await db.select().from(familiesTable)
-    .where(eq(familiesTable.parent1Id, userId));
-  // Also check parent2
-  const [family2] = await db.select().from(familiesTable)
-    .where(eq(familiesTable.parent2Id, userId));
-  const fam = family ?? family2;
-  if (!fam) return [];
-  const children = await db.select({ id: childrenTable.id }).from(childrenTable)
-    .where(eq(childrenTable.familyId, fam.id));
-  return children.map(c => c.id);
+  return getOwnedChildIds(userId);
 }
 
 router.get("/pickup-delegates", authMiddleware, async (req, res): Promise<void> => {
@@ -74,6 +66,13 @@ router.get("/pickup-delegates", authMiddleware, async (req, res): Promise<void> 
 router.post("/pickup-delegates", authMiddleware, createDelegateLimiter, async (req, res): Promise<void> => {
   const parsed = CreatePickupDelegateBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: "Bad request", message: parsed.error.message }); return; }
+
+  // Parents may only create delegates for their own children.
+  const ownIds = await getParentChildIds(req.user!.userId, req.user!.role);
+  if (ownIds !== null && !ownIds.includes(parsed.data.childId)) {
+    res.status(403).json({ error: "Forbidden", message: "You can only create pickup delegates for your own children" });
+    return;
+  }
 
   const otp = generateOTP();
   const otpExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
@@ -158,28 +157,30 @@ router.post("/pickup-delegates/:id/notify-parent", authMiddleware, async (req, r
 
   const [delegate] = await db.select().from(pickupDelegatesTable).where(eq(pickupDelegatesTable.id, id));
   if (!delegate) { res.status(404).json({ error: "Not found", message: "Delegate not found" }); return; }
+  if (!await assertParentOwnsDelegateOrAdmin(delegate.childId, req.user!.userId, req.user!.role, res)) return;
 
   const [child] = await db.select().from(childrenTable).where(eq(childrenTable.id, delegate.childId));
   if (!child) { res.status(404).json({ error: "Not found", message: "Child not found" }); return; }
 
-  let parentUserId: number | null = null;
+  // Notify BOTH parents (either may approve) — previously only parent1 was notified.
+  let parentUserIds: number[] = [];
   if (child.familyId) {
     const [family] = await db.select().from(familiesTable).where(eq(familiesTable.id, child.familyId));
-    if (family?.parent1Id) parentUserId = family.parent1Id;
+    parentUserIds = [family?.parent1Id, family?.parent2Id].filter(Boolean) as number[];
   }
-  if (!parentUserId) { res.status(404).json({ error: "Not found", message: "Parent not found for this child" }); return; }
+  if (parentUserIds.length === 0) { res.status(404).json({ error: "Not found", message: "Parent not found for this child" }); return; }
 
   await db.update(pickupDelegatesTable)
     .set({ approvalStatus: "pending", approvalRequestedAt: new Date() })
     .where(eq(pickupDelegatesTable.id, id));
 
-  await sendNotification({
+  await Promise.all(parentUserIds.map(parentUserId => sendNotification({
     userId: parentUserId,
     type: "delegate_approval_request",
     title: `🔔 Approve Pickup: ${child.firstName}`,
     message: `${delegate.name} is at the front desk to collect ${child.firstName} ${child.lastName}. Please approve or deny this pickup request.`,
     metadata: { delegateId: id, childId: child.id, delegateName: delegate.name, requiresApproval: true },
-  });
+  })));
 
   res.json({ success: true, requiresApproval: true, message: `Parent notified. Waiting for their approval before releasing ${child.firstName}.` });
 });

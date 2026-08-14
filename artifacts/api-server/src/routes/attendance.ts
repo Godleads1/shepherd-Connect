@@ -6,6 +6,7 @@ import { authMiddleware, requireRoles } from "../middlewares/auth";
 import { notifyChildCheckedIn, notifyChildInTransit, notifyChildArrivedInClass, notifyChildPickedUp, notifyTeachersChildDroppedOff, notifyTeachersChildInTransit, sendNotification } from "../lib/notify";
 import { smsChildCheckedIn, smsChildCheckedOut, smsPreDismissal, emailChildCheckedIn, emailChildCheckedOut } from "../services/sms";
 import { pushToUsers } from "../services/push";
+import { getParentChildIds } from "../lib/parentScope";
 
 async function getParentContacts(childId: number): Promise<{ phones: (string | null)[]; emails: (string | null)[]; parentIds: number[]; childName: string; className: string }> {
   const [child] = await db.select().from(childrenTable).where(eq(childrenTable.id, childId));
@@ -96,7 +97,20 @@ router.get("/attendance", authMiddleware, async (req, res): Promise<void> => {
     if (classId) conditions.push(eq(attendanceTable.classId, classId));
   }
 
-  if (childId) conditions.push(eq(attendanceTable.childId, childId));
+  // Parents may only see attendance for their own children.
+  if (req.user!.role === "parent") {
+    const ownChildIds = await getParentChildIds(req.user!.userId);
+    if (ownChildIds.length === 0) { res.json([]); return; }
+    if (childId !== undefined) {
+      if (!ownChildIds.includes(childId)) {
+        res.status(403).json({ error: "Forbidden", message: "Access denied" });
+        return;
+      }
+      conditions.push(eq(attendanceTable.childId, childId));
+    } else {
+      conditions.push(inArray(attendanceTable.childId, ownChildIds));
+    }
+  } else if (childId) conditions.push(eq(attendanceTable.childId, childId));
   if (serviceDate) conditions.push(eq(attendanceTable.serviceDate, serviceDate));
   if (serviceSlot) conditions.push(eq(attendanceTable.serviceSlot, serviceSlot));
   if (status) conditions.push(eq(attendanceTable.status, status as "dropped_off" | "in_transit" | "in_class" | "picked_up"));

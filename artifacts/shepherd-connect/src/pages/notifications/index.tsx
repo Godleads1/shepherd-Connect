@@ -156,7 +156,8 @@ function DelegateApprovalActions({ notif, onAction }: { notif: any; onAction: ()
 
 export default function Notifications() {
   const [activeTab, setActiveTab] = useState<TabKey>("all");
-  const { data: notifications, refetch, isError: notifError } = useListNotifications();
+  const [limit, setLimit] = useState(20);
+  const { data: notifications, refetch, isError: notifError } = useListNotifications({ limit });
   const markReadMutation = useMarkNotificationRead();
   const markAllReadMutation = useMarkAllNotificationsRead();
   const { toast } = useToast();
@@ -309,6 +310,14 @@ export default function Notifications() {
             </h3>
             <p className="text-gray-500 text-sm">You have no {activeTab === "all" ? "" : activeTab + " "}notifications right now.</p>
           </div>
+        )}
+
+        {(notifications?.total ?? 0) > all.length && (
+          <button
+            onClick={() => setLimit(l => l + 20)}
+            className="w-full py-3 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-sm font-semibold text-blue-900 transition-colors">
+            Load more ({(notifications?.total ?? 0) - all.length} older)
+          </button>
         )}
       </div>
 
