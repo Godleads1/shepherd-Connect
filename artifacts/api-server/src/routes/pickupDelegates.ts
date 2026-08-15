@@ -67,40 +67,60 @@ router.post("/pickup-delegates", authMiddleware, createDelegateLimiter, async (r
   const parsed = CreatePickupDelegateBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: "Bad request", message: parsed.error.message }); return; }
 
+  // Optional multi-child support: body may include `childIds: number[]`.
+  // One delegate row is created per child, all sharing a single OTP (one SMS).
+  const rawIds = Array.isArray((req.body as any)?.childIds) ? (req.body as any).childIds : null;
+  let childIds: number[] = rawIds
+    ? [...new Set(rawIds.filter((n: any) => Number.isInteger(n) && n > 0))] as number[]
+    : [parsed.data.childId];
+  if (childIds.length === 0) childIds = [parsed.data.childId];
+  if (childIds.length > 10) {
+    res.status(400).json({ error: "Bad request", message: "A delegate can cover at most 10 children at once" });
+    return;
+  }
+
   // Parents may only create delegates for their own children.
   const ownIds = await getParentChildIds(req.user!.userId, req.user!.role);
-  if (ownIds !== null && !ownIds.includes(parsed.data.childId)) {
+  if (ownIds !== null && childIds.some(id => !ownIds.includes(id))) {
     res.status(403).json({ error: "Forbidden", message: "You can only create pickup delegates for your own children" });
+    return;
+  }
+
+  // Ensure all children exist before inserting anything
+  const children = await db.select().from(childrenTable).where(inArray(childrenTable.id, childIds));
+  if (children.length !== childIds.length) {
+    res.status(400).json({ error: "Bad request", message: "One or more selected children were not found" });
     return;
   }
 
   const otp = generateOTP();
   const otpExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+  const { childId: _single, ...delegateFields } = parsed.data;
 
-  const [delegate] = await db.insert(pickupDelegatesTable).values({
-    ...parsed.data,
+  const inserted = await db.insert(pickupDelegatesTable).values(childIds.map(cid => ({
+    ...delegateFields,
+    childId: cid,
     otpCode: otp,
     otpExpiresAt,
     parentApproved: false,
-  }).returning();
+  }))).returning();
 
-  // Fetch child name for the SMS message
-  const [child] = await db.select().from(childrenTable).where(eq(childrenTable.id, delegate.childId));
-  const childName = child ? `${child.firstName} ${child.lastName}` : "your child";
+  // One SMS listing every child covered by this OTP
+  const childNames = children.map(c => `${c.firstName} ${c.lastName}`).join(", ") || "your child";
+  await smsDelegateOtp(delegateFields.phone, delegateFields.name, childNames, otp, req.log);
 
-  // Send OTP directly to the delegate's phone via Termii SMS
-  await smsDelegateOtp(delegate.phone, delegate.name, childName, otp, req.log);
-
-  // Return with OTP so the parent can also see it in the UI
-  res.status(201).json(delegate);
+  // Return the first row with OTP (backwards compatible) plus all covered childIds
+  res.status(201).json({ ...inserted[0], childIds: inserted.map(d => d.childId) });
 });
 
 router.post("/pickup-delegates/verify-otp", verifyOtpLimiter, async (req, res): Promise<void> => {
   const parsed = VerifyDelegateOtpBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: "Bad request", message: parsed.error.message }); return; }
   const { otpCode } = parsed.data;
-  const [delegate] = await db.select().from(pickupDelegatesTable)
+  // An OTP may cover multiple children (one delegate row per child sharing the code)
+  const matches = await db.select().from(pickupDelegatesTable)
     .where(eq(pickupDelegatesTable.otpCode, otpCode));
+  const delegate = matches[0];
   if (!delegate) {
     res.json({ valid: false, delegate: null, child: null, message: "Invalid OTP" });
     return;
@@ -109,8 +129,16 @@ router.post("/pickup-delegates/verify-otp", verifyOtpLimiter, async (req, res): 
     res.json({ valid: false, delegate: null, child: null, message: "OTP has expired" });
     return;
   }
-  const [child] = await db.select().from(childrenTable).where(eq(childrenTable.id, delegate.childId));
-  res.json({ valid: true, delegate: { ...delegate, otpCode: undefined }, child: child ?? null, message: "OTP verified" });
+  const childIds = matches.map(m => m.childId);
+  const children = await db.select().from(childrenTable).where(inArray(childrenTable.id, childIds));
+  // `child` stays for backwards compatibility; `children` lists all covered by this OTP
+  res.json({
+    valid: true,
+    delegate: { ...delegate, otpCode: undefined },
+    child: children.find(c => c.id === delegate.childId) ?? null,
+    children,
+    message: "OTP verified",
+  });
 });
 
 /** Checks if the authenticated parent owns the delegate (i.e. the delegate's child belongs to their family). Returns 403 if denied, false if the check does not apply (non-parent role). */
@@ -144,12 +172,23 @@ router.put("/pickup-delegates/:id/approve", authMiddleware, async (req, res): Pr
   const [existing] = await db.select().from(pickupDelegatesTable).where(eq(pickupDelegatesTable.id, id));
   if (!existing) { res.status(404).json({ error: "Not found", message: "Delegate not found" }); return; }
   if (!await assertParentOwnsDelegateOrAdmin(existing.childId, req.user!.userId, req.user!.role, res)) return;
-  const [delegate] = await db.update(pickupDelegatesTable)
+  // Approval applies to the whole OTP group (one code may cover several children)
+  const group = await getDelegateGroup(existing);
+  const updated = await db.update(pickupDelegatesTable)
     .set({ parentApproved: true, approvalStatus: "approved" })
-    .where(eq(pickupDelegatesTable.id, id)).returning();
+    .where(inArray(pickupDelegatesTable.id, group.map(g => g.id))).returning();
+  const delegate = updated.find(d => d.id === id) ?? updated[0];
   if (!delegate) { res.status(404).json({ error: "Not found", message: "Delegate not found" }); return; }
   res.json({ ...delegate, otpCode: undefined });
 });
+
+/** Returns all delegate rows in the same OTP group (rows created together sharing one code), including the row itself. */
+async function getDelegateGroup(delegate: typeof pickupDelegatesTable.$inferSelect) {
+  if (!delegate.otpCode) return [delegate];
+  const siblings = await db.select().from(pickupDelegatesTable)
+    .where(eq(pickupDelegatesTable.otpCode, delegate.otpCode));
+  return siblings.length ? siblings : [delegate];
+}
 
 router.post("/pickup-delegates/:id/notify-parent", authMiddleware, async (req, res): Promise<void> => {
   const id = parseInt(req.params.id as string, 10);
@@ -159,30 +198,35 @@ router.post("/pickup-delegates/:id/notify-parent", authMiddleware, async (req, r
   if (!delegate) { res.status(404).json({ error: "Not found", message: "Delegate not found" }); return; }
   if (!await assertParentOwnsDelegateOrAdmin(delegate.childId, req.user!.userId, req.user!.role, res)) return;
 
-  const [child] = await db.select().from(childrenTable).where(eq(childrenTable.id, delegate.childId));
-  if (!child) { res.status(404).json({ error: "Not found", message: "Child not found" }); return; }
+  // The OTP may cover multiple children — approval applies to the whole group.
+  const group = await getDelegateGroup(delegate);
+  const groupChildIds = group.map(g => g.childId);
+  const children = await db.select().from(childrenTable).where(inArray(childrenTable.id, groupChildIds));
+  if (children.length === 0) { res.status(404).json({ error: "Not found", message: "Child not found" }); return; }
+  const childNames = children.map(c => `${c.firstName} ${c.lastName}`).join(", ");
 
-  // Notify BOTH parents (either may approve) — previously only parent1 was notified.
+  // Notify BOTH parents of every family involved (either may approve).
+  const familyIds = [...new Set(children.map(c => c.familyId).filter(Boolean))] as number[];
   let parentUserIds: number[] = [];
-  if (child.familyId) {
-    const [family] = await db.select().from(familiesTable).where(eq(familiesTable.id, child.familyId));
-    parentUserIds = [family?.parent1Id, family?.parent2Id].filter(Boolean) as number[];
+  if (familyIds.length) {
+    const families = await db.select().from(familiesTable).where(inArray(familiesTable.id, familyIds));
+    parentUserIds = [...new Set(families.flatMap(f => [f.parent1Id, f.parent2Id]).filter(Boolean))] as number[];
   }
   if (parentUserIds.length === 0) { res.status(404).json({ error: "Not found", message: "Parent not found for this child" }); return; }
 
   await db.update(pickupDelegatesTable)
     .set({ approvalStatus: "pending", approvalRequestedAt: new Date() })
-    .where(eq(pickupDelegatesTable.id, id));
+    .where(inArray(pickupDelegatesTable.id, group.map(g => g.id)));
 
   await Promise.all(parentUserIds.map(parentUserId => sendNotification({
     userId: parentUserId,
     type: "delegate_approval_request",
-    title: `🔔 Approve Pickup: ${child.firstName}`,
-    message: `${delegate.name} is at the front desk to collect ${child.firstName} ${child.lastName}. Please approve or deny this pickup request.`,
-    metadata: { delegateId: id, childId: child.id, delegateName: delegate.name, requiresApproval: true },
+    title: `🔔 Approve Pickup: ${children.length > 1 ? `${children.length} children` : children[0].firstName}`,
+    message: `${delegate.name} is at the front desk to collect ${childNames}. Please approve or deny this pickup request.`,
+    metadata: { delegateId: id, childId: children[0].id, childIds: groupChildIds, delegateName: delegate.name, requiresApproval: true },
   })));
 
-  res.json({ success: true, requiresApproval: true, message: `Parent notified. Waiting for their approval before releasing ${child.firstName}.` });
+  res.json({ success: true, requiresApproval: true, message: `Parent notified. Waiting for their approval before releasing ${childNames}.` });
 });
 
 /** Returns true if the user is authorised to approve/deny this delegate pickup.
@@ -212,9 +256,11 @@ router.post("/pickup-delegates/:id/approve", authMiddleware, async (req, res): P
     res.status(403).json({ error: "Forbidden", message: "Access denied" }); return;
   }
 
-  const [updated] = await db.update(pickupDelegatesTable)
+  const group = await getDelegateGroup(delegate);
+  const updatedRows = await db.update(pickupDelegatesTable)
     .set({ parentApproved: true, approvalStatus: "approved" })
-    .where(eq(pickupDelegatesTable.id, id)).returning();
+    .where(inArray(pickupDelegatesTable.id, group.map(g => g.id))).returning();
+  const updated = updatedRows.find(d => d.id === id) ?? updatedRows[0];
 
   res.json({ success: true, delegate: updated, message: "Pickup approved. Child may be released." });
 });
@@ -229,9 +275,11 @@ router.post("/pickup-delegates/:id/deny", authMiddleware, async (req, res): Prom
     res.status(403).json({ error: "Forbidden", message: "Access denied" }); return;
   }
 
-  const [updated] = await db.update(pickupDelegatesTable)
+  const group = await getDelegateGroup(delegate);
+  const updatedRows = await db.update(pickupDelegatesTable)
     .set({ approvalStatus: "denied" })
-    .where(eq(pickupDelegatesTable.id, id)).returning();
+    .where(inArray(pickupDelegatesTable.id, group.map(g => g.id))).returning();
+  const updated = updatedRows.find(d => d.id === id) ?? updatedRows[0];
 
   res.json({ success: true, delegate: updated, message: "Pickup denied. Front desk has been notified." });
 });

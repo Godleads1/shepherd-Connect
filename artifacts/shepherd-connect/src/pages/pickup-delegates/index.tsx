@@ -19,7 +19,7 @@ import { PhotoUploader, resolvePhotoUrl } from "@/components/PhotoUploader";
 const PHONE_RE = /^\d{11}$/;
 
 const formSchema = z.object({
-  childId: z.coerce.number().min(1, "Please select a child"),
+  childIds: z.array(z.number()).min(1, "Please select at least one child"),
   name: z.string().min(1, "Delegate name is required"),
   phone: z.string().regex(PHONE_RE, "Must be exactly 11 digits"),
 });
@@ -41,15 +41,22 @@ export default function PickupDelegates() {
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
-    defaultValues: { childId: 0, name: "", phone: "" },
+    defaultValues: { childIds: [], name: "", phone: "" },
   });
 
   const onSubmit = async (data: z.infer<typeof formSchema>) => {
     try {
-      const res = await createMutation.mutateAsync({ data: { ...data, photoUrl: delegatePhotoUrl || undefined } as any });
+      // One delegate covering all selected children — a single OTP is issued.
+      const res = await createMutation.mutateAsync({ data: {
+        childId: data.childIds[0],
+        childIds: data.childIds,
+        name: data.name,
+        phone: data.phone,
+        photoUrl: delegatePhotoUrl || undefined,
+      } as any });
       setNewOtp(res.otpCode || null);
-      toast({ title: "Delegate added successfully" });
-      form.reset({ childId: 0, name: "", phone: "" });
+      toast({ title: data.childIds.length > 1 ? `Delegate added for ${data.childIds.length} children` : "Delegate added successfully" });
+      form.reset({ childIds: [], name: "", phone: "" });
       setDelegatePhotoUrl("");
       refetch();
     } catch (error: any) {
@@ -150,27 +157,34 @@ export default function PickupDelegates() {
                       shape="circle"
                     />
                   </div>
-                  <FormField control={form.control} name="childId" render={({ field }) => (
+                  <FormField control={form.control} name="childIds" render={({ field }) => (
                     <FormItem>
-                      <FormLabel className="flex items-center gap-1"><Baby className="w-4 h-4" /> Which Child?</FormLabel>
+                      <FormLabel className="flex items-center gap-1"><Baby className="w-4 h-4" /> Which Children?</FormLabel>
                       {children.length > 0 ? (
-                        <Select onValueChange={(v) => field.onChange(Number(v))} value={field.value ? String(field.value) : ""}>
-                          <FormControl>
-                            <SelectTrigger>
-                              <SelectValue placeholder="Select a child" />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            {children.map((c: any) => (
-                              <SelectItem key={c.id} value={String(c.id)}>
-                                {c.firstName} {c.lastName} · Age {c.age}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                        <div className="space-y-2 border rounded-xl p-3 max-h-44 overflow-y-auto">
+                          {children.map((c: any) => {
+                            const checked = (field.value || []).includes(c.id);
+                            return (
+                              <label key={c.id} className="flex items-center gap-2.5 cursor-pointer text-sm py-0.5">
+                                <input
+                                  type="checkbox"
+                                  className="w-4 h-4 rounded border-gray-300 accent-[#1e3a8a]"
+                                  checked={checked}
+                                  onChange={(e) => {
+                                    const cur = field.value || [];
+                                    field.onChange(e.target.checked ? [...cur, c.id] : cur.filter((id: number) => id !== c.id));
+                                  }}
+                                />
+                                <span>{c.firstName} {c.lastName} · Age {c.age}</span>
+                              </label>
+                            );
+                          })}
+                          <p className="text-[11px] text-gray-400 pt-1 border-t">Select one or more — one OTP covers them all.</p>
+                        </div>
                       ) : (
                         <FormControl>
-                          <Input type="number" placeholder="Child ID" {...field} />
+                          <Input type="number" placeholder="Child ID"
+                            onChange={(e) => field.onChange(e.target.value ? [Number(e.target.value)] : [])} />
                         </FormControl>
                       )}
                       <FormMessage />

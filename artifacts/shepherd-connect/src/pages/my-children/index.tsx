@@ -88,11 +88,13 @@ function AppraisalHistory({ childId }: { childId: number }) {
   );
 }
 
-function ChildCard({ child, onSignalPickup, pickupSent, isCheckedIn }: {
+function ChildCard({ child, onSignalPickup, pickupSent, isCheckedIn, selected, onToggleSelect }: {
   child: any;
   onSignalPickup: (childId: number) => Promise<void>;
   pickupSent: boolean;
   isCheckedIn: boolean;
+  selected: boolean;
+  onToggleSelect: (childId: number) => void;
 }) {
   const [showAppraisals, setShowAppraisals] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -159,14 +161,25 @@ function ChildCard({ child, onSignalPickup, pickupSent, isCheckedIn }: {
             Pickup signal sent — the teacher has been notified
           </div>
         ) : isCheckedIn ? (
-          <button
-            type="button"
-            onClick={handlePickup}
-            disabled={loading}
-            className="mt-3 w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border-2 border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-800 text-sm font-bold transition-all disabled:opacity-50">
-            <HandHeart className="w-4 h-4" />
-            {loading ? "Signalling…" : "I'm here to collect"}
-          </button>
+          <div className="mt-3 flex items-stretch gap-2">
+            <label className="flex items-center gap-2 px-3 rounded-xl border-2 border-amber-200 bg-white cursor-pointer select-none">
+              <input
+                type="checkbox"
+                className="w-4 h-4 accent-amber-600"
+                checked={selected}
+                onChange={() => onToggleSelect(child.id)}
+                aria-label={`Select ${child.firstName} for pickup`}
+              />
+            </label>
+            <button
+              type="button"
+              onClick={handlePickup}
+              disabled={loading}
+              className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl border-2 border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-800 text-sm font-bold transition-all disabled:opacity-50">
+              <HandHeart className="w-4 h-4" />
+              {loading ? "Signalling…" : "I'm here to collect"}
+            </button>
+          </div>
         ) : (
           <div className="mt-3 w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-gray-50 border border-gray-200 text-gray-400 text-sm font-semibold">
             <HandHeart className="w-4 h-4" />
@@ -188,6 +201,8 @@ export default function MyChildren() {
   const { data: family, isLoading, isError } = useGetMyFamily();
   const { toast } = useToast();
   const [pickupSent, setPickupSent] = useState<Set<number>>(new Set());
+  const [selectedForPickup, setSelectedForPickup] = useState<Set<number>>(new Set());
+  const [bulkSending, setBulkSending] = useState(false);
 
   // Today's attendance for my children — enables "I'm here to collect" only for
   // children who are actually checked in (avoids a guaranteed error otherwise).
@@ -207,9 +222,42 @@ export default function MyChildren() {
     try {
       await apiPost("/pickup-requests", { childId });
       setPickupSent(prev => new Set([...prev, childId]));
+      setSelectedForPickup(prev => { const next = new Set(prev); next.delete(childId); return next; });
       toast({ title: "Pickup signal sent!", description: "The teacher has been notified. Head to the collection point." });
     } catch (e: any) {
       toast({ variant: "destructive", title: e.message || "Could not send pickup signal" });
+    }
+  };
+
+  const toggleSelect = (childId: number) => {
+    setSelectedForPickup(prev => {
+      const next = new Set(prev);
+      next.has(childId) ? next.delete(childId) : next.add(childId);
+      return next;
+    });
+  };
+
+  const handleBulkPickup = async () => {
+    const ids = [...selectedForPickup];
+    if (ids.length === 0) return;
+    setBulkSending(true);
+    const sent: number[] = [];
+    const failed: number[] = [];
+    for (const childId of ids) {
+      try {
+        await apiPost("/pickup-requests", { childId });
+        sent.push(childId);
+      } catch {
+        failed.push(childId);
+      }
+    }
+    setPickupSent(prev => new Set([...prev, ...sent]));
+    setSelectedForPickup(new Set(failed));
+    setBulkSending(false);
+    if (failed.length === 0) {
+      toast({ title: `Pickup signal sent for ${sent.length} ${sent.length === 1 ? "child" : "children"}!`, description: "The teachers have been notified. Head to the collection point." });
+    } else {
+      toast({ variant: "destructive", title: `Sent for ${sent.length}, but ${failed.length} failed`, description: "The failed ones are still selected — try again." });
     }
   };
 
@@ -240,6 +288,19 @@ export default function MyChildren() {
         </div>
       ) : (
         <div className="space-y-4">
+          {selectedForPickup.size > 0 && (
+            <div className="sticky top-2 z-10">
+              <button
+                type="button"
+                onClick={handleBulkPickup}
+                disabled={bulkSending}
+                className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-white text-sm font-bold shadow-lg transition-all disabled:opacity-60"
+                style={{ background: "linear-gradient(135deg, #b45309, #d97706)" }}>
+                <HandHeart className="w-4 h-4" />
+                {bulkSending ? "Signalling…" : `I'm here to collect ${selectedForPickup.size} ${selectedForPickup.size === 1 ? "child" : "children"}`}
+              </button>
+            </div>
+          )}
           {children.map((child: any) => (
             <ChildCard
               key={child.id}
@@ -247,6 +308,8 @@ export default function MyChildren() {
               onSignalPickup={handleSignalPickup}
               pickupSent={pickupSent.has(child.id)}
               isCheckedIn={checkedInChildIds.has(child.id)}
+              selected={selectedForPickup.has(child.id)}
+              onToggleSelect={toggleSelect}
             />
           ))}
         </div>

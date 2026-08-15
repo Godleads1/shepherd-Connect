@@ -493,13 +493,20 @@ export default function Checkout() {
                     <div className="bg-white rounded-lg p-3 border border-green-100 text-sm space-y-1">
                       <p><span className="text-gray-500">Delegate:</span> <strong>{otpResult.data?.delegate?.name}</strong></p>
                       <p><span className="text-gray-500">Phone:</span> {otpResult.data?.delegate?.phone}</p>
-                      <p><span className="text-gray-500">Authorised for:</span> <strong>{otpResult.data?.child?.firstName} {otpResult.data?.child?.lastName}</strong></p>
+                      <p><span className="text-gray-500">Authorised for:</span>{" "}
+                        <strong>
+                          {(otpResult.data?.children?.length
+                            ? otpResult.data.children
+                            : [otpResult.data?.child].filter(Boolean)
+                          ).map((c: any) => `${c.firstName} ${c.lastName}`).join(", ")}
+                        </strong>
+                      </p>
                     </div>
 
-                    {/* Step 2: Notify Parent for Approval */}
+                    {/* Step 2: Notify Parent for Approval (covers all children on this OTP) */}
                     {otpResult.data?.delegate?.id && approvalState === "idle" && (
                       <button
-                        onClick={() => handleNotifyParent(otpResult.data.delegate.id, otpResult.data?.child?.firstName || "child")}
+                        onClick={() => handleNotifyParent(otpResult.data.delegate.id, (otpResult.data?.children?.length > 1 ? `${otpResult.data.children.length} children` : otpResult.data?.child?.firstName) || "child")}
                         disabled={notifyingParent}
                         className="w-full flex items-center justify-center gap-2 py-2.5 bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-800 text-sm font-semibold rounded-xl transition-colors disabled:opacity-50">
                         <Bell className="w-4 h-4" />
@@ -534,24 +541,39 @@ export default function Checkout() {
                       </div>
                     )}
 
-                    {/* Find the attendance record for this child — only after approved */}
+                    {/* After approval: one checkout button per covered child that is checked in */}
                     {(() => {
-                      const childId = otpResult.data?.delegate?.childId;
-                      const rec = activeRecords.find((r: any) => r.childId === childId);
-                      const canCheckout = approvalState === "approved";
-                      if (!canCheckout) return null;
-                      return rec ? (
-                        <Button
-                          className="w-full gap-2 bg-green-600 hover:bg-green-700 text-white"
-                          onClick={() => handleOtpCheckout(rec.id)}
-                          disabled={checkoutMutation.isPending}
-                        >
-                          <LogOut className="w-4 h-4" /> Confirm Checkout for {otpResult.data?.child?.firstName}
-                        </Button>
-                      ) : (
-                        <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                          This child is not currently checked in today.
-                        </p>
+                      if (approvalState !== "approved") return null;
+                      const covered: any[] = otpResult.data?.children?.length
+                        ? otpResult.data.children
+                        : [otpResult.data?.child].filter(Boolean);
+                      const withRecords = covered.map((c: any) => ({
+                        child: c,
+                        rec: activeRecords.find((r: any) => r.childId === c.id),
+                      }));
+                      const anyCheckedIn = withRecords.some(w => w.rec);
+                      return (
+                        <div className="space-y-2">
+                          {withRecords.map(({ child, rec }) => rec ? (
+                            <Button
+                              key={child.id}
+                              className="w-full gap-2 bg-green-600 hover:bg-green-700 text-white"
+                              onClick={() => handleOtpCheckout(rec.id)}
+                              disabled={checkoutMutation.isPending}
+                            >
+                              <LogOut className="w-4 h-4" /> Confirm Checkout for {child.firstName}
+                            </Button>
+                          ) : (
+                            <p key={child.id} className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                              {child.firstName} {child.lastName} is not currently checked in today.
+                            </p>
+                          ))}
+                          {!anyCheckedIn && covered.length === 0 && (
+                            <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                              This child is not currently checked in today.
+                            </p>
+                          )}
+                        </div>
                       );
                     })()}
                   </div>
