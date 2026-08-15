@@ -7,7 +7,8 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { ShieldCheck, Check, Copy, AlertCircle, User, Phone, Baby, Trash2 } from "lucide-react";
+import { ShieldCheck, Check, Copy, AlertCircle, User, Phone, Baby, Trash2, History, CalendarDays } from "lucide-react";
+import { format } from "date-fns";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useForm } from "react-hook-form";
@@ -103,6 +104,24 @@ export default function PickupDelegates() {
     const child = children.find((c: any) => c.id === childId);
     return child ? `${child.firstName} ${child.lastName}` : `Child #${childId}`;
   };
+
+  // Delegates happen per service day (Sunday): a delegate whose OTP has expired is history.
+  const now = new Date();
+  const isExpired = (d: any) => d.otpExpiresAt && new Date(d.otpExpiresAt) < now;
+  const activeDelegates = (delegates || []).filter((d: any) => !isExpired(d));
+  const pastDelegates = (delegates || []).filter(isExpired);
+
+  // Group past delegates: same person + same day (+ multi-child OTPs) become one history entry
+  const historyEntries = Object.values(
+    pastDelegates.reduce((acc: Record<string, any>, d: any) => {
+      const day = d.createdAt ? format(new Date(d.createdAt), "yyyy-MM-dd") : "unknown";
+      const key = `${day}|${d.name}|${d.phone}`;
+      if (!acc[key]) acc[key] = { key, name: d.name, phone: d.phone, photoUrl: d.photoUrl, date: d.createdAt, childIds: [] as number[], approved: false };
+      acc[key].childIds.push(d.childId);
+      if (d.parentApproved || d.approvalStatus === "approved") acc[key].approved = true;
+      return acc;
+    }, {}),
+  ).sort((a: any, b: any) => new Date(b.date ?? 0).getTime() - new Date(a.date ?? 0).getTime());
 
   return (
     <div className="space-y-6 max-w-3xl mx-auto">
@@ -222,7 +241,7 @@ export default function PickupDelegates() {
         <QueryError message="Could not load your pickup delegates." onRetry={() => refetch()} />
       ) : (
       <div className="grid gap-4 sm:grid-cols-2">
-        {delegates?.map((delegate: any) => (
+        {activeDelegates.map((delegate: any) => (
           <Card key={delegate.id} className="border rounded-2xl overflow-hidden">
             <CardHeader className="pb-2 bg-gray-50">
               <div className="flex justify-between items-start">
@@ -275,14 +294,53 @@ export default function PickupDelegates() {
             </CardContent>
           </Card>
         ))}
-        {(!delegates || delegates.length === 0) && (
+        {activeDelegates.length === 0 && (
           <div className="col-span-2 text-center py-12 border rounded-2xl bg-white border-dashed border-gray-200">
             <ShieldCheck className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-            <p className="text-gray-500 font-medium">No pickup delegates yet</p>
+            <p className="text-gray-500 font-medium">No active pickup delegates</p>
             <p className="text-gray-400 text-sm mt-1">Add trusted people who can collect your children</p>
           </div>
         )}
       </div>
+      )}
+
+      {/* ── Delegate History — past service days (delegates run on Sundays) ── */}
+      {historyEntries.length > 0 && (
+        <div className="space-y-3">
+          <div className="flex items-center gap-2 pt-2">
+            <History className="w-4 h-4 text-gray-400" />
+            <h2 className="text-sm font-bold uppercase tracking-wider text-gray-500">Delegate History</h2>
+          </div>
+          <div className="space-y-2">
+            {historyEntries.map((h: any) => (
+              <div key={h.key} className="bg-white border rounded-2xl px-4 py-3 flex items-center gap-3">
+                {resolvePhotoUrl(h.photoUrl) ? (
+                  <img src={resolvePhotoUrl(h.photoUrl)!} alt={h.name} className="w-9 h-9 rounded-full object-cover flex-shrink-0" />
+                ) : (
+                  <div className="w-9 h-9 rounded-full flex items-center justify-center text-white font-bold bg-gray-300 flex-shrink-0">
+                    {h.name?.[0]}
+                  </div>
+                )}
+                <div className="flex-1 min-w-0">
+                  <p className="font-semibold text-gray-800 text-sm truncate">{h.name}</p>
+                  <p className="text-xs text-gray-500 truncate">
+                    Collected: {h.childIds.map((id: number) => getChildName(id)).join(", ")}
+                  </p>
+                </div>
+                <div className="text-right flex-shrink-0">
+                  <p className="text-xs text-gray-500 flex items-center gap-1 justify-end">
+                    <CalendarDays className="w-3 h-3" />
+                    {h.date ? format(new Date(h.date), "EEE, dd MMM yyyy") : "—"}
+                  </p>
+                  <Badge variant={h.approved ? "default" : "secondary"}
+                    className={`mt-1 text-[10px] ${h.approved ? "bg-green-100 text-green-800 border-green-200" : "bg-gray-100 text-gray-500"}`}>
+                    {h.approved ? "Approved" : "Expired"}
+                  </Badge>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
       )}
     </div>
   );
