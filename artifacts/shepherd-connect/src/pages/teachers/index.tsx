@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { apiGet, apiPut } from "@/lib/api-call";
+import { apiGet, apiPut, apiPost } from "@/lib/api-call";
 import { useAuth } from "@/contexts/auth";
 import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -125,15 +125,36 @@ function EditTeacherModal({ teacher, classes, onClose }: { teacher: any; classes
 }
 
 function TimeLogTab() {
-  const today = new Date().toISOString().slice(0, 10);
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin" || user?.role === "super_admin";
+  // Business day is West Africa Time (UTC+1) — match the API's definition of "today"
+  const today = new Date(Date.now() + 60 * 60 * 1000).toISOString().slice(0, 10);
   const firstOfMonth = today.slice(0, 8) + "01";
   const [from, setFrom] = useState(firstOfMonth);
   const [to, setTo]     = useState(today);
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
 
   const { data: logs = [], isLoading } = useQuery<any[]>({
     queryKey: ["teacher-clock-ins", from, to],
     queryFn: () => apiGet<any[]>(`/teacher-clock-ins?from=${from}&to=${to}`),
     enabled: !!from && !!to,
+  });
+
+  const markAllMut = useMutation({
+    mutationFn: () => apiPost<{ marked: number; skipped: number; total: number }>("/teacher-clock-ins/bulk-mark-present", { date: today }),
+    onSuccess: (res) => {
+      queryClient.invalidateQueries({ queryKey: ["teacher-clock-ins"] });
+      toast({
+        title: `${res.marked} teacher${res.marked !== 1 ? "s" : ""} marked present`,
+        description: res.skipped > 0
+          ? `${res.skipped} already clocked in — left unchanged.`
+          : "All teachers and support staff are now marked present for today.",
+      });
+    },
+    onError: (e: any) => {
+      toast({ variant: "destructive", title: "Could not mark attendance", description: e?.message ?? "Please try again." });
+    },
   });
 
   function fmtTime(ts: string | null) {
@@ -181,7 +202,20 @@ function TimeLogTab() {
         <button onClick={() => { setFrom(firstOfMonth); setTo(today); }}
           className="text-xs text-blue-600 font-semibold hover:underline pb-1.5">This Month</button>
 
-        <div className="ml-auto">
+        <div className="ml-auto flex items-center gap-2">
+          {isAdmin && <button
+            onClick={() => {
+              if (window.confirm("Mark every teacher and support staff who hasn't clocked in as present for today? Those already clocked in are left unchanged.")) {
+                markAllMut.mutate();
+              }
+            }}
+            disabled={markAllMut.isPending}
+            data-testid="btn-mark-all-present"
+            className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all active:scale-95 disabled:opacity-40 text-white"
+            style={{ background: "#1e3a8a" }}>
+            <CheckCircle2 className="w-4 h-4" />
+            {markAllMut.isPending ? "Marking…" : "Mark All Present (Today)"}
+          </button>}
           <button
             onClick={handleDownload}
             disabled={(logs as any[]).length === 0}
@@ -248,6 +282,10 @@ function TimeLogTab() {
                     {row.clockInAt === null ? (
                       <span className="inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">
                         Not Clocked In
+                      </span>
+                    ) : row.isOnTime === null ? (
+                      <span className="inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">
+                        <ShieldCheck className="w-3 h-3" /> Marked by Admin
                       </span>
                     ) : row.isOnTime ? (
                       <span className="inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full bg-green-100 text-green-700">

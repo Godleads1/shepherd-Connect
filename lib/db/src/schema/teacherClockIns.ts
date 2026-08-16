@@ -1,4 +1,4 @@
-import { pgTable, serial, integer, timestamp, real, boolean, text } from "drizzle-orm/pg-core";
+import { pgTable, serial, integer, timestamp, real, boolean, text, uniqueIndex } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { usersTable } from "./users";
@@ -15,7 +15,9 @@ export const teacherClockInsTable = pgTable("teacher_clock_ins", {
   isWithinGeofence: boolean("is_within_geofence").notNull().default(false),
   notes: text("notes"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+}, (table) => [
+  uniqueIndex("teacher_clock_ins_user_date_unique").on(table.userId, table.serviceDate),
+]);
 
 export const insertTeacherClockInSchema = createInsertSchema(teacherClockInsTable).omit({
   id: true,

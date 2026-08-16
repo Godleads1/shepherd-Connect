@@ -44,7 +44,8 @@ export default function Attendance() {
   const [status,      setStatus]      = useState("all");
   const [classId,     setClassId]     = useState("all");
 
-  const today = format(new Date(), "yyyy-MM-dd");
+  // Business day is West Africa Time (UTC+1) — match the API's definition of "today"
+  const today = new Date(Date.now() + 60 * 60 * 1000).toISOString().slice(0, 10);
 
   const { data: classesData } = useListClasses({});
   const classes: any[] = classesData || [];
@@ -71,7 +72,7 @@ export default function Attendance() {
     let failures = 0;
     for (const cid of classIds) {
       try {
-        const res = await apiPost<{ count: number }>("/attendance/bulk-arrive", { classId: cid });
+        const res = await apiPost<{ count: number }>("/attendance/bulk-arrive", { classId: cid, serviceDate: today });
         confirmed += res.count ?? 0;
       } catch {
         failures++;

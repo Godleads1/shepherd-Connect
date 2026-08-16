@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
 import { teacherClockInsTable, usersTable } from "@workspace/db/schema";
-import { eq, and, desc, gte, lte, inArray } from "drizzle-orm";
+import { eq, and, desc, gte, lte, inArray, sql } from "drizzle-orm";
 import { authMiddleware, requireRoles } from "../middlewares/auth";
 
 const router = Router();
@@ -120,6 +120,59 @@ router.post("/teacher-clock-ins/clock-out", authMiddleware, requireRoles("teache
 
   req.log.info({ userId }, "Teacher clocked out");
   res.json({ success: true, record: updated });
+});
+
+// POST /teacher-clock-ins/bulk-mark-present — admin marks every unclocked teacher/support present
+router.post("/teacher-clock-ins/bulk-mark-present", authMiddleware, requireRoles("admin", "super_admin"), async (req, res): Promise<void> => {
+  const { date } = req.body as { date?: string };
+  const serviceDate = date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : todayWAT();
+  if (serviceDate > todayWAT()) {
+    res.status(400).json({ error: "Bad request", message: "Cannot mark attendance for a future date." });
+    return;
+  }
+
+  const adminUser = (req as any).user;
+  const adminName = `${adminUser.firstName ?? ""} ${adminUser.lastName ?? ""}`.trim() || `user #${adminUser.userId}`;
+
+  // All active teachers + support staff
+  const staff = await db
+    .select({ id: usersTable.id })
+    .from(usersTable)
+    .where(and(eq(usersTable.isActive, true), inArray(usersTable.role, ["teacher", "support"])));
+
+  if (staff.length === 0) {
+    res.json({ success: true, date: serviceDate, marked: 0, skipped: 0, total: 0 });
+    return;
+  }
+
+  const now = new Date();
+  const note = `Marked present by admin (${adminName})`;
+
+  // Atomic upsert guarded by the (user_id, service_date) unique index.
+  // Only rows without a genuine clock-in are touched — a concurrent teacher
+  // clock-in can never be overwritten (the WHERE on the conflict update skips it).
+  const updated = await db
+    .insert(teacherClockInsTable)
+    .values(staff.map(u => ({
+      userId: u.id,
+      serviceDate,
+      clockInAt: now,
+      isOnTime: null as boolean | null,
+      isWithinGeofence: false,
+      notes: note,
+    })))
+    .onConflictDoUpdate({
+      target: [teacherClockInsTable.userId, teacherClockInsTable.serviceDate],
+      set: { clockInAt: now, isOnTime: null, isWithinGeofence: false, notes: note },
+      setWhere: sql`${teacherClockInsTable.clockInAt} IS NULL`,
+    })
+    .returning({ id: teacherClockInsTable.id });
+
+  const marked = updated.length;
+  const skipped = staff.length - marked;
+
+  req.log.info({ adminId: adminUser.userId, serviceDate, marked, skipped }, "bulk-mark-present: admin marked staff attendance");
+  res.json({ success: true, date: serviceDate, marked, skipped, total: staff.length });
 });
 
 // GET /teacher-clock-ins/today — teacher's own status for today
