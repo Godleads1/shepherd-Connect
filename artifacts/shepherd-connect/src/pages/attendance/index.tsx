@@ -6,8 +6,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { format } from "date-fns";
-import { Filter, X, Calendar, Download } from "lucide-react";
+import { Filter, X, Calendar, Download, CheckCircle2 } from "lucide-react";
 import { useAuth } from "@/contexts/auth";
+import { useToast } from "@/hooks/use-toast";
+import { apiPost } from "@/lib/api-call";
 
 const STATUS_OPTS = [
   { value: "all", label: "All Statuses" },
@@ -33,6 +35,8 @@ const STATUS_STYLE: Record<string, string> = {
 export default function Attendance() {
   const { user } = useAuth();
   const isParent = user?.role === "parent";
+  const { toast } = useToast();
+  const [confirmingAll, setConfirmingAll] = useState(false);
 
   const [dateFrom,    setDateFrom]    = useState("");
   const [dateTo,      setDateTo]      = useState("");
@@ -51,7 +55,37 @@ export default function Attendance() {
   if (classId     !== "all") filterParams.classId     = Number(classId);
   if (dateFrom)               filterParams.serviceDate = dateFrom;
 
-  const { data: raw, isLoading } = useListAttendance(filterParams);
+  const { data: raw, isLoading, refetch } = useListAttendance(filterParams);
+
+  // Today's in-transit records visible to staff: enables "Confirm all arrivals"
+  const { data: todayRaw, refetch: refetchToday } = useListAttendance(
+    isParent ? ({ serviceDate: "1970-01-01" } as any) : ({ serviceDate: today } as any),
+  );
+  const todayRecords: any[] = Array.isArray(todayRaw) ? todayRaw : ((todayRaw as any)?.data ?? []);
+  const inTransitToday = isParent ? [] : todayRecords.filter((r: any) => r.status === "in_transit");
+
+  const handleConfirmAllArrivals = async () => {
+    setConfirmingAll(true);
+    const classIds = [...new Set(inTransitToday.map((r: any) => r.classId).filter(Boolean))] as number[];
+    let confirmed = 0;
+    let failures = 0;
+    for (const cid of classIds) {
+      try {
+        const res = await apiPost<{ count: number }>("/attendance/bulk-arrive", { classId: cid });
+        confirmed += res.count ?? 0;
+      } catch {
+        failures++;
+      }
+    }
+    setConfirmingAll(false);
+    refetch();
+    refetchToday();
+    if (failures === 0) {
+      toast({ title: `${confirmed} arrival${confirmed !== 1 ? "s" : ""} confirmed`, description: "All in-transit children are now marked in class. Parents have been notified." });
+    } else {
+      toast({ variant: "destructive", title: `Confirmed ${confirmed}, but ${failures} class${failures !== 1 ? "es" : ""} failed`, description: "Try again for the remaining classes." });
+    }
+  };
 
   let records: any[] = Array.isArray(raw) ? raw : ((raw as any)?.data ?? []);
 
@@ -104,6 +138,32 @@ export default function Attendance() {
           </Button>
         )}
       </div>
+
+      {/* Staff: confirm all in-transit arrivals across classes in one tap */}
+      {!isParent && inTransitToday.length > 0 && (
+        <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4 flex items-center justify-between gap-4 flex-wrap">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center flex-shrink-0">
+              <CheckCircle2 className="w-5 h-5 text-blue-700" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-blue-900">
+                {inTransitToday.length} child{inTransitToday.length !== 1 ? "ren" : ""} in transit today
+              </p>
+              <p className="text-xs text-blue-700 mt-0.5">Confirm their class arrival on behalf of the teachers — parents will be notified.</p>
+            </div>
+          </div>
+          <Button
+            onClick={handleConfirmAllArrivals}
+            disabled={confirmingAll}
+            className="gap-1.5 bg-blue-700 hover:bg-blue-800 text-white"
+            data-testid="btn-confirm-all-arrivals"
+          >
+            <CheckCircle2 className="w-4 h-4" />
+            {confirmingAll ? "Confirming…" : "Confirm All Arrivals"}
+          </Button>
+        </div>
+      )}
 
       {/* Filters */}
       <div className="bg-white rounded-2xl border p-4 space-y-3" style={{ boxShadow: "0 2px 8px rgba(30,58,138,.06)" }}>
