@@ -31,6 +31,22 @@ router.post("/drop-off-intents", authMiddleware, requireRoles("parent"), async (
   if (!family) { res.status(404).json({ error: "Not found", message: "No family found for your account" }); return; }
 
   const serviceDate = todayWAT();
+
+  // Validate the requested children + service slot
+  const body = (req.body ?? {}) as { childIds?: unknown; serviceSlot?: unknown };
+  const familyChildren = await db.select().from(childrenTable).where(eq(childrenTable.familyId, family.id));
+  const familyChildIds = new Set(familyChildren.map(c => c.id));
+  let childIds: number[] | null = null;
+  if (Array.isArray(body.childIds) && body.childIds.length > 0) {
+    childIds = body.childIds.filter((id): id is number => typeof id === "number" && familyChildIds.has(id));
+    if (childIds.length === 0) {
+      res.status(400).json({ error: "Bad request", message: "None of the selected children belong to your family" });
+      return;
+    }
+  }
+  const serviceSlot: "7am" | "10:30am" | "both" =
+    body.serviceSlot === "7am" || body.serviceSlot === "10:30am" ? body.serviceSlot : "both";
+
   // Only create a new intent or reactivate a cancelled one. 'arrived' is
   // terminal for the day, and a duplicate tap while already on the way
   // must not re-alert the check-in desk.
@@ -39,17 +55,25 @@ router.post("/drop-off-intents", authMiddleware, requireRoles("parent"), async (
       eq(dropOffIntentsTable.familyId, family.id),
       eq(dropOffIntentsTable.serviceDate, serviceDate),
     ));
-  if (existing?.status === "on_the_way") { res.json({ success: true, intent: existing }); return; }
+  if (existing?.status === "on_the_way") {
+    // Allow updating the selection without re-alerting the desk
+    const [updated] = await db.update(dropOffIntentsTable)
+      .set({ childIds, serviceSlot })
+      .where(and(eq(dropOffIntentsTable.id, existing.id), eq(dropOffIntentsTable.status, "on_the_way")))
+      .returning();
+    res.json({ success: true, intent: updated ?? existing });
+    return;
+  }
   if (existing?.status === "arrived") {
     res.status(409).json({ error: "Conflict", message: "Your family has already been checked in today." });
     return;
   }
 
   const [intent] = await db.insert(dropOffIntentsTable)
-    .values({ familyId: family.id, serviceDate, status: "on_the_way", createdBy: req.user!.userId })
+    .values({ familyId: family.id, serviceDate, status: "on_the_way", createdBy: req.user!.userId, childIds, serviceSlot })
     .onConflictDoUpdate({
       target: [dropOffIntentsTable.familyId, dropOffIntentsTable.serviceDate],
-      set: { status: "on_the_way", createdBy: req.user!.userId },
+      set: { status: "on_the_way", createdBy: req.user!.userId, childIds, serviceSlot },
       // Guard against a race with check-in: never flip an 'arrived' intent back
       setWhere: ne(dropOffIntentsTable.status, "arrived"),
     })
@@ -57,8 +81,9 @@ router.post("/drop-off-intents", authMiddleware, requireRoles("parent"), async (
   if (!intent) { res.status(409).json({ error: "Conflict", message: "Your family has already been checked in today." }); return; }
 
   // Let the check-in desk know a family is inbound
-  const children = await db.select().from(childrenTable).where(eq(childrenTable.familyId, family.id));
-  const childNames = children.map(c => c.firstName).join(", ");
+  const bringing = childIds ? familyChildren.filter(c => childIds!.includes(c.id)) : familyChildren;
+  const childNames = bringing.map(c => c.firstName).join(", ");
+  const slotLabel = serviceSlot === "both" ? "both services" : `the ${serviceSlot} service`;
   const [parent] = await db.select().from(usersTable).where(eq(usersTable.id, req.user!.userId));
   const parentName = parent ? `${parent.firstName} ${parent.lastName}` : "A parent";
   for (const role of ["support"] as const) {
@@ -66,7 +91,7 @@ router.post("/drop-off-intents", authMiddleware, requireRoles("parent"), async (
       role,
       type: "drop_off_incoming",
       title: "Family On The Way",
-      message: `${parentName} (${family.familyCode ?? `Family #${family.id}`}) is on the way with ${childNames || "their children"}. Expect them at the check-in desk shortly.`,
+      message: `${parentName} (${family.familyCode ?? `Family #${family.id}`}) is on the way with ${childNames || "their children"} for ${slotLabel}. Scan their family QR on arrival to check the children straight in.`,
       metadata: { familyId: family.id, intentId: intent.id },
     }).catch(() => {});
   }
@@ -134,11 +159,14 @@ router.get("/drop-off-intents", authMiddleware, requireRoles("super_admin", "adm
       familyId: i.familyId,
       serviceDate: i.serviceDate,
       status: i.status,
+      serviceSlot: i.serviceSlot,
       createdAt: i.createdAt,
       // Minimal projection only — the desk needs the code and names, not the family record
       family: family ? { id: family.id, familyCode: family.familyCode } : null,
       parentName: parent ? `${parent.firstName} ${parent.lastName}` : null,
-      children: children.filter(c => c.familyId === i.familyId).map(c => ({ id: c.id, firstName: c.firstName, lastName: c.lastName })),
+      children: children
+        .filter(c => c.familyId === i.familyId && (!i.childIds || i.childIds.length === 0 || i.childIds.includes(c.id)))
+        .map(c => ({ id: c.id, firstName: c.firstName, lastName: c.lastName })),
     };
   }));
 });

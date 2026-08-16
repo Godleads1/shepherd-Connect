@@ -168,6 +168,14 @@ export default function CheckIn() {
       setChildSlots({});
       setQrCode("");
       refetchAttendance();
+      refetchExpected();
+      const auto = (result as any)?.autoProcessed;
+      if (Array.isArray(auto) && auto.length > 0) {
+        toast({
+          title: `✅ ${auto.length} ${auto.length === 1 ? "child" : "children"} checked in & in transit`,
+          description: `${auto.map((a: any) => a.childName).join(", ")} — pre-arranged drop-off completed in one scan. Parents and teachers have been notified.`,
+        });
+      }
     } catch {
       toast({ variant: "destructive", title: "Scan Failed", description: "QR code not recognised" });
     }
@@ -396,7 +404,10 @@ export default function CheckIn() {
             {expectedArrivals.map((i: any) => (
               <div key={i.id} className="flex items-center justify-between text-sm bg-white rounded-xl px-3 py-2 border border-indigo-100">
                 <span className="font-semibold text-gray-800">{i.parentName ?? i.family?.familyCode ?? `Family #${i.familyId}`}</span>
-                <span className="text-xs text-gray-500">{(i.children ?? []).map((c: any) => c.firstName).join(", ")}</span>
+                <span className="text-xs text-gray-500">
+                  {(i.children ?? []).map((c: any) => c.firstName).join(", ")}
+                  {i.serviceSlot ? ` · ${i.serviceSlot === "both" ? "both services" : i.serviceSlot}` : ""}
+                </span>
               </div>
             ))}
           </div>

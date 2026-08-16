@@ -1,4 +1,4 @@
-import { pgTable, serial, integer, date, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, serial, integer, date, text, timestamp, uniqueIndex, jsonb } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { familiesTable } from "./families";
@@ -14,6 +14,10 @@ export const dropOffIntentsTable = pgTable("drop_off_intents", {
   familyId: integer("family_id").notNull().references(() => familiesTable.id),
   serviceDate: date("service_date").notNull(),
   status: text("status", { enum: ["on_the_way", "arrived", "cancelled"] }).notNull().default("on_the_way"),
+  /** Children the parent is bringing. Empty/null = all children in the family. */
+  childIds: jsonb("child_ids").$type<number[]>(),
+  /** Which service(s) the family is coming for. */
+  serviceSlot: text("service_slot", { enum: ["7am", "10:30am", "both"] }).notNull().default("both"),
   createdBy: integer("created_by").notNull().references(() => usersTable.id),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (t) => [

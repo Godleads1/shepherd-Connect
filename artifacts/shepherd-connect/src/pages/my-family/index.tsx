@@ -451,10 +451,29 @@ function NoFamilySetup({ userId, onCreated }: { userId?: number; onCreated: () =
   );
 }
 
-/** Pre-arrival signal: parent taps once before leaving home so the check-in desk can prepare. */
-function OnOurWayCard() {
+/**
+ * Pre-arrival signal: parent picks which children they're bringing and which
+ * service(s), then taps "We're on our way". The check-in desk is notified, and
+ * scanning the family QR on arrival checks the children straight in (in transit
+ * to class) — no extra desk steps.
+ */
+function OnOurWayCard({ children }: { children: any[] }) {
   const { toast } = useToast();
   const [sending, setSending] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const [selected, setSelected] = useState<number[]>(() => children.map((c: any) => c.id));
+  // Keep the selection in sync when the family roster changes (child added/removed)
+  useEffect(() => {
+    const ids = new Set(children.map((c: any) => c.id));
+    setSelected(prev => {
+      const kept = prev.filter(id => ids.has(id));
+      const known = new Set(kept);
+      const added = children.map((c: any) => c.id).filter((id: number) => !prev.includes(id) && !known.has(id));
+      return [...kept, ...added];
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [children.map((c: any) => c.id).join(",")]);
+  const [slot, setSlot] = useState<"7am" | "10:30am" | "both">("both");
   const { data, refetch } = useQuery({
     queryKey: ["drop-off-intent-mine"],
     queryFn: () => apiGet<{ intent: any }>("/drop-off-intents/mine"),
@@ -463,16 +482,32 @@ function OnOurWayCard() {
   const onTheWay = intent?.status === "on_the_way";
   const arrived = intent?.status === "arrived";
 
-  const toggle = async () => {
+  const toggleChild = (id: number) =>
+    setSelected(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+
+  const send = async () => {
+    if (selected.length === 0) {
+      toast({ variant: "destructive", title: "Select at least one child" });
+      return;
+    }
     setSending(true);
     try {
-      if (onTheWay) {
-        await apiDelete("/drop-off-intents");
-        toast({ title: "Cancelled", description: "The check-in desk has been updated." });
-      } else {
-        await apiPost("/drop-off-intents", {});
-        toast({ title: "On our way! 🚗", description: "The check-in desk is expecting you — drop-off will be faster when you arrive." });
-      }
+      await apiPost("/drop-off-intents", { childIds: selected, serviceSlot: slot });
+      toast({ title: "On our way! 🚗", description: "Show your family QR when you arrive — the children will be checked straight in." });
+      setExpanded(false);
+      refetch();
+    } catch (e: any) {
+      toast({ variant: "destructive", title: e.message || "Could not update" });
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const cancel = async () => {
+    setSending(true);
+    try {
+      await apiDelete("/drop-off-intents");
+      toast({ title: "Cancelled", description: "The check-in desk has been updated." });
       refetch();
     } catch (e: any) {
       toast({ variant: "destructive", title: e.message || "Could not update" });
@@ -483,23 +518,77 @@ function OnOurWayCard() {
 
   if (arrived) return null;
 
+  const slotOptions: { value: "7am" | "10:30am" | "both"; label: string }[] = [
+    { value: "7am", label: "1st · 7 AM" },
+    { value: "10:30am", label: "2nd · 10:30 AM" },
+    { value: "both", label: "Both services" },
+  ];
+
   return (
-    <div className="rounded-2xl border p-4 flex items-center justify-between gap-3 flex-wrap"
+    <div className="rounded-2xl border p-4"
       style={onTheWay ? { background: "#eef2ff", borderColor: "#c7d2fe" } : { background: "white", borderColor: "#e5e7eb" }}>
-      <div>
-        <p className="text-sm font-bold text-gray-900">
-          {onTheWay ? "The check-in desk is expecting you 🚗" : "Heading to church?"}
-        </p>
-        <p className="text-xs text-gray-500 mt-0.5">
-          {onTheWay
-            ? "Show your family QR code when you arrive for a fast drop-off."
-            : "Tap before you leave so the check-in desk can prepare — drop-off will be faster."}
-        </p>
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div>
+          <p className="text-sm font-bold text-gray-900">
+            {onTheWay ? "The check-in desk is expecting you 🚗" : "Heading to church?"}
+          </p>
+          <p className="text-xs text-gray-500 mt-0.5">
+            {onTheWay
+              ? `Bringing ${(intent?.childIds?.length ? children.filter((c: any) => intent.childIds.includes(c.id)) : children).map((c: any) => c.firstName).join(", ")} · ${intent?.serviceSlot === "both" ? "both services" : intent?.serviceSlot}. Show your family QR on arrival — they'll be checked straight in.`
+              : "Pick who you're bringing and tap before you leave — one QR scan checks them straight in."}
+          </p>
+        </div>
+        {onTheWay ? (
+          <Button onClick={cancel} disabled={sending} variant="outline" data-testid="btn-on-our-way">
+            {sending ? "…" : "Cancel"}
+          </Button>
+        ) : (
+          <Button onClick={() => setExpanded(e => !e)} disabled={sending}
+            className="bg-[#1e3a8a] hover:bg-[#1e40af] text-white" data-testid="btn-on-our-way">
+            We're on our way
+          </Button>
+        )}
       </div>
-      <Button onClick={toggle} disabled={sending} variant={onTheWay ? "outline" : "default"}
-        className={onTheWay ? "" : "bg-[#1e3a8a] hover:bg-[#1e40af] text-white"} data-testid="btn-on-our-way">
-        {sending ? "…" : onTheWay ? "Cancel" : "We're on our way"}
-      </Button>
+
+      {!onTheWay && expanded && (
+        <div className="mt-4 space-y-3 border-t border-gray-100 pt-3">
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">Who are you bringing?</p>
+            <div className="flex flex-wrap gap-2">
+              {children.map((c: any) => {
+                const on = selected.includes(c.id);
+                return (
+                  <button key={c.id} onClick={() => toggleChild(c.id)}
+                    className="px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all"
+                    style={on
+                      ? { background: "#1e3a8a", color: "white", borderColor: "#1e3a8a" }
+                      : { background: "white", color: "#64748b", borderColor: "#e2e8f0" }}>
+                    {on ? "✓ " : ""}{c.firstName}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">Which service?</p>
+            <div className="flex flex-wrap gap-2">
+              {slotOptions.map(o => (
+                <button key={o.value} onClick={() => setSlot(o.value)}
+                  className="px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all"
+                  style={slot === o.value
+                    ? { background: "#1e3a8a", color: "white", borderColor: "#1e3a8a" }
+                    : { background: "white", color: "#64748b", borderColor: "#e2e8f0" }}>
+                  {o.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <Button onClick={send} disabled={sending || selected.length === 0}
+            className="w-full bg-[#1e3a8a] hover:bg-[#1e40af] text-white" data-testid="btn-on-our-way-confirm">
+            {sending ? "Sending…" : `Notify the check-in desk (${selected.length} ${selected.length === 1 ? "child" : "children"})`}
+          </Button>
+        </div>
+      )}
     </div>
   );
 }
@@ -591,7 +680,7 @@ export default function MyFamily() {
   return (
     <div className="max-w-2xl mx-auto space-y-6">
       <AnnouncementBanner />
-      {children.length > 0 && <OnOurWayCard />}
+      {children.length > 0 && <OnOurWayCard children={children} />}
       {/* Hero */}
       <div className="rounded-2xl p-6 text-white relative overflow-hidden"
         style={{ background: "linear-gradient(135deg, #172554 0%, #1e3a8a 60%, #1d4ed8 100%)" }}>

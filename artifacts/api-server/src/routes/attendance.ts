@@ -7,6 +7,7 @@ import { notifyChildCheckedIn, notifyChildInTransit, notifyChildArrivedInClass, 
 import { smsChildCheckedIn, smsChildCheckedOut, smsPreDismissal, emailChildCheckedIn, emailChildCheckedOut } from "../services/sms";
 import { pushToUsers } from "../services/push";
 import { getParentChildIds } from "../lib/parentScope";
+import { resolveDropOffIntentIfFulfilled } from "../lib/dropOffIntentCompletion";
 
 async function getParentContacts(childId: number): Promise<{ phones: (string | null)[]; emails: (string | null)[]; parentIds: number[]; childName: string; className: string }> {
   const [child] = await db.select().from(childrenTable).where(eq(childrenTable.id, childId));
@@ -179,16 +180,11 @@ router.post("/attendance", authMiddleware, requireRoles("super_admin", "admin", 
     throw err;
   }
 
-  // Resolve any "on our way" signal for this family — they've arrived
+  // Resolve the family's "on our way" signal — but only once every intended
+  // child/slot in the selection is checked in (partial check-ins keep it open)
   db.select().from(childrenTable).where(eq(childrenTable.id, childId)).then(async ([child]) => {
     if (!child?.familyId) return;
-    await db.update(dropOffIntentsTable)
-      .set({ status: "arrived" })
-      .where(and(
-        eq(dropOffIntentsTable.familyId, child.familyId),
-        eq(dropOffIntentsTable.serviceDate, serviceDate),
-        eq(dropOffIntentsTable.status, "on_the_way"),
-      ));
+    await resolveDropOffIntentIfFulfilled(child.familyId, serviceDate);
   }).catch(() => {});
 
   notifyChildCheckedIn(childId, classId, serviceSlot).catch((err) => {
@@ -477,7 +473,71 @@ router.post("/attendance/scan-qr", authMiddleware, async (req, res): Promise<voi
       .from(usersTable).where(eq(usersTable.id, family.parent1Id));
     if (u) parent1 = u;
   }
-  res.json({ family: { ...family, parent1 }, children: childrenWithDetails, hasAlerts: alerts.length > 0, alerts });
+  // Pre-initiated drop-off: if the family signalled "on our way" today, the scan
+  // IS the handover — auto check-in the selected children for the selected
+  // service(s) and move them straight to in_transit (being escorted to class).
+  let autoProcessed: { childId: number; childName: string; slots: string[] }[] = [];
+  const staffRoles = ["super_admin", "admin", "support", "attendant"];
+  if (staffRoles.includes(req.user!.role)) {
+    // Intents are keyed to the WAT business day server-side; ignore the client's
+    // local date to avoid midnight/timezone mismatches.
+    const scanDate = todayWAT();
+    const [intent] = await db.select().from(dropOffIntentsTable)
+      .where(and(
+        eq(dropOffIntentsTable.familyId, family.id),
+        eq(dropOffIntentsTable.serviceDate, scanDate),
+        eq(dropOffIntentsTable.status, "on_the_way"),
+      ));
+    if (intent) {
+      const intended = childrenWithDetails.filter(c =>
+        c.currentClass && (!intent.childIds || intent.childIds.length === 0 || intent.childIds.includes(c.id)));
+      const slots: ("7am" | "10:30am")[] =
+        intent.serviceSlot === "both" ? ["7am", "10:30am"] : [intent.serviceSlot];
+      const now = new Date();
+      for (const child of intended) {
+        const doneSlots: string[] = [];
+        for (const slot of slots) {
+          // Create the check-in record; skip silently if already checked in for this slot
+          let record: typeof attendanceTable.$inferSelect | undefined;
+          try {
+            const [inserted] = await db.insert(attendanceTable).values({
+              childId: child.id,
+              classId: child.currentClass!.id,
+              serviceDate: scanDate,
+              serviceSlot: slot,
+              checkedInBy: req.user!.userId,
+              checkInTime: now,
+              status: "dropped_off",
+            }).returning();
+            record = inserted;
+          } catch (err: any) {
+            if (err?.code !== "23505") throw err; // already checked in — skip
+          }
+          if (!record) continue;
+          // Straight to in_transit: the scan means the parent has handed over the child
+          const [escorted] = await db.update(attendanceTable)
+            .set({ status: "in_transit", escortTime: now, escortedBy: req.user!.userId })
+            .where(eq(attendanceTable.id, record.id))
+            .returning();
+          doneSlots.push(slot);
+          notifyChildCheckedIn(child.id, child.currentClass!.id, slot).catch(() => {});
+          notifyTeachersChildDroppedOff(child.id, child.currentClass!.id, slot, scanDate).catch(() => {});
+          if (escorted) {
+            notifyChildInTransit(child.id, child.currentClass!.id, scanDate).catch(() => {});
+            notifyTeachersChildInTransit(child.id, child.currentClass!.id, scanDate).catch(() => {});
+          }
+        }
+        if (doneSlots.length > 0) {
+          autoProcessed.push({ childId: child.id, childName: `${child.firstName} ${child.lastName}`, slots: doneSlots });
+        }
+      }
+      // Mark the intent arrived only if the whole selection is now checked in;
+      // otherwise it stays open so remaining children/slots can still be processed
+      await resolveDropOffIntentIfFulfilled(family.id, scanDate);
+    }
+  }
+
+  res.json({ family: { ...family, parent1 }, children: childrenWithDetails, hasAlerts: alerts.length > 0, alerts, autoProcessed });
 });
 
 router.post("/attendance/scan-face", authMiddleware, async (req, res): Promise<void> => {
