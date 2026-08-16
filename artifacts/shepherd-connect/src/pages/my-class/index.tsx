@@ -379,8 +379,8 @@ export default function MyClass() {
             </div>
           ) : (
             <>
-              {/* Bulk-arrive button — appears when 2+ children are in transit */}
-              {inTransitList.length >= 2 && (
+              {/* Bulk-arrive button — appears when 2+ children are pending */}
+              {pending.length >= 2 && (
                 <button
                   onClick={handleBulkArrive}
                   disabled={bulkArriving}
@@ -390,7 +390,7 @@ export default function MyClass() {
                   {bulkArriving ? (
                     <><span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" /> Confirming…</>
                   ) : (
-                    <><CheckCircle2 className="w-4 h-4" /> All {inTransitList.length} in transit — mark all arrived</>
+                    <><CheckCircle2 className="w-4 h-4" /> All {pending.length} pending — mark all arrived</>
                   )}
                 </button>
               )}

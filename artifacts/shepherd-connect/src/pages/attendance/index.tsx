@@ -9,7 +9,8 @@ import { format } from "date-fns";
 import { Filter, X, Calendar, Download, CheckCircle2 } from "lucide-react";
 import { useAuth } from "@/contexts/auth";
 import { useToast } from "@/hooks/use-toast";
-import { apiPost } from "@/lib/api-call";
+import { apiGet, apiPost } from "@/lib/api-call";
+import { useQuery } from "@tanstack/react-query";
 
 const STATUS_OPTS = [
   { value: "all", label: "All Statuses" },
@@ -63,11 +64,35 @@ export default function Attendance() {
     isParent ? ({ serviceDate: "1970-01-01" } as any) : ({ serviceDate: today } as any),
   );
   const todayRecords: any[] = Array.isArray(todayRaw) ? todayRaw : ((todayRaw as any)?.data ?? []);
-  const inTransitToday = isParent ? [] : todayRecords.filter((r: any) => r.status === "in_transit");
+  const pendingToday = isParent ? [] : todayRecords.filter((r: any) => r.status === "in_transit" || r.status === "dropped_off");
+
+  // Admins: unresolved records from previous days (children never marked picked up)
+  const isAdmin = user?.role === "admin" || user?.role === "super_admin";
+  const { data: staleRaw, refetch: refetchStale } = useQuery({
+    queryKey: ["attendance-stale"],
+    queryFn: () => apiGet<any[]>("/attendance/stale"),
+    enabled: isAdmin,
+  });
+  const staleRecords: any[] = Array.isArray(staleRaw) ? staleRaw : [];
+  const [clearingStale, setClearingStale] = useState(false);
+
+  const handleClearStale = async () => {
+    setClearingStale(true);
+    try {
+      const res = await apiPost<{ count: number }>("/attendance/resolve-stale", {});
+      toast({ title: `${res.count} old record${res.count !== 1 ? "s" : ""} closed out`, description: "They are now marked as picked up. No parent notifications were sent." });
+      refetch();
+      refetchStale();
+    } catch {
+      toast({ variant: "destructive", title: "Could not clear old records" });
+    } finally {
+      setClearingStale(false);
+    }
+  };
 
   const handleConfirmAllArrivals = async () => {
     setConfirmingAll(true);
-    const classIds = [...new Set(inTransitToday.map((r: any) => r.classId).filter(Boolean))] as number[];
+    const classIds = [...new Set(pendingToday.map((r: any) => r.classId).filter(Boolean))] as number[];
     let confirmed = 0;
     let failures = 0;
     for (const cid of classIds) {
@@ -141,7 +166,33 @@ export default function Attendance() {
       </div>
 
       {/* Staff: confirm all in-transit arrivals across classes in one tap */}
-      {!isParent && inTransitToday.length > 0 && (
+      {/* Admins: stale records from previous days that were never closed out */}
+      {isAdmin && staleRecords.length > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex items-center justify-between gap-4 flex-wrap">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center flex-shrink-0">
+              <Calendar className="w-5 h-5 text-amber-700" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-amber-900">
+                {staleRecords.length} unresolved record{staleRecords.length !== 1 ? "s" : ""} from previous days
+              </p>
+              <p className="text-xs text-amber-700 mt-0.5">Children still shown as dropped off or in transit from past services. Clearing marks them picked up — no parents are notified.</p>
+            </div>
+          </div>
+          <Button
+            onClick={handleClearStale}
+            disabled={clearingStale}
+            variant="outline"
+            className="gap-1.5 border-amber-300 text-amber-800 hover:bg-amber-100"
+            data-testid="btn-clear-stale"
+          >
+            {clearingStale ? "Clearing…" : "Clear Old Records"}
+          </Button>
+        </div>
+      )}
+
+      {!isParent && pendingToday.length > 0 && (
         <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4 flex items-center justify-between gap-4 flex-wrap">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center flex-shrink-0">
@@ -149,7 +200,7 @@ export default function Attendance() {
             </div>
             <div>
               <p className="text-sm font-semibold text-blue-900">
-                {inTransitToday.length} child{inTransitToday.length !== 1 ? "ren" : ""} in transit today
+                {pendingToday.length} child{pendingToday.length !== 1 ? "ren" : ""} awaiting class confirmation today
               </p>
               <p className="text-xs text-blue-700 mt-0.5">Confirm their class arrival on behalf of the teachers — parents will be notified.</p>
             </div>

@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { eq, and, ne, inArray } from "drizzle-orm";
+import { eq, and, ne, lt, inArray } from "drizzle-orm";
 import { db, attendanceTable, childrenTable, classesTable, familiesTable, usersTable, notificationsTable, teachersTable, teacherAllocationsTable, hallSessionsTable } from "@workspace/db";
 import { CheckInBody, CheckOutBody, ListAttendanceQueryParams, ScanQrCodeBody } from "@workspace/api-zod";
 import { authMiddleware, requireRoles } from "../middlewares/auth";
@@ -291,7 +291,8 @@ router.post("/attendance/bulk-arrive", authMiddleware, requireRoles("super_admin
     .where(and(
       eq(attendanceTable.classId, classId),
       eq(attendanceTable.serviceDate, today),
-      eq(attendanceTable.status, "in_transit"),
+      // dropped_off children who never got the escort step can also be confirmed in bulk
+      inArray(attendanceTable.status, ["in_transit", "dropped_off"]),
     ))
     .returning();
 
@@ -300,6 +301,48 @@ router.post("/attendance/bulk-arrive", authMiddleware, requireRoles("super_admin
   }
 
   req.log.info({ count: records.length, classId, today }, "bulk-arrive: confirmed all in-transit children");
+  res.json({ success: true, count: records.length });
+});
+
+/** Business day in West Africa Time (UTC+1). */
+function todayWAT(): string {
+  return new Date(Date.now() + 60 * 60 * 1000).toISOString().slice(0, 10);
+}
+
+/**
+ * GET /attendance/stale
+ * Staff view of unresolved records from previous service days —
+ * children still marked dropped_off / in_transit after the day ended.
+ */
+router.get("/attendance/stale", authMiddleware, requireRoles("super_admin", "admin", "support", "attendant"), async (_req, res): Promise<void> => {
+  const records = await db.select().from(attendanceTable)
+    .where(and(
+      lt(attendanceTable.serviceDate, todayWAT()),
+      inArray(attendanceTable.status, ["dropped_off", "in_transit"]),
+    ));
+  res.json(await Promise.all(records.map(formatAttendance)));
+});
+
+/**
+ * POST /attendance/resolve-stale
+ * Closes out all stale records from previous days by marking them picked_up.
+ * The children clearly went home; the records were just never closed.
+ * No parent notifications are sent (the pickup happened days ago).
+ */
+router.post("/attendance/resolve-stale", authMiddleware, requireRoles("super_admin", "admin"), async (req, res): Promise<void> => {
+  const records = await db.update(attendanceTable)
+    .set({
+      status: "picked_up",
+      checkOutTime: new Date(),
+      checkedOutBy: req.user!.userId,
+    })
+    .where(and(
+      lt(attendanceTable.serviceDate, todayWAT()),
+      inArray(attendanceTable.status, ["dropped_off", "in_transit"]),
+    ))
+    .returning();
+
+  req.log.info({ count: records.length, resolvedBy: req.user!.userId }, "resolve-stale: closed out stale attendance records");
   res.json({ success: true, count: records.length });
 });
 
