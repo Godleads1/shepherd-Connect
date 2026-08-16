@@ -516,8 +516,6 @@ function OnOurWayCard({ children }: { children: any[] }) {
     }
   };
 
-  if (arrived) return null;
-
   const slotOptions: { value: "7am" | "10:30am" | "both"; label: string }[] = [
     { value: "7am", label: "1st · 7 AM" },
     { value: "10:30am", label: "2nd · 10:30 AM" },
@@ -530,12 +528,14 @@ function OnOurWayCard({ children }: { children: any[] }) {
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div>
           <p className="text-sm font-bold text-gray-900">
-            {onTheWay ? "The check-in desk is expecting you 🚗" : "Heading to church?"}
+            {onTheWay ? "The check-in desk is expecting you 🚗" : arrived ? "Checked in today ✓" : "Heading to church?"}
           </p>
           <p className="text-xs text-gray-500 mt-0.5">
             {onTheWay
               ? `Bringing ${(intent?.childIds?.length ? children.filter((c: any) => intent.childIds.includes(c.id)) : children).map((c: any) => c.firstName).join(", ")} · ${intent?.serviceSlot === "both" ? "both services" : intent?.serviceSlot}. Show your family QR on arrival — they'll be checked straight in.`
-              : "Pick who you're bringing and tap before you leave — one QR scan checks them straight in."}
+              : arrived
+                ? "Coming back for another service? You can signal the desk again."
+                : "Pick who you're bringing and tap before you leave — one QR scan checks them straight in."}
           </p>
         </div>
         {onTheWay ? (

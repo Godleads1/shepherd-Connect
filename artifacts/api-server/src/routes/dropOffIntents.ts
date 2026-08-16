@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { eq, and, ne, inArray } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
 import { db, dropOffIntentsTable, familiesTable, childrenTable, usersTable } from "@workspace/db";
 import { authMiddleware, requireRoles } from "../middlewares/auth";
 import { sendToRole } from "../lib/notify";
@@ -47,9 +47,10 @@ router.post("/drop-off-intents", authMiddleware, requireRoles("parent"), async (
   const serviceSlot: "7am" | "10:30am" | "both" =
     body.serviceSlot === "7am" || body.serviceSlot === "10:30am" ? body.serviceSlot : "both";
 
-  // Only create a new intent or reactivate a cancelled one. 'arrived' is
-  // terminal for the day, and a duplicate tap while already on the way
-  // must not re-alert the check-in desk.
+  // A duplicate tap while already on the way must not re-alert the check-in
+  // desk — just update the selection. A cancelled or 'arrived' intent can be
+  // re-signalled (e.g. a second trip for the later service), which does alert
+  // the desk again.
   const [existing] = await db.select().from(dropOffIntentsTable)
     .where(and(
       eq(dropOffIntentsTable.familyId, family.id),
@@ -64,21 +65,15 @@ router.post("/drop-off-intents", authMiddleware, requireRoles("parent"), async (
     res.json({ success: true, intent: updated ?? existing });
     return;
   }
-  if (existing?.status === "arrived") {
-    res.status(409).json({ error: "Conflict", message: "Your family has already been checked in today." });
-    return;
-  }
 
   const [intent] = await db.insert(dropOffIntentsTable)
     .values({ familyId: family.id, serviceDate, status: "on_the_way", createdBy: req.user!.userId, childIds, serviceSlot })
     .onConflictDoUpdate({
       target: [dropOffIntentsTable.familyId, dropOffIntentsTable.serviceDate],
       set: { status: "on_the_way", createdBy: req.user!.userId, childIds, serviceSlot },
-      // Guard against a race with check-in: never flip an 'arrived' intent back
-      setWhere: ne(dropOffIntentsTable.status, "arrived"),
     })
     .returning();
-  if (!intent) { res.status(409).json({ error: "Conflict", message: "Your family has already been checked in today." }); return; }
+  if (!intent) { res.status(500).json({ error: "Internal error", message: "Could not save your signal. Please try again." }); return; }
 
   // Let the check-in desk know a family is inbound
   const bringing = childIds ? familyChildren.filter(c => childIds!.includes(c.id)) : familyChildren;
