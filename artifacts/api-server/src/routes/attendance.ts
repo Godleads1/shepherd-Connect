@@ -3,7 +3,7 @@ import { eq, and, ne, inArray } from "drizzle-orm";
 import { db, attendanceTable, childrenTable, classesTable, familiesTable, usersTable, notificationsTable, teachersTable, teacherAllocationsTable, hallSessionsTable } from "@workspace/db";
 import { CheckInBody, CheckOutBody, ListAttendanceQueryParams, ScanQrCodeBody } from "@workspace/api-zod";
 import { authMiddleware, requireRoles } from "../middlewares/auth";
-import { notifyChildCheckedIn, notifyChildInTransit, notifyChildArrivedInClass, notifyChildPickedUp, notifyTeachersChildDroppedOff, notifyTeachersChildInTransit, sendNotification } from "../lib/notify";
+import { notifyChildCheckedIn, notifyChildInTransit, notifyChildArrivedInClass, notifyChildPickedUp, notifyTeachersChildDroppedOff, notifyTeachersChildInTransit, notifyTeachersChildPickedUp, sendNotification } from "../lib/notify";
 import { smsChildCheckedIn, smsChildCheckedOut, smsPreDismissal, emailChildCheckedIn, emailChildCheckedOut } from "../services/sms";
 import { pushToUsers } from "../services/push";
 import { getParentChildIds } from "../lib/parentScope";
@@ -346,6 +346,7 @@ router.put("/attendance/:id/checkout", authMiddleware, requireRoles("super_admin
   if (!record) { res.status(404).json({ error: "Not found", message: "Attendance record not found" }); return; }
 
   notifyChildPickedUp(record.childId).catch(() => {});
+  notifyTeachersChildPickedUp(record.childId, record.classId).catch(() => {});
 
   getParentContacts(record.childId).then(({ phones, emails, parentIds, childName }) => {
     smsChildCheckedOut(phones, childName, req.log).catch(() => {});

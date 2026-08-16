@@ -394,6 +394,115 @@ export async function notifyTeachersChildDroppedOff(
   }
 }
 
+/**
+ * Resolve the user ids of teachers responsible for a class today.
+ * Uses date-specific allocations first, falls back to any allocation for the
+ * class (same behaviour as drop-off/transit notifications), and respects
+ * active class merges by routing to the host class.
+ */
+export async function getClassTeacherUserIds(classId: number, serviceDate?: string): Promise<number[]> {
+  const today = serviceDate ?? new Date().toISOString().slice(0, 10);
+  const mergeTarget = await getActiveMergeTarget(classId, today);
+  const routingClassId = mergeTarget?.targetClassId ?? classId;
+
+  let allocations = await db
+    .select()
+    .from(teacherAllocationsTable)
+    .where(and(
+      eq(teacherAllocationsTable.classId, routingClassId),
+      eq(teacherAllocationsTable.serviceDate, today),
+    ));
+
+  if (allocations.length === 0) {
+    allocations = await db
+      .select()
+      .from(teacherAllocationsTable)
+      .where(eq(teacherAllocationsTable.classId, routingClassId))
+      .orderBy(teacherAllocationsTable.serviceDate)
+      .limit(5);
+  }
+
+  const seenTeacherIds = new Set<number>();
+  const userIds: number[] = [];
+  for (const alloc of allocations) {
+    if (seenTeacherIds.has(alloc.teacherId)) continue;
+    seenTeacherIds.add(alloc.teacherId);
+    const [teacher] = await db.select().from(teachersTable).where(eq(teachersTable.id, alloc.teacherId));
+    if (teacher) userIds.push(teacher.userId);
+  }
+  if (userIds.length === 0) {
+    logger.warn({ classId, routingClassId, today }, "getClassTeacherUserIds: no teacher found for class");
+  }
+  return userIds;
+}
+
+/**
+ * Notify the class teacher(s) when a child has been checked out —
+ * closes the handover loop so the teacher knows the child is accounted for.
+ */
+export async function notifyTeachersChildPickedUp(childId: number, classId: number) {
+  const [child] = await db.select().from(childrenTable).where(eq(childrenTable.id, childId));
+  if (!child) return;
+  const now = new Date().toLocaleTimeString("en-NG", { hour: "2-digit", minute: "2-digit" });
+  const teacherUserIds = await getClassTeacherUserIds(classId);
+  for (const uid of teacherUserIds) {
+    await sendNotification({
+      userId: uid,
+      type: "child_picked_up",
+      title: "Child Checked Out",
+      message: `${child.firstName} ${child.lastName} has been checked out at ${now} and is no longer in your care.`,
+      metadata: { childId, classId },
+    });
+  }
+}
+
+/**
+ * Notify the class teacher(s) of each affected child when a pickup delegate
+ * arrives at the front desk or is approved by a parent.
+ * Only children checked in today (and not yet picked up) generate notifications.
+ */
+export async function notifyTeachersDelegatePickup(
+  childIds: number[],
+  delegateName: string,
+  stage: "arrived" | "approved",
+) {
+  const today = new Date().toISOString().slice(0, 10);
+  for (const childId of childIds) {
+    // A child can have records for both service slots today — only the
+    // active (not yet picked up) record(s) determine which class holds them now.
+    const records = await db.select().from(attendanceTable)
+      .where(and(
+        eq(attendanceTable.childId, childId),
+        eq(attendanceTable.serviceDate, today),
+      ));
+    const activeRecords = records.filter(r => r.status !== "picked_up");
+    if (activeRecords.length === 0) continue;
+
+    const [child] = await db.select().from(childrenTable).where(eq(childrenTable.id, childId));
+    if (!child) continue;
+
+    const message = stage === "arrived"
+      ? `${delegateName} is at the front desk to collect ${child.firstName} ${child.lastName}. Awaiting parent approval — do not release the child yet.`
+      : `Parent approved: ${child.firstName} ${child.lastName} may be released to ${delegateName}. Please verify identity at handover.`;
+
+    const notifiedUserIds = new Set<number>();
+    for (const record of activeRecords) {
+      const teacherUserIds = await getClassTeacherUserIds(record.classId, today);
+      for (const uid of teacherUserIds) {
+        if (notifiedUserIds.has(uid)) continue;
+        notifiedUserIds.add(uid);
+        await sendNotification({
+          userId: uid,
+          type: "delegate_pickup",
+          title: stage === "arrived" ? "Delegate Awaiting Approval" : "Delegate Pickup Approved",
+          message,
+          metadata: { childId, classId: record.classId, delegateName, stage },
+        });
+      }
+    }
+  }
+}
+
 export async function notifyChildPickedUp(childId: number) {
   const [child] = await db.select().from(childrenTable).where(eq(childrenTable.id, childId));
   if (!child) return;

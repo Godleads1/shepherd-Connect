@@ -2,7 +2,7 @@ import { Router } from "express";
 import { eq, or, and, desc, inArray } from "drizzle-orm";
 import { db, messagesTable, usersTable, childrenTable, familiesTable, teachersTable, teacherAllocationsTable } from "@workspace/db";
 import { authMiddleware } from "../middlewares/auth";
-import { dispatchExternal } from "../lib/notify";
+import { sendNotification } from "../lib/notify";
 import { pushEvent } from "../lib/sse";
 import { z } from "zod";
 
@@ -210,11 +210,17 @@ router.post("/messages", authMiddleware, async (req, res): Promise<void> => {
     ? `${formatted.sender.firstName} ${formatted.sender.lastName}`
     : "Someone";
   const subject = parsed.data.subject ? `Re: ${parsed.data.subject}` : "New Message";
-  dispatchExternal(
-    parsed.data.recipientId,
-    `${subject} from ${senderName}`,
-    parsed.data.body,
-  ).catch(() => {});
+
+  // Persistent in-app notification so the message isn't missed if the
+  // recipient is offline. sendNotification also dispatches the recipient's
+  // preferred external channel (WhatsApp/SMS) internally — exactly one delivery.
+  sendNotification({
+    userId: parsed.data.recipientId,
+    type: "new_message",
+    title: subject,
+    message: `${senderName} sent you a message: ${parsed.data.body.slice(0, 120)}${parsed.data.body.length > 120 ? "…" : ""}`,
+    metadata: { messageId: message.id, senderId: req.user!.userId },
+  }).catch(() => {});
 
   // Push real-time SSE event so the recipient's app updates instantly
   pushEvent(parsed.data.recipientId, "new_message", { senderId: req.user!.userId });

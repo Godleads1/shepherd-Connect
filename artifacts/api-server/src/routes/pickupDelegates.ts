@@ -5,7 +5,7 @@ import { db, pickupDelegatesTable, childrenTable, familiesTable, usersTable, not
 import { CreatePickupDelegateBody, VerifyDelegateOtpBody, ListPickupDelegatesQueryParams } from "@workspace/api-zod";
 import { authMiddleware } from "../middlewares/auth";
 import { smsDelegateOtp } from "../services/sms";
-import { sendNotification } from "../lib/notify";
+import { sendNotification, notifyTeachersDelegatePickup } from "../lib/notify";
 import { getParentChildIds as getOwnedChildIds } from "../lib/parentScope";
 
 const createDelegateLimiter = rateLimit({
@@ -174,11 +174,16 @@ router.put("/pickup-delegates/:id/approve", authMiddleware, async (req, res): Pr
   if (!await assertParentOwnsDelegateOrAdmin(existing.childId, req.user!.userId, req.user!.role, res)) return;
   // Approval applies to the whole OTP group (one code may cover several children)
   const group = await getDelegateGroup(existing);
+  const wasAlreadyApproved = group.every(g => g.approvalStatus === "approved");
   const updated = await db.update(pickupDelegatesTable)
     .set({ parentApproved: true, approvalStatus: "approved" })
     .where(inArray(pickupDelegatesTable.id, group.map(g => g.id))).returning();
   const delegate = updated.find(d => d.id === id) ?? updated[0];
   if (!delegate) { res.status(404).json({ error: "Not found", message: "Delegate not found" }); return; }
+  // Only notify teachers on the actual transition to approved — retries stay silent
+  if (!wasAlreadyApproved) {
+    notifyTeachersDelegatePickup(group.map(g => g.childId), delegate.name, "approved").catch(() => {});
+  }
   res.json({ ...delegate, otpCode: undefined });
 });
 
@@ -226,6 +231,9 @@ router.post("/pickup-delegates/:id/notify-parent", authMiddleware, async (req, r
     metadata: { delegateId: id, childId: children[0].id, childIds: groupChildIds, delegateName: delegate.name, requiresApproval: true },
   })));
 
+  // Also warn the class teacher(s) so they can prepare — but not release yet
+  notifyTeachersDelegatePickup(group.map(g => g.childId), delegate.name, "arrived").catch(() => {});
+
   res.json({ success: true, requiresApproval: true, message: `Parent notified. Waiting for their approval before releasing ${childNames}.` });
 });
 
@@ -257,11 +265,16 @@ router.post("/pickup-delegates/:id/approve", authMiddleware, async (req, res): P
   }
 
   const group = await getDelegateGroup(delegate);
+  const wasAlreadyApproved = group.every(g => g.approvalStatus === "approved");
   const updatedRows = await db.update(pickupDelegatesTable)
     .set({ parentApproved: true, approvalStatus: "approved" })
     .where(inArray(pickupDelegatesTable.id, group.map(g => g.id))).returning();
   const updated = updatedRows.find(d => d.id === id) ?? updatedRows[0];
 
+  // Only notify teachers on the actual transition to approved — retries stay silent
+  if (!wasAlreadyApproved) {
+    notifyTeachersDelegatePickup(group.map(g => g.childId), delegate.name, "approved").catch(() => {});
+  }
   res.json({ success: true, delegate: updated, message: "Pickup approved. Child may be released." });
 });
 

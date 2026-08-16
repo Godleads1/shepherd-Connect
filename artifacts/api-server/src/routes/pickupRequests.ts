@@ -6,7 +6,7 @@ import {
   teachersTable, teacherAllocationsTable, classMergesTable,
 } from "@workspace/db/schema";
 import { eq, and } from "drizzle-orm";
-import { sendNotification } from "../lib/notify";
+import { sendNotification, getClassTeacherUserIds } from "../lib/notify";
 
 const router = Router();
 
@@ -164,21 +164,16 @@ router.post("/pickup-requests", authMiddleware, async (req, res): Promise<void> 
 
   broadcastToClass(routingClassId, { type: "pickup", request, queue });
 
-  const allocations = await db
-    .select({ userId: teachersTable.userId })
-    .from(teacherAllocationsTable)
-    .innerJoin(teachersTable, eq(teacherAllocationsTable.teacherId, teachersTable.id))
-    .where(and(
-      eq(teacherAllocationsTable.classId, routingClassId),
-      eq(teacherAllocationsTable.serviceDate, today),
-    ));
+  // Date-specific allocations with fallback (same rules as drop-off/transit
+  // notifications) so a teacher without a formal allocation today still hears it.
+  const teacherUserIds = await getClassTeacherUserIds(routingClassId, today);
 
   const pickupMsg = merge
     ? `${parentName} is here to collect ${childName} (from ${childClassName}, merged with ${routingClassName}). Please prepare for handover.`
     : `${parentName} is here to collect ${childName} from ${childClassName}. Please prepare for handover.`;
 
-  await Promise.all(allocations.map(a => sendNotification({
-    userId: a.userId,
+  await Promise.all(teacherUserIds.map(userId => sendNotification({
+    userId,
     type: "pickup_request",
     title: "Pickup Request",
     message: pickupMsg,
