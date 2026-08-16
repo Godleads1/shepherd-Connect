@@ -310,6 +310,14 @@ function AdminDashboard() {
   const { data: exceptions, isLoading: excLoading } = useGetExceptions();
   const { data: feedback, isLoading: feedbackLoading } = useGetFeedbackAnalytics();
 
+  // Checked-out children today — visibility of completed pickups
+  const todayWAT = new Date(Date.now() + 60 * 60 * 1000).toISOString().slice(0, 10);
+  const { data: checkedOutRaw } = useQuery({
+    queryKey: ["dashboard-checked-out", todayWAT],
+    queryFn: () => apiGet<any[]>(`/attendance?serviceDate=${todayWAT}&status=picked_up`),
+  });
+  const checkedOut: any[] = Array.isArray(checkedOutRaw) ? checkedOutRaw : ((checkedOutRaw as any)?.data ?? []);
+
   if (statsError) return <QueryError message="Could not load dashboard stats." />;
   if (statsLoading) return (
     <div className="p-8 space-y-4 max-w-7xl mx-auto">
@@ -394,6 +402,32 @@ function AdminDashboard() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Children checked out today */}
+      {checkedOut.length > 0 && (
+        <Card className="rounded-2xl border-none shadow-card">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2" style={{ fontFamily: "'Playfair Display', serif" }}>
+              <CheckCircle className="w-5 h-5 text-green-600" /> Checked Out Today ({checkedOut.length})
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-3">
+              {checkedOut.map((r: any) => (
+                <div key={r.id} className="flex items-center justify-between bg-gray-50 rounded-xl px-3 py-2 border border-gray-100">
+                  <div>
+                    <p className="text-sm font-semibold text-gray-800">{r.child?.firstName} {r.child?.lastName}</p>
+                    <p className="text-xs text-gray-500">{r.class?.name ?? "—"}</p>
+                  </div>
+                  <span className="text-xs font-medium text-green-700">
+                    {r.checkOutTime ? format(new Date(r.checkOutTime), "HH:mm") : ""}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <BirthdayAndAbsenceRow />
 

@@ -219,7 +219,58 @@ export function startScheduler() {
     });
   }
 
+  // Saturday 10:00 WAT (9:00 UTC): auto-schedule every active teacher with a
+  // permanent class for tomorrow's Sunday services and remind them.
+  cron.schedule("0 9 * * 6", async () => {
+    if (!await acquireSchedulerLock("saturday_auto_schedule", 60)) {
+      logger.info("scheduler: saturday_auto_schedule already ran on another instance — skipping");
+      return;
+    }
+    logger.info("scheduler: Saturday — auto-scheduling teachers for tomorrow's services");
+    try {
+      // Tomorrow in WAT (Saturday +1 day = Sunday)
+      const sunday = new Date(Date.now() + 60 * 60 * 1000 + 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+      const teachers = await db.select().from(teachersTable);
+      let created = 0;
+      let reminded = 0;
+      let skippedNoClass = 0;
+
+      for (const teacher of teachers) {
+        const [user] = await db.select().from(usersTable).where(eq(usersTable.id, teacher.userId));
+        if (!user || user.isActive === false || user.role !== "teacher") continue;
+        if (!user.primaryClassId) { skippedNoClass++; continue; }
+
+        let allocatedSlots: string[] = [];
+        for (const slot of ["7am", "10:30am"] as const) {
+          const [alloc] = await db.insert(teacherAllocationsTable).values({
+            teacherId: teacher.id,
+            classId: user.primaryClassId,
+            serviceDate: sunday,
+            serviceSlot: slot,
+            status: "scheduled",
+          }).onConflictDoNothing().returning();
+          if (alloc) { created++; allocatedSlots.push(slot); }
+        }
+
+        // Remind every scheduled teacher (whether allocated just now or earlier by an admin)
+        await sendNotification({
+          userId: user.id,
+          type: "schedule_reminder",
+          title: "⛪ You're On Duty Tomorrow",
+          message: `Reminder: you are scheduled to serve in Junior Church tomorrow (${sunday}). Please arrive on time and clock in when you get there. God bless you for serving!`,
+          metadata: { serviceDate: sunday, slots: allocatedSlots },
+        });
+        reminded++;
+      }
+
+      logger.info({ created, reminded, skippedNoClass, sunday }, "scheduler: Saturday auto-schedule complete");
+    } catch (err) {
+      logger.error({ err }, "scheduler: Saturday auto-schedule failed");
+    }
+  });
+
   logger.info(
-    "scheduler: started (Sunday cleanup + 6 check-in notifications + 2 clock-out reminders)"
+    "scheduler: started (Sunday cleanup + 6 check-in notifications + 2 clock-out reminders + Saturday auto-schedule)"
   );
 }

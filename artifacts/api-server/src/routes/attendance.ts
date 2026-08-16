@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { eq, and, ne, lt, inArray } from "drizzle-orm";
-import { db, attendanceTable, childrenTable, classesTable, familiesTable, usersTable, notificationsTable, teachersTable, teacherAllocationsTable, hallSessionsTable } from "@workspace/db";
+import { db, attendanceTable, childrenTable, classesTable, familiesTable, usersTable, notificationsTable, teachersTable, teacherAllocationsTable, hallSessionsTable, dropOffIntentsTable } from "@workspace/db";
 import { CheckInBody, CheckOutBody, ListAttendanceQueryParams, ScanQrCodeBody } from "@workspace/api-zod";
 import { authMiddleware, requireRoles } from "../middlewares/auth";
 import { notifyChildCheckedIn, notifyChildInTransit, notifyChildArrivedInClass, notifyChildPickedUp, notifyTeachersChildDroppedOff, notifyTeachersChildInTransit, notifyTeachersChildPickedUp, sendNotification } from "../lib/notify";
@@ -178,6 +178,18 @@ router.post("/attendance", authMiddleware, requireRoles("super_admin", "admin", 
     }
     throw err;
   }
+
+  // Resolve any "on our way" signal for this family — they've arrived
+  db.select().from(childrenTable).where(eq(childrenTable.id, childId)).then(async ([child]) => {
+    if (!child?.familyId) return;
+    await db.update(dropOffIntentsTable)
+      .set({ status: "arrived" })
+      .where(and(
+        eq(dropOffIntentsTable.familyId, child.familyId),
+        eq(dropOffIntentsTable.serviceDate, serviceDate),
+        eq(dropOffIntentsTable.status, "on_the_way"),
+      ));
+  }).catch(() => {});
 
   notifyChildCheckedIn(childId, classId, serviceSlot).catch((err) => {
     req.log.error({ err, childId, classId }, "notifyChildCheckedIn failed");

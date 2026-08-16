@@ -36,5 +36,6 @@ export * from "./churchSettings";
 export * from "./otpSessions";
 export * from "./schedulerLocks";
 export * from "./classMerges";
+export * from "./dropOffIntents";
 export * from "./hallSessions";
 export * from "./whatsappBroadcasts";

@@ -12,7 +12,8 @@ import { useAuth } from "@/contexts/auth";
 import FamilyAssist from "./FamilyAssist";
 import LocationBanner from "@/components/LocationBanner";
 import { useGeneralSettings } from "@/components/AnnouncementBanner";
-import { apiGet, apiPost, apiDelete } from "@/lib/api-call";
+import { apiGet, apiPost, apiPut, apiDelete } from "@/lib/api-call";
+import { useQuery } from "@tanstack/react-query";
 
 type Tab = "qr" | "face" | "assist";
 type SlotChoice = "7am" | "10:30am" | "both";
@@ -100,7 +101,11 @@ export default function CheckIn() {
 
   const today = format(new Date(), "yyyy-MM-dd");
 
-  const { data: todayAttendance, refetch: refetchAttendance } = useListAttendance({ serviceDate: today, serviceSlot });
+  // When "Both Services" is selected, fetch all of today's records (slot filter omitted)
+  // so children checked into either slot are visible and can be checked out.
+  const { data: todayAttendance, refetch: refetchAttendance } = useListAttendance(
+    serviceSlot === "both" ? { serviceDate: today } : { serviceDate: today, serviceSlot },
+  );
   const attendanceList: any[] = Array.isArray(todayAttendance) ? todayAttendance : [];
 
   // Hall session state — fetched once on mount and after bulk-escort clears it
@@ -187,6 +192,34 @@ export default function CheckIn() {
 
   const isAlreadyCheckedIn = (childId: number) =>
     attendanceList.some((a: any) => a.childId === childId);
+
+  /** Today's active (not picked-up) attendance record for a child, if any. */
+  const getActiveRecord = (childId: number) =>
+    attendanceList.find((a: any) => a.childId === childId && a.status !== "picked_up");
+
+  const [checkingOut, setCheckingOut] = useState<number | null>(null);
+  const handleCheckOut = async (child: any) => {
+    const record = getActiveRecord(child.id);
+    if (!record) return;
+    setCheckingOut(child.id);
+    try {
+      await apiPut(`/attendance/${record.id}/checkout`, {});
+      toast({ title: `${child.firstName} checked out`, description: "Parent and class teacher have been notified." });
+      refetchAttendance();
+    } catch (e: any) {
+      toast({ variant: "destructive", title: "Check out failed", description: e.message });
+    } finally {
+      setCheckingOut(null);
+    }
+  };
+
+  // Families that signalled "we're on our way" — expected arrivals panel
+  const { data: expectedRaw, refetch: refetchExpected } = useQuery({
+    queryKey: ["drop-off-intents"],
+    queryFn: () => apiGet<any[]>("/drop-off-intents"),
+    refetchInterval: 30000,
+  });
+  const expectedArrivals: any[] = Array.isArray(expectedRaw) ? expectedRaw : [];
 
   const checkInForSlots = async (childId: number, classId: number, slots: SlotChoice) => {
     const slotsToBook = slots === "both" ? ["7am", "10:30am"] : [slots];
@@ -352,6 +385,23 @@ export default function CheckIn() {
       </div>
 
       <LocationBanner />
+
+      {/* Families that signalled they're on the way */}
+      {expectedArrivals.length > 0 && (
+        <div className="bg-indigo-50 border border-indigo-200 rounded-2xl p-4">
+          <p className="text-sm font-bold text-indigo-900 mb-2 flex items-center gap-2">
+            <Truck className="w-4 h-4" /> {expectedArrivals.length} famil{expectedArrivals.length !== 1 ? "ies" : "y"} on the way
+          </p>
+          <div className="space-y-1.5">
+            {expectedArrivals.map((i: any) => (
+              <div key={i.id} className="flex items-center justify-between text-sm bg-white rounded-xl px-3 py-2 border border-indigo-100">
+                <span className="font-semibold text-gray-800">{i.parentName ?? i.family?.familyCode ?? `Family #${i.familyId}`}</span>
+                <span className="text-xs text-gray-500">{(i.children ?? []).map((c: any) => c.firstName).join(", ")}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* ── Hall Session Banner ── */}
       {hallSessionActive && canAssist && (
@@ -658,9 +708,25 @@ export default function CheckIn() {
 
                     <div className="flex gap-2 mt-auto">
                       {alreadyIn ? (
-                        <div className="flex-1 h-14 rounded-xl font-bold text-base flex items-center justify-center gap-2 bg-green-50 text-green-700 border border-green-200">
-                          <CheckCircle className="w-5 h-5" /> Checked In
-                        </div>
+                        getActiveRecord(child.id) ? (
+                          <div className="flex-1 flex gap-2">
+                            <div className="flex-1 h-14 rounded-xl font-bold text-sm flex items-center justify-center gap-2 bg-green-50 text-green-700 border border-green-200">
+                              <CheckCircle className="w-5 h-5" /> Checked In
+                            </div>
+                            <button
+                              onClick={() => handleCheckOut(child)}
+                              disabled={checkingOut === child.id}
+                              data-testid={`button-checkout-${child.id}`}
+                              className="flex-1 h-14 rounded-xl font-bold text-sm transition-all active:scale-95 disabled:opacity-60 flex items-center justify-center gap-1.5"
+                              style={{ background: "#b45309", color: "white" }}>
+                              {checkingOut === child.id ? "Checking out…" : "Check Out"}
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex-1 h-14 rounded-xl font-bold text-base flex items-center justify-center gap-2 bg-gray-50 text-gray-500 border border-gray-200">
+                            <CheckCircle className="w-5 h-5" /> Picked Up Today
+                          </div>
+                        )
                       ) : (
                         <button
                           onClick={() => handleCheckIn(child)}

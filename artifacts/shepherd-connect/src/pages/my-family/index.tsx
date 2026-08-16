@@ -13,7 +13,7 @@ import { useToast } from "@/hooks/use-toast";
 import { QrCode, Users, MapPin, ShieldCheck, Star, PlusCircle, AlertCircle, Download, X, Camera, Loader2, Cake, ChevronDown, ChevronUp, Calendar, CheckCircle, BellRing, FileText } from "lucide-react";
 import { useAuth } from "@/contexts/auth";
 import { QRCodeSVG } from "qrcode.react";
-import { apiGet, apiPost } from "@/lib/api-call";
+import { apiGet, apiPost, apiDelete } from "@/lib/api-call";
 import { PhotoUploader, resolvePhotoUrl } from "@/components/PhotoUploader";
 import WelcomeModal, { shouldShowWelcome } from "@/components/WelcomeModal";
 import CollectionNoticeModal from "@/components/CollectionNoticeModal";
@@ -451,6 +451,59 @@ function NoFamilySetup({ userId, onCreated }: { userId?: number; onCreated: () =
   );
 }
 
+/** Pre-arrival signal: parent taps once before leaving home so the check-in desk can prepare. */
+function OnOurWayCard() {
+  const { toast } = useToast();
+  const [sending, setSending] = useState(false);
+  const { data, refetch } = useQuery({
+    queryKey: ["drop-off-intent-mine"],
+    queryFn: () => apiGet<{ intent: any }>("/drop-off-intents/mine"),
+  });
+  const intent = data?.intent;
+  const onTheWay = intent?.status === "on_the_way";
+  const arrived = intent?.status === "arrived";
+
+  const toggle = async () => {
+    setSending(true);
+    try {
+      if (onTheWay) {
+        await apiDelete("/drop-off-intents");
+        toast({ title: "Cancelled", description: "The check-in desk has been updated." });
+      } else {
+        await apiPost("/drop-off-intents", {});
+        toast({ title: "On our way! 🚗", description: "The check-in desk is expecting you — drop-off will be faster when you arrive." });
+      }
+      refetch();
+    } catch (e: any) {
+      toast({ variant: "destructive", title: e.message || "Could not update" });
+    } finally {
+      setSending(false);
+    }
+  };
+
+  if (arrived) return null;
+
+  return (
+    <div className="rounded-2xl border p-4 flex items-center justify-between gap-3 flex-wrap"
+      style={onTheWay ? { background: "#eef2ff", borderColor: "#c7d2fe" } : { background: "white", borderColor: "#e5e7eb" }}>
+      <div>
+        <p className="text-sm font-bold text-gray-900">
+          {onTheWay ? "The check-in desk is expecting you 🚗" : "Heading to church?"}
+        </p>
+        <p className="text-xs text-gray-500 mt-0.5">
+          {onTheWay
+            ? "Show your family QR code when you arrive for a fast drop-off."
+            : "Tap before you leave so the check-in desk can prepare — drop-off will be faster."}
+        </p>
+      </div>
+      <Button onClick={toggle} disabled={sending} variant={onTheWay ? "outline" : "default"}
+        className={onTheWay ? "" : "bg-[#1e3a8a] hover:bg-[#1e40af] text-white"} data-testid="btn-on-our-way">
+        {sending ? "…" : onTheWay ? "Cancel" : "We're on our way"}
+      </Button>
+    </div>
+  );
+}
+
 export default function MyFamily() {
   const { user } = useAuth();
   const { data: family, isLoading, isError, refetch } = useGetMyFamily();
@@ -538,6 +591,7 @@ export default function MyFamily() {
   return (
     <div className="max-w-2xl mx-auto space-y-6">
       <AnnouncementBanner />
+      {children.length > 0 && <OnOurWayCard />}
       {/* Hero */}
       <div className="rounded-2xl p-6 text-white relative overflow-hidden"
         style={{ background: "linear-gradient(135deg, #172554 0%, #1e3a8a 60%, #1d4ed8 100%)" }}>
