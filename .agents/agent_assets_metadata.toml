@@ -107,3 +107,10 @@ id = "qNHN2gqtkId6so0WRFcqP"
 uri = "file://Shepherd_Connect_Implementation_Plan.xlsx"
 type = "table"
 title = "Shepherd Connect — Implementation Plan"
+
+[[outputs]]
+id = "eBwIDKLVVVwPWszu4sijZ"
+uri = "file://reports/shepherd-connect-security-reliability-audit-2026-08-22.html"
+type = "text"
+title = "Shepherd Connect Security & Reliability Audit"
+description = "Read-only evidence report covering architecture, critical findings, security matrix, test gaps, safe-change protocol, fix order, and release verdict."

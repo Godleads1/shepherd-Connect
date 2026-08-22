@@ -1,0 +1,483 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Shepherd Connect — Security &amp; Reliability Audit</title>
+  <style>
+    :root { --navy:#172554; --blue:#1e3a8a; --ink:#172033; --muted:#64748b; --line:#dbe3ee; --bg:#f5f7fb; --critical:#991b1b; --high:#c2410c; --medium:#a16207; --low:#0369a1; --pass:#166534; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.55 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    main { width:min(1120px, calc(100% - 32px)); margin:32px auto 80px; }
+    header { padding:34px; border-radius:20px; color:white; background:linear-gradient(135deg,var(--navy),var(--blue)); box-shadow:0 18px 50px rgba(23,37,84,.18); }
+    header h1 { margin:0 0 8px; font-size:32px; line-height:1.15; }
+    header p { margin:4px 0; color:#dbeafe; }
+    .verdict { margin-top:20px; padding:14px 18px; border:1px solid #fca5a5; border-radius:12px; background:#7f1d1d; font-weight:800; letter-spacing:.04em; }
+    section { margin-top:22px; padding:28px; border:1px solid var(--line); border-radius:16px; background:white; box-shadow:0 8px 26px rgba(15,23,42,.05); }
+    h2 { margin:0 0 16px; color:var(--navy); font-size:23px; }
+    h3 { margin:22px 0 8px; font-size:17px; }
+    p, ul, ol { margin-top:8px; }
+    code { padding:2px 5px; border-radius:5px; background:#eef2f7; color:#1e293b; font-size:.9em; }
+    table { width:100%; border-collapse:collapse; margin:14px 0; font-size:14px; }
+    th, td { padding:10px 12px; border:1px solid var(--line); text-align:left; vertical-align:top; }
+    th { background:#f1f5f9; color:#334155; }
+    .grid { display:grid; grid-template-columns:repeat(5,1fr); gap:12px; }
+    .score { padding:16px; border:1px solid var(--line); border-radius:12px; background:#f8fafc; }
+    .score strong { display:block; color:var(--navy); font-size:24px; }
+    .finding { margin:14px 0; padding:16px 18px; border-left:5px solid; border-radius:9px; background:#fafafa; }
+    .critical { border-color:var(--critical); background:#fef2f2; }
+    .high { border-color:var(--high); background:#fff7ed; }
+    .medium { border-color:var(--medium); background:#fffbeb; }
+    .low { border-color:var(--low); background:#f0f9ff; }
+    .finding h3 { margin:0 0 8px; }
+    .badge { display:inline-block; padding:2px 8px; margin-right:5px; border-radius:999px; color:white; font-size:11px; font-weight:800; }
+    .b-critical { background:var(--critical); } .b-high { background:var(--high); } .b-medium { background:var(--medium); } .b-low { background:var(--low); }
+    .pass { color:var(--pass); font-weight:800; } .fail { color:var(--critical); font-weight:800; } .unknown { color:var(--medium); font-weight:800; }
+    .small { color:var(--muted); font-size:13px; }
+    .toc { columns:2; }
+    .toc a { color:var(--blue); text-decoration:none; }
+    @media (max-width:800px) { .grid { grid-template-columns:1fr 1fr; } .toc { columns:1; } section, header { padding:20px; } }
+    @media print { body { background:white; } main { width:100%; margin:0; } section, header { break-inside:avoid; box-shadow:none; } }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Shepherd Connect</h1>
+    <p>Master Application Security, Bug, Reliability &amp; AI-Safe Change Audit</p>
+    <p>Evidence review completed 22 August 2026 · Africa/Lagos (WAT)</p>
+    <p>Read-only first pass: no application code, configuration, dependencies, database schema, or production data were changed.</p>
+    <div class="verdict">RELEASE VERDICT: NOT SAFE FOR PRODUCTION UNTIL P0 FINDINGS ARE REMEDIATED</div>
+  </header>
+
+  <section>
+    <h2>Scope and method</h2>
+    <p>This audit combined direct source inspection, three independent focused architecture reviews, dependency analysis, static application security testing, privacy/dataflow scanning, TypeScript checks, and the existing automated test suite.</p>
+    <ul>
+      <li><strong>Automated baseline:</strong> database, API, and frontend TypeScript checks passed; 34/34 existing API tests passed.</li>
+      <li><strong>Security scanners:</strong> dependency audit completed; SAST completed; privacy/dataflow scan completed.</li>
+      <li><strong>Important limitation:</strong> this was not an authenticated penetration test against production. Database privileges, bucket policy, production-only environment settings, third-party retention terms, and runtime logs remain partly unverified.</li>
+      <li><strong>Endpoint inventory:</strong> 242 route declarations were found. High-risk routes were inspected directly; this first pass does not claim exhaustive manual proof for every endpoint.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>Contents</h2>
+    <ol class="toc">
+      <li><a href="#architecture">A. Architecture summary</a></li>
+      <li><a href="#score">B. Executive health score</a></li>
+      <li><a href="#critical">C. Critical findings</a></li>
+      <li><a href="#high">D. High findings</a></li>
+      <li><a href="#medium">E. Medium findings</a></li>
+      <li><a href="#low">F. Low findings</a></li>
+      <li><a href="#unknown">G. Unknown areas</a></li>
+      <li><a href="#matrix">H. Security matrix</a></li>
+      <li><a href="#bugs">I. Bug report</a></li>
+      <li><a href="#auth">J. Authentication review</a></li>
+      <li><a href="#authorization">K. Authorization / IDOR</a></li>
+      <li><a href="#api">L. API review</a></li>
+      <li><a href="#database">M. Database review</a></li>
+      <li><a href="#payments">N. Payment review</a></li>
+      <li><a href="#dependencies">O. Dependency review</a></li>
+      <li><a href="#secrets">P. Secrets review</a></li>
+      <li><a href="#ai">Q. AI/LLM review</a></li>
+      <li><a href="#reliability">R. Reliability review</a></li>
+      <li><a href="#coverage">S–T. Test gaps and required suite</a></li>
+      <li><a href="#protocol">U. AI safe-change protocol</a></li>
+      <li><a href="#risk-files">V. High-risk file list</a></li>
+      <li><a href="#baseline">W. Baseline commands</a></li>
+      <li><a href="#fix-order">X. Fix order</a></li>
+      <li><a href="#verdict">Y. Release verdict</a></li>
+    </ol>
+  </section>
+
+  <section id="architecture">
+    <h2>A. Application architecture summary</h2>
+    <table>
+      <tr><th>Area</th><th>Observed architecture</th></tr>
+      <tr><td>Application type</td><td>Role-based church child check-in, attendance, pickup, safeguarding, messaging, and staff administration web application.</td></tr>
+      <tr><td>Frontend</td><td>React 19 + TypeScript + Vite PWA, Wouter routing, TanStack Query.</td></tr>
+      <tr><td>Backend</td><td>Express 5 + TypeScript API with Drizzle ORM.</td></tr>
+      <tr><td>Database</td><td>PostgreSQL via Drizzle and node-postgres.</td></tr>
+      <tr><td>Authentication</td><td>Email/password, bearer JWT, password reset, registration OTP, optional TOTP MFA, role switching.</td></tr>
+      <tr><td>Roles</td><td>super_admin, admin, teacher, support, parent, plus attendant in selected operational routes.</td></tr>
+      <tr><td>Storage</td><td>Replit Object Storage / Google Cloud Storage compatible service with public and nominally private object paths.</td></tr>
+      <tr><td>External services</td><td>Termii SMS/WhatsApp delivery, Resend/SMTP email, web push, Baileys WhatsApp, Twilio-compatible webhook, OpenAI-compatible AI integration.</td></tr>
+      <tr><td>Payments</td><td>No payment or money flow identified.</td></tr>
+      <tr><td>Background jobs</td><td>node-cron attendance/staff jobs, OTP cleanup interval, WhatsApp broadcast queue and recovery.</td></tr>
+      <tr><td>Webhooks</td><td>Inbound WhatsApp webhook.</td></tr>
+      <tr><td>Caching</td><td>React Query and Workbox service worker; service worker currently caches API responses.</td></tr>
+      <tr><td>Analytics</td><td>No dedicated analytics system identified.</td></tr>
+      <tr><td>Deployment</td><td>Replit Autoscale, public deployment, verified custom domain, latest deployed build reported healthy at audit time.</td></tr>
+    </table>
+    <p><strong>Important journeys:</strong> registration and login; MFA/password recovery; family and child management; QR/face scan; drop-off and escort; class arrival; pickup signal and checkout; teacher allocation; safeguarding/incidents; messaging and notifications; WhatsApp bot; reporting/export; admin user and settings management.</p>
+  </section>
+
+  <section id="score">
+    <h2>B. Executive health score</h2>
+    <div class="grid">
+      <div class="score"><span>Functionality</span><strong>72/100</strong><small>Build and tests pass, but workflow races and public queues remain.</small></div>
+      <div class="score"><span>Security</span><strong>28/100</strong><small>One direct privilege-escalation path and multiple child-data exposures.</small></div>
+      <div class="score"><span>Reliability</span><strong>46/100</strong><small>In-memory queues, fail-open locks, and non-durable notifications.</small></div>
+      <div class="score"><span>Test coverage</span><strong>24/100</strong><small>34 API checks; no frontend tests and no key attendance/pickup tests.</small></div>
+      <div class="score"><span>Maintainability</span><strong>61/100</strong><small>Typed monorepo and schemas help; authorization is inconsistent by route.</small></div>
+    </div>
+  </section>
+
+  <section id="critical">
+    <h2>C. Critical findings</h2>
+    <div class="finding critical">
+      <h3><span class="badge b-critical">CRITICAL</span><span class="badge b-critical">P0</span>Unauthenticated users can register as super admin</h3>
+      <p><strong>Evidence:</strong> <code>lib/api-zod/src/generated/api.ts</code> RegisterBody accepts <code>super_admin</code>; <code>artifacts/api-server/src/routes/auth.ts</code> includes it in accepted roles, while approval is required only for admin and teacher. New non-approval users are activated and immediately receive a JWT.</p>
+      <p><strong>Impact:</strong> complete administrative takeover, access to child/family data, user and role administration, safeguarding data, settings, exports, and operational controls.</p>
+      <p><strong>Reproduction:</strong> submit a valid registration body with role <code>super_admin</code>, then use the returned token.</p>
+      <p><strong>Smallest safe fix:</strong> remove privileged roles from public registration. Permit only parent registration publicly; bootstrap the first super admin out-of-band and require existing super-admin approval for every staff role.</p>
+      <p><strong>Test:</strong> public registration with super_admin/admin/teacher/support/attendant must be rejected; only approved server-side role changes may grant staff access.</p>
+    </div>
+  </section>
+
+  <section id="high">
+    <h2>D. High findings</h2>
+    <div class="finding high">
+      <h3><span class="badge b-high">HIGH</span><span class="badge b-critical">P0</span>Pickup streams and class queues expose children without authentication</h3>
+      <p><strong>Evidence:</strong> <code>pickupRequests.ts</code> GET <code>/pickup-requests/stream/:classNumber</code> and GET <code>/pickup-requests/:classId</code> have no authentication. Queue records include child name, parent name, class, and pickup time.</p>
+      <p><strong>Impact:</strong> anyone who can reach the API can enumerate live child pickup activity. Classroom-display routes are also public.</p>
+      <p><strong>Fix/test:</strong> require a narrowly scoped classroom-display credential or authenticated allocated staff role; return minimal fields; prove anonymous and cross-class requests are denied.</p>
+    </div>
+    <div class="finding high">
+      <h3><span class="badge b-high">HIGH</span><span class="badge b-critical">P0</span>Any authenticated account can create or dismiss another child’s pickup request</h3>
+      <p><strong>Evidence:</strong> POST <code>/pickup-requests</code> has authentication but no parent ownership check or parent-only role guard; DELETE <code>/pickup-requests/:id</code> accepts any authenticated user.</p>
+      <p><strong>Impact:</strong> a parent, teacher, or compromised low-privilege account can create false pickup alerts for any checked-in child or remove legitimate alerts.</p>
+      <p><strong>Fix/test:</strong> require parent ownership for creation and allocated teacher/support/admin authority for dismissal; add User A versus User B tests.</p>
+    </div>
+    <div class="finding high">
+      <h3><span class="badge b-high">HIGH</span><span class="badge b-critical">P0</span>“Private” uploaded objects are publicly downloadable</h3>
+      <p><strong>Evidence:</strong> GET <code>/storage/objects/*</code> in <code>routes/storage.ts</code> has no auth or ACL check; the provided protected-route block is commented out.</p>
+      <p><strong>Impact:</strong> possession or discovery of an object path can expose child photos and other private uploads.</p>
+      <p><strong>Fix/test:</strong> authenticate, map each object to an owner/resource, enforce READ permission, use non-guessable paths only as defense-in-depth, and test parent/teacher/cross-family access.</p>
+    </div>
+    <div class="finding high">
+      <h3><span class="badge b-high">HIGH</span><span class="badge b-critical">P0</span>QR and face scan endpoints disclose sensitive child data to any authenticated user</h3>
+      <p><strong>Evidence:</strong> <code>attendance.ts</code> scan-qr and scan-face use only <code>authMiddleware</code>. QR responses include family data, children, attendance history, class, allergies, and medical-alert indicators; QR scan may also persist automatic class assignment. Face scan compares against all enrolled biometric descriptors.</p>
+      <p><strong>Impact:</strong> low-privilege users can obtain another family’s sensitive child records with a code/descriptor and may trigger data mutation.</p>
+      <p><strong>Fix/test:</strong> restrict to check-in desk roles, minimize response fields, separate lookup from mutation, rate-limit biometric matching, and test every role.</p>
+    </div>
+    <div class="finding high">
+      <h3><span class="badge b-high">HIGH</span><span class="badge b-high">P1</span>Authenticated API responses persist in browser Cache Storage across logout</h3>
+      <p><strong>Evidence:</strong> <code>src/sw.ts</code> caches successful <code>/api/*</code> responses for 24 hours. <code>contexts/auth.tsx</code> clears React Query and localStorage on logout but does not clear Workbox Cache Storage.</p>
+      <p><strong>Impact:</strong> a later account or offline user on the same device can receive prior-user family, child, attendance, or safeguarding responses.</p>
+      <p><strong>Fix/test:</strong> never cache authenticated API responses; purge prior API caches on activation/logout; test two users sequentially on one browser, including offline mode.</p>
+    </div>
+    <div class="finding high">
+      <h3><span class="badge b-high">HIGH</span><span class="badge b-high">P1</span>WhatsApp webhook authentication fails open</h3>
+      <p><strong>Evidence:</strong> <code>webhooks.ts</code> returns true from signature validation when <code>TWILIO_AUTH_TOKEN</code> is absent. The webhook trusts the sender phone number to look up a parent and returns child/check-in information. It also logs phone and message content.</p>
+      <p><strong>Impact:</strong> a missing production secret turns the endpoint into a spoofable child-information oracle. Logs retain unnecessary personal data.</p>
+      <p><strong>Fix/test:</strong> fail closed in production when the secret is absent; verify exact public URL/raw parameters; reject invalid signatures; redact message/phone logs.</p>
+    </div>
+    <div class="finding high">
+      <h3><span class="badge b-high">HIGH</span><span class="badge b-high">P1</span>Report export builds executable HTML from unescaped data</h3>
+      <p><strong>Evidence:</strong> <code>pages/reports/index.tsx</code> interpolates titles, columns, rows, metadata, and existing <code>innerHTML</code> into <code>document.write</code>.</p>
+      <p><strong>Impact:</strong> stored names, feedback, or report values containing HTML can execute script in the report popup and access the app origin.</p>
+      <p><strong>Fix/test:</strong> construct text nodes/DOM or centrally HTML-escape every untrusted value; add payload tests for script, event-handler, SVG, and closing-tag vectors.</p>
+    </div>
+  </section>
+
+  <section id="medium">
+    <h2>E. Medium findings</h2>
+    <ul>
+      <li><strong>JWT/session lifecycle:</strong> logout is client-side only; password change/reset does not invalidate existing 24-hour JWTs. Add token version or server-side session revocation.</li>
+      <li><strong>Unsafe JWT fallback:</strong> <code>middlewares/auth.ts</code> contains a public fallback secret. Normal app startup currently fails closed in <code>routes/auth.ts</code> if SESSION_SECRET is absent, but the fallback remains dangerous in tests, partial imports, or future refactors.</li>
+      <li><strong>Registration verification gap:</strong> the registration API does not bind a successful OTP session to the subsequent registration request. Backend clients can bypass the UI’s verification sequence.</li>
+      <li><strong>Abuse controls:</strong> global 300/minute limiting exists, and reset verification has a tighter limiter, but login, forgot-password, send-otp, verify-otp, scan, upload-ticket, and AI-facing routes lack route/account/contact-specific protections.</li>
+      <li><strong>Attendance races:</strong> “arrive” reads state and then updates by ID without a status guard; concurrent checkout can be overwritten. QR auto-processing performs multi-record insert/update/intent completion without a transaction, allowing partial family processing.</li>
+      <li><strong>Upload validation:</strong> upload-ticket issuance accepts client-declared name, size, and content type without demonstrated server-enforced content limits or post-upload MIME verification.</li>
+      <li><strong>In-memory pickup queue:</strong> pickup state is process-local, lost on restart, and inconsistent across autoscale instances.</li>
+      <li><strong>Scheduler locks fail open:</strong> database lock errors cause each instance to run the job, creating duplicate notifications or cleanup under outage conditions.</li>
+      <li><strong>External notification reliability:</strong> many attendance notifications are fire-and-forget; delivery failure is logged or discarded without a durable outbox/retry/status.</li>
+      <li><strong>WhatsApp queue claiming:</strong> the worker does not verify that its conditional update actually claimed an item before sending. Concurrent workers can send duplicates; crash recovery intentionally marks uncertain sends failed.</li>
+      <li><strong>Guest cleanup:</strong> child/family deletion is not transactional and can fail on attendance foreign keys, leaving partial cleanup.</li>
+      <li><strong>AI/privacy:</strong> WhatsApp text and children’s names, plus feedback comments, can be sent to the configured AI provider without visible minimization, consent/notice, retention control, or privacy tests.</li>
+      <li><strong>CORS and headers:</strong> unrestricted <code>cors()</code> is enabled. A documented production origin allowlist, Helmet-equivalent headers, and CSP were not evidenced.</li>
+      <li><strong>Frontend route guards:</strong> the UI applies authentication but not per-route role restrictions. Backend controls remain mandatory; direct navigation may expose inappropriate screens or trigger excess data requests.</li>
+    </ul>
+  </section>
+
+  <section id="low">
+    <h2>F. Low findings</h2>
+    <ul>
+      <li>SAST reported one medium “tainted redirect” at the fixed custom-domain redirect. The destination host is constant and only the original path/query is appended, so open-domain redirect exploitability is not proven; validate/encode the path and retain an allowlisted destination.</li>
+      <li>Error boundaries show raw <code>error.message</code> to users. Replace with a correlation ID and generic message in production.</li>
+      <li>Some dialogs use fixed 460–480px widths and may overflow narrow devices; mobile/accessibility behavior has no automated proof.</li>
+      <li>Several date calculations use UTC/local time while business rules use WAT. The recent drop-off intent lookup is WAT-safe, but the whole application is not consistently normalized.</li>
+    </ul>
+  </section>
+
+  <section id="unknown">
+    <h2>G. Unknown / unverified areas</h2>
+    <ul>
+      <li>Production database least-privilege role, encryption, backup restore testing, row-level security, and network exposure.</li>
+      <li>Object bucket-level public access configuration and whether historical object URLs have leaked.</li>
+      <li>Production environment parity, secret rotation dates, webhook secret presence, and deployment rollback procedure.</li>
+      <li>Git-history secret exposure; HoundDog reported zero findings in the current scan, but historical repository scanning was not independently proven.</li>
+      <li>External provider retention, data residency, contractual safeguards, and consent for minors’ information sent by SMS, email, WhatsApp, push, or AI.</li>
+      <li>Runtime authorization behavior for all 242 declared routes; this audit directly verified high-risk examples, not every identifier on every method.</li>
+      <li>Browser/device compatibility, WCAG conformance, malware scanning, disaster recovery, and incident response.</li>
+      <li>MFA recovery and lockout behavior, refresh token behavior (none identified), and forced logout after account suspension.</li>
+    </ul>
+  </section>
+
+  <section id="matrix">
+    <h2>H. Security check matrix</h2>
+    <table>
+      <tr><th>Control</th><th>Status</th><th>Evidence / reason</th></tr>
+      <tr><td>Build/type safety</td><td class="pass">PASS</td><td>DB, API, and frontend TypeScript checks passed.</td></tr>
+      <tr><td>Existing automated suite</td><td class="pass">PASS</td><td>34/34 API tests passed; this proves only covered behaviors.</td></tr>
+      <tr><td>Password hashing</td><td class="pass">PASS</td><td>bcrypt cost 12 in auth registration/reset.</td></tr>
+      <tr><td>Generic credential response</td><td class="pass">PASS</td><td>Login and forgot-password avoid simple account enumeration.</td></tr>
+      <tr><td>Reset brute-force limiter</td><td class="pass">PASS</td><td>5 attempts / 15 minutes / IP on reset verification.</td></tr>
+      <tr><td>OTP one-time consumption</td><td class="pass">PASS</td><td>Successful registration OTP verification deletes the session.</td></tr>
+      <tr><td>Attendance duplicate constraint</td><td class="pass">PASS</td><td>Unique index on child/date/service slot.</td></tr>
+      <tr><td>Parameterized SQL / ORM</td><td class="pass">PASS</td><td>Reviewed queries use Drizzle or parameter placeholders; no confirmed SQL injection found.</td></tr>
+      <tr><td>Global API rate limit</td><td class="pass">PASS</td><td>300 requests/minute/IP with trusted proxy configuration.</td></tr>
+      <tr><td>Privileged registration</td><td class="fail">FAIL</td><td>Public super_admin registration is accepted and activated.</td></tr>
+      <tr><td>Server-side ownership</td><td class="fail">FAIL</td><td>Pickup create/dismiss and scan routes lack required scope.</td></tr>
+      <tr><td>Private file authorization</td><td class="fail">FAIL</td><td>Private object route has no auth/ACL.</td></tr>
+      <tr><td>Webhook verification</td><td class="fail">FAIL</td><td>Missing signature secret is accepted.</td></tr>
+      <tr><td>XSS defense</td><td class="fail">FAIL</td><td>Report HTML interpolates unescaped values.</td></tr>
+      <tr><td>Session invalidation</td><td class="fail">FAIL</td><td>JWT remains valid after logout/password changes until expiry.</td></tr>
+      <tr><td>Authenticated cache isolation</td><td class="fail">FAIL</td><td>Service worker caches API data across users.</td></tr>
+      <tr><td>Atomic workflow transitions</td><td class="fail">FAIL</td><td>Arrival and QR flows have race/partial-write windows.</td></tr>
+      <tr><td>Durable async delivery</td><td class="fail">FAIL</td><td>Most notifications have no outbox/retry contract.</td></tr>
+      <tr><td>Dependency risk</td><td class="fail">FAIL</td><td>17 unique high advisories reported; exposure varies.</td></tr>
+      <tr><td>Production infrastructure controls</td><td class="unknown">UNKNOWN</td><td>Not provable from current source and scan access.</td></tr>
+    </table>
+  </section>
+
+  <section id="bugs">
+    <h2>I. Functional bug report</h2>
+    <table>
+      <tr><th>Severity</th><th>Failure</th><th>User impact</th><th>Smallest safe fix / test</th></tr>
+      <tr><td>High</td><td>Pickup queue is process-local and disappears on restart.</td><td>Teachers miss pickup requests; different instances see different queues.</td><td>Persist queue and use shared event delivery; restart/multi-instance test.</td></tr>
+      <tr><td>High</td><td>Concurrent arrival can overwrite checkout.</td><td>A picked-up child may return to “in class.”</td><td>Conditional status update in one statement; concurrency test.</td></tr>
+      <tr><td>High</td><td>QR family auto-processing is not transactional.</td><td>Some selected children/slots are processed while others fail.</td><td>Transaction plus idempotent notifications/outbox; injected-failure test.</td></tr>
+      <tr><td>Medium</td><td>Re-check-in resets a picked-up record for the same date and slot.</td><td>Historical transition details are overwritten; stale retries can reopen a completed record.</td><td>Define second-service semantics; create new slot only or reject same-slot replay.</td></tr>
+      <tr><td>Medium</td><td>Guest cleanup can be blocked by attendance foreign keys.</td><td>Guest data may remain after scheduled cleanup.</td><td>Transactional retention policy and explicit dependent-record handling.</td></tr>
+      <tr><td>Medium</td><td>Scheduler lock errors run jobs on every instance.</td><td>Duplicate reminders and cleanup attempts during DB instability.</td><td>Fail closed and alert; multi-instance outage test.</td></tr>
+      <tr><td>Low</td><td>Mixed UTC/local/WAT date helpers.</td><td>Near-midnight records can be queried under the wrong service date.</td><td>Central WAT business-date utility and boundary tests.</td></tr>
+    </table>
+  </section>
+
+  <section id="auth">
+    <h2>J. Authentication review</h2>
+    <p class="fail">Overall: FAIL</p>
+    <ul>
+      <li><strong>Positive controls:</strong> bcrypt password hashing, generic invalid-credential responses, 24-hour JWT expiry, optional TOTP MFA, one-time OTP deletion, password-reset expiry and limited verification attempts.</li>
+      <li><strong>Critical failure:</strong> public privileged-role registration.</li>
+      <li><strong>Session weaknesses:</strong> no server-side logout, token revocation, password-change invalidation, or account-state recheck on each JWT request.</li>
+      <li><strong>Registration weakness:</strong> OTP verification is not cryptographically/server-side bound to registration.</li>
+      <li><strong>Reset weakness:</strong> six-digit reset tokens are stored plaintext; verification is IP-limited but not clearly account/contact limited.</li>
+      <li><strong>MFA unknown:</strong> enrollment, confirmation, recovery, and replay protections were not fully exercised.</li>
+    </ul>
+  </section>
+
+  <section id="authorization">
+    <h2>K. Authorization / IDOR / BOLA review</h2>
+    <p class="fail">Overall: FAIL</p>
+    <p>Many administrative endpoints correctly use <code>requireRoles</code>, and existing smoke tests prove selected anonymous and insufficient-role denials. However, authorization is not default-deny and several sensitive resources rely on authentication alone.</p>
+    <ul>
+      <li>Pickup requests: public read; unscoped create/dismiss.</li>
+      <li>Attendance scan: unscoped family, child, health, attendance, and biometric access.</li>
+      <li>Object storage: no private-object authorization.</li>
+      <li>Frontend: authenticated route wrapper only; per-page role restriction is absent.</li>
+      <li><strong>Required pattern:</strong> role + resource ownership/allocation + minimal projection on every read and mutation; automated User A/User B matrices for all ID-bearing resources.</li>
+    </ul>
+  </section>
+
+  <section id="api">
+    <h2>L. API security review</h2>
+    <p class="fail">Overall: FAIL</p>
+    <ul>
+      <li>Input validation is inconsistent: important routes use Zod, while others destructure/cast raw bodies and accept unbounded arrays/strings.</li>
+      <li>Global rate limiting is present, but sensitive per-route and per-identity controls are incomplete.</li>
+      <li>Public SSE/queue and storage routes expose sensitive data.</li>
+      <li>Idempotency exists for attendance uniqueness but not as a general mutation contract.</li>
+      <li>Audit logging is available but not systematically applied to all high-risk operations.</li>
+      <li>CORS is unrestricted; security headers/CSP are not evidenced.</li>
+      <li>No confirmed raw SQL injection or command injection was found in reviewed code.</li>
+    </ul>
+  </section>
+
+  <section id="database">
+    <h2>M. Database review</h2>
+    <p><strong>Result:</strong> PARTIAL / FAIL for workflow safety.</p>
+    <ul>
+      <li><strong>Pass:</strong> typed ORM, parameterized raw scheduler query, foreign keys, and an attendance unique index provide useful integrity controls.</li>
+      <li><strong>Fail:</strong> multi-step QR processing, cleanup, and some transitions are not transactional.</li>
+      <li><strong>Fail:</strong> read-then-write status changes lack compare-and-set guards.</li>
+      <li><strong>Fail:</strong> async delivery is not transactionally coupled to business events.</li>
+      <li><strong>Unknown:</strong> production DB role permissions, backup/restore, encryption, RLS, statement timeouts, and migration rollback.</li>
+    </ul>
+  </section>
+
+  <section id="payments">
+    <h2>N. Payment review</h2>
+    <p><strong>NOT APPLICABLE:</strong> no payment provider, checkout, price, refund, or monetary flow was identified.</p>
+  </section>
+
+  <section id="dependencies">
+    <h2>O. Dependency review</h2>
+    <p>The dependency scanner reported <strong>827 raw high entries</strong>, collapsing to <strong>17 unique advisories</strong>. The raw count is inflated by repeated lockfile paths. No critical, moderate, or low entries were reported by that scanner.</p>
+    <table>
+      <tr><th>Package / class</th><th>Directness and exposure</th><th>Fix</th></tr>
+      <tr><td>nodemailer 8.0.7</td><td>Direct runtime dependency; advisory requires dangerous message-level raw/file/URL features. Current exposure needs targeted call-site verification.</td><td>9.0.1; major upgrade, regression test email delivery.</td></tr>
+      <tr><td>ip-address 10.2.0</td><td>Transitive runtime via express-rate-limit; SSRF/trust-boundary parsing advisory.</td><td>10.3.1, non-major.</td></tr>
+      <tr><td>ws 8.20.1</td><td>Transitive runtime via Baileys/OpenAI; memory-exhaustion DoS advisory.</td><td>8.21.0, non-major.</td></tr>
+      <tr><td>form-data 4.0.5</td><td>Observed path is test/dev via Supertest; CRLF advisory.</td><td>4.0.6, non-major.</td></tr>
+      <tr><td>Vite 7.3.2 / picomatch</td><td>Build/dev dependencies; Vite issue is Windows path-specific while deployment is Linux. Still update build chain.</td><td>Vite 7.3.5 and patched picomatch.</td></tr>
+      <tr><td>node-fetch advisory entry</td><td>Scanner cited 2.1.2, while the inspected API dependency tree resolved Google storage paths to 2.7.0; origin needs lockfile reconciliation.</td><td>Verify and deduplicate; minimum 2.6.7.</td></tr>
+      <tr><td>Pillow 12.2.0 (9 advisories)</td><td>Not found in the app’s pnpm dependency tree; likely environment/tooling scope. Application exposure unverified.</td><td>12.3.0 if present in a shipped runtime.</td></tr>
+    </table>
+    <p><strong>SAST:</strong> one medium redirect finding; likely limited because the destination host is constant. <strong>HoundDog:</strong> zero findings. Scanner silence does not override confirmed manual findings.</p>
+  </section>
+
+  <section id="secrets">
+    <h2>P. Secrets review</h2>
+    <p><strong>Current-tree result:</strong> no credential value was reported by HoundDog, and no secret value was printed during this audit.</p>
+    <ul>
+      <li><strong>Fail:</strong> source contains a hardcoded JWT fallback string, even though normal app startup also checks for the required environment secret.</li>
+      <li><strong>Pass:</strong> service credentials are referenced through environment variables rather than embedded values in reviewed source.</li>
+      <li><strong>Unknown:</strong> Git history, prior logs/build artifacts, rotation cadence, production-vs-development secret separation, and provider-side permission scope.</li>
+    </ul>
+  </section>
+
+  <section id="ai">
+    <h2>Q. AI / LLM security review</h2>
+    <p><strong>Result:</strong> PARTIAL / FAIL for privacy governance.</p>
+    <ul>
+      <li>AI calls are server-side; API credentials are not intentionally shipped to the browser.</li>
+      <li>The model performs intent/sentiment classification, not authorization. No direct AI-generated SQL or code execution was found.</li>
+      <li>Children’s names and user messages can be included in model prompts; feedback comments are also analyzed externally.</li>
+      <li>Model JSON is parsed with weak semantic validation; fallback is safe-ish but output ranges/allowed intents should be schema validated.</li>
+      <li>Missing evidence: consent/notice, minimization/redaction, retention terms, spend/rate controls, prompt-injection tests, and cross-user context tests.</li>
+    </ul>
+  </section>
+
+  <section id="reliability">
+    <h2>R. Failure and reliability review</h2>
+    <p class="fail">Overall: FAIL</p>
+    <ul>
+      <li><strong>Database unavailable:</strong> global error middleware prevents silent crashes in many cases, but targeted retry is used narrowly and scheduler locking fails open.</li>
+      <li><strong>External provider unavailable:</strong> user-facing business actions often succeed while notifications fail asynchronously without durable status/retry.</li>
+      <li><strong>Duplicate request:</strong> attendance unique constraints help check-in, but pickup and other operations lack broad idempotency.</li>
+      <li><strong>Process restart:</strong> pickup queue is lost; WhatsApp recovery exists but has uncertain-send and concurrency limitations.</li>
+      <li><strong>Concurrent actions:</strong> arrival/checkout and multi-child QR flow have race/partial-write windows.</li>
+      <li><strong>Session expiry:</strong> client inactivity logout exists, but server JWT remains valid and cached API responses remain on-device.</li>
+      <li><strong>Observability:</strong> structured logging and error-log persistence exist; sensitive webhook content is over-logged, while delivery success/failure lacks a unified audit trail.</li>
+    </ul>
+  </section>
+
+  <section id="coverage">
+    <h2>S–T. Test coverage gaps and required regression suite</h2>
+    <p><strong>Inventory:</strong> 34 current API tests passed. They mainly cover health, selected anonymous guards, selected RBAC, basic invalid auth input, and WhatsApp bot escape behavior. No frontend test files were found.</p>
+    <table>
+      <tr><th>Area</th><th>Coverage</th><th>Required proof</th></tr>
+      <tr><td>Public privileged registration</td><td class="fail">NO TEST</td><td>Reject every staff/privileged role from public registration.</td></tr>
+      <tr><td>Pickup ownership and streams</td><td class="fail">NO TEST</td><td>Anonymous, cross-parent, cross-class, create, dismiss, and stream matrix.</td></tr>
+      <tr><td>Private object ACL</td><td class="fail">NO TEST</td><td>Owner/authorized staff allowed; other family and anonymous denied.</td></tr>
+      <tr><td>Attendance/drop-off</td><td class="fail">NO TEST</td><td>All states, duplicate requests, partial failure, concurrency, WAT boundaries, per-role scan access.</td></tr>
+      <tr><td>Webhook verification</td><td class="fail">NO TEST</td><td>Missing/invalid/modified/replayed signatures rejected.</td></tr>
+      <tr><td>OTP/reset abuse</td><td>WEAK</td><td>Per-contact and per-account throttling; registration binding; replay/expiry.</td></tr>
+      <tr><td>Frontend privacy</td><td class="fail">NO TEST</td><td>Logout cache purge, two-user isolation, offline behavior, token handling.</td></tr>
+      <tr><td>XSS</td><td class="fail">NO TEST</td><td>Report export payload corpus and CSP validation.</td></tr>
+      <tr><td>Schedulers/queues</td><td class="fail">NO TEST</td><td>Multi-instance lock, crash recovery, claim ownership, duplicate suppression.</td></tr>
+      <tr><td>Accessibility/responsive</td><td class="unknown">UNVERIFIED</td><td>Keyboard, focus, screen-reader labels, contrast, 320px layout.</td></tr>
+      <tr><td>AI</td><td class="fail">NO TEST</td><td>Prompt injection, malformed output, PII minimization, spending limits.</td></tr>
+    </table>
+  </section>
+
+  <section id="protocol">
+    <h2>U. Mandatory AI safe-change protocol</h2>
+    <ol>
+      <li>Read the relevant code, schemas, route registration, and existing tests before editing.</li>
+      <li>List affected files, user journeys, authorization boundaries, data classifications, and database changes.</li>
+      <li>State the smallest proposed change and likely regressions.</li>
+      <li>For high-risk files/behavior, obtain explicit human approval before editing.</li>
+      <li>Make the smallest scoped change; do not refactor unrelated code or replace working architecture.</li>
+      <li>Never trust frontend role/ownership checks; prove the server rule.</li>
+      <li>Add a failing regression test first for security bugs where practical.</li>
+      <li>Use transactions/conditional writes for multi-step or concurrent state changes.</li>
+      <li>Do not silently change schemas, auth, roles, environment variables, providers, deployment, or production data.</li>
+      <li>Run tests, typecheck, build, and relevant security checks before and after high-impact changes.</li>
+      <li>Show changed files and a concise diff summary; report failures honestly.</li>
+      <li>Never suppress tests, scanner findings, or dependency checks merely to obtain green output.</li>
+      <li>Do not delete tests without explicit approval.</li>
+      <li>For releases, prove cross-role and cross-tenant denial, not only the happy path.</li>
+      <li>Record deployment/schema consequences before asking the human to publish.</li>
+    </ol>
+  </section>
+
+  <section id="risk-files">
+    <h2>V. High-risk files and behaviors</h2>
+    <p>Human approval should be required before modifying:</p>
+    <ul>
+      <li><code>artifacts/api-server/src/middlewares/auth.ts</code> and <code>routes/auth.ts</code></li>
+      <li>All role/approval logic in users, teachers, settings, safeguarding, messages, pickup, attendance, scan, and storage routes</li>
+      <li><code>lib/db/src/schema/**</code>, migrations, database push/reconciliation commands</li>
+      <li>Object ACL/storage services and upload/download routes</li>
+      <li>Webhook signature code, WhatsApp queue, notification routing, and provider configuration</li>
+      <li>Scheduler locks, cleanup jobs, and state-transition code</li>
+      <li>Service worker caching, token storage, login/logout/session handling</li>
+      <li>AI prompt construction and any feature sending user/child data externally</li>
+      <li>Artifact deployment configuration, environment variables, secrets, production infrastructure, and data</li>
+    </ul>
+  </section>
+
+  <section id="baseline">
+    <h2>W. Baseline verification commands</h2>
+    <pre><code>pnpm install --frozen-lockfile
+pnpm run typecheck
+pnpm --filter @workspace/api-server run test
+pnpm run build
+pnpm audit --prod --audit-level high</code></pre>
+    <p>For focused local parity with current configured checks:</p>
+    <pre><code>cd lib/db &amp;&amp; npx tsc -p tsconfig.json
+cd ../../artifacts/api-server &amp;&amp; npx tsc --noEmit
+cd ../shepherd-connect &amp;&amp; npx tsc --noEmit</code></pre>
+    <p class="small">The security workspace scan should additionally run dependency, SAST, and privacy/dataflow scanners. High-impact changes require relevant integration/E2E tests, not only these baseline commands.</p>
+  </section>
+
+  <section id="fix-order">
+    <h2>X. Fix order</h2>
+    <h3>P0 — must fix before any release</h3>
+    <ol>
+      <li>Close public super-admin/staff registration and invalidate unauthorized accounts/tokens after a controlled review.</li>
+      <li>Protect pickup streams/queues and enforce parent ownership plus staff dismissal scope.</li>
+      <li>Protect private objects with server-side ACLs.</li>
+      <li>Restrict QR/face scanning to intended desk roles and minimize returned child data.</li>
+    </ol>
+    <h3>P1 — must fix before production</h3>
+    <ol>
+      <li>Stop caching authenticated APIs and purge existing API caches.</li>
+      <li>Fail closed on webhook verification and redact sensitive logs.</li>
+      <li>Remove report XSS and introduce CSP/security headers.</li>
+      <li>Add server-side session invalidation and bind OTP verification to registration.</li>
+      <li>Make attendance transitions and QR processing atomic/idempotent.</li>
+      <li>Persist pickup state and make scheduler/WhatsApp claiming safe across instances.</li>
+      <li>Triage and patch exposed high dependency advisories without forced upgrades.</li>
+    </ol>
+    <h3>P2 — should fix</h3>
+    <p>Durable notification outbox, upload MIME/size enforcement, AI privacy controls, unified WAT date handling, per-route abuse controls, comprehensive route-level IDOR suite.</p>
+    <h3>P3 — improvement</h3>
+    <p>Frontend role-aware navigation, accessibility/responsive automation, generic production errors, expanded operational dashboards and runbooks.</p>
+  </section>
+
+  <section id="verdict">
+    <h2>Y. Release verdict</h2>
+    <p class="fail">NOT SAFE FOR PRODUCTION</p>
+    <p>The app compiles and its existing tests pass, but those tests do not cover the release-blocking boundaries. Public super-admin registration alone permits full takeover. Public pickup data, unprotected private objects, and overly broad scan access expose children’s information. These are source-confirmed failures, not theoretical scanner-only concerns.</p>
+    <p>Development may continue in a controlled environment. Do not publish a new release until P0 issues are fixed, unauthorized production accounts/tokens are reviewed, and the required denial tests pass. P1 items should then be completed before declaring the system production-ready.</p>
+    <p><strong>APPLICATION SECURITY &amp; RELIABILITY AUDIT READY FOR HUMAN REVIEW</strong></p>
+  </section>
+</main>
+</body>
+</html>

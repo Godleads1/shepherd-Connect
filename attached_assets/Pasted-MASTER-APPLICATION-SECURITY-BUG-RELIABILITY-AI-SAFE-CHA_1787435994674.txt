@@ -1,0 +1,882 @@
+MASTER APPLICATION SECURITY, BUG, RELIABILITY & AI-SAFE CHANGE AUDIT
+
+You are acting as a:
+
+- Senior Application Security Engineer
+- Senior Backend Engineer
+- Senior Frontend Engineer
+- QA/Test Automation Engineer
+- DevOps/SRE Engineer
+- Database Security Engineer
+- API Security Engineer
+- AI Code Review Engineer
+
+Your job is to comprehensively inspect THIS EXISTING APPLICATION before making changes.
+
+IMPORTANT:
+
+DO NOT MODIFY THE APPLICATION IN THIS FIRST PASS.
+
+DO NOT refactor.
+DO NOT update dependencies.
+DO NOT change configuration.
+DO NOT rewrite working code.
+DO NOT delete files.
+DO NOT modify the database.
+DO NOT change production data.
+
+FIRST AUDIT AND REPORT.
+
+==================================================
+PRIMARY OBJECTIVES
+==================================================
+
+Determine:
+
+1. whether the application currently works correctly
+2. whether there are hidden bugs
+3. whether there are security vulnerabilities
+4. whether authentication/authorization can be bypassed
+5. whether users can access another user's data
+6. whether APIs can be abused
+7. whether database operations are safe
+8. whether payments or sensitive operations can be manipulated
+9. whether frontend-only checks are being trusted
+10. whether environment variables/secrets are exposed
+11. whether dependencies contain known vulnerabilities
+12. whether error handling can cause failures
+13. whether race conditions or duplicate requests can corrupt state
+14. whether AI-generated changes could easily break existing functionality
+15. what automated tests are missing
+16. what protections should exist before future AI modifications
+
+==================================================
+RULE 1 — EVIDENCE ONLY
+==================================================
+
+For every finding classify:
+
+PASS
+FAIL
+UNKNOWN
+NOT APPLICABLE
+
+Never mark PASS because something "looks correct."
+
+PASS requires evidence from:
+
+- source code
+- configuration
+- tests
+- database constraints
+- middleware
+- infrastructure configuration
+- CI configuration
+- runtime behaviour
+- logs where appropriate
+
+For every PASS cite:
+
+FILE:
+LINE / FUNCTION / COMPONENT:
+CONTROL:
+TEST PROVING IT:
+
+If no evidence exists:
+
+UNKNOWN or FAIL.
+
+==================================================
+RULE 2 — UNDERSTAND THE APPLICATION FIRST
+==================================================
+
+Before auditing security, map the application.
+
+Return:
+
+APPLICATION TYPE
+
+FRONTEND STACK
+
+BACKEND STACK
+
+DATABASE
+
+AUTHENTICATION SYSTEM
+
+FILE STORAGE
+
+EXTERNAL APIs
+
+PAYMENT SYSTEMS
+
+EMAIL/SMS PROVIDERS
+
+AI/LLM INTEGRATIONS
+
+ADMIN SYSTEM
+
+BACKGROUND JOBS
+
+WEBHOOKS
+
+CACHING
+
+ANALYTICS
+
+DEPLOYMENT ENVIRONMENT
+
+ENVIRONMENT VARIABLES
+
+Then identify the important user journeys.
+
+Examples:
+
+signup
+login
+password recovery
+profile
+checkout
+payment
+upload
+admin
+search
+messaging
+notifications
+
+Use the actual application.
+
+==================================================
+PART A — FUNCTIONAL BUG AUDIT
+==================================================
+
+Inspect the complete application for:
+
+- broken routes
+- broken imports
+- undefined variables
+- incorrect async handling
+- missing awaits
+- null/undefined crashes
+- unsafe optional values
+- incorrect state updates
+- stale state
+- race conditions
+- duplicate submissions
+- duplicate API calls
+- infinite loops
+- incorrect redirects
+- broken navigation
+- malformed API responses
+- incorrect status codes
+- unhandled promises
+- missing error boundaries
+- database errors
+- failed transactions
+- partial writes
+- inconsistent UI/backend states
+- incorrect calculations
+- pagination errors
+- timezone errors
+- date boundary bugs
+- currency/decimal errors
+- mobile/responsive problems
+- accessibility failures
+- slow queries
+- N+1 queries
+- memory leaks
+- missing cleanup
+- broken environment assumptions
+
+For every bug provide:
+
+SEVERITY
+LOCATION
+HOW IT FAILS
+USER IMPACT
+REPRODUCTION STEPS
+SMALLEST SAFE FIX
+TEST REQUIRED
+
+==================================================
+PART B — AUTHENTICATION
+==================================================
+
+Audit:
+
+- signup
+- login
+- logout
+- password reset
+- email verification
+- MFA if present
+- session handling
+- refresh tokens
+- JWT validation
+- OAuth if present
+- account recovery
+
+Check for:
+
+- authentication bypass
+- predictable reset tokens
+- reusable reset links
+- reset-token leakage
+- session fixation
+- session not invalidated after logout
+- session not invalidated after password change
+- JWT accepted without proper validation
+- missing issuer/audience checking
+- insecure token storage
+- tokens in URLs
+- excessive session lifetime
+- privilege escalation
+
+Do not invent security parameter values.
+
+==================================================
+PART C — AUTHORIZATION / IDOR / BOLA
+==================================================
+
+THIS IS CRITICAL.
+
+For every resource containing an identifier such as:
+
+/users/:id
+/orders/:id
+/projects/:id
+/messages/:id
+/files/:id
+/payments/:id
+/admin/:id
+
+verify server-side ownership/permission.
+
+Test conceptually:
+
+USER A
+requests
+USER B's resource
+
+Expected:
+
+DENIED.
+
+Changing an ID must never expose another user's data.
+
+Check:
+
+READ
+CREATE
+UPDATE
+DELETE
+DOWNLOAD
+EXPORT
+ADMIN ACTIONS
+
+Frontend hiding is NOT authorization.
+
+==================================================
+PART D — ADMIN SECURITY
+==================================================
+
+Audit every admin function.
+
+Check:
+
+- server-side role verification
+- admin route protection
+- privilege escalation
+- admin API protection
+- hidden admin URLs
+- direct API access
+- role modification
+- user suspension
+- data export
+- financial actions
+- destructive operations
+- impersonation if present
+
+No admin action may depend solely on:
+
+hidden UI
+disabled buttons
+frontend route guards.
+
+==================================================
+PART E — INPUT VALIDATION
+==================================================
+
+Audit every untrusted input.
+
+Check:
+
+- type
+- length
+- format
+- range
+- allowed values
+- object shape
+- array size
+- file size
+- filenames
+- URLs
+- IDs
+- JSON bodies
+- query parameters
+- headers
+
+Test for:
+
+SQL injection
+NoSQL injection
+command injection
+template injection
+XSS
+path traversal
+SSRF
+mass assignment
+prototype pollution
+unsafe deserialization
+
+Validation must occur server-side.
+
+==================================================
+PART F — DATABASE SECURITY
+==================================================
+
+Audit:
+
+- SQL/query construction
+- ORM usage
+- transactions
+- constraints
+- foreign keys
+- uniqueness rules
+- indexes
+- ownership rules
+- database permissions
+
+Check for:
+
+- raw SQL concatenation
+- SQL injection
+- missing transactions
+- partial writes
+- race conditions
+- missing unique constraints
+- duplicate-record creation
+- insecure cascading deletes
+- excessive DB privileges
+- production credentials in code
+- user-controlled query operators
+
+Identify operations that require atomic database transactions.
+
+==================================================
+PART G — SECRETS
+==================================================
+
+Search the repository for:
+
+API keys
+JWT secrets
+database passwords
+private keys
+webhook secrets
+OAuth secrets
+cloud credentials
+service tokens
+
+Inspect:
+
+.env
+.env.*
+source files
+frontend environment variables
+build configuration
+Git history where accessible
+
+Anything shipped to browser/mobile code must be treated as public.
+
+Report potential leaked credentials immediately.
+
+DO NOT PRINT ACTUAL SECRET VALUES.
+
+Mask them.
+
+==================================================
+PART H — API SECURITY
+==================================================
+
+Audit every API endpoint.
+
+For each endpoint determine:
+
+AUTH REQUIRED?
+AUTHORIZATION REQUIRED?
+VALIDATION?
+RATE LIMIT?
+IDEMPOTENCY?
+AUDIT LOG?
+SENSITIVE DATA?
+ADMIN ONLY?
+
+Check:
+
+IDOR/BOLA
+mass assignment
+over-posting
+excessive data exposure
+missing pagination
+unbounded queries
+missing rate limiting
+unsafe filtering
+verbose errors
+unauthorized mutations
+client-controlled privileged fields
+
+==================================================
+PART I — WEB SECURITY
+==================================================
+
+Audit:
+
+XSS
+CSRF
+CORS
+CSP
+security headers
+cookies
+clickjacking
+open redirects
+source maps
+debug routes
+error pages
+
+Check cookies for:
+
+Secure
+HttpOnly
+SameSite
+
+where applicable.
+
+==================================================
+PART J — FILE UPLOAD SECURITY
+==================================================
+
+If uploads exist, check:
+
+file type validation
+MIME verification
+extension validation
+size limits
+filename sanitization
+path traversal
+malware risk
+public exposure
+authenticated access
+signed URLs
+content disposition
+
+User-controlled files must never become executable server code.
+
+==================================================
+PART K — SSRF / URL FETCHING
+==================================================
+
+If users can provide URLs, inspect for SSRF.
+
+Prevent access to:
+
+localhost
+127.0.0.1
+private IP ranges
+cloud metadata services
+internal services
+
+Check redirects as well.
+
+==================================================
+PART L — PAYMENTS / MONEY
+==================================================
+
+If payments or monetary values exist, treat as CRITICAL.
+
+Check:
+
+- amount controlled by frontend
+- product price controlled by frontend
+- payment success controlled by frontend
+- webhook signature verification
+- duplicate webhooks
+- replay attacks
+- idempotency
+- currency manipulation
+- decimal/rounding problems
+- negative amounts
+- zero amounts
+- race conditions
+- refund authorization
+- double spending
+- duplicate checkout
+- payment reconciliation
+
+Never trust:
+
+payment successful = true
+
+from the browser.
+
+Financial truth must come from an authoritative server/provider source.
+
+==================================================
+PART M — WEBHOOKS
+==================================================
+
+Check:
+
+signature verification
+raw-body verification
+timestamp verification
+replay prevention
+event ID deduplication
+idempotency
+provider allow-listing where applicable
+safe error handling
+
+Test:
+
+invalid signature
+→ rejected
+
+modified payload
+→ rejected
+
+expired timestamp
+→ rejected
+
+duplicate event
+→ no duplicate effect
+
+==================================================
+PART N — RATE LIMITING / ABUSE
+==================================================
+
+Identify endpoints vulnerable to abuse:
+
+login
+signup
+password reset
+OTP
+email
+SMS
+search
+AI generation
+uploads
+payments
+expensive DB queries
+admin login
+
+Do not invent limits.
+
+Identify where rate limiting is REQUIRED.
+
+==================================================
+PART O — DEPENDENCY SECURITY
+==================================================
+
+Inspect dependency files and lockfiles.
+
+Run appropriate vulnerability audits.
+
+Examples depending on stack:
+
+npm audit
+pnpm audit
+yarn audit
+pip-audit
+cargo audit
+other ecosystem-native checks
+
+Report separately:
+
+CRITICAL
+HIGH
+MODERATE
+LOW
+
+For each critical/high issue provide:
+
+direct/transitive
+runtime/build-time
+fix available?
+breaking upgrade?
+exposure
+
+Do NOT use:
+
+--force
+
+or suppress vulnerabilities merely to obtain green output.
+
+==================================================
+PART P — AI / LLM SECURITY
+==================================================
+
+If this app contains AI functionality, audit:
+
+prompt injection
+system-prompt leakage
+tool abuse
+unauthorized tool calls
+data leakage
+cross-user context leakage
+untrusted document instructions
+excessive AI permissions
+unbounded AI spending
+server-side secret exposure
+AI-generated SQL/code execution
+
+AI-generated text must not become trusted authorization input.
+
+==================================================
+PART Q — LOGGING / PRIVACY
+==================================================
+
+Search logs for:
+
+passwords
+tokens
+API keys
+cookies
+bank information
+payment details
+personal data
+authentication headers
+
+Sensitive information should not be logged unnecessarily.
+
+Ensure security-relevant events can eventually be audited.
+
+==================================================
+PART R — FAILURE / RELIABILITY AUDIT
+==================================================
+
+Test or inspect behaviour when:
+
+database unavailable
+external API unavailable
+network timeout
+invalid JSON
+API returns 500
+request duplicated
+request times out
+user refreshes page
+user double-clicks
+user navigates backwards
+session expires
+external service rate-limits
+background job fails
+
+The application should fail safely rather than corrupting state.
+
+==================================================
+PART S — REGRESSION PROTECTION
+==================================================
+
+Inventory automated tests.
+
+Identify important functionality currently having:
+
+NO TEST
+WEAK TEST
+GOOD COVERAGE
+
+Create a proposed regression suite covering:
+
+critical user flows
+authentication
+authorization
+API validation
+database operations
+payments
+admin
+important calculations
+navigation
+forms
+error states
+
+==================================================
+PART T — AI SAFE-CHANGE PROTOCOL
+==================================================
+
+Design a mandatory protocol for EVERY FUTURE AI CHANGE.
+
+The AI must follow this sequence:
+
+1. READ relevant existing code first.
+2. IDENTIFY affected files.
+3. IDENTIFY tests protecting current behaviour.
+4. STATE proposed change.
+5. STATE possible regressions.
+6. Make the SMALLEST necessary change.
+7. Do not refactor unrelated code.
+8. Do not replace working architecture unnecessarily.
+9. Run existing tests.
+10. Add tests for new behaviour.
+11. Run lint/typecheck/build.
+12. Show exact changed files.
+13. Show diff summary.
+14. Report failures honestly.
+15. Never suppress failing tests just to obtain green results.
+16. Never delete tests unless explicitly approved.
+17. Never change database schema silently.
+18. Never change authentication/authorization silently.
+19. Never change environment variables silently.
+20. Never modify production infrastructure/data without explicit approval.
+
+==================================================
+PART U — PROTECTED FILES / HIGH-RISK CHANGES
+==================================================
+
+Identify files that AI should treat as HIGH-RISK.
+
+Examples:
+
+authentication
+authorization
+database schema
+migrations
+payments
+webhooks
+environment config
+deployment config
+security middleware
+admin permissions
+billing
+storage
+production infrastructure
+
+Recommend a rule:
+
+AI MUST REQUEST HUMAN APPROVAL BEFORE modifying high-risk files or behaviour.
+
+==================================================
+PART V — BASELINE BEFORE FUTURE CHANGES
+==================================================
+
+Establish the commands that define a healthy application.
+
+For example:
+
+INSTALL
+BUILD
+TYPECHECK
+LINT
+UNIT TESTS
+INTEGRATION TESTS
+SECURITY AUDIT
+
+Record exact commands for THIS repository.
+
+These become the:
+
+BASELINE VERIFICATION COMMANDS.
+
+Future AI changes must run them both before and after high-impact work.
+
+==================================================
+FINAL OUTPUT
+==================================================
+
+Return:
+
+A. APPLICATION ARCHITECTURE SUMMARY
+
+B. EXECUTIVE HEALTH SCORE
+- functionality
+- security
+- reliability
+- test coverage
+- maintainability
+
+C. CRITICAL FINDINGS
+
+D. HIGH FINDINGS
+
+E. MEDIUM FINDINGS
+
+F. LOW FINDINGS
+
+G. UNKNOWN / UNVERIFIED AREAS
+
+H. SECURITY CHECK MATRIX
+
+I. BUG REPORT
+
+J. AUTHENTICATION REVIEW
+
+K. AUTHORIZATION / IDOR REVIEW
+
+L. API REVIEW
+
+M. DATABASE REVIEW
+
+N. PAYMENT REVIEW
+
+O. DEPENDENCY REVIEW
+
+P. SECRETS REVIEW
+
+Q. AI/LLM SECURITY REVIEW if applicable
+
+R. RELIABILITY REVIEW
+
+S. TEST COVERAGE GAPS
+
+T. REQUIRED REGRESSION TESTS
+
+U. AI SAFE-CHANGE PROTOCOL
+
+V. HIGH-RISK FILE LIST
+
+W. BASELINE VERIFICATION COMMANDS
+
+X. FIX ORDER
+
+Classify fixes:
+
+P0 — MUST FIX BEFORE ANY RELEASE
+P1 — MUST FIX BEFORE PRODUCTION
+P2 — SHOULD FIX
+P3 — IMPROVEMENT
+
+Y. RELEASE VERDICT
+
+Choose:
+
+SAFE TO CONTINUE DEVELOPMENT
+
+SAFE FOR STAGING ONLY
+
+NOT SAFE FOR PRODUCTION
+
+PRODUCTION READY
+
+Do NOT claim PRODUCTION READY unless evidence supports it.
+
+==================================================
+IMPORTANT FINAL RULE
+==================================================
+
+DO NOT FIX ANYTHING YET.
+
+FIRST RETURN THE AUDIT.
+
+After human review, fixes will be authorized in controlled batches.
+
+End with:
+
+APPLICATION SECURITY & RELIABILITY AUDIT READY FOR HUMAN REVIEW
