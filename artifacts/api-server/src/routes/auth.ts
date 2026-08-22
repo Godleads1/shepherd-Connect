@@ -9,6 +9,7 @@ import { LoginBody, RegisterBody } from "@workspace/api-zod";
 import { generateToken, authMiddleware } from "../middlewares/auth";
 import { smsWelcome, smsPendingApproval, smsPasswordResetCode, smsRegistrationOtp, emailRegistrationOtp, emailWelcome, emailPendingApproval, emailPasswordResetCode } from "../services/sms";
 import { withDbRetry } from "../lib/db-retry";
+import { getPublicRegistrationPolicy } from "../lib/registrationPolicy";
 
 // Tight limiter for password-reset verification — prevents brute-forcing the
 // 6-digit code (1,000,000 combinations) by capping to 5 attempts / 15 min / IP.
@@ -133,15 +134,19 @@ router.post("/auth/register", async (req, res): Promise<void> => {
     return;
   }
   const { email, password, firstName, lastName, phone, role } = parsed.data;
+  const registrationPolicy = getPublicRegistrationPolicy(role);
+  if (!registrationPolicy.allowed) {
+    res.status(403).json({
+      error: "Forbidden",
+      message: "Super administrator accounts cannot be created through public registration.",
+    });
+    return;
+  }
   const primaryClassId = (req.body as any).primaryClassId ? Number((req.body as any).primaryClassId) : null;
   const [existing] = await db.select().from(usersTable).where(eq(usersTable.email, email));
 
   if (existing) {
     // Email already registered — add role to pendingRoles if not already held
-    const VALID_ROLES_LIST = ["super_admin", "admin", "teacher", "support", "parent"];
-    if (!VALID_ROLES_LIST.includes(role)) {
-      res.status(400).json({ error: "Bad request", message: "Invalid role" }); return;
-    }
     if (existing.role === role) {
       res.status(409).json({ error: "Conflict", message: "You already have this role" }); return;
     }
@@ -159,7 +164,7 @@ router.post("/auth/register", async (req, res): Promise<void> => {
       res.status(401).json({ error: "Unauthorized", message: "Incorrect password for this email address" }); return;
     }
 
-    const newRoleRequiresApproval = role === "admin" || role === "teacher";
+    const newRoleRequiresApproval = registrationPolicy.requiresApproval;
 
     if (newRoleRequiresApproval) {
       // Queue for admin approval
@@ -196,7 +201,7 @@ router.post("/auth/register", async (req, res): Promise<void> => {
 
   const passwordHash = await bcrypt.hash(password, 12);
 
-  const requiresApproval = role === "admin" || role === "teacher";
+  const requiresApproval = registrationPolicy.requiresApproval;
   const userStatus = requiresApproval ? "pending_approval" : "active";
   const isActive = !requiresApproval;
 

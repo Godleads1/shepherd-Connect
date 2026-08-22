@@ -139,6 +139,24 @@ describe("Input validation — 400 on bad request body", () => {
   });
 });
 
+describe("Public registration privilege boundary", () => {
+  it("POST /api/auth/register rejects super_admin even with a valid registration body", async () => {
+    const res = await request(app)
+      .post("/api/auth/register")
+      .send({
+        firstName: "Unapproved",
+        lastName: "Admin",
+        email: "unapproved-admin@example.com",
+        phone: "08012345678",
+        password: "safe-password",
+        role: "super_admin",
+      })
+      .expect(403);
+
+    expect(res.body.message).toMatch(/cannot be created through public registration/i);
+  });
+});
+
 describe("404 for unknown routes", () => {
   it("GET /api/does-not-exist → 404", async () => {
     const res = await request(app).get("/api/does-not-exist");
