@@ -1,7 +1,7 @@
 /// <reference lib="webworker" />
 import { cleanupOutdatedCaches, precacheAndRoute } from "workbox-precaching";
 import { NavigationRoute, registerRoute } from "workbox-routing";
-import { NetworkFirst, CacheFirst, StaleWhileRevalidate } from "workbox-strategies";
+import { NetworkFirst, NetworkOnly, CacheFirst, StaleWhileRevalidate } from "workbox-strategies";
 import { ExpirationPlugin } from "workbox-expiration";
 import { CacheableResponsePlugin } from "workbox-cacheable-response";
 import { NetworkFirstOptions } from "workbox-strategies/NetworkFirst";
@@ -34,9 +34,15 @@ registerRoute(
   ),
 );
 
+// Private objects are authorization-scoped and must never survive in a shared cache.
+registerRoute(
+  ({ url }) => url.pathname.startsWith("/api/storage/objects/"),
+  new NetworkOnly(),
+);
+
 // ── API — network-first, 4 s timeout ─────────────────────────────────────────
 registerRoute(
-  ({ url }) => url.pathname.startsWith("/api/"),
+  ({ url }) => url.pathname.startsWith("/api/") && !url.pathname.startsWith("/api/storage/objects/"),
   new NetworkFirst({
     cacheName: "api-cache",
     networkTimeoutSeconds: 4,

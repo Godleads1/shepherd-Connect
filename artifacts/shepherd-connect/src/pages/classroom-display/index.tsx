@@ -349,6 +349,7 @@ function NotifBanner({ onRequest }: { onRequest: () => void }) {
 
 // ── Main component ───────────────────────────────────────────────────────────────
 const STORAGE_KEY = "classroom-display-yt-id";
+const DISPLAY_TOKEN_KEY = "classroom-display-token";
 
 export default function ClassroomDisplay() {
   const { classId } = useParams<{ classId: string }>();
@@ -357,6 +358,22 @@ export default function ClassroomDisplay() {
   const [queue, setQueue] = useState<PickupRequest[]>([]);
   const [className, setClassName] = useState<string>("");
   const [connected, setConnected] = useState(false);
+  const [accessError, setAccessError] = useState<string | null>(null);
+  const [displayToken] = useState<string>(() => {
+    if (!Number.isFinite(classIdNum)) return "";
+    const key = `${DISPLAY_TOKEN_KEY}-${classIdNum}`;
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get("display") ?? sessionStorage.getItem(key) ?? "";
+    if (token) {
+      sessionStorage.setItem(key, token);
+      if (params.has("display")) {
+        params.delete("display");
+        const query = params.toString();
+        window.history.replaceState({}, "", `${window.location.pathname}${query ? `?${query}` : ""}`);
+      }
+    }
+    return token;
+  });
 
   // Restore last YouTube video from localStorage; local files are session-only
   const [media, setMedia] = useState<MediaSource>(() => {
@@ -407,14 +424,22 @@ export default function ClassroomDisplay() {
   }, []);
 
   useEffect(() => {
-    if (!classIdNum) return;
+    if (!classIdNum || !displayToken) {
+      setAccessError("This classroom display link is missing or has expired. Open a new display link from Classes or My Class.");
+      return;
+    }
     const base = (import.meta.env.BASE_URL ?? "/").replace(/\/$/, "");
-    const url = `${base}/api/pickup-requests/stream/${classIdNum}`;
+    const url = `${base}/api/pickup-requests/stream/${classIdNum}?displayToken=${encodeURIComponent(displayToken)}`;
     let retryTimeout: ReturnType<typeof setTimeout>;
+    let failures = 0;
 
     function connect() {
       const es = new EventSource(url);
-      es.onopen = () => setConnected(true);
+      es.onopen = () => {
+        failures = 0;
+        setAccessError(null);
+        setConnected(true);
+      };
       es.onmessage = (e) => {
         try {
           const data = JSON.parse(e.data);
@@ -444,6 +469,12 @@ export default function ClassroomDisplay() {
       es.onerror = () => {
         setConnected(false);
         es.close();
+        failures += 1;
+        if (failures >= 3) {
+          sessionStorage.removeItem(`${DISPLAY_TOKEN_KEY}-${classIdNum}`);
+          setAccessError("This classroom display link is invalid, expired, or revoked. Open a new display link from Classes or My Class.");
+          return;
+        }
         retryTimeout = setTimeout(connect, 4000);
       };
       return es;
@@ -451,7 +482,7 @@ export default function ClassroomDisplay() {
 
     const es = connect();
     return () => { es.close(); clearTimeout(retryTimeout); setConnected(false); };
-  }, [classIdNum, fireNotification]);
+  }, [classIdNum, displayToken, fireNotification]);
 
   const today = new Date().toLocaleDateString([], { weekday: "long", month: "long", day: "numeric", year: "numeric" });
 
@@ -460,6 +491,15 @@ export default function ClassroomDisplay() {
 
   return (
     <div className="h-screen w-screen overflow-hidden relative" style={{ background: "#0f172a", fontFamily: "Inter, sans-serif" }}>
+      {accessError && (
+        <div className="absolute inset-0 z-[100] bg-slate-950 flex items-center justify-center p-8">
+          <div className="max-w-xl rounded-3xl border border-white/10 bg-white/5 p-8 text-center text-white shadow-2xl">
+            <div className="text-5xl mb-5">🔒</div>
+            <h1 className="text-2xl font-bold">Classroom display access required</h1>
+            <p className="mt-3 text-slate-300 leading-relaxed">{accessError}</p>
+          </div>
+        </div>
+      )}
 
       {/* ── Media area — leaves room for news bar at bottom ── */}
       <div className="absolute inset-0" style={{ bottom: NEWS_BAR_H }}>

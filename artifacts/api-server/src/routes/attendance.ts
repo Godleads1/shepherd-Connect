@@ -413,7 +413,11 @@ router.put("/attendance/:id/checkout", authMiddleware, requireRoles("super_admin
   res.json(await formatAttendance(record));
 });
 
-router.post("/attendance/scan-qr", authMiddleware, async (req, res): Promise<void> => {
+router.post(
+  "/attendance/scan-qr",
+  authMiddleware,
+  requireRoles("super_admin", "admin", "support", "attendant"),
+  async (req, res): Promise<void> => {
   const parsed = ScanQrCodeBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: "Bad request", message: parsed.error.message }); return; }
   const { qrCode, serviceDate, serviceSlot } = parsed.data;
@@ -537,19 +541,45 @@ router.post("/attendance/scan-qr", authMiddleware, async (req, res): Promise<voi
     }
   }
 
-  res.json({ family: { ...family, parent1 }, children: childrenWithDetails, hasAlerts: alerts.length > 0, alerts, autoProcessed });
+  const safeChildren = childrenWithDetails.map(child => ({
+    id: child.id,
+    firstName: child.firstName,
+    lastName: child.lastName,
+    age: child.age,
+    servicePreference: child.servicePreference,
+    allergies: child.allergies,
+    currentClass: child.currentClass ? {
+      id: child.currentClass.id,
+      name: child.currentClass.name,
+    } : null,
+  }));
+  res.json({
+    family: { familyCode: family.familyCode, parent1 },
+    children: safeChildren,
+    hasAlerts: alerts.length > 0,
+    alerts,
+    autoProcessed,
+  });
 });
 
-router.post("/attendance/scan-face", authMiddleware, async (req, res): Promise<void> => {
+router.post(
+  "/attendance/scan-face",
+  authMiddleware,
+  requireRoles("super_admin", "admin", "support", "attendant"),
+  async (req, res): Promise<void> => {
   const { descriptor } = req.body as { descriptor: number[] };
   if (!descriptor || !Array.isArray(descriptor) || descriptor.length !== 128) {
     res.status(400).json({ error: "Bad request", message: "descriptor must be a 128-element float array" });
     return;
   }
-  const allChildren = await db.select().from(childrenTable);
+  const allChildren = await db.select({
+    id: childrenTable.id,
+    familyId: childrenTable.familyId,
+    faceDescriptorJson: childrenTable.faceDescriptorJson,
+  }).from(childrenTable);
   const enrolled = allChildren.filter(c => c.faceDescriptorJson);
 
-  let bestMatch: typeof childrenTable.$inferSelect | null = null;
+  let bestMatch: typeof allChildren[number] | null = null;
   let bestDist = Infinity;
 
   for (const child of enrolled) {
@@ -570,6 +600,12 @@ router.post("/attendance/scan-face", authMiddleware, async (req, res): Promise<v
   if (!family) { res.status(404).json({ error: "Not found", message: "Family not found" }); return; }
 
   const familyChildren = await db.select().from(childrenTable).where(eq(childrenTable.familyId, family.id));
+  let parent1: { firstName: string; lastName: string } | null = null;
+  if (family.parent1Id) {
+    const [u] = await db.select({ firstName: usersTable.firstName, lastName: usersTable.lastName })
+      .from(usersTable).where(eq(usersTable.id, family.parent1Id));
+    if (u) parent1 = u;
+  }
   const alerts: string[] = [];
   const childrenWithDetails = await Promise.all(familyChildren.map(async (child) => {
     const dob = new Date(child.dob);
@@ -591,7 +627,26 @@ router.post("/attendance/scan-face", authMiddleware, async (req, res): Promise<v
     return { ...child, age, currentClass, teacher: null, lastAttendance, attendanceHistory: recentAttendance };
   }));
 
-  res.json({ family, children: childrenWithDetails, hasAlerts: alerts.length > 0, alerts, matchedChildId: bestMatch.id, confidence: Math.max(0, Math.round((1 - bestDist / 0.6) * 100)) });
+  const safeChildren = childrenWithDetails.map(child => ({
+    id: child.id,
+    firstName: child.firstName,
+    lastName: child.lastName,
+    age: child.age,
+    servicePreference: child.servicePreference,
+    allergies: child.allergies,
+    currentClass: child.currentClass ? {
+      id: child.currentClass.id,
+      name: child.currentClass.name,
+    } : null,
+  }));
+  res.json({
+    family: { familyCode: family.familyCode, parent1 },
+    children: safeChildren,
+    hasAlerts: alerts.length > 0,
+    alerts,
+    matchedChildId: bestMatch.id,
+    confidence: Math.max(0, Math.round((1 - bestDist / 0.6) * 100)),
+  });
 });
 
 // ─── Late Pickup Alerts ───────────────────────────────────────────────────────

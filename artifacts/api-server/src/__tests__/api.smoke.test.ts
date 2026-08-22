@@ -86,9 +86,14 @@ describe("Authentication guard — 401 without a token", () => {
     ["GET",    "/api/emergencies"],
     ["GET",    "/api/audit-logs"],
     ["GET",    "/api/error-logs"],
+    ["GET",    "/api/pickup-requests/1"],
+    ["GET",    "/api/pickup-requests/stream/1"],
+    ["GET",    "/api/storage/objects/private-photo"],
     ["POST",   "/api/families"],
     ["POST",   "/api/children"],
     ["POST",   "/api/teachers"],
+    ["POST",   "/api/attendance/scan-qr"],
+    ["POST",   "/api/attendance/scan-face"],
     ["PUT",    "/api/settings/general"],
     ["PUT",    "/api/settings/location"],
   ];
@@ -119,6 +124,22 @@ describe("Role guard — 403 when role is insufficient", () => {
       .post("/api/whatsapp/connect")
       .set("Authorization", token("admin"))
       .send({});
+    expect(res.status).toBe(403);
+  });
+
+  it("POST /api/attendance/scan-qr as parent → 403 before family lookup", async () => {
+    const res = await request(app)
+      .post("/api/attendance/scan-qr")
+      .set("Authorization", token("parent"))
+      .send({ qrCode: "QR:999", serviceDate: "2026-08-23", serviceSlot: "7am" });
+    expect(res.status).toBe(403);
+  });
+
+  it("POST /api/attendance/scan-face as teacher → 403 before biometric search", async () => {
+    const res = await request(app)
+      .post("/api/attendance/scan-face")
+      .set("Authorization", token("teacher"))
+      .send({ descriptor: Array(128).fill(0) });
     expect(res.status).toBe(403);
   });
 });

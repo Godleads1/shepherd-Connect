@@ -12,7 +12,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { User, Phone, Briefcase, Bell, Save, CheckCircle, MessageSquare, Smartphone, ShieldCheck, ShieldOff, QrCode, Loader2, KeyRound, Mail, BellRing, EyeOff, HelpCircle } from "lucide-react";
 import { usePushNotifications } from "@/hooks/usePushNotifications";
 import { QRCodeSVG } from "qrcode.react";
-import { PhotoUploader, resolvePhotoUrl } from "@/components/PhotoUploader";
+import { PhotoUploader, SecurePhoto } from "@/components/PhotoUploader";
 import { useGeneralSettings } from "@/components/AnnouncementBanner";
 
 interface CommPrefs {
@@ -460,8 +460,8 @@ export default function Profile() {
               />
             ) : (
               <>
-                {resolvePhotoUrl(form.photoUrl) ? (
-                  <img src={resolvePhotoUrl(form.photoUrl)!} alt="Profile" className="w-20 h-20 rounded-2xl object-cover" />
+                {form.photoUrl ? (
+                  <SecurePhoto src={form.photoUrl} alt="Profile" className="w-20 h-20 rounded-2xl object-cover" />
                 ) : (
                   <div className="w-20 h-20 rounded-2xl flex items-center justify-center text-3xl font-bold text-white"
                     style={{ background: "linear-gradient(135deg, #1e3a8a, #3b82f6)" }}>

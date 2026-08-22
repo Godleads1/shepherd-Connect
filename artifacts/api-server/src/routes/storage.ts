@@ -5,11 +5,20 @@ import {
   RequestUploadUrlResponse,
 } from "@workspace/api-zod";
 import { ObjectStorageService, ObjectNotFoundError } from "../lib/objectStorage";
-import { ObjectPermission } from "../lib/objectAcl";
 import { authMiddleware } from "../middlewares/auth";
+import { canReadPrivateObject, registerPendingObject } from "../lib/privateObjectAccess";
 
 const router: IRouter = Router();
 const objectStorageService = new ObjectStorageService();
+
+function todayWAT(): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Africa/Lagos",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
 
 /**
  * POST /storage/uploads/request-url
@@ -30,6 +39,7 @@ router.post("/storage/uploads/request-url", authMiddleware, async (req: Request,
 
     const uploadURL = await objectStorageService.getObjectEntityUploadURL();
     const objectPath = objectStorageService.normalizeObjectEntityPath(uploadURL);
+    await registerPendingObject(objectPath, req.user!.userId);
 
     res.json(
       RequestUploadUrlResponse.parse({
@@ -85,32 +95,24 @@ router.get("/storage/public-objects/*filePath", async (req: Request, res: Respon
  * These are served from a separate path from /public-objects and can optionally
  * be protected with authentication or ACL checks based on the use case.
  */
-router.get("/storage/objects/*path", async (req: Request, res: Response) => {
+router.get("/storage/objects/*path", authMiddleware, async (req: Request, res: Response) => {
   try {
     const raw = req.params.path;
     const wildcardPath = Array.isArray(raw) ? raw.join("/") : raw;
     const objectPath = `/objects/${wildcardPath}`;
     const objectFile = await objectStorageService.getObjectEntityFile(objectPath);
+    const canAccess = await canReadPrivateObject(objectPath, req.user!, todayWAT());
+    if (!canAccess) {
+      res.status(403).json({ error: "Forbidden", message: "You do not have access to this file" });
+      return;
+    }
 
-    // --- Protected route example (uncomment when using replit-auth) ---
-    // if (!req.isAuthenticated()) {
-    //   res.status(401).json({ error: "Unauthorized" });
-    //   return;
-    // }
-    // const canAccess = await objectStorageService.canAccessObjectEntity({
-    //   userId: req.user.id,
-    //   objectFile,
-    //   requestedPermission: ObjectPermission.READ,
-    // });
-    // if (!canAccess) {
-    //   res.status(403).json({ error: "Forbidden" });
-    //   return;
-    // }
-
-    const response = await objectStorageService.downloadObject(objectFile);
+    const response = await objectStorageService.downloadObject(objectFile, 0);
 
     res.status(response.status);
     response.headers.forEach((value, key) => res.setHeader(key, value));
+    res.setHeader("Cache-Control", "private, no-store");
+    res.setHeader("Pragma", "no-cache");
 
     if (response.body) {
       const nodeStream = Readable.fromWeb(response.body as ReadableStream<Uint8Array>);

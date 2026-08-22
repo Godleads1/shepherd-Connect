@@ -4,6 +4,7 @@ import { eq, ilike, or, and, sql } from "drizzle-orm";
 import { db, usersTable, teachersTable, pool } from "@workspace/db";
 import { CreateUserBody, UpdateUserBody, ListUsersQueryParams } from "@workspace/api-zod";
 import { authMiddleware, requireRoles } from "../middlewares/auth";
+import { bindObjectToResource } from "../lib/privateObjectAccess";
 import { smsAccountApproved, smsAccountRejected, emailAccountApproved, emailAccountRejected } from "../services/sms";
 
 const router = Router();
@@ -206,6 +207,9 @@ router.put("/users/:id", authMiddleware, async (req, res): Promise<void> => {
 
   const parsed = UpdateUserBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: "Bad request", message: parsed.error.message }); return; }
+  const [existingUser] = await db.select({ photoUrl: usersTable.photoUrl })
+    .from(usersTable).where(eq(usersTable.id, id)).limit(1);
+  if (!existingUser) { res.status(404).json({ error: "Not found", message: "User not found" }); return; }
 
   const updates: Partial<typeof usersTable.$inferInsert> = {};
   if (parsed.data.firstName) updates.firstName = parsed.data.firstName;
@@ -215,6 +219,14 @@ router.put("/users/:id", authMiddleware, async (req, res): Promise<void> => {
   if (isAdmin && parsed.data.role) updates.role = parsed.data.role as "super_admin" | "admin" | "teacher" | "support" | "parent";
 
   const body = req.body as Record<string, unknown>;
+  if (
+    typeof body["photoUrl"] === "string"
+    && body["photoUrl"] !== existingUser.photoUrl
+    && !(await bindObjectToResource(body["photoUrl"], "user", id, req.user!))
+  ) {
+    res.status(403).json({ error: "Forbidden", message: "This uploaded photo cannot be attached to this profile" });
+    return;
+  }
   if (body["photoUrl"] !== undefined) updates.photoUrl = body["photoUrl"] as string | null;
   if (body["dob"] !== undefined) updates.dob = body["dob"] as string | null;
   if (body["gender"] !== undefined) updates.gender = body["gender"] as string | null;

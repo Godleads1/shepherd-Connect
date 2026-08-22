@@ -4,6 +4,7 @@ import { db, childrenTable, classesTable, attendanceTable, classAssignmentsTable
 import { CreateChildBody, ListChildrenQueryParams } from "@workspace/api-zod";
 import { authMiddleware, requireRoles } from "../middlewares/auth";
 import { getParentFamilyIds, parentOwnsChild, parentOwnsFamily } from "../lib/parentScope";
+import { assertObjectCanBind, bindObjectToResource } from "../lib/privateObjectAccess";
 
 const router = Router();
 
@@ -82,12 +83,20 @@ router.post("/children", authMiddleware, async (req, res): Promise<void> => {
     if (req.user!.role === "parent" && !(await parentOwnsFamily(req.user!.userId, parsed.data.familyId))) {
       res.status(403).json({ error: "Forbidden", message: "You can only add children to your own family" }); return;
     }
+    if (!(await assertObjectCanBind(parsed.data.photoUrl, req.user!))) {
+      res.status(403).json({ error: "Forbidden", message: "This uploaded photo cannot be attached to this child" }); return;
+    }
     // Auto-assign class based on age calculated from DOB
     const age = calcAge(parsed.data.dob);
     const [matchedClass] = await db.select().from(classesTable)
       .where(and(eq(classesTable.ageMin, age), eq(classesTable.ageMax, age)));
     const dataWithClass = { ...parsed.data, currentClassId: matchedClass?.id ?? null };
     const [child] = await db.insert(childrenTable).values(dataWithClass).returning();
+    if (!(await bindObjectToResource(child.photoUrl, "child", child.id, req.user!))) {
+      await db.delete(childrenTable).where(eq(childrenTable.id, child.id));
+      res.status(403).json({ error: "Forbidden", message: "This uploaded photo cannot be attached to this child" });
+      return;
+    }
     res.status(201).json(await formatChild(child));
   } catch (err) {
     req.log.error({ err }, "Failed to create child");
@@ -116,6 +125,15 @@ router.put("/children/:id", authMiddleware, async (req, res): Promise<void> => {
     if (!(await assertParentOwnsChild(req, res, id))) return;
     const parsed = CreateChildBody.safeParse(req.body);
     if (!parsed.success) { res.status(400).json({ error: "Bad request", message: parsed.error.message }); return; }
+    const [existingChild] = await db.select({ photoUrl: childrenTable.photoUrl })
+      .from(childrenTable).where(eq(childrenTable.id, id)).limit(1);
+    if (!existingChild) { res.status(404).json({ error: "Not found", message: "Child not found" }); return; }
+    if (
+      parsed.data.photoUrl !== existingChild.photoUrl
+      && !(await assertObjectCanBind(parsed.data.photoUrl, req.user!))
+    ) {
+      res.status(403).json({ error: "Forbidden", message: "This uploaded photo cannot be attached to this child" }); return;
+    }
     // Auto-assign class based on updated DOB (ignore any manually-supplied currentClassId)
     const age = calcAge(parsed.data.dob);
     const [matchedClass] = await db.select().from(classesTable)
@@ -124,6 +142,14 @@ router.put("/children/:id", authMiddleware, async (req, res): Promise<void> => {
     const updateData = { ...rest, currentClassId: matchedClass?.id ?? null };
     const [child] = await db.update(childrenTable).set(updateData).where(eq(childrenTable.id, id)).returning();
     if (!child) { res.status(404).json({ error: "Not found", message: "Child not found" }); return; }
+    if (
+      child.photoUrl !== existingChild.photoUrl
+      && !(await bindObjectToResource(child.photoUrl, "child", child.id, req.user!))
+    ) {
+      await db.update(childrenTable).set({ photoUrl: existingChild.photoUrl }).where(eq(childrenTable.id, id));
+      res.status(403).json({ error: "Forbidden", message: "This uploaded photo cannot be attached to this child" });
+      return;
+    }
     res.json(await formatChild(child));
   } catch (err) {
     req.log.error({ err }, "Failed to update child");

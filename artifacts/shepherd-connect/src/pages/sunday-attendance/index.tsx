@@ -1,6 +1,7 @@
 import { useState, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiGet, apiPost } from "@/lib/api-call";
+import { SecurePhoto } from "@/components/PhotoUploader";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -149,7 +150,7 @@ function StaffCard({ row }: { row: StaffRow }) {
         onClick={() => setOpen(o => !o)}
       >
         {row.photoUrl ? (
-          <img src={row.photoUrl} alt="" className="w-9 h-9 rounded-full object-cover flex-shrink-0" />
+          <SecurePhoto src={row.photoUrl} alt="" className="w-9 h-9 rounded-full object-cover flex-shrink-0" />
         ) : (
           <div className="w-9 h-9 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-semibold text-sm flex-shrink-0">
             {row.firstName[0]}{row.lastName[0]}
@@ -344,7 +345,7 @@ function TableRow({ row, i }: { row: StaffRow; i: number }) {
       <td className="px-4 py-3">
         <div className="flex items-center gap-2">
           {row.photoUrl ? (
-            <img src={row.photoUrl} alt="" className="w-7 h-7 rounded-full object-cover flex-shrink-0" />
+            <SecurePhoto src={row.photoUrl} alt="" className="w-7 h-7 rounded-full object-cover flex-shrink-0" />
           ) : (
             <div className="w-7 h-7 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-medium text-xs flex-shrink-0">
               {row.firstName[0]}{row.lastName[0]}

@@ -15,7 +15,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { useAuth } from "@/contexts/auth";
-import { PhotoUploader, resolvePhotoUrl } from "@/components/PhotoUploader";
+import { PhotoUploader, SecurePhoto } from "@/components/PhotoUploader";
 
 const PHONE_RE = /^\d{11}$/;
 
@@ -246,8 +246,8 @@ export default function PickupDelegates() {
             <CardHeader className="pb-2 bg-gray-50">
               <div className="flex justify-between items-start">
                 <div className="flex items-center gap-3">
-                  {resolvePhotoUrl(delegate.photoUrl) ? (
-                    <img src={resolvePhotoUrl(delegate.photoUrl)!} alt={delegate.name}
+                  {delegate.photoUrl ? (
+                    <SecurePhoto src={delegate.photoUrl} alt={delegate.name}
                       className="w-10 h-10 rounded-full object-cover" />
                   ) : (
                     <div className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold"
@@ -314,8 +314,8 @@ export default function PickupDelegates() {
           <div className="space-y-2">
             {historyEntries.map((h: any) => (
               <div key={h.key} className="bg-white border rounded-2xl px-4 py-3 flex items-center gap-3">
-                {resolvePhotoUrl(h.photoUrl) ? (
-                  <img src={resolvePhotoUrl(h.photoUrl)!} alt={h.name} className="w-9 h-9 rounded-full object-cover flex-shrink-0" />
+                {h.photoUrl ? (
+                  <SecurePhoto src={h.photoUrl} alt={h.name} className="w-9 h-9 rounded-full object-cover flex-shrink-0" />
                 ) : (
                   <div className="w-9 h-9 rounded-full flex items-center justify-center text-white font-bold bg-gray-300 flex-shrink-0">
                     {h.name?.[0]}

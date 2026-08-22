@@ -12,12 +12,12 @@ import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { MessageSquare, Send, Inbox, PenSquare, ChevronLeft } from "lucide-react";
 import { format } from "date-fns";
-import { resolvePhotoUrl } from "@/components/PhotoUploader";
+import { useSecurePhotoUrl } from "@/components/PhotoUploader";
 
 type Tab = "inbox" | "sent";
 
 function Avatar({ user }: { user: any }) {
-  const photo = resolvePhotoUrl(user?.photoUrl);
+  const photo = useSecurePhotoUrl(user?.photoUrl);
   return (
     <div className="w-10 h-10 rounded-full flex-shrink-0 overflow-hidden">
       {photo

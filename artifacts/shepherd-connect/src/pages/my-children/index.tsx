@@ -10,6 +10,7 @@ import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery } from "@tanstack/react-query";
 import { apiPost, apiGet } from "@/lib/api-call";
+import { SecurePhoto } from "@/components/PhotoUploader";
 
 const LEVEL_STYLE: Record<string, string> = {
   excellent:           "bg-green-100 text-green-800",
@@ -111,7 +112,7 @@ function ChildCard({ child, onSignalPickup, pickupSent, isCheckedIn, selected, o
         <div className="flex items-start gap-4">
           <div className="w-14 h-14 rounded-2xl flex-shrink-0 overflow-hidden">
             {child.photoUrl
-              ? <img src={child.photoUrl} alt={child.firstName} className="w-full h-full object-cover" />
+              ? <SecurePhoto src={child.photoUrl} alt={child.firstName} className="w-full h-full object-cover" />
               : <div className="w-full h-full flex items-center justify-center text-white font-bold text-xl"
                   style={{ background: "linear-gradient(135deg, #1e3a8a, #3b82f6)" }}>
                   {child.firstName[0]}{child.lastName[0]}

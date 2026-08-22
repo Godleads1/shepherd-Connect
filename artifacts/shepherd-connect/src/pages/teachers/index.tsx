@@ -8,12 +8,12 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { UserCog, Pencil, Phone, Mail, Calendar, CheckCircle2, XCircle, ShieldCheck, Clock, AlertTriangle, School, Bell } from "lucide-react";
-import { resolvePhotoUrl } from "@/components/PhotoUploader";
+import { useSecurePhotoUrl } from "@/components/PhotoUploader";
 import { QueryError } from "@/components/QueryError";
 import { format } from "date-fns";
 
 function TeacherAvatar({ teacher }: { teacher: any }) {
-  const photo = resolvePhotoUrl(teacher?.user?.photoUrl);
+  const photo = useSecurePhotoUrl(teacher?.user?.photoUrl);
   const initials = `${teacher?.user?.firstName?.[0] ?? ""}${teacher?.user?.lastName?.[0] ?? ""}`;
   return (
     <div className="w-12 h-12 rounded-full overflow-hidden flex-shrink-0">

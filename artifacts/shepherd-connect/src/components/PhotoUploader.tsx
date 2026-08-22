@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState, type ImgHTMLAttributes } from "react";
 import { Camera, Loader2, Check } from "lucide-react";
 
 interface PhotoUploaderProps {
@@ -23,6 +23,63 @@ export function resolvePhotoUrl(url: string | null | undefined): string | null {
   return url;
 }
 
+export function useSecurePhotoUrl(url: string | null | undefined): string | null {
+  const [resolved, setResolved] = useState<string | null>(() => {
+    if (!url || url.startsWith("/objects/")) return null;
+    return resolvePhotoUrl(url);
+  });
+
+  useEffect(() => {
+    let objectUrl: string | null = null;
+    let cancelled = false;
+
+    if (!url) {
+      setResolved(null);
+      return;
+    }
+    if (!url.startsWith("/objects/")) {
+      setResolved(resolvePhotoUrl(url));
+      return;
+    }
+
+    setResolved(null);
+    const token = localStorage.getItem("token");
+    if (!token) return;
+
+    fetch(`/api/storage${url}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      cache: "no-store",
+    })
+      .then(response => {
+        if (!response.ok) throw new Error("Photo unavailable");
+        return response.blob();
+      })
+      .then(blob => {
+        if (cancelled) return;
+        objectUrl = URL.createObjectURL(blob);
+        setResolved(objectUrl);
+      })
+      .catch(() => {
+        if (!cancelled) setResolved(null);
+      });
+
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [url]);
+
+  return resolved;
+}
+
+export function SecurePhoto({
+  src,
+  ...props
+}: Omit<ImgHTMLAttributes<HTMLImageElement>, "src"> & { src?: string | null }) {
+  const resolved = useSecurePhotoUrl(src);
+  return resolved ? <img {...props} src={resolved} /> : null;
+}
+
 export function PhotoUploader({
   currentPhotoUrl,
   fallbackLabel = "?",
@@ -37,6 +94,7 @@ export function PhotoUploader({
   const [progress, setProgress] = useState(0);
   const [uploaded, setUploaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const secureCurrentPhoto = useSecurePhotoUrl(currentPhotoUrl);
 
   const shapeClass = shape === "circle" ? "rounded-full" : "rounded-2xl";
   const sizeClass = sizes[size];
@@ -92,7 +150,7 @@ export function PhotoUploader({
     }
   };
 
-  const displayUrl = preview ?? resolvePhotoUrl(currentPhotoUrl);
+  const displayUrl = preview ?? secureCurrentPhoto;
 
   return (
     <div className="flex flex-col items-center gap-2">

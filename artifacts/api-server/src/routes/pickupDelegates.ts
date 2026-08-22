@@ -7,6 +7,7 @@ import { authMiddleware } from "../middlewares/auth";
 import { smsDelegateOtp } from "../services/sms";
 import { sendNotification, notifyTeachersDelegatePickup } from "../lib/notify";
 import { getParentChildIds as getOwnedChildIds } from "../lib/parentScope";
+import { assertObjectCanBind, bindObjectToResource } from "../lib/privateObjectAccess";
 
 const createDelegateLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
@@ -78,6 +79,10 @@ router.post("/pickup-delegates", authMiddleware, createDelegateLimiter, async (r
     res.status(400).json({ error: "Bad request", message: "A delegate can cover at most 10 children at once" });
     return;
   }
+  if (!(await assertObjectCanBind(parsed.data.photoUrl, req.user!))) {
+    res.status(403).json({ error: "Forbidden", message: "This uploaded photo cannot be attached to this delegate" });
+    return;
+  }
 
   // Parents may only create delegates for their own children.
   const ownIds = await getParentChildIds(req.user!.userId, req.user!.role);
@@ -104,6 +109,14 @@ router.post("/pickup-delegates", authMiddleware, createDelegateLimiter, async (r
     otpExpiresAt,
     parentApproved: false,
   }))).returning();
+  if (
+    inserted[0]?.photoUrl
+    && !(await bindObjectToResource(inserted[0].photoUrl, "pickup_delegate", inserted[0].id, req.user!))
+  ) {
+    await db.delete(pickupDelegatesTable).where(inArray(pickupDelegatesTable.id, inserted.map(d => d.id)));
+    res.status(403).json({ error: "Forbidden", message: "This uploaded photo cannot be attached to this delegate" });
+    return;
+  }
 
   // One SMS listing every child covered by this OTP
   const childNames = children.map(c => `${c.firstName} ${c.lastName}`).join(", ") || "your child";

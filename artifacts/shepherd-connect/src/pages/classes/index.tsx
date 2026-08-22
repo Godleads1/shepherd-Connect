@@ -14,6 +14,7 @@ import { Users, MapPin, Edit2, Trash2, Zap, RefreshCw, CheckCircle, ArrowRight, 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiGet, apiPost } from "@/lib/api-call";
 import { QueryError } from "@/components/QueryError";
+import { openClassroomDisplay } from "@/lib/classroom-display";
 
 
 const classSchema = z.object({
@@ -324,7 +325,13 @@ export default function Classes() {
                   <button
                     className="flex-1 py-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors"
                     style={{ background: "#1e3a8a", color: "white" }}
-                    onClick={() => window.open(`${window.location.origin}/classroom-display/${cls.id}`, "_blank")}
+                    onClick={() => openClassroomDisplay(cls.id).catch((error: Error) => {
+                      toast({
+                        variant: "destructive",
+                        title: "Could not open classroom display",
+                        description: error.message,
+                      });
+                    })}
                     title="Open TV display for this classroom"
                   >
                     <Tv2 className="w-3.5 h-3.5" /> TV Display

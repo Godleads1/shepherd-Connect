@@ -14,7 +14,7 @@ import { QrCode, Users, MapPin, ShieldCheck, Star, PlusCircle, AlertCircle, Down
 import { useAuth } from "@/contexts/auth";
 import { QRCodeSVG } from "qrcode.react";
 import { apiGet, apiPost, apiDelete } from "@/lib/api-call";
-import { PhotoUploader, resolvePhotoUrl } from "@/components/PhotoUploader";
+import { PhotoUploader, SecurePhoto } from "@/components/PhotoUploader";
 import WelcomeModal, { shouldShowWelcome } from "@/components/WelcomeModal";
 import CollectionNoticeModal from "@/components/CollectionNoticeModal";
 import AnnouncementBanner from "@/components/AnnouncementBanner";
@@ -272,7 +272,7 @@ function ChildCard({ child, onRefetch }: { child: any; onRefetch: () => void }) 
     }
   };
 
-  const displayPhoto = localPhoto ?? resolvePhotoUrl(child.photoUrl);
+  const displayPhoto = localPhoto ?? child.photoUrl;
 
   return (
     <div
@@ -308,7 +308,7 @@ function ChildCard({ child, onRefetch }: { child: any; onRefetch: () => void }) 
             title="Tap to add or change photo"
           >
             {displayPhoto ? (
-              <img src={displayPhoto} alt={child.firstName} className="w-full h-full object-cover" />
+              <SecurePhoto src={displayPhoto} alt={child.firstName} className="w-full h-full object-cover" />
             ) : (
               <div className="w-full h-full flex flex-col items-center justify-center gap-0.5"
                 style={{ background: "linear-gradient(135deg, #1e3a8a, #3b82f6)" }}>

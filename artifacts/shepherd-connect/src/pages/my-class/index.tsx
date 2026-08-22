@@ -15,6 +15,7 @@ import { useAuth } from "@/contexts/auth";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { Link } from "wouter";
+import { openClassroomDisplay } from "@/lib/classroom-display";
 
 function fmt(ts: string | null | undefined) {
   if (!ts) return "—";
@@ -294,16 +295,21 @@ export default function MyClass() {
               <p className="text-blue-200 text-xs">children present</p>
             </div>
             {myClassId && (
-              <a
-                href={`/classroom-display/${myClassId}`}
-                target="_blank"
-                rel="noopener noreferrer"
+              <button
+                type="button"
+                onClick={() => openClassroomDisplay(myClassId).catch((error: Error) => {
+                  toast({
+                    variant: "destructive",
+                    title: "Could not open classroom display",
+                    description: error.message,
+                  });
+                })}
                 className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all hover:opacity-90 active:scale-95"
                 style={{ background: "#f59e0b", color: "#172554" }}
               >
                 <Tv className="w-4 h-4" />
                 TV Display
-              </a>
+              </button>
             )}
           </div>
         </div>
