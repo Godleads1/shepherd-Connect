@@ -15,6 +15,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiGet, apiPost } from "@/lib/api-call";
 import { QueryError } from "@/components/QueryError";
 import { openClassroomDisplay } from "@/lib/classroom-display";
+import { ClassTvMediaControl } from "@/components/ClassTvMediaControl";
 
 
 const classSchema = z.object({
@@ -336,6 +337,7 @@ export default function Classes() {
                   >
                     <Tv2 className="w-3.5 h-3.5" /> TV Display
                   </button>
+                  <ClassTvMediaControl classId={cls.id} className={cls.name} trigger="compact" />
                   <button
                     className="py-2 px-3 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 border border-emerald-200 text-emerald-700 hover:bg-emerald-50 transition-colors"
                     onClick={() => downloadClassList(cls.id, cls.name)}

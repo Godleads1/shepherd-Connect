@@ -4,8 +4,10 @@ import { authMiddleware, requireRoles } from "../middlewares/auth";
 import { db } from "@workspace/db";
 import {
   attendanceTable, childrenTable, classesTable, usersTable,
-  classMergesTable, classroomDisplayTokensTable,
+  classMergesTable, classroomDisplayTokensTable, classDisplayMediaTable,
 } from "@workspace/db/schema";
+import { ObjectStorageService } from "../lib/objectStorage";
+import { bindObjectToResource } from "../lib/privateObjectAccess";
 import { eq, and, gt, isNull, sql } from "drizzle-orm";
 import { sendNotification, getClassTeacherUserIds } from "../lib/notify";
 import {
@@ -60,15 +62,20 @@ function publicQueue(queue: PickupRequest[]) {
 }
 
 async function resolveClass(classNumber: number) {
+  // Resolve by DB ID first: the UI always opens /classroom-display/{dbId} and
+  // display credentials are issued per DB ID, so name-first resolution could
+  // pick a different class whenever "Class N"'s DB id isn't N — making the
+  // credential permanently invalid for that TV. Fall back to name lookup for
+  // manually typed URLs when no class has that DB id.
   let [cls] = await db
     .select({ id: classesTable.id, name: classesTable.name })
     .from(classesTable)
-    .where(eq(classesTable.name, `Class ${classNumber}`));
+    .where(eq(classesTable.id, classNumber));
   if (!cls) {
     [cls] = await db
       .select({ id: classesTable.id, name: classesTable.name })
       .from(classesTable)
-      .where(eq(classesTable.id, classNumber));
+      .where(eq(classesTable.name, `Class ${classNumber}`));
   }
   return cls ?? null;
 }
@@ -86,6 +93,55 @@ async function validateDisplayToken(token: string, classId: number): Promise<boo
     ))
     .limit(1);
   return Boolean(credential);
+}
+
+// ── Classroom display media (set remotely from a teacher's phone) ────────────
+const objectStorage = new ObjectStorageService();
+const YOUTUBE_ID_RE = /^[a-zA-Z0-9_-]{11}$/;
+
+type ClientDisplayMedia =
+  | { kind: "youtube"; videoId: string }
+  | { kind: "file"; url: string; contentType: string; name: string }
+  | null;
+
+/**
+ * Resolves the media a class TV should show right now. Uploaded files are
+ * converted to short-lived signed download URLs so the TV (which only holds a
+ * display token, not a user session) can stream them directly with full
+ * seeking support.
+ */
+async function getClientDisplayMedia(classId: number): Promise<ClientDisplayMedia> {
+  const [row] = await db
+    .select()
+    .from(classDisplayMediaTable)
+    .where(eq(classDisplayMediaTable.classId, classId))
+    .limit(1);
+  if (!row) return null;
+  if (row.kind === "youtube" && row.youtubeVideoId) {
+    return { kind: "youtube", videoId: row.youtubeVideoId };
+  }
+  if (row.kind === "file" && row.objectPath) {
+    try {
+      const url = await objectStorage.getObjectEntityDownloadURL(row.objectPath, 12 * 60 * 60);
+      return {
+        kind: "file",
+        url,
+        contentType: row.contentType ?? "application/octet-stream",
+        name: row.fileName ?? "media",
+      };
+    } catch {
+      // Signing can fail transiently; the TV simply keeps its idle screen.
+      return null;
+    }
+  }
+  return null;
+}
+
+async function broadcastDisplayMedia(classId: number) {
+  await broadcastToClass(classId, {
+    type: "media",
+    media: await getClientDisplayMedia(classId),
+  });
 }
 
 async function broadcastToClass(classId: number, data: any) {
@@ -154,6 +210,7 @@ router.get("/pickup-requests/stream/:classNumber", async (req, res): Promise<voi
   }
 
   const client: ClassroomClient = { res, displayToken };
+  const initialMedia = await getClientDisplayMedia(cls.id);
   let registered = false;
   try {
     registered = await db.transaction(async (tx) => {
@@ -177,7 +234,7 @@ router.get("/pickup-requests/stream/:classNumber", async (req, res): Promise<voi
       res.setHeader("X-Accel-Buffering", "no");
       res.flushHeaders();
       const queue = pickupQueue.get(cls.id) ?? [];
-      res.write(`data: ${JSON.stringify({ type: "init", queue: publicQueue(queue), className: cls.name })}\n\n`);
+      res.write(`data: ${JSON.stringify({ type: "init", queue: publicQueue(queue), className: cls.name, media: initialMedia })}\n\n`);
       return true;
     });
   } catch {
@@ -281,6 +338,139 @@ router.delete("/pickup-requests/display-credentials/:classId", authMiddleware, a
       ));
   });
   closeClassClients(classId, "Classroom display access was revoked");
+  res.json({ success: true });
+});
+
+// ── Display media endpoints — staff set the TV's video/image from their own
+// device; the TV updates instantly over its existing SSE connection. ─────────
+
+router.get("/pickup-requests/display-media/:classId", authMiddleware, async (req, res): Promise<void> => {
+  const classId = Number(req.params.classId);
+  if (!Number.isInteger(classId) || classId <= 0) {
+    res.status(400).json({ error: "Bad request", message: "Invalid class ID" });
+    return;
+  }
+  if (!(await canAccessClass(req.user!, classId, todayWAT()))) {
+    res.status(403).json({ error: "Forbidden", message: "You are not assigned to this class" });
+    return;
+  }
+  const [row] = await db
+    .select()
+    .from(classDisplayMediaTable)
+    .where(eq(classDisplayMediaTable.classId, classId))
+    .limit(1);
+  res.json({
+    media: row
+      ? {
+          kind: row.kind,
+          youtubeVideoId: row.youtubeVideoId,
+          fileName: row.fileName,
+          contentType: row.contentType,
+          updatedAt: row.updatedAt,
+        }
+      : null,
+  });
+});
+
+router.put("/pickup-requests/display-media/:classId", authMiddleware, async (req, res): Promise<void> => {
+  const classId = Number(req.params.classId);
+  if (!Number.isInteger(classId) || classId <= 0) {
+    res.status(400).json({ error: "Bad request", message: "Invalid class ID" });
+    return;
+  }
+  const [cls] = await db.select({ id: classesTable.id })
+    .from(classesTable).where(eq(classesTable.id, classId)).limit(1);
+  if (!cls) {
+    res.status(404).json({ error: "Not found", message: "Class not found" });
+    return;
+  }
+  if (!(await canAccessClass(req.user!, classId, todayWAT()))) {
+    res.status(403).json({ error: "Forbidden", message: "You are not assigned to this class" });
+    return;
+  }
+
+  const body = (req.body ?? {}) as {
+    kind?: string;
+    youtubeVideoId?: string;
+    objectPath?: string;
+    contentType?: string;
+    fileName?: string;
+  };
+
+  let values: {
+    kind: string;
+    youtubeVideoId: string | null;
+    objectPath: string | null;
+    contentType: string | null;
+    fileName: string | null;
+  };
+
+  if (body.kind === "youtube") {
+    if (typeof body.youtubeVideoId !== "string" || !YOUTUBE_ID_RE.test(body.youtubeVideoId)) {
+      res.status(400).json({ error: "Bad request", message: "A valid YouTube video ID is required" });
+      return;
+    }
+    values = {
+      kind: "youtube",
+      youtubeVideoId: body.youtubeVideoId,
+      objectPath: null,
+      contentType: null,
+      fileName: null,
+    };
+  } else if (body.kind === "file") {
+    const objectPath = body.objectPath;
+    const contentType = body.contentType ?? "";
+    if (typeof objectPath !== "string" || !objectPath.startsWith("/objects/")) {
+      res.status(400).json({ error: "Bad request", message: "A valid uploaded file is required" });
+      return;
+    }
+    if (!contentType.startsWith("video/") && !contentType.startsWith("image/")) {
+      res.status(400).json({ error: "Bad request", message: "Only video or image files can be shown on the TV" });
+      return;
+    }
+    const bound = await bindObjectToResource(objectPath, "class_display", classId, req.user!);
+    if (!bound) {
+      res.status(400).json({ error: "Bad request", message: "The uploaded file could not be verified. Please upload it again." });
+      return;
+    }
+    values = {
+      kind: "file",
+      youtubeVideoId: null,
+      objectPath,
+      contentType,
+      fileName: typeof body.fileName === "string" ? body.fileName.slice(0, 200) : "media",
+    };
+  } else {
+    res.status(400).json({ error: "Bad request", message: "kind must be 'youtube' or 'file'" });
+    return;
+  }
+
+  await db
+    .insert(classDisplayMediaTable)
+    .values({ classId, ...values, updatedBy: req.user!.userId })
+    .onConflictDoUpdate({
+      target: classDisplayMediaTable.classId,
+      set: { ...values, updatedBy: req.user!.userId, updatedAt: new Date() },
+    });
+
+  await broadcastDisplayMedia(classId);
+  req.log.info({ classId, kind: values.kind }, "Classroom display media updated");
+  res.json({ success: true });
+});
+
+router.delete("/pickup-requests/display-media/:classId", authMiddleware, async (req, res): Promise<void> => {
+  const classId = Number(req.params.classId);
+  if (!Number.isInteger(classId) || classId <= 0) {
+    res.status(400).json({ error: "Bad request", message: "Invalid class ID" });
+    return;
+  }
+  if (!(await canAccessClass(req.user!, classId, todayWAT()))) {
+    res.status(403).json({ error: "Forbidden", message: "You are not assigned to this class" });
+    return;
+  }
+  await db.delete(classDisplayMediaTable).where(eq(classDisplayMediaTable.classId, classId));
+  await broadcastDisplayMedia(classId);
+  req.log.info({ classId }, "Classroom display media cleared");
   res.json({ success: true });
 });
 

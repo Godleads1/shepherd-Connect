@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { apiGet, apiPost } from "@/lib/api-call";
 import { TeacherClockIn } from "@/components/TeacherClockIn";
+import { ClassTvMediaControl } from "@/components/ClassTvMediaControl";
 import { useAuth } from "@/contexts/auth";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
@@ -295,21 +296,24 @@ export default function MyClass() {
               <p className="text-blue-200 text-xs">children present</p>
             </div>
             {myClassId && (
-              <button
-                type="button"
-                onClick={() => openClassroomDisplay(myClassId).catch((error: Error) => {
-                  toast({
-                    variant: "destructive",
-                    title: "Could not open classroom display",
-                    description: error.message,
-                  });
-                })}
-                className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all hover:opacity-90 active:scale-95"
-                style={{ background: "#f59e0b", color: "#172554" }}
-              >
-                <Tv className="w-4 h-4" />
-                TV Display
-              </button>
+              <div className="flex items-center gap-2 flex-wrap justify-end">
+                <ClassTvMediaControl classId={myClassId} className={myClassName ?? undefined} />
+                <button
+                  type="button"
+                  onClick={() => openClassroomDisplay(myClassId).catch((error: Error) => {
+                    toast({
+                      variant: "destructive",
+                      title: "Could not open classroom display",
+                      description: error.message,
+                    });
+                  })}
+                  className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all hover:opacity-90 active:scale-95"
+                  style={{ background: "#f59e0b", color: "#172554" }}
+                >
+                  <Tv className="w-4 h-4" />
+                  TV Display
+                </button>
+              </div>
             )}
           </div>
         </div>

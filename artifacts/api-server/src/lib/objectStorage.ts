@@ -154,6 +154,28 @@ export class ObjectStorageService {
     return objectFile;
   }
 
+  /**
+   * Signs a time-limited direct download URL for a private object entity
+   * ("/objects/<id>"). Used for classroom TV displays, which authenticate via
+   * display tokens (not user JWTs) and need direct, range-capable media URLs.
+   */
+  async getObjectEntityDownloadURL(objectPath: string, ttlSec: number = 43200): Promise<string> {
+    if (!objectPath.startsWith("/objects/")) {
+      throw new ObjectNotFoundError();
+    }
+    const parts = objectPath.slice(1).split("/");
+    if (parts.length < 2) {
+      throw new ObjectNotFoundError();
+    }
+    const entityId = parts.slice(1).join("/");
+    let entityDir = this.getPrivateObjectDir();
+    if (!entityDir.endsWith("/")) {
+      entityDir = `${entityDir}/`;
+    }
+    const { bucketName, objectName } = parseObjectPath(`${entityDir}${entityId}`);
+    return signObjectURL({ bucketName, objectName, method: "GET", ttlSec });
+  }
+
   normalizeObjectEntityPath(rawPath: string): string {
     if (!rawPath.startsWith("https://storage.googleapis.com/")) {
       return rawPath;

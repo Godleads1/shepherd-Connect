@@ -21,6 +21,21 @@ type MediaSource =
   | { kind: "local-image"; url: string; name: string }
   | null;
 
+// Media set remotely from a teacher's phone/laptop (My Class → TV Video).
+// Delivered over the live display connection; overrides anything set on the TV.
+type ServerMedia =
+  | { kind: "youtube"; videoId: string }
+  | { kind: "file"; url: string; contentType: string; name: string }
+  | null;
+
+function serverToMediaSource(m: ServerMedia): MediaSource {
+  if (!m) return null;
+  if (m.kind === "youtube") return { kind: "youtube", videoId: m.videoId };
+  return m.contentType.startsWith("video/")
+    ? { kind: "local-video", url: m.url, name: m.name }
+    : { kind: "local-image", url: m.url, name: m.name };
+}
+
 function extractYouTubeId(url: string): string | null {
   try {
     const u = new URL(url);
@@ -130,7 +145,7 @@ function NewsBar({ queue, className, height = 72 }: { queue: PickupRequest[]; cl
 }
 
 // ── Set Video / Media panel ──────────────────────────────────────────────────
-function VideoPanel({ media, onSet }: { media: MediaSource; onSet: (m: MediaSource) => void }) {
+function VideoPanel({ media, onSet, remoteActive }: { media: MediaSource; onSet: (m: MediaSource) => void; remoteActive: boolean }) {
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<"youtube" | "device">("youtube");
   const [ytInput, setYtInput] = useState("");
@@ -205,6 +220,15 @@ function VideoPanel({ media, onSet }: { media: MediaSource; onSet: (m: MediaSour
           </div>
 
           <div className="p-6 pt-5">
+            {remoteActive && (
+              <div
+                className="mb-4 rounded-xl px-4 py-3 text-xs leading-relaxed"
+                style={{ background: `${GOLD}22`, border: `1px solid ${GOLD}55`, color: "rgba(255,255,255,0.75)" }}
+              >
+                📱 This screen is playing media set from a teacher's phone (My Class → <strong>TV Video</strong>).
+                It overrides anything set here — clear it from the phone to use these options.
+              </div>
+            )}
             {tab === "youtube" && (
               <>
                 <h2 className="text-white font-bold text-base mb-1">Play a YouTube video</h2>
@@ -310,7 +334,8 @@ function IdleScreen() {
           Shepherd Connect
         </p>
         <p className="text-xl text-white/20">
-          Tap <strong className="text-white/30">Set Video</strong> to play YouTube or load a file from this device
+          Set the video from your phone in <strong className="text-white/30">My Class → TV Video</strong>
+          {" "}— or tap <strong className="text-white/30">Set Video</strong> on this screen
         </p>
       </div>
     </div>
@@ -382,6 +407,8 @@ export default function ClassroomDisplay() {
       return ytId ? { kind: "youtube", videoId: ytId } : null;
     } catch { return null; }
   });
+  // Media pushed from a teacher's phone via the server — takes precedence.
+  const [serverMedia, setServerMedia] = useState<ServerMedia>(null);
 
   const [notifPerm, setNotifPerm] = useState<NotificationPermission>(() =>
     typeof Notification !== "undefined" ? Notification.permission : "denied"
@@ -451,6 +478,9 @@ export default function ClassroomDisplay() {
             }
             setQueue(incomingQueue);
             if (data.className) setClassName(data.className);
+            setServerMedia((data.media as ServerMedia) ?? null);
+          } else if (data.type === "media") {
+            setServerMedia((data.media as ServerMedia) ?? null);
           } else if (data.type === "pickup" || data.type === "dismissed") {
             const incomingQueue: PickupRequest[] = data.queue ?? [];
             if (data.type === "pickup") {
@@ -489,6 +519,10 @@ export default function ClassroomDisplay() {
   // News bar is 80px tall; video sits above it
   const NEWS_BAR_H = 80;
 
+  // Media pushed from a teacher's phone wins over anything set on the TV itself.
+  const remoteMedia = serverToMediaSource(serverMedia);
+  const activeMedia = remoteMedia ?? media;
+
   return (
     <div className="h-screen w-screen overflow-hidden relative" style={{ background: "#0f172a", fontFamily: "Inter, sans-serif" }}>
       {accessError && (
@@ -503,20 +537,20 @@ export default function ClassroomDisplay() {
 
       {/* ── Media area — leaves room for news bar at bottom ── */}
       <div className="absolute inset-0" style={{ bottom: NEWS_BAR_H }}>
-        {media?.kind === "youtube" && (
+        {activeMedia?.kind === "youtube" && (
           <iframe
-            key={media.videoId}
-            src={`https://www.youtube.com/embed/${media.videoId}?autoplay=1&loop=1&playlist=${media.videoId}&controls=1&modestbranding=1&rel=0&iv_load_policy=3`}
+            key={activeMedia.videoId}
+            src={`https://www.youtube.com/embed/${activeMedia.videoId}?autoplay=1&loop=1&playlist=${activeMedia.videoId}&controls=1&modestbranding=1&rel=0&iv_load_policy=3`}
             className="w-full h-full"
             allow="autoplay; encrypted-media; fullscreen"
             allowFullScreen
             style={{ border: "none", display: "block" }}
           />
         )}
-        {media?.kind === "local-video" && (
+        {activeMedia?.kind === "local-video" && (
           <video
-            key={media.url}
-            src={media.url}
+            key={activeMedia.url}
+            src={activeMedia.url}
             className="w-full h-full"
             style={{ objectFit: "contain", background: "#000" }}
             autoPlay
@@ -524,16 +558,16 @@ export default function ClassroomDisplay() {
             controls
           />
         )}
-        {media?.kind === "local-image" && (
+        {activeMedia?.kind === "local-image" && (
           <img
-            key={media.url}
-            src={media.url}
-            alt={media.name}
+            key={activeMedia.url}
+            src={activeMedia.url}
+            alt={activeMedia.name}
             className="w-full h-full"
             style={{ objectFit: "contain", background: "#000" }}
           />
         )}
-        {!media && <IdleScreen />}
+        {!activeMedia && <IdleScreen />}
       </div>
 
       {/* ── Top bar — gradient overlay so it floats above video ── */}
@@ -552,7 +586,7 @@ export default function ClassroomDisplay() {
         </div>
 
         <div className="flex items-center gap-4">
-          <VideoPanel media={media} onSet={handleSetMedia} />
+          <VideoPanel media={media} onSet={handleSetMedia} remoteActive={remoteMedia !== null} />
           <div className="text-right">
             <p className="text-3xl font-bold text-white tabular-nums"><Clock /></p>
             <p className="text-white/40 text-xs mt-0.5">{today}</p>

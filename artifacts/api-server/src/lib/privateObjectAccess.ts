@@ -13,7 +13,7 @@ import type { JwtPayload } from "../middlewares/auth";
 import { canAccessClass, isOperationalRole } from "./childAccess";
 import { parentOwnsChild } from "./parentScope";
 
-type ResourceType = "user" | "child" | "pickup_delegate";
+type ResourceType = "user" | "child" | "pickup_delegate" | "class_display";
 
 interface BindingState {
   uploaderId: number;
@@ -213,6 +213,14 @@ export async function canReadPrivateObject(
 
   if (resource.type === "user") {
     return canReadUserPhoto(resource.id, user, serviceDate);
+  }
+
+  if (resource.type === "class_display") {
+    // Classroom TV media (videos/images) — readable by any staff member who
+    // can access the class. TVs themselves receive short-lived signed URLs.
+    if (isOperationalRole(user.role)) return true;
+    if (user.role !== "teacher") return false;
+    return canAccessClass(user, resource.id, serviceDate);
   }
 
   if (resource.type === "child") {
