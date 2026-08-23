@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useParams } from "wouter";
+import { apiPost } from "../../lib/api-call";
 
 const NAVY = "#1e3a8a";
 const GOLD = "#f59e0b";
@@ -499,7 +500,9 @@ export default function ClassroomDisplay() {
   const [className, setClassName] = useState<string>("");
   const [connected, setConnected] = useState(false);
   const [accessError, setAccessError] = useState<string | null>(null);
-  const [displayToken] = useState<string>(() => {
+  const [reconnecting, setReconnecting] = useState(false);
+  const [reconnectError, setReconnectError] = useState<string | null>(null);
+  const [displayToken, setDisplayToken] = useState<string>(() => {
     if (!Number.isFinite(classIdNum)) return "";
     const key = `${DISPLAY_TOKEN_KEY}-${classIdNum}`;
     const params = new URLSearchParams(window.location.search);
@@ -557,6 +560,26 @@ export default function ClassroomDisplay() {
     } catch {}
   }, []);
 
+  // Staff viewing this page on their own (logged-in) device can issue a fresh
+  // display link in place instead of hitting a dead end. Real TVs have no
+  // login, so they still need a teacher's phone to reopen the display.
+  const hasStaffSession = typeof localStorage !== "undefined" && !!localStorage.getItem("token");
+  const reconnectDisplay = useCallback(async () => {
+    if (!Number.isFinite(classIdNum)) return;
+    setReconnecting(true);
+    setReconnectError(null);
+    try {
+      const cred = await apiPost<{ token: string }>("/pickup-requests/display-credentials", { classId: classIdNum });
+      sessionStorage.setItem(`${DISPLAY_TOKEN_KEY}-${classIdNum}`, cred.token);
+      setAccessError(null);
+      setDisplayToken(cred.token); // SSE effect reconnects with the new token
+    } catch (e) {
+      setReconnectError(e instanceof Error ? e.message : "Could not reconnect — please try again");
+    } finally {
+      setReconnecting(false);
+    }
+  }, [classIdNum]);
+
   const handleSetMedia = useCallback((m: MediaSource) => {
     setMedia(m);
     try {
@@ -574,15 +597,23 @@ export default function ClassroomDisplay() {
     const url = `${base}/api/pickup-requests/stream/${classIdNum}?displayToken=${encodeURIComponent(displayToken)}`;
     let retryTimeout: ReturnType<typeof setTimeout>;
     let failures = 0;
+    // Set on cleanup so a superseded connection (e.g. after the token is
+    // rotated by "Reconnect this screen") can never schedule retries, clear
+    // the stored token, or resurface the access-error overlay.
+    let disposed = false;
+    let es: EventSource | null = null;
 
     function connect() {
-      const es = new EventSource(url);
+      if (disposed) return;
+      es = new EventSource(url);
       es.onopen = () => {
+        if (disposed) return;
         failures = 0;
         setAccessError(null);
         setConnected(true);
       };
       es.onmessage = (e) => {
+        if (disposed) return;
         try {
           const data = JSON.parse(e.data);
           if (data.type === "init") {
@@ -620,8 +651,9 @@ export default function ClassroomDisplay() {
         } catch {}
       };
       es.onerror = () => {
+        if (disposed) return;
         setConnected(false);
-        es.close();
+        es?.close();
         failures += 1;
         if (failures >= 3) {
           sessionStorage.removeItem(`${DISPLAY_TOKEN_KEY}-${classIdNum}`);
@@ -630,11 +662,15 @@ export default function ClassroomDisplay() {
         }
         retryTimeout = setTimeout(connect, 4000);
       };
-      return es;
     }
 
-    const es = connect();
-    return () => { es.close(); clearTimeout(retryTimeout); setConnected(false); };
+    connect();
+    return () => {
+      disposed = true;
+      es?.close();
+      clearTimeout(retryTimeout);
+      setConnected(false);
+    };
   }, [classIdNum, displayToken, fireNotification]);
 
   const today = new Date().toLocaleDateString([], { weekday: "long", month: "long", day: "numeric", year: "numeric" });
@@ -653,7 +689,29 @@ export default function ClassroomDisplay() {
           <div className="max-w-xl rounded-3xl border border-white/10 bg-white/5 p-8 text-center text-white shadow-2xl">
             <div className="text-5xl mb-5">🔒</div>
             <h1 className="text-2xl font-bold">Classroom display access required</h1>
-            <p className="mt-3 text-slate-300 leading-relaxed">{accessError}</p>
+            <p className="mt-3 text-slate-300 leading-relaxed">
+              {hasStaffSession
+                ? "This screen's display link has expired or been replaced."
+                : accessError}
+            </p>
+            {hasStaffSession && Number.isFinite(classIdNum) && (
+              <div className="mt-6">
+                <button
+                  onClick={reconnectDisplay}
+                  disabled={reconnecting}
+                  className="rounded-2xl px-8 py-4 text-lg font-bold text-white shadow-lg transition-opacity disabled:opacity-60"
+                  style={{ background: GOLD }}
+                >
+                  {reconnecting ? "Reconnecting…" : "🔄 Reconnect this screen"}
+                </button>
+                <p className="mt-3 text-sm text-slate-400">
+                  Any other screen showing this class's display will need a new link.
+                </p>
+                {reconnectError && (
+                  <p className="mt-2 text-sm text-red-400">{reconnectError}</p>
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}
