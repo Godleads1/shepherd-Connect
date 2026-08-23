@@ -39,6 +39,7 @@ import settingsRouter from "./settings";
 import classMergesRouter from "./classMerges";
 import hallSessionsRouter from "./hallSessions";
 import eventsRouter from "./events";
+import teacherClockInsRouter from "./teacherClockIns";
 
 const router: IRouter = Router();
 
@@ -82,5 +83,6 @@ router.use(settingsRouter);
 router.use(classMergesRouter);
 router.use(hallSessionsRouter);
 router.use(eventsRouter);
+router.use(teacherClockInsRouter);
 
 export default router;

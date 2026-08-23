@@ -86,6 +86,7 @@ describe("Authentication guard — 401 without a token", () => {
     ["GET",    "/api/emergencies"],
     ["GET",    "/api/audit-logs"],
     ["GET",    "/api/error-logs"],
+    ["GET",    "/api/teacher-clock-ins/today"],
     ["GET",    "/api/pickup-requests/1"],
     ["GET",    "/api/pickup-requests/stream/1"],
     ["GET",    "/api/storage/objects/private-photo"],
@@ -94,6 +95,7 @@ describe("Authentication guard — 401 without a token", () => {
     ["POST",   "/api/teachers"],
     ["POST",   "/api/attendance/scan-qr"],
     ["POST",   "/api/attendance/scan-face"],
+    ["POST",   "/api/teacher-clock-ins/clock-in"],
     ["PUT",    "/api/settings/general"],
     ["PUT",    "/api/settings/location"],
   ];
