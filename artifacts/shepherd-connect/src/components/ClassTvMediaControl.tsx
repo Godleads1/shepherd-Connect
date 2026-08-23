@@ -76,6 +76,9 @@ export function ClassTvMediaControl({
   const [ytError, setYtError] = useState("");
   const [uploading, setUploading] = useState(false);
   const [uploadPct, setUploadPct] = useState(0);
+  // PowerPoint uploads are converted to PDF on the server after the upload
+  // finishes — that takes a few extra seconds, so show a distinct status.
+  const [converting, setConverting] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const { data, isLoading } = useQuery({
@@ -124,11 +127,25 @@ export function ClassTvMediaControl({
     if (!file) return;
     const isVideo = file.type.startsWith("video/");
     const isImage = file.type.startsWith("image/");
-    const isPdf = file.type === "application/pdf";
-    if (!isVideo && !isImage && !isPdf) {
-      toast({ variant: "destructive", title: "Unsupported file", description: "Please choose a video, image, or PDF file." });
+    const isPdf = file.type === "application/pdf" || (!file.type && /\.pdf$/i.test(file.name));
+    // Some phones report a blank/generic type for PowerPoint files, so also
+    // match on the extension.
+    const isPpt =
+      !isPdf &&
+      (file.type === "application/vnd.openxmlformats-officedocument.presentationml.presentation" ||
+        file.type === "application/vnd.ms-powerpoint" ||
+        ((!file.type || file.type === "application/octet-stream") && /\.pptx?$/i.test(file.name)));
+    if (!isVideo && !isImage && !isPdf && !isPpt) {
+      toast({ variant: "destructive", title: "Unsupported file", description: "Please choose a video, image, PDF, or PowerPoint file." });
       return;
     }
+    const contentType =
+      file.type ||
+      (isPdf
+        ? "application/pdf"
+        : /\.pptx$/i.test(file.name)
+          ? "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+          : "application/vnd.ms-powerpoint");
     setUploading(true);
     setUploadPct(5);
     try {
@@ -140,7 +157,7 @@ export function ClassTvMediaControl({
           "Content-Type": "application/json",
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify({ name: file.name, size: file.size, contentType: file.type }),
+        body: JSON.stringify({ name: file.name, size: file.size, contentType }),
       });
       if (!metaRes.ok) throw new Error("Could not start the upload");
       const { uploadURL, objectPath } = await metaRes.json();
@@ -150,7 +167,7 @@ export function ClassTvMediaControl({
       await new Promise<void>((resolve, reject) => {
         const xhr = new XMLHttpRequest();
         xhr.open("PUT", uploadURL);
-        xhr.setRequestHeader("Content-Type", file.type);
+        xhr.setRequestHeader("Content-Type", contentType);
         xhr.upload.onprogress = (ev) => {
           if (ev.lengthComputable) setUploadPct(15 + Math.round((ev.loaded / ev.total) * 75));
         };
@@ -160,10 +177,11 @@ export function ClassTvMediaControl({
       });
       setUploadPct(95);
 
+      if (isPpt) setConverting(true);
       await apiPut(`/pickup-requests/display-media/${classId}`, {
         kind: "file",
         objectPath,
-        contentType: file.type,
+        contentType,
         fileName: file.name,
         ...(pdfPageCount ? { pdfPageCount } : {}),
       });
@@ -171,7 +189,7 @@ export function ClassTvMediaControl({
       invalidate();
       toast({
         title: "TV updated",
-        description: isPdf
+        description: isPdf || isPpt
           ? `“${file.name}” is now playing as slides on the TV — use the controls here to advance pages.`
           : `The classroom screen is now showing “${file.name}”.`,
       });
@@ -179,6 +197,7 @@ export function ClassTvMediaControl({
       toast({ variant: "destructive", title: "Upload failed", description: err.message || "Please try again." });
     } finally {
       setUploading(false);
+      setConverting(false);
       setUploadPct(0);
       if (fileRef.current) fileRef.current.value = "";
     }
@@ -347,14 +366,19 @@ export function ClassTvMediaControl({
           {/* Upload */}
           <div className="rounded-xl border border-gray-100 p-4">
             <p className="text-sm font-bold text-gray-800 flex items-center gap-2 mb-1">
-              <Upload className="w-4 h-4 text-blue-600" /> Upload a video, image, or PDF slides
+              <Upload className="w-4 h-4 text-blue-600" /> Upload a video, image, or slides
             </p>
             <p className="text-xs text-gray-400 mb-3">
-              MP4, MOV, WebM, JPG, PNG or PDF from this device. PDFs play as slides you can control from here.
-              Using PowerPoint or Google Slides? Export it as PDF first, then upload. Large videos may be slow on
-              church Wi-Fi — YouTube links play faster.
+              MP4, MOV, WebM, JPG, PNG, PDF or PowerPoint (PPTX) from this device. PDFs and PowerPoints play as
+              slides you can control from here. Large videos may be slow on church Wi-Fi — YouTube links play faster.
             </p>
-            <input ref={fileRef} type="file" accept="video/*,image/*,application/pdf,.pdf" className="hidden" onChange={handleFile} />
+            <input
+              ref={fileRef}
+              type="file"
+              accept="video/*,image/*,application/pdf,.pdf,.ppt,.pptx,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation"
+              className="hidden"
+              onChange={handleFile}
+            />
             <button
               type="button"
               onClick={() => fileRef.current?.click()}
@@ -363,7 +387,8 @@ export function ClassTvMediaControl({
             >
               {uploading ? (
                 <span className="flex items-center justify-center gap-2">
-                  <Loader2 className="w-4 h-4 animate-spin" /> Uploading… {uploadPct}%
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  {converting ? "Preparing slides for the TV…" : `Uploading… ${uploadPct}%`}
                 </span>
               ) : (
                 "Choose a file from this device"

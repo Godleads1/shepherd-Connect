@@ -8,7 +8,8 @@ import {
   classMergesTable, classroomDisplayTokensTable, classDisplayMediaTable,
 } from "@workspace/db/schema";
 import { ObjectStorageService } from "../lib/objectStorage";
-import { bindObjectToResource } from "../lib/privateObjectAccess";
+import { bindObjectToResource, registerPendingObject } from "../lib/privateObjectAccess";
+import { convertPptxToPdf, looksLikePowerPoint, PptxBusyError, PptxConversionError, MAX_PPTX_BYTES } from "../lib/pptxToPdf";
 import { eq, and, gt, isNull, sql } from "drizzle-orm";
 import { sendNotification, getClassTeacherUserIds } from "../lib/notify";
 import {
@@ -450,6 +451,11 @@ router.put("/pickup-requests/display-media/:classId", authMiddleware, async (req
     pdfPageCount: number | null;
   };
 
+  // Set when a PowerPoint is converted during this request. Conversion takes
+  // seconds, so the final write must not clobber media someone else set while
+  // we were converting — it's guarded against this snapshot of the row.
+  let conversionGuard: { prev: { kind: string; objectPath: string | null } | null } | null = null;
+
   if (body.kind === "youtube") {
     if (typeof body.youtubeVideoId !== "string" || !YOUTUBE_ID_RE.test(body.youtubeVideoId)) {
       res.status(400).json({ error: "Bad request", message: "A valid YouTube video ID is required" });
@@ -465,15 +471,17 @@ router.put("/pickup-requests/display-media/:classId", authMiddleware, async (req
       pdfPageCount: null,
     };
   } else if (body.kind === "file") {
-    const objectPath = body.objectPath;
-    const contentType = body.contentType ?? "";
+    let objectPath = body.objectPath;
+    let contentType = body.contentType ?? "";
+    const fileName = typeof body.fileName === "string" ? body.fileName.slice(0, 200) : "media";
     if (typeof objectPath !== "string" || !objectPath.startsWith("/objects/")) {
       res.status(400).json({ error: "Bad request", message: "A valid uploaded file is required" });
       return;
     }
-    const isPdf = contentType === "application/pdf";
-    if (!contentType.startsWith("video/") && !contentType.startsWith("image/") && !isPdf) {
-      res.status(400).json({ error: "Bad request", message: "Only video, image, or PDF files can be shown on the TV" });
+    let isPdf = contentType === "application/pdf";
+    const isPpt = !isPdf && looksLikePowerPoint(contentType, fileName);
+    if (!contentType.startsWith("video/") && !contentType.startsWith("image/") && !isPdf && !isPpt) {
+      res.status(400).json({ error: "Bad request", message: "Only video, image, PDF, or PowerPoint files can be shown on the TV" });
       return;
     }
     const bound = await bindObjectToResource(objectPath, "class_display", classId, req.user!);
@@ -481,16 +489,65 @@ router.put("/pickup-requests/display-media/:classId", authMiddleware, async (req
       res.status(400).json({ error: "Bad request", message: "The uploaded file could not be verified. Please upload it again." });
       return;
     }
-    const pageCount =
+    let pageCount =
       isPdf && Number.isInteger(body.pdfPageCount) && body.pdfPageCount! >= 1 && body.pdfPageCount! <= 5000
         ? body.pdfPageCount!
         : null;
+
+    if (isPpt) {
+      // PowerPoint can't be rendered by the TV directly — convert it to PDF
+      // here, store the PDF, and from this point on it behaves exactly like an
+      // uploaded PDF (slideshow + phone clicker).
+      try {
+        // Snapshot what's on the TV before the (slow) conversion starts.
+        const [prevRow] = await db
+          .select({ kind: classDisplayMediaTable.kind, objectPath: classDisplayMediaTable.objectPath })
+          .from(classDisplayMediaTable)
+          .where(eq(classDisplayMediaTable.classId, classId))
+          .limit(1);
+        const file = await objectStorage.getObjectEntityFile(objectPath);
+        const [meta] = await file.getMetadata();
+        if (Number(meta.size ?? 0) > MAX_PPTX_BYTES) {
+          res.status(400).json({ error: "Bad request", message: "That PowerPoint is too large (max 50 MB). Export it as PDF and upload that instead." });
+          return;
+        }
+        const [pptxBytes] = await file.download();
+        const { pdf, pageCount: convertedPages } = await convertPptxToPdf(pptxBytes);
+        const pdfPath = await objectStorage.uploadObjectEntityFromBuffer(pdf, "application/pdf");
+        // Register + bind the server-generated PDF the same way a normal
+        // upload would be, so staff access checks keep working for it.
+        await registerPendingObject(pdfPath, req.user!.userId);
+        if (!(await bindObjectToResource(pdfPath, "class_display", classId, req.user!))) {
+          throw new Error("Could not bind the converted PDF to the class display");
+        }
+        objectPath = pdfPath;
+        contentType = "application/pdf";
+        isPdf = true;
+        pageCount = convertedPages;
+        conversionGuard = { prev: prevRow ?? null };
+      } catch (error) {
+        if (error instanceof PptxBusyError) {
+          res.status(503).json({
+            error: "Busy",
+            message: "Other slides are being prepared right now — please try again in a minute.",
+          });
+          return;
+        }
+        req.log.error({ err: error, classId }, "PowerPoint → PDF conversion failed");
+        res.status(error instanceof PptxConversionError ? 400 : 500).json({
+          error: "Conversion failed",
+          message: "We couldn't convert this PowerPoint. Try exporting it as PDF (File → Save As → PDF) and uploading that instead.",
+        });
+        return;
+      }
+    }
+
     values = {
       kind: "file",
       youtubeVideoId: null,
       objectPath,
       contentType,
-      fileName: typeof body.fileName === "string" ? body.fileName.slice(0, 200) : "media",
+      fileName,
       pdfPage: null, // new PDFs start in auto-play; the phone clicker can pin a page
       pdfPageCount: pageCount,
     };
@@ -499,13 +556,48 @@ router.put("/pickup-requests/display-media/:classId", authMiddleware, async (req
     return;
   }
 
-  await db
-    .insert(classDisplayMediaTable)
-    .values({ classId, ...values, updatedBy: req.user!.userId })
-    .onConflictDoUpdate({
-      target: classDisplayMediaTable.classId,
-      set: { ...values, updatedBy: req.user!.userId, updatedAt: new Date() },
-    });
+  if (conversionGuard) {
+    // Guarded write: only land the converted PDF if the TV's media is still
+    // exactly what it was when the conversion started. Uploads always get
+    // fresh object paths, so (kind, objectPath) identifies the row's content.
+    let wrote = false;
+    if (conversionGuard.prev) {
+      const updated = await db
+        .update(classDisplayMediaTable)
+        .set({ ...values, updatedBy: req.user!.userId, updatedAt: new Date() })
+        .where(and(
+          eq(classDisplayMediaTable.classId, classId),
+          eq(classDisplayMediaTable.kind, conversionGuard.prev.kind),
+          conversionGuard.prev.objectPath
+            ? eq(classDisplayMediaTable.objectPath, conversionGuard.prev.objectPath)
+            : isNull(classDisplayMediaTable.objectPath),
+        ))
+        .returning({ id: classDisplayMediaTable.id });
+      wrote = updated.length > 0;
+    } else {
+      const inserted = await db
+        .insert(classDisplayMediaTable)
+        .values({ classId, ...values, updatedBy: req.user!.userId })
+        .onConflictDoNothing({ target: classDisplayMediaTable.classId })
+        .returning({ id: classDisplayMediaTable.id });
+      wrote = inserted.length > 0;
+    }
+    if (!wrote) {
+      res.status(409).json({
+        error: "Conflict",
+        message: "While your slides were being prepared, someone else changed the TV. Check what's on the TV and try again.",
+      });
+      return;
+    }
+  } else {
+    await db
+      .insert(classDisplayMediaTable)
+      .values({ classId, ...values, updatedBy: req.user!.userId })
+      .onConflictDoUpdate({
+        target: classDisplayMediaTable.classId,
+        set: { ...values, updatedBy: req.user!.userId, updatedAt: new Date() },
+      });
+  }
 
   await broadcastDisplayMedia(classId);
   req.log.info({ classId, kind: values.kind }, "Classroom display media updated");

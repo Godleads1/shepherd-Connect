@@ -5,6 +5,10 @@ import { apiPost } from "../../lib/api-call";
 const NAVY = "#1e3a8a";
 const GOLD = "#f59e0b";
 
+// Height of the lower-third news ticker. Slides and images render full-bleed
+// underneath it so they use the entire TV screen.
+const NEWS_BAR_H = 80;
+
 interface PickupRequest {
   id: string;
   childId: number;
@@ -51,6 +55,19 @@ function PdfSlides({ url, page, displayToken }: { url: string; page: number | nu
   const [numPages, setNumPages] = useState(0);
   const [autoPage, setAutoPage] = useState(1);
   const [error, setError] = useState("");
+  // Re-render the current page when the TV's viewport changes (browser chrome
+  // hiding, entering fullscreen, resolution switch) — otherwise the canvas
+  // keeps the size measured at load time and can look small on the screen.
+  const [viewportTick, setViewportTick] = useState(0);
+  useEffect(() => {
+    let t: ReturnType<typeof setTimeout>;
+    const onResize = () => {
+      clearTimeout(t);
+      t = setTimeout(() => setViewportTick((n) => n + 1), 250);
+    };
+    window.addEventListener("resize", onResize);
+    return () => { window.removeEventListener("resize", onResize); clearTimeout(t); };
+  }, []);
 
   // Load the document once per URL; fetched same-origin with the display token.
   useEffect(() => {
@@ -129,7 +146,7 @@ function PdfSlides({ url, page, displayToken }: { url: string; page: number | nu
       cancelled = true;
       if (renderTask) renderTask.cancel();
     };
-  }, [doc, activePage]);
+  }, [doc, activePage, viewportTick]);
 
   return (
     <div ref={containerRef} className="w-full h-full flex items-center justify-center relative" style={{ background: "#000" }}>
@@ -142,8 +159,8 @@ function PdfSlides({ url, page, displayToken }: { url: string; page: number | nu
       )}
       {doc && numPages > 0 && (
         <div
-          className="absolute bottom-4 right-4 px-3 py-1.5 rounded-lg text-sm font-semibold tabular-nums"
-          style={{ background: "rgba(0,0,0,0.6)", color: "rgba(255,255,255,0.7)" }}
+          className="absolute right-4 px-3 py-1.5 rounded-lg text-sm font-semibold tabular-nums"
+          style={{ bottom: NEWS_BAR_H + 12, background: "rgba(0,0,0,0.6)", color: "rgba(255,255,255,0.7)" }}
         >
           {activePage} / {numPages}{page === null ? " · Auto" : " · 📱"}
         </div>
@@ -675,12 +692,13 @@ export default function ClassroomDisplay() {
 
   const today = new Date().toLocaleDateString([], { weekday: "long", month: "long", day: "numeric", year: "numeric" });
 
-  // News bar is 80px tall; video sits above it
-  const NEWS_BAR_H = 80;
-
   // Media pushed from a teacher's phone wins over anything set on the TV itself.
   const remoteMedia = serverToMediaSource(serverMedia);
   const activeMedia = remoteMedia ?? media;
+  // Slides and images use the whole screen (the news ticker overlays them);
+  // videos keep their own space above the ticker so playback controls stay
+  // reachable.
+  const fullBleed = activeMedia?.kind === "pdf" || activeMedia?.kind === "local-image";
 
   return (
     <div className="h-screen w-screen overflow-hidden relative" style={{ background: "#0f172a", fontFamily: "Inter, sans-serif" }}>
@@ -716,8 +734,8 @@ export default function ClassroomDisplay() {
         </div>
       )}
 
-      {/* ── Media area — leaves room for news bar at bottom ── */}
-      <div className="absolute inset-0" style={{ bottom: NEWS_BAR_H }}>
+      {/* ── Media area — slides/images go full-screen; videos leave room for the news bar ── */}
+      <div className="absolute inset-0" style={{ bottom: fullBleed ? 0 : NEWS_BAR_H }}>
         {activeMedia?.kind === "youtube" && (
           <iframe
             key={activeMedia.videoId}
