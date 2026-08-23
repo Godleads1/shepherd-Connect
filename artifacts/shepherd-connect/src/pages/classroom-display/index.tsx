@@ -19,21 +19,136 @@ type MediaSource =
   | { kind: "youtube"; videoId: string }
   | { kind: "local-video"; url: string; name: string }
   | { kind: "local-image"; url: string; name: string }
+  | { kind: "pdf"; url: string; name: string; page: number | null }
   | null;
 
 // Media set remotely from a teacher's phone/laptop (My Class → TV Video).
 // Delivered over the live display connection; overrides anything set on the TV.
 type ServerMedia =
   | { kind: "youtube"; videoId: string }
-  | { kind: "file"; url: string; contentType: string; name: string }
+  | { kind: "file"; url: string; contentType: string; name: string; page?: number | null; pageCount?: number | null; v?: string }
   | null;
 
 function serverToMediaSource(m: ServerMedia): MediaSource {
   if (!m) return null;
   if (m.kind === "youtube") return { kind: "youtube", videoId: m.videoId };
+  if (m.contentType === "application/pdf") return { kind: "pdf", url: m.url, name: m.name, page: m.page ?? null };
   return m.contentType.startsWith("video/")
     ? { kind: "local-video", url: m.url, name: m.name }
     : { kind: "local-image", url: m.url, name: m.name };
+}
+
+// ── PDF slides renderer ───────────────────────────────────────────────────────
+// Renders PDF pages full-screen with pdf.js. Auto-advances every 12s unless a
+// page has been pinned from a teacher's phone (the "clicker").
+const PDF_AUTO_ADVANCE_MS = 12000;
+
+function PdfSlides({ url, page, displayToken }: { url: string; page: number | null; displayToken: string }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [doc, setDoc] = useState<any>(null);
+  const [numPages, setNumPages] = useState(0);
+  const [autoPage, setAutoPage] = useState(1);
+  const [error, setError] = useState("");
+
+  // Load the document once per URL; fetched same-origin with the display token.
+  useEffect(() => {
+    let cancelled = false;
+    let task: any = null;
+    setDoc(null);
+    setError("");
+    (async () => {
+      try {
+        // Legacy build: smart-TV browsers lack the newest JS APIs the modern
+        // pdf.js build assumes (v6 crashed on Map.getOrInsertComputed here).
+        const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+        // Vite's ?url import resolves the worker asset URL
+        const worker = await import("pdfjs-dist/legacy/build/pdf.worker.min.mjs?url");
+        pdfjs.GlobalWorkerOptions.workerSrc = worker.default;
+        const sep = url.includes("?") ? "&" : "?";
+        task = pdfjs.getDocument({
+          url: `${url}${sep}displayToken=${encodeURIComponent(displayToken)}`,
+          disableRange: true, // our endpoint streams the whole file
+        });
+        const loaded = await task.promise;
+        if (cancelled) return;
+        setDoc(loaded);
+        setNumPages(loaded.numPages);
+        setAutoPage(1);
+      } catch (e) {
+        console.error("[pdf-slides] failed to load document", e);
+        if (!cancelled) setError("Could not load the slides — ask a teacher to re-upload the PDF.");
+      }
+    })();
+    return () => { cancelled = true; if (task) void task.destroy(); };
+  }, [url, displayToken]);
+
+  // Auto-advance only while no page is pinned from a phone.
+  useEffect(() => {
+    if (!doc || page !== null || numPages <= 1) return;
+    const iv = setInterval(() => setAutoPage((p) => (p % numPages) + 1), PDF_AUTO_ADVANCE_MS);
+    return () => clearInterval(iv);
+  }, [doc, page, numPages]);
+
+  const activePage = doc
+    ? Math.min(Math.max(page ?? autoPage, 1), numPages || 1)
+    : 1;
+
+  // Render the active page scaled to fill the screen. The previous render
+  // task is cancelled on every page change so an older render can never
+  // finish late and overwrite a newer page on the shared canvas.
+  useEffect(() => {
+    if (!doc || !canvasRef.current || !containerRef.current) return;
+    let cancelled = false;
+    let renderTask: any = null;
+    (async () => {
+      try {
+        const p = await doc.getPage(activePage);
+        if (cancelled) return;
+        const canvas = canvasRef.current!;
+        const container = containerRef.current!;
+        const dpr = window.devicePixelRatio || 1;
+        const base = p.getViewport({ scale: 1 });
+        const fit = Math.min(container.clientWidth / base.width, container.clientHeight / base.height);
+        const viewport = p.getViewport({ scale: fit * dpr });
+        canvas.width = viewport.width;
+        canvas.height = viewport.height;
+        canvas.style.width = `${viewport.width / dpr}px`;
+        canvas.style.height = `${viewport.height / dpr}px`;
+        renderTask = p.render({ canvasContext: canvas.getContext("2d")!, viewport } as any);
+        await renderTask.promise;
+      } catch (e: any) {
+        // Cancellations are expected on fast page flips; log real failures.
+        if (e?.name !== "RenderingCancelledException") {
+          console.error("[pdf-slides] render failed", e);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+      if (renderTask) renderTask.cancel();
+    };
+  }, [doc, activePage]);
+
+  return (
+    <div ref={containerRef} className="w-full h-full flex items-center justify-center relative" style={{ background: "#000" }}>
+      {error ? (
+        <p className="text-white/40 text-xl px-8 text-center">{error}</p>
+      ) : !doc ? (
+        <p className="text-white/30 text-xl animate-pulse">Loading slides…</p>
+      ) : (
+        <canvas ref={canvasRef} />
+      )}
+      {doc && numPages > 0 && (
+        <div
+          className="absolute bottom-4 right-4 px-3 py-1.5 rounded-lg text-sm font-semibold tabular-nums"
+          style={{ background: "rgba(0,0,0,0.6)", color: "rgba(255,255,255,0.7)" }}
+        >
+          {activePage} / {numPages}{page === null ? " · Auto" : " · 📱"}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function extractYouTubeId(url: string): string | null {
@@ -481,6 +596,14 @@ export default function ClassroomDisplay() {
             setServerMedia((data.media as ServerMedia) ?? null);
           } else if (data.type === "media") {
             setServerMedia((data.media as ServerMedia) ?? null);
+          } else if (data.type === "media-page") {
+            // Lightweight page-turn from a teacher's phone — don't reload the
+            // PDF. Ignore events for a file this TV is no longer showing.
+            setServerMedia((prev) =>
+              prev && prev.kind === "file" && (!data.v || !prev.v || prev.v === data.v)
+                ? { ...prev, page: data.page ?? null }
+                : prev,
+            );
           } else if (data.type === "pickup" || data.type === "dismissed") {
             const incomingQueue: PickupRequest[] = data.queue ?? [];
             if (data.type === "pickup") {
@@ -565,6 +688,14 @@ export default function ClassroomDisplay() {
             alt={activeMedia.name}
             className="w-full h-full"
             style={{ objectFit: "contain", background: "#000" }}
+          />
+        )}
+        {activeMedia?.kind === "pdf" && (
+          <PdfSlides
+            key={activeMedia.url}
+            url={activeMedia.url}
+            page={activeMedia.page}
+            displayToken={displayToken}
           />
         )}
         {!activeMedia && <IdleScreen />}

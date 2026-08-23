@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { createHash, randomBytes } from "crypto";
+import { Readable } from "stream";
 import { authMiddleware, requireRoles } from "../middlewares/auth";
 import { db } from "@workspace/db";
 import {
@@ -99,9 +100,28 @@ async function validateDisplayToken(token: string, classId: number): Promise<boo
 const objectStorage = new ObjectStorageService();
 const YOUTUBE_ID_RE = /^[a-zA-Z0-9_-]{11}$/;
 
+/**
+ * Stable version tag for an uploaded display file. Changes when the file is
+ * replaced (uploads always get fresh object paths) but NOT on page turns, so
+ * the TV only re-downloads the PDF when it's actually a different document.
+ */
+function displayMediaVersion(objectPath: string): string {
+  return createHash("sha1").update(objectPath).digest("hex").slice(0, 12);
+}
+
 type ClientDisplayMedia =
   | { kind: "youtube"; videoId: string }
-  | { kind: "file"; url: string; contentType: string; name: string }
+  | {
+      kind: "file";
+      url: string;
+      contentType: string;
+      name: string;
+      /** PDFs only: page pinned by the phone "clicker"; null = auto-play. */
+      page: number | null;
+      pageCount: number | null;
+      /** PDFs only: identifies the file so stale page events can be ignored. */
+      v?: string;
+    }
   | null;
 
 /**
@@ -121,13 +141,33 @@ async function getClientDisplayMedia(classId: number): Promise<ClientDisplayMedi
     return { kind: "youtube", videoId: row.youtubeVideoId };
   }
   if (row.kind === "file" && row.objectPath) {
+    const contentType = row.contentType ?? "application/octet-stream";
+    // PDFs are rendered on the TV with pdf.js, which fetches the bytes with
+    // XHR — so they must come from our own origin (signed GCS URLs would need
+    // CORS). The TV appends its display token to this path itself.
+    if (contentType === "application/pdf") {
+      const v = displayMediaVersion(row.objectPath);
+      return {
+        kind: "file",
+        // The version stamp makes the TV reload when a different PDF replaces
+        // this one (the path alone is identical for every upload).
+        url: `/api/pickup-requests/display-file/${classId}?v=${v}`,
+        contentType,
+        name: row.fileName ?? "slides.pdf",
+        page: row.pdfPage,
+        pageCount: row.pdfPageCount,
+        v,
+      };
+    }
     try {
       const url = await objectStorage.getObjectEntityDownloadURL(row.objectPath, 12 * 60 * 60);
       return {
         kind: "file",
         url,
-        contentType: row.contentType ?? "application/octet-stream",
+        contentType,
         name: row.fileName ?? "media",
+        page: null,
+        pageCount: null,
       };
     } catch {
       // Signing can fail transiently; the TV simply keeps its idle screen.
@@ -366,6 +406,8 @@ router.get("/pickup-requests/display-media/:classId", authMiddleware, async (req
           youtubeVideoId: row.youtubeVideoId,
           fileName: row.fileName,
           contentType: row.contentType,
+          pdfPage: row.pdfPage,
+          pdfPageCount: row.pdfPageCount,
           updatedAt: row.updatedAt,
         }
       : null,
@@ -395,6 +437,7 @@ router.put("/pickup-requests/display-media/:classId", authMiddleware, async (req
     objectPath?: string;
     contentType?: string;
     fileName?: string;
+    pdfPageCount?: number;
   };
 
   let values: {
@@ -403,6 +446,8 @@ router.put("/pickup-requests/display-media/:classId", authMiddleware, async (req
     objectPath: string | null;
     contentType: string | null;
     fileName: string | null;
+    pdfPage: number | null;
+    pdfPageCount: number | null;
   };
 
   if (body.kind === "youtube") {
@@ -416,6 +461,8 @@ router.put("/pickup-requests/display-media/:classId", authMiddleware, async (req
       objectPath: null,
       contentType: null,
       fileName: null,
+      pdfPage: null,
+      pdfPageCount: null,
     };
   } else if (body.kind === "file") {
     const objectPath = body.objectPath;
@@ -424,8 +471,9 @@ router.put("/pickup-requests/display-media/:classId", authMiddleware, async (req
       res.status(400).json({ error: "Bad request", message: "A valid uploaded file is required" });
       return;
     }
-    if (!contentType.startsWith("video/") && !contentType.startsWith("image/")) {
-      res.status(400).json({ error: "Bad request", message: "Only video or image files can be shown on the TV" });
+    const isPdf = contentType === "application/pdf";
+    if (!contentType.startsWith("video/") && !contentType.startsWith("image/") && !isPdf) {
+      res.status(400).json({ error: "Bad request", message: "Only video, image, or PDF files can be shown on the TV" });
       return;
     }
     const bound = await bindObjectToResource(objectPath, "class_display", classId, req.user!);
@@ -433,12 +481,18 @@ router.put("/pickup-requests/display-media/:classId", authMiddleware, async (req
       res.status(400).json({ error: "Bad request", message: "The uploaded file could not be verified. Please upload it again." });
       return;
     }
+    const pageCount =
+      isPdf && Number.isInteger(body.pdfPageCount) && body.pdfPageCount! >= 1 && body.pdfPageCount! <= 5000
+        ? body.pdfPageCount!
+        : null;
     values = {
       kind: "file",
       youtubeVideoId: null,
       objectPath,
       contentType,
       fileName: typeof body.fileName === "string" ? body.fileName.slice(0, 200) : "media",
+      pdfPage: null, // new PDFs start in auto-play; the phone clicker can pin a page
+      pdfPageCount: pageCount,
     };
   } else {
     res.status(400).json({ error: "Bad request", message: "kind must be 'youtube' or 'file'" });
@@ -472,6 +526,101 @@ router.delete("/pickup-requests/display-media/:classId", authMiddleware, async (
   await broadcastDisplayMedia(classId);
   req.log.info({ classId }, "Classroom display media cleared");
   res.json({ success: true });
+});
+
+// Phone "clicker" for PDF slides: pin a page on the TV, or return to auto-play
+// (page = null). Broadcast as a lightweight event so the TV doesn't re-fetch
+// the PDF on every page turn.
+router.put("/pickup-requests/display-media/:classId/page", authMiddleware, async (req, res): Promise<void> => {
+  const classId = Number(req.params.classId);
+  if (!Number.isInteger(classId) || classId <= 0) {
+    res.status(400).json({ error: "Bad request", message: "Invalid class ID" });
+    return;
+  }
+  if (!(await canAccessClass(req.user!, classId, todayWAT()))) {
+    res.status(403).json({ error: "Forbidden", message: "You are not assigned to this class" });
+    return;
+  }
+  const [row] = await db
+    .select()
+    .from(classDisplayMediaTable)
+    .where(eq(classDisplayMediaTable.classId, classId))
+    .limit(1);
+  if (!row || row.kind !== "file" || row.contentType !== "application/pdf") {
+    res.status(409).json({ error: "Conflict", message: "The TV is not currently showing PDF slides" });
+    return;
+  }
+  const rawPage = (req.body ?? {}).page;
+  let page: number | null;
+  if (rawPage === null || rawPage === undefined) {
+    page = null; // resume auto-play
+  } else if (Number.isInteger(rawPage) && rawPage >= 1) {
+    page = row.pdfPageCount ? Math.min(rawPage, row.pdfPageCount) : Math.min(rawPage, 5000);
+  } else {
+    res.status(400).json({ error: "Bad request", message: "page must be a positive number or null" });
+    return;
+  }
+  // Conditional update: if the PDF was replaced between our read and this
+  // write (uploads always get fresh object paths), don't pin a page on the
+  // replacement — tell the phone to refresh instead.
+  const updated = await db
+    .update(classDisplayMediaTable)
+    .set({ pdfPage: page, updatedBy: req.user!.userId, updatedAt: new Date() })
+    .where(and(
+      eq(classDisplayMediaTable.classId, classId),
+      eq(classDisplayMediaTable.objectPath, row.objectPath!),
+      eq(classDisplayMediaTable.contentType, "application/pdf"),
+    ))
+    .returning({ id: classDisplayMediaTable.id });
+  if (updated.length === 0) {
+    res.status(409).json({ error: "Conflict", message: "The TV's slides just changed — check the current slides and try again" });
+    return;
+  }
+  await broadcastToClass(classId, { type: "media-page", page, v: displayMediaVersion(row.objectPath!) });
+  res.json({ success: true, page });
+});
+
+// Streams the class's uploaded display file to the TV. Authenticated by the
+// display token (the TV never holds a user session); used for PDFs, which
+// pdf.js must fetch from our own origin.
+router.get("/pickup-requests/display-file/:classId", async (req, res): Promise<void> => {
+  const classId = Number(req.params.classId);
+  const displayToken = typeof req.query["displayToken"] === "string" ? req.query["displayToken"] : "";
+  if (!Number.isInteger(classId) || classId <= 0 || !displayToken) {
+    res.status(401).json({ error: "Unauthorized", message: "A display credential is required" });
+    return;
+  }
+  if (!(await validateDisplayToken(displayToken, classId))) {
+    res.status(401).json({ error: "Unauthorized", message: "Invalid, expired, or revoked display credential" });
+    return;
+  }
+  const [row] = await db
+    .select()
+    .from(classDisplayMediaTable)
+    .where(eq(classDisplayMediaTable.classId, classId))
+    .limit(1);
+  if (!row || row.kind !== "file" || !row.objectPath) {
+    res.status(404).json({ error: "Not found", message: "No file is set for this classroom display" });
+    return;
+  }
+  try {
+    const file = await objectStorage.getObjectEntityFile(row.objectPath);
+    const response = await objectStorage.downloadObject(file, 300);
+    res.status(response.status);
+    response.headers.forEach((value, key) => res.setHeader(key, value));
+    res.setHeader("Cache-Control", "private, max-age=300");
+    if (response.body) {
+      const nodeStream = Readable.fromWeb(response.body as ReadableStream<Uint8Array>);
+      nodeStream.pipe(res);
+    } else {
+      res.end();
+    }
+  } catch (error) {
+    req.log.error({ err: error, classId }, "Error streaming classroom display file");
+    if (!res.headersSent) {
+      res.status(404).json({ error: "Not found", message: "The display file could not be loaded" });
+    }
+  }
 });
 
 router.get("/pickup-requests", authMiddleware, requireRoles("super_admin", "admin", "support"), async (req, res): Promise<void> => {

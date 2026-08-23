@@ -19,6 +19,10 @@ export const classDisplayMediaTable = pgTable("class_display_media", {
   objectPath: text("object_path"),
   contentType: text("content_type"),
   fileName: text("file_name"),
+  /** For PDFs: current page a phone "clicker" pinned; null = auto-play pages. */
+  pdfPage: integer("pdf_page"),
+  /** For PDFs: total pages, counted on the uploader's device (best effort). */
+  pdfPageCount: integer("pdf_page_count"),
   updatedBy: integer("updated_by").notNull().references(() => usersTable.id),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [

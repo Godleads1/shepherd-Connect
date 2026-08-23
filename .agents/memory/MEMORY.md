@@ -1,2 +1,3 @@
 - [Cloud Run trust proxy + pg pool error](cloud-run-trust-proxy.md) — express-rate-limit v8 + missing pool error listener cause 500s on every Cloud Run health check probe.
 - [Classroom display credentials](classroom-display-credentials.md) — shared TVs use revocable class-only credentials, never normal staff sessions.
+- [PDF rendering on TVs](pdf-rendering-tv.md) — pdfjs v4 legacy build + Vite ?url worker only; same-origin streaming, version-stamped URLs, cancel render tasks.

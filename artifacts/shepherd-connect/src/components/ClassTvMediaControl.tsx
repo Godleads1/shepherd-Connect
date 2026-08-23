@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { apiGet, apiPut, apiDelete } from "@/lib/api-call";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Youtube, Upload, Trash2, MonitorPlay, CheckCircle2 } from "lucide-react";
+import { Loader2, Youtube, Upload, Trash2, MonitorPlay, CheckCircle2, ChevronLeft, ChevronRight, Play } from "lucide-react";
 
 const NAVY = "#1e3a8a";
 const GOLD = "#f59e0b";
@@ -13,7 +13,29 @@ interface CurrentMedia {
   youtubeVideoId: string | null;
   fileName: string | null;
   contentType: string | null;
+  /** PDFs only: pinned page from the phone clicker; null = auto-playing. */
+  pdfPage: number | null;
+  pdfPageCount: number | null;
   updatedAt: string;
+}
+
+/** Counts PDF pages on the uploader's device so the TV clicker can show "3 / 12". */
+async function countPdfPages(file: File): Promise<number | undefined> {
+  try {
+    // Legacy build: church smart-TV browsers (and older phones) lack the
+    // newest JS APIs the modern pdf.js build assumes.
+    const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+    // Vite's ?url import resolves the worker asset URL
+    const worker = await import("pdfjs-dist/legacy/build/pdf.worker.min.mjs?url");
+    pdfjs.GlobalWorkerOptions.workerSrc = worker.default;
+    const task = pdfjs.getDocument({ data: await file.arrayBuffer() });
+    const doc = await task.promise;
+    const n = doc.numPages;
+    void task.destroy();
+    return n;
+  } catch {
+    return undefined; // best effort — the TV still auto-plays without a count
+  }
 }
 
 function extractYouTubeId(url: string): string | null {
@@ -102,13 +124,15 @@ export function ClassTvMediaControl({
     if (!file) return;
     const isVideo = file.type.startsWith("video/");
     const isImage = file.type.startsWith("image/");
-    if (!isVideo && !isImage) {
-      toast({ variant: "destructive", title: "Unsupported file", description: "Please choose a video or image file." });
+    const isPdf = file.type === "application/pdf";
+    if (!isVideo && !isImage && !isPdf) {
+      toast({ variant: "destructive", title: "Unsupported file", description: "Please choose a video, image, or PDF file." });
       return;
     }
     setUploading(true);
     setUploadPct(5);
     try {
+      const pdfPageCount = isPdf ? await countPdfPages(file) : undefined;
       const token = localStorage.getItem("token");
       const metaRes = await fetch("/api/storage/uploads/request-url", {
         method: "POST",
@@ -141,10 +165,16 @@ export function ClassTvMediaControl({
         objectPath,
         contentType: file.type,
         fileName: file.name,
+        ...(pdfPageCount ? { pdfPageCount } : {}),
       });
       setUploadPct(100);
       invalidate();
-      toast({ title: "TV updated", description: `The classroom screen is now showing “${file.name}”.` });
+      toast({
+        title: "TV updated",
+        description: isPdf
+          ? `“${file.name}” is now playing as slides on the TV — use the controls here to advance pages.`
+          : `The classroom screen is now showing “${file.name}”.`,
+      });
     } catch (err: any) {
       toast({ variant: "destructive", title: "Upload failed", description: err.message || "Please try again." });
     } finally {
@@ -154,7 +184,16 @@ export function ClassTvMediaControl({
     }
   };
 
+  const setPage = useMutation({
+    mutationFn: (page: number | null) =>
+      apiPut(`/pickup-requests/display-media/${classId}/page`, { page }),
+    onSuccess: () => invalidate(),
+    onError: (e: Error) =>
+      toast({ variant: "destructive", title: "Could not change the slide", description: e.message }),
+  });
+
   const busy = uploading || setYoutube.isPending || clearMedia.isPending;
+  const isPdfActive = current?.kind === "file" && current.contentType === "application/pdf";
 
   return (
     <>
@@ -225,6 +264,56 @@ export function ClassTvMediaControl({
             </div>
           )}
 
+          {/* PDF slide clicker — use the phone as a remote for the TV slides */}
+          {isPdfActive && (
+            <div className="rounded-xl border p-4" style={{ borderColor: `${GOLD}66`, background: `${GOLD}0d` }}>
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-sm font-bold text-gray-800">Slide control</p>
+                <p className="text-xs font-semibold text-gray-500 tabular-nums">
+                  {current!.pdfPage === null
+                    ? "Auto-playing"
+                    : `Slide ${current!.pdfPage}${current!.pdfPageCount ? ` of ${current!.pdfPageCount}` : ""}`}
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setPage.mutate(Math.max(1, (current!.pdfPage ?? 1) - 1))}
+                  disabled={setPage.isPending || (current!.pdfPage !== null && current!.pdfPage <= 1)}
+                  className="flex-1 py-3 rounded-xl font-bold text-sm flex items-center justify-center gap-1 border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 active:scale-95 transition-all disabled:opacity-40"
+                >
+                  <ChevronLeft className="w-4 h-4" /> Back
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPage.mutate(current!.pdfPage === null ? 1 : current!.pdfPage + 1)}
+                  disabled={
+                    setPage.isPending ||
+                    (current!.pdfPage !== null && current!.pdfPageCount !== null && current!.pdfPage >= current!.pdfPageCount)
+                  }
+                  className="flex-1 py-3 rounded-xl font-bold text-sm flex items-center justify-center gap-1 active:scale-95 transition-all disabled:opacity-40"
+                  style={{ background: NAVY, color: "white" }}
+                >
+                  Next <ChevronRight className="w-4 h-4" />
+                </button>
+                {current!.pdfPage !== null && (
+                  <button
+                    type="button"
+                    onClick={() => setPage.mutate(null)}
+                    disabled={setPage.isPending}
+                    className="px-3 py-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1 border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 active:scale-95 transition-all disabled:opacity-40"
+                    title="Resume auto-play"
+                  >
+                    <Play className="w-3.5 h-3.5" /> Auto
+                  </button>
+                )}
+              </div>
+              <p className="text-[11px] text-gray-400 mt-2">
+                Tapping Next takes control of the TV; Auto lets slides advance on their own again.
+              </p>
+            </div>
+          )}
+
           {/* YouTube */}
           <div className="rounded-xl border border-gray-100 p-4">
             <p className="text-sm font-bold text-gray-800 flex items-center gap-2 mb-1">
@@ -258,12 +347,14 @@ export function ClassTvMediaControl({
           {/* Upload */}
           <div className="rounded-xl border border-gray-100 p-4">
             <p className="text-sm font-bold text-gray-800 flex items-center gap-2 mb-1">
-              <Upload className="w-4 h-4 text-blue-600" /> Upload a video or image
+              <Upload className="w-4 h-4 text-blue-600" /> Upload a video, image, or PDF slides
             </p>
             <p className="text-xs text-gray-400 mb-3">
-              MP4, MOV, WebM, JPG or PNG from this device. Large videos may take a while on church Wi-Fi — YouTube links play faster.
+              MP4, MOV, WebM, JPG, PNG or PDF from this device. PDFs play as slides you can control from here.
+              Using PowerPoint or Google Slides? Export it as PDF first, then upload. Large videos may be slow on
+              church Wi-Fi — YouTube links play faster.
             </p>
-            <input ref={fileRef} type="file" accept="video/*,image/*" className="hidden" onChange={handleFile} />
+            <input ref={fileRef} type="file" accept="video/*,image/*,application/pdf,.pdf" className="hidden" onChange={handleFile} />
             <button
               type="button"
               onClick={() => fileRef.current?.click()}
