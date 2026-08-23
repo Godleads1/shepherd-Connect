@@ -43,22 +43,12 @@ router.post("/teacher-clock-ins/clock-in", authMiddleware, requireRoles("teacher
   const today = todayWAT();
   const { latitude, longitude } = req.body as { latitude?: number; longitude?: number };
 
-  if (latitude === undefined || longitude === undefined) {
-    res.status(400).json({ error: "Bad request", message: "GPS coordinates required. Please enable location access and try again." });
-    return;
-  }
-
-  const dist = haversineDistance(latitude, longitude, JC_LAT, JC_LNG);
-  const withinGeofence = dist <= GEOFENCE_RADIUS_M;
-
-  if (!withinGeofence) {
-    res.status(403).json({
-      error: "Outside geofence",
-      message: `You must be physically inside JC to clock in. You appear to be ${Math.round(dist)}m away from the building.`,
-      distanceMetres: Math.round(dist),
-    });
-    return;
-  }
+  // Location is optional — staff can clock in from anywhere. If coordinates
+  // are provided we still record them (and whether they were inside JC) for
+  // reporting purposes only; they never block the clock-in.
+  const hasCoords = latitude !== undefined && longitude !== undefined;
+  const dist = hasCoords ? haversineDistance(latitude!, longitude!, JC_LAT, JC_LNG) : null;
+  const withinGeofence = dist !== null && dist <= GEOFENCE_RADIUS_M;
 
   // Check for existing clock-in today
   const [existing] = await db.select().from(teacherClockInsTable)
@@ -72,13 +62,15 @@ router.post("/teacher-clock-ins/clock-in", authMiddleware, requireRoles("teacher
   const now = new Date();
   const onTime = isOnTime(now);
 
+  const distanceMetres = dist !== null ? Math.round(dist) : null;
+
   if (existing) {
     const [updated] = await db.update(teacherClockInsTable)
-      .set({ clockInAt: now, clockInLat: latitude, clockInLng: longitude, isOnTime: onTime, isWithinGeofence: true })
+      .set({ clockInAt: now, clockInLat: latitude ?? null, clockInLng: longitude ?? null, isOnTime: onTime, isWithinGeofence: withinGeofence })
       .where(eq(teacherClockInsTable.id, existing.id))
       .returning();
-    req.log.info({ userId, onTime, dist: Math.round(dist) }, "Teacher clocked in");
-    res.json({ success: true, record: updated, onTime, distanceMetres: Math.round(dist) });
+    req.log.info({ userId, onTime, dist: distanceMetres }, "Teacher clocked in");
+    res.json({ success: true, record: updated, onTime, distanceMetres });
     return;
   }
 
@@ -86,14 +78,14 @@ router.post("/teacher-clock-ins/clock-in", authMiddleware, requireRoles("teacher
     userId,
     serviceDate: today,
     clockInAt: now,
-    clockInLat: latitude,
-    clockInLng: longitude,
+    clockInLat: latitude ?? null,
+    clockInLng: longitude ?? null,
     isOnTime: onTime,
-    isWithinGeofence: true,
+    isWithinGeofence: withinGeofence,
   }).returning();
 
-  req.log.info({ userId, onTime, dist: Math.round(dist) }, "Teacher clocked in");
-  res.status(201).json({ success: true, record, onTime, distanceMetres: Math.round(dist) });
+  req.log.info({ userId, onTime, dist: distanceMetres }, "Teacher clocked in");
+  res.status(201).json({ success: true, record, onTime, distanceMetres });
 });
 
 // POST /teacher-clock-ins/clock-out
@@ -291,6 +283,7 @@ router.get("/teacher-clock-ins/export", authMiddleware, requireRoles("admin", "s
       clockOutAt: teacherClockInsTable.clockOutAt,
       isOnTime: teacherClockInsTable.isOnTime,
       isWithinGeofence: teacherClockInsTable.isWithinGeofence,
+      clockInLat: teacherClockInsTable.clockInLat,
     })
     .from(teacherClockInsTable)
     .innerJoin(usersTable, eq(teacherClockInsTable.userId, usersTable.id))
@@ -317,7 +310,9 @@ router.get("/teacher-clock-ins/export", authMiddleware, requireRoles("admin", "s
     fmtTs(r.clockInAt),
     fmtTs(r.clockOutAt),
     r.clockInAt === null ? "Not Clocked In" : r.isOnTime ? "On Time" : "Late",
-    r.isWithinGeofence ? "Yes" : "No",
+    // Location is optional at clock-in: distinguish "no GPS recorded" from a
+    // measured outside-geofence position.
+    r.clockInLat === null ? "Not recorded" : r.isWithinGeofence ? "Yes" : "No",
   ]);
 
   const csv = [headers, ...csvRows]

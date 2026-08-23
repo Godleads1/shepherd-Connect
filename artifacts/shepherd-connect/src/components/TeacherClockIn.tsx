@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Clock, LogIn, LogOut, MapPin, CheckCircle2, AlertTriangle, Loader2 } from "lucide-react";
+import { Clock, LogIn, LogOut, CheckCircle2, Loader2 } from "lucide-react";
 import { format } from "date-fns";
 import { apiGet, apiPost } from "@/lib/api-call";
 import { useToast } from "@/hooks/use-toast";
@@ -26,7 +26,7 @@ export function TeacherClockIn() {
   const clockedOut = !!record?.clockOutAt;
 
   const clockInMut = useMutation({
-    mutationFn: (coords: { latitude: number; longitude: number }) =>
+    mutationFn: (coords: { latitude?: number; longitude?: number }) =>
       apiPost<any>("/teacher-clock-ins/clock-in", coords),
     onSuccess: (res: any) => {
       qc.invalidateQueries({ queryKey: ["teacher-clock-in-today"] });
@@ -51,8 +51,10 @@ export function TeacherClockIn() {
   });
 
   const handleClockIn = () => {
+    // Location is optional: attach coordinates when available, but never
+    // block the clock-in if GPS is unsupported, denied, or slow.
     if (!navigator.geolocation) {
-      toast({ variant: "destructive", title: "Location not supported", description: "Your browser does not support GPS location." });
+      clockInMut.mutate({});
       return;
     }
     setGpsLoading(true);
@@ -61,14 +63,11 @@ export function TeacherClockIn() {
         setGpsLoading(false);
         clockInMut.mutate({ latitude: pos.coords.latitude, longitude: pos.coords.longitude });
       },
-      (err) => {
+      () => {
         setGpsLoading(false);
-        const msg = err.code === 1
-          ? "Location access denied. Please enable location permissions in your browser and try again."
-          : "Could not get your location. Please try again.";
-        toast({ variant: "destructive", title: "Location required", description: msg });
+        clockInMut.mutate({});
       },
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 },
+      { enableHighAccuracy: true, timeout: 5000, maximumAge: 60000 },
     );
   };
 
@@ -107,7 +106,7 @@ export function TeacherClockIn() {
             <div>
               <p className="text-sm font-semibold text-gray-700">You haven't clocked in yet</p>
               <p className="text-xs text-gray-400 mt-0.5 flex items-center gap-1">
-                <MapPin className="w-3 h-3" /> Must be inside JC to clock in
+                <Clock className="w-3 h-3" /> Tap Clock In to record your arrival
               </p>
             </div>
             <button
@@ -163,13 +162,6 @@ export function TeacherClockIn() {
           </div>
         )}
 
-        {/* Geofence note */}
-        {!clockedIn && (
-          <p className="text-xs text-gray-400 mt-2 flex items-center gap-1">
-            <AlertTriangle className="w-3 h-3 text-amber-400" />
-            Clock-in is only allowed when you are physically inside the JC building.
-          </p>
-        )}
       </div>
     </div>
   );
