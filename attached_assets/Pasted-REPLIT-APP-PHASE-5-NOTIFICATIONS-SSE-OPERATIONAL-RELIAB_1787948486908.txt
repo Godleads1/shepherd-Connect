@@ -1,0 +1,562 @@
+REPLIT APP — PHASE 5 NOTIFICATIONS, SSE & OPERATIONAL RELIABILITY
+READ-ONLY PROPOSAL FIRST — NO CODE CHANGES WITHOUT APPROVAL
+
+You are continuing after:
+
+- Phase 1 authentication/security fixes
+- MFA pre-authentication boundary fix
+- Phase 2 OTP/registration security
+- Phase 3 multi-role concurrency/integrity
+- Phase 4 attendance/offline integrity
+
+Phase 4 is accepted for its approved scope.
+
+This Phase 5 is limited to NOTIFICATIONS, SSE, PROVIDER FAILURE HANDLING,
+AND OPERATIONAL RELIABILITY.
+
+Previously identified issues include:
+
+PR-06
+Notification delivery is not durable or sufficiently visible/retriable.
+
+PR-09
+SSE uses a bearer token in the URL/query string.
+
+Related operational findings include:
+
+- notifications happen after DB commit without a durable outbox
+- process failure between commit and notification dispatch can lose a notification
+- provider failures may not be durable/retriable
+- delivery state may be unclear
+- duplicate provider attempts must not create duplicate user-facing effects
+- SSE authentication must preserve current auth/role rules without token leakage
+
+==================================================
+HARD CONTROL RULE
+==================================================
+
+DO NOT MODIFY CODE YET.
+
+You may:
+
+- inspect notification models/tables
+- inspect notification services
+- inspect provider adapters
+- inspect notification routes
+- inspect SSE route/auth flow
+- inspect retry logic
+- inspect scheduler/in-process queues
+- inspect logs/audit handling
+- inspect existing tests
+- run existing safe tests
+- use isolated development data for safe reproduction
+
+You may NOT:
+
+- edit source
+- edit tests
+- change schema
+- run Drizzle push
+- install dependencies
+- change secrets
+- change provider credentials
+- deploy
+- commit
+- push
+
+Return a proposal and STOP for human approval.
+
+==================================================
+PRIMARY OBJECTIVES
+==================================================
+
+Determine whether the system can reliably guarantee:
+
+1. committed business events are not silently lost before notification dispatch
+2. notification attempts have visible status
+3. failed provider attempts can be retried safely
+4. retries do not duplicate logical notifications
+5. provider failures do not corrupt domain state
+6. one provider outage does not break unrelated application workflows
+7. notification outcomes can be audited
+8. SSE authentication does not expose bearer tokens in URLs
+9. SSE still enforces current authoritative user/role/account status
+10. reconnect/retry behavior is safe
+
+==================================================
+MAP THE NOTIFICATION DOMAIN
+==================================================
+
+Identify:
+
+NOTIFICATION TABLES:
+OUTBOX/EVENT TABLES:
+DELIVERY/ATTEMPT TABLES:
+STATUS FIELDS:
+RECIPIENT FIELDS:
+CHANNEL FIELDS:
+PROVIDER FIELDS:
+ERROR FIELDS:
+CREATED/UPDATED/SENT TIMESTAMPS:
+UNIQUE CONSTRAINTS:
+INDEXES:
+
+Map all major notification creation paths.
+
+At minimum inspect notifications triggered by:
+
+- attendance check-in
+- attendance arrival
+- checkout/pickup
+- emergency-out
+- late pickup
+- registration/approval
+- role approval/rejection
+- OTP/provider messaging where relevant
+- system/admin notifications
+- any scheduled/broadcast notification flow
+
+For each path report:
+
+SOURCE OPERATION:
+DB COMMIT OCCURS BEFORE/AFTER NOTIFICATION:
+NOTIFICATION PERSISTED:
+PROVIDER CALL:
+RETRY:
+ERROR PERSISTED:
+DUPLICATE PROTECTION:
+CONCURRENCY SAFE?:
+
+==================================================
+PR-06 — NOTIFICATION DURABILITY
+==================================================
+
+Confirm the previously identified problem.
+
+Inspect whether current flows do:
+
+domain transaction commit
+→ asynchronous notification/provider call
+
+without a durable record guaranteeing later delivery attempt.
+
+Determine:
+
+- what happens if the process crashes immediately after domain commit
+- what happens if the provider times out
+- whether the notification is still visible anywhere
+- whether support/admin can see failed delivery
+- whether retry is automatic/manual/nonexistent
+- whether retries can duplicate sends
+- whether channel-level status is tracked separately
+
+==================================================
+OUTBOX / DURABLE DELIVERY OPTIONS
+==================================================
+
+Evaluate the smallest architecture-compatible options:
+
+OPTION A:
+Durable notification outbox row inserted in same transaction as domain mutation
+
+OPTION B:
+Existing notification table enhanced to act as durable pending-delivery record
+
+OPTION C:
+In-memory retry only
+
+OPTION D:
+External queue/broker
+
+For each state:
+
+CORRECTNESS:
+SCHEMA CHANGE:
+CODE COMPLEXITY:
+CURRENT ARCHITECTURE COMPATIBILITY:
+MULTI-INSTANCE SAFETY:
+RETRY SAFETY:
+OPERATIONAL VISIBILITY:
+RECOMMENDATION:
+
+Do NOT automatically introduce Redis, Kafka, RabbitMQ, or another broker.
+
+Prefer the smallest production-safe solution compatible with the current PostgreSQL architecture.
+
+==================================================
+ATOMICITY REQUIREMENT
+==================================================
+
+Where a domain mutation logically requires a notification/event record:
+
+domain mutation
++
+durable notification/outbox intent
+
+should commit atomically where practical.
+
+Required invariant:
+
+IF BUSINESS STATE COMMITTED
+AND NOTIFICATION IS REQUIRED
+
+THEN
+A DURABLE DELIVERY INTENT MUST EXIST
+
+A process crash after commit must not permanently erase knowledge that a notification should be attempted.
+
+Do not make provider success part of the domain transaction.
+
+==================================================
+DELIVERY ATTEMPT STATE
+==================================================
+
+Inspect existing state.
+
+If insufficient, propose minimal statuses such as conceptually:
+
+pending
+processing
+sent/accepted
+failed
+dead/abandoned
+
+Do not implement yet.
+
+Determine whether status needs to exist per:
+
+- logical notification
+- channel
+- provider attempt
+
+Do not over-model unless required.
+
+==================================================
+PROVIDER SEMANTICS
+==================================================
+
+Inspect:
+
+- Resend
+- Termii
+- Twilio
+- WhatsApp/Baileys
+- web push
+- in-app notification flow
+
+For each provider determine:
+
+REQUEST SUBMITTED:
+PROVIDER ACCEPTED:
+DELIVERY CONFIRMED:
+DELIVERY UNKNOWN:
+FAILURE:
+TIMEOUT:
+RETRYABLE?:
+
+Do not label provider API acceptance as guaranteed user delivery.
+
+==================================================
+RETRY POLICY
+==================================================
+
+Determine current retry behavior.
+
+Propose bounded retry semantics.
+
+For every retryable channel state:
+
+MAX ATTEMPTS:
+BACKOFF:
+RETRYABLE ERRORS:
+NON-RETRYABLE ERRORS:
+FINAL STATE:
+
+Avoid uncontrolled infinite retries.
+
+Avoid retry storms during provider outages.
+
+Do not retry domain mutations.
+
+Retry only notification delivery work.
+
+==================================================
+IDEMPOTENCY / DUPLICATION
+==================================================
+
+Determine whether the same logical notification can be generated more than once by:
+
+- request retry
+- process retry
+- scheduler retry
+- concurrent workers
+- provider timeout ambiguity
+- manual resend
+
+Required invariant:
+
+ONE LOGICAL NOTIFICATION
+→ ONE DURABLE LOGICAL RECORD
+
+Channel/provider attempts may be multiple when retrying, but user-facing
+duplicate sends should be minimized and bounded.
+
+Evaluate whether a logical deduplication key is needed.
+
+Do not build a global idempotency framework.
+
+==================================================
+IN-PROCESS SCHEDULER / QUEUES
+==================================================
+
+Inspect the current:
+
+- scheduler
+- WhatsApp queue
+- any setInterval/setTimeout worker
+- background Promise flows
+- startup jobs
+- retry loops
+
+Determine:
+
+- what state is lost on restart
+- whether jobs can execute twice after restart
+- whether multiple API instances could process the same work
+- whether there is any locking/claiming mechanism
+- whether stuck jobs can remain forever
+
+==================================================
+MULTI-INSTANCE SAFETY
+==================================================
+
+Assume the API may eventually run more than one instance.
+
+Determine whether notification processing is safe if two instances poll the same pending rows.
+
+Evaluate minimal PostgreSQL mechanisms such as:
+
+- SELECT ... FOR UPDATE SKIP LOCKED
+- conditional claim update
+- lease/processing timestamp
+
+Do not implement yet.
+
+==================================================
+SSE — PR-09
+==================================================
+
+Trace the current SSE endpoint.
+
+Report:
+
+ENDPOINT:
+AUTH METHOD:
+TOKEN LOCATION:
+TOKEN VALIDATION:
+USER LOOKUP:
+ROLE VALIDATION:
+ACCOUNT STATUS VALIDATION:
+RECONNECT BEHAVIOR:
+LOGGING:
+PROXY/CACHE EXPOSURE RISK:
+
+Confirm whether bearer JWT is currently sent in:
+
+- query parameter
+- URL
+- EventSource URL
+
+If yes, confirm the risk.
+
+Explain where URLs may leak:
+
+- browser history
+- server/proxy logs
+- analytics
+- referrers where applicable
+- monitoring systems
+
+==================================================
+SSE AUTH OPTIONS
+==================================================
+
+Evaluate minimal existing-architecture alternatives.
+
+At minimum compare:
+
+OPTION A:
+secure HttpOnly cookie authentication if compatible with existing auth design
+
+OPTION B:
+short-lived one-time SSE ticket minted through authenticated REST request
+
+OPTION C:
+Authorization header using fetch-based streaming instead of native EventSource
+
+OPTION D:
+continue bearer token in query string
+
+For each:
+
+SECURITY:
+FRONTEND CHANGE:
+BACKEND CHANGE:
+TOKEN EXPOSURE:
+RECONNECT SUPPORT:
+CURRENT JWT COMPATIBILITY:
+DEPENDENCY CHANGE:
+RECOMMENDATION:
+
+Do not redesign the whole authentication architecture.
+
+==================================================
+SSE PURPOSE / TICKET BOUNDARY
+==================================================
+
+If a short-lived SSE ticket is recommended, determine the minimum safe properties:
+
+- purpose-bound to SSE only
+- short expiry
+- user-bound
+- role-bound or revalidated
+- single-use or bounded-use
+- cannot call normal APIs
+- cannot switch roles
+- current account/role state still rechecked
+
+Do not implement until approved.
+
+==================================================
+SSE REAUTHORIZATION
+==================================================
+
+Phase 1 remains authoritative.
+
+Even after opening an SSE stream, determine what happens if:
+
+- user is suspended
+- user is deleted
+- selected role is removed
+- token/ticket expires
+- account becomes inactive
+
+Determine whether the stream remains open indefinitely.
+
+Propose safe revalidation/reconnect semantics.
+
+==================================================
+SSE RECONNECT
+==================================================
+
+Inspect native EventSource reconnect behavior.
+
+Determine:
+
+- whether reconnect reuses the same leaked URL token
+- whether Last-Event-ID is used
+- whether missed events are replayed
+- whether events can duplicate
+- whether notifications are durable enough for reconnect recovery
+
+Do not conflate SSE transport with durable notification storage.
+
+==================================================
+OPERATIONAL VISIBILITY
+==================================================
+
+Determine what an admin/support operator can currently answer:
+
+- Which notification failed?
+- Which channel failed?
+- Which provider failed?
+- Why did it fail?
+- How many retries occurred?
+- Is it still pending?
+- Was it accepted by provider?
+- Can it be safely retried?
+- Was it permanently abandoned?
+
+If current system cannot answer these, report the gap.
+
+==================================================
+AUDIT / LOGGING
+==================================================
+
+Inspect whether logs contain:
+
+- tokens
+- notification message content
+- phone/email
+- provider responses
+- secrets
+- raw error payloads
+
+Propose redaction rules where required.
+
+Do not change logging yet.
+
+==================================================
+LATE PICKUP / BROADCAST DUPLICATION
+==================================================
+
+Inspect the previously identified issue:
+
+repeated late-pickup alert execution may duplicate notifications.
+
+Also inspect any broadcast locking behavior where a lock can be consumed even when there are no recipients.
+
+Determine whether these are best corrected inside Phase 5.
+
+Do not broaden into unrelated reporting logic.
+
+==================================================
+SAFE REPRODUCTION
+==================================================
+
+Using development-only synthetic records and mocked/disabled providers where possible, reproduce:
+
+A.
+domain commit followed by simulated notification failure
+
+B.
+provider timeout
+
+C.
+retry of same logical notification
+
+D.
+two concurrent workers claiming same pending notification
+
+E.
+process restart with pending notification
+
+F.
+late-pickup alert repeated twice
+
+G.
+SSE connection with current query-token behavior
+
+H.
+SSE reconnect after role removal/suspension where safe
+
+Do not generate paid provider traffic.
+
+Do not expose real tokens in logs.
+
+==================================================
+TEST PLAN
+==================================================
+
+Prepare exact tests for:
+
+NOTIFICATION DURABILITY
+- domain mutation commits and durable notification intent exists
+- provider failure does not erase intent
+- process restart can continue pending work
+- successful delivery marks state
+- failed delivery records reason/status
+- bounded retries
+- retry exhaustion
+- concurrent workers claim one item
+- duplicate logical notification does not create duplicate durable records
