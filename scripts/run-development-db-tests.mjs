@@ -39,6 +39,7 @@ const result = spawnSync(
       RUN_DATABASE_ATTENDANCE_TESTS: "true",
       RUN_DATABASE_OTP_TESTS: "true",
       RUN_DATABASE_ROLE_TESTS: "true",
+      RUN_DATABASE_OUTBOX_TESTS: "true",
     },
     stdio: "inherit",
   },

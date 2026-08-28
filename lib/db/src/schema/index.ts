@@ -9,6 +9,7 @@ export * from "./attendance";
 export * from "./attendanceEvents";
 export * from "./pickupDelegates";
 export * from "./notifications";
+export * from "./notificationOutbox";
 export * from "./feedback";
 export * from "./appraisals";
 export * from "./emergencies";

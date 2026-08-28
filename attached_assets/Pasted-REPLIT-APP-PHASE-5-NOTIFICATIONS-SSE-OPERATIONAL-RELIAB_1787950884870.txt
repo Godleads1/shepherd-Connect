@@ -1,0 +1,473 @@
+REPLIT APP — PHASE 5 NOTIFICATIONS, SSE & OPERATIONAL RELIABILITY
+IMPLEMENTATION APPROVED WITH STRICT BOUNDARIES
+
+The read-only Phase 5 proposal is HUMAN APPROVED with the clarifications below.
+
+Proceed with test-first implementation.
+
+Do NOT broaden architecture.
+
+==================================================
+CURRENT ACCEPTED DIRECTION
+==================================================
+
+Implement a narrowly scoped PostgreSQL-backed notification outbox.
+
+Keep the existing notifications table as the user-facing in-app projection.
+
+Do NOT introduce:
+
+- Redis
+- Kafka
+- RabbitMQ
+- external queue infrastructure
+- new notification vendor
+- new authentication architecture
+
+No dependency addition unless an unavoidable existing-project limitation is
+proven first and human approval is obtained.
+
+==================================================
+CRITICAL OUTBOX INVARIANT
+==================================================
+
+For REQUIRED notifications caused by a transactional domain mutation:
+
+IF DOMAIN STATE COMMITS
+THEN A DURABLE NOTIFICATION DELIVERY INTENT MUST ALSO COMMIT.
+
+Therefore:
+
+domain mutation
++
+required outbox insertion
+
+MUST occur in the SAME PostgreSQL transaction for paths where the notification
+is a required consequence of that mutation.
+
+Do not use "where practical" as an escape hatch for already-transactional
+attendance, emergency, role, approval, or comparable flows.
+
+If any existing flow cannot satisfy this without a material redesign:
+
+STOP and report that specific flow before changing it.
+
+Provider calls MUST remain outside the domain transaction.
+
+Provider failure MUST NOT roll back already-committed domain state.
+
+==================================================
+OUTBOX SCOPE
+==================================================
+
+Create the smallest schema necessary for one durable delivery intent per:
+
+logical notification
++
+recipient
++
+external channel
+
+Expected concepts:
+
+- id
+- logical deduplication key
+- notification type
+- domain event type
+- domain event identifier
+- recipient user
+- channel
+- template/payload metadata
+- status
+- attempt count
+- next attempt time
+- claim token
+- lease expiry
+- provider
+- provider message id when available
+- redacted failure classification
+- redacted failure detail
+- created timestamp
+- updated timestamp
+- provider accepted timestamp where applicable
+- completion/finalization timestamp where applicable
+
+Do not store secrets.
+
+Avoid storing unnecessary sensitive full message bodies if a template/reference
+and bounded metadata can reproduce the delivery safely.
+
+==================================================
+DELIVERY STATES
+==================================================
+
+Use the smallest state model that preserves correctness.
+
+Approved conceptual states:
+
+pending
+processing
+retryable
+accepted
+uncertain
+skipped
+dead_letter
+
+Important semantics:
+
+ACCEPTED means:
+
+provider accepted/submitted the request
+
+It does NOT mean:
+
+recipient received it
+recipient read it
+provider confirmed final delivery
+
+Do not introduce a "delivered" claim unless that specific provider supplies a
+trustworthy delivery receipt/webhook and the application actually processes it.
+
+==================================================
+UNCERTAIN PROVIDER OUTCOMES
+==================================================
+
+Provider timeout or connection loss after request submission may leave delivery
+ambiguous.
+
+Required rule:
+
+UNCERTAIN MUST NOT BE TREATED AS AN ORDINARY RETRYABLE FAILURE.
+
+Do not immediately:
+
+- retry blindly
+- switch to another provider
+- fan out through fallback providers
+
+because the first provider may already have accepted the message.
+
+For each provider/channel inspect whether it supports:
+
+- provider-side idempotency
+- message lookup
+- stable request/message identifier
+- safe reconciliation
+
+If none exists, preserve the uncertain state for operational review or a
+separately justified bounded policy.
+
+Do not pretend exactly-once external delivery is achievable.
+
+==================================================
+DEDUPLICATION
+==================================================
+
+Create a stable logical deduplication key.
+
+Conceptually:
+
+domainEventType
+domainEventId
+recipientUserId
+channel
+notificationType
+templateVersion
+
+Enforce uniqueness in PostgreSQL.
+
+For broadcast notifications use one logical key per recipient/channel.
+
+Manual resend must be an explicit new resend generation or similarly explicit
+new logical action.
+
+Do not silently bypass the original deduplication key.
+
+==================================================
+WORKER CLAIMING
+==================================================
+
+Use PostgreSQL as the coordination mechanism.
+
+Expected pattern:
+
+1. find eligible work in a short DB transaction
+2. SELECT ... FOR UPDATE SKIP LOCKED or equivalent safe atomic claim
+3. set processing status
+4. assign unpredictable claim token
+5. assign bounded lease expiry
+6. increment attempt count as appropriate
+7. commit
+8. call provider OUTSIDE the transaction
+9. finalize only if:
+   id matches
+   AND claim token still matches
+10. stale workers must not finalize work that another worker reclaimed
+
+Prove with concurrency tests that two workers cannot both own one attempt.
+
+==================================================
+RETRY POLICY
+==================================================
+
+Implement bounded retries only for clearly retryable failures.
+
+Initial approved maximum:
+
+5 attempts per channel
+
+Use bounded backoff approximately following:
+
+30 seconds
+2 minutes
+10 minutes
+30 minutes
+2 hours
+
+Jitter is allowed.
+
+Classify at minimum:
+
+RETRYABLE:
+- temporary network failure before known provider acceptance
+- HTTP 429
+- appropriate HTTP 5xx
+- temporary provider outage
+- WhatsApp connection unavailable before send
+
+NON-RETRYABLE:
+- invalid recipient
+- malformed request
+- unsupported channel
+- missing required contact
+- revoked preference
+- permanent provider rejection
+
+UNCERTAIN:
+- timeout/connection loss where provider acceptance may already have occurred
+
+Never retry the original domain mutation.
+
+==================================================
+LATE PICKUP
+==================================================
+
+Fix repeated late-pickup notification duplication through the same durable
+logical-notification mechanism.
+
+Repeated execution for the same:
+
+child
+recipient/family
+service date
+service slot
+notification type
+channel
+
+must not create another logical notification unless an explicit resend/new
+generation is intended.
+
+Add a regression test.
+
+==================================================
+EMPTY-RECIPIENT BROADCAST LOCK
+==================================================
+
+Fix the confirmed issue where the 60-second broadcast/pre-dismissal lock is
+consumed even though there are zero recipients.
+
+Required outcome:
+
+an empty recipient attempt must NOT consume the notification-send lock.
+
+Recipient determination and lock/outbox creation must remain race-safe.
+
+Do not introduce a race where recipients are selected from stale state and then
+blindly enqueued.
+
+Add regression coverage.
+
+==================================================
+SSE — REMOVE NORMAL JWT FROM URL
+==================================================
+
+Current insecure behavior:
+
+/api/events?token=<normal bearer JWT>
+
+must be removed.
+
+The normal bearer JWT must never appear in:
+
+- EventSource URL
+- query parameter
+- route parameter
+
+Approved design:
+
+1. Existing normal authenticated REST request requests an SSE ticket.
+2. Normal bearer JWT authenticates ONLY that REST request.
+3. Server performs normal authoritative auth checks.
+4. Server creates a short-lived purpose-bound random SSE ticket.
+5. Persist only a secure hash of the ticket.
+6. Bind ticket to:
+   - user
+   - selected role/context
+   - SSE purpose
+   - expiry
+   - consumed state
+7. Return the ticket through an HttpOnly cookie scoped as narrowly as practical
+   to /api/events.
+8. EventSource opens:
+   /api/events
+   with NO URL credential.
+9. Ticket redemption is atomic.
+10. Re-read authoritative PostgreSQL user/account/role state on redemption.
+11. A pre-MFA token must never mint a ticket.
+12. An SSE ticket must never authenticate ordinary API routes.
+13. Ticket expiry must be short.
+14. Stream lifetime must be bounded.
+
+No global migration of JWT auth to cookies.
+
+==================================================
+IMPORTANT SSE RECONNECT RULE
+==================================================
+
+A consumed one-time ticket MUST NOT simply be reused by EventSource automatic
+reconnect.
+
+Inspect the current frontend retry implementation.
+
+On disconnect/error:
+
+1. close the failed EventSource
+2. perform authenticated REST ticket mint
+3. receive a fresh SSE cookie/ticket
+4. create a NEW EventSource("/api/events")
+5. refetch authoritative notification state
+
+Do not allow native EventSource to repeatedly reconnect using a consumed ticket
+without obtaining a fresh one.
+
+SSE remains an invalidation hint.
+
+It is NOT durable notification storage.
+
+Do not add Last-Event-ID/replay infrastructure in Phase 5 unless an existing
+requirement makes it necessary.
+
+==================================================
+SSE AUTHORIZATION
+==================================================
+
+Ticket mint AND ticket redemption must use authoritative account checks.
+
+Reject:
+
+- deleted user
+- suspended user
+- inactive user
+- rejected user
+- removed selected role
+- invalid selected role
+- pre-MFA-only authentication
+- expired ticket
+- already-consumed ticket
+- wrong-purpose ticket
+
+Existing streams must not live indefinitely after account/role status changes.
+
+Use a bounded stream lifetime and/or existing lightweight periodic DB
+reauthorization.
+
+Do not create a high-frequency database polling loop.
+
+Propose the exact interval/lifetime if not already established by tests.
+
+==================================================
+SSE COOKIE SAFETY
+==================================================
+
+Use:
+
+HttpOnly
+Secure where HTTPS is actually in use
+SameSite appropriate for the existing same-origin application
+narrow Path=/api/events or the narrowest compatible path
+short Max-Age/expiry
+
+Do not make development impossible merely because local non-HTTPS execution
+cannot use a Secure cookie.
+
+Preserve production security without hard-coding an unsafe development bypass.
+
+==================================================
+OPERATIONAL VISIBILITY
+==================================================
+
+Persist enough information to answer:
+
+- which logical notification?
+- which recipient?
+- which channel?
+- which provider?
+- status?
+- attempts?
+- accepted?
+- uncertain?
+- next retry?
+- failure classification?
+- retries exhausted?
+- safe to retry?
+
+Do not expose secrets or raw provider credentials.
+
+Provider/API error details must be redacted and bounded.
+
+==================================================
+WHATSAPP BROADCAST QUEUE
+==================================================
+
+Do not leave two conflicting delivery correctness systems if avoidable.
+
+Inspect whether existing whatsapp_queue_items should:
+
+A. be migrated to/reused through the new outbox processing semantics
+
+or
+
+B. remain a specialized broadcast projection while external delivery uses the
+same safe claim/retry foundation.
+
+Choose the minimum change.
+
+Do not perform a broad WhatsApp rewrite.
+
+==================================================
+TEST-FIRST REQUIREMENT
+==================================================
+
+Before implementation behavior, add failing focused tests proving the current
+gaps where practical.
+
+Required database tests:
+
+1. domain mutation + required outbox intent atomic commit
+2. rollback removes both domain mutation and outbox intent
+3. process/provider failure leaves durable pending/retry/uncertain intent
+4. logical duplicate creates one outbox record
+5. two concurrent workers cannot both own one attempt
+6. stale claimant cannot finalize after lease/reclaim
+7. retry attempt count is bounded
+8. dead-letter after exhaustion
+9. uncertain is not blindly retried
+10. late-pickup rerun deduplicates
+11. zero-recipient broadcast does not consume the send lock
+
+Required SSE tests:
+
+12. normal JWT absent from EventSource URL
+13. unauthenticated mint rejected
+14. pre-MFA token mint rejected
+15. valid full auth
