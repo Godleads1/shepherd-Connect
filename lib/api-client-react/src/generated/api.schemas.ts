@@ -418,6 +418,7 @@ export const CheckInBodyOriginatingRole = {
   admin: "admin",
   teacher: "teacher",
   support: "support",
+  attendant: "attendant",
   parent: "parent",
 } as const;
 

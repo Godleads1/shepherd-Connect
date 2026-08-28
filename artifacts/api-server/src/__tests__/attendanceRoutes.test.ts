@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { getTableConfig } from "drizzle-orm/pg-core";
 import { attendanceEventsTable, staffScansTable } from "@workspace/db";
+import { CheckInBody } from "@workspace/api-zod";
 import { attendanceEventValidationError, processedEventOutcome, watServiceDateAt } from "../routes/attendance";
 import { decideStaffScan } from "../routes/sundayAttendance";
 
@@ -54,6 +55,19 @@ describe("attendance event guards", () => {
       now,
       serviceDate: "2026-08-23",
     })).toBeNull();
+  });
+
+  it("accepts attendant provenance in the queued check-in contract", () => {
+    expect(CheckInBody.safeParse({
+      childId: 1,
+      classId: 2,
+      serviceDate: "2026-08-23",
+      serviceSlot: "7am",
+      eventId: "attendant-event",
+      originatingUserId: 10,
+      originatingRole: "attendant",
+      queuedAt: now.toISOString(),
+    }).success).toBe(true);
   });
 
   it("rejects an event originating from a different active role", () => {

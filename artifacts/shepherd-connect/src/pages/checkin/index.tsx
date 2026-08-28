@@ -3,7 +3,6 @@ import { useScanQrCode, useCheckIn, useEscortToClass, useScanFace, useListAttend
 import { Input } from "@/components/ui/input";
 import { AlertTriangle, CheckCircle, QrCode, Scan, Truck, ShieldCheck, Users, Camera, WifiOff, Upload, HandHelping, Music, Send } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { format } from "date-fns";
 import FaceCapture from "@/components/FaceCapture";
 import QrCameraScanner from "@/components/QrCameraScanner";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
@@ -14,6 +13,7 @@ import LocationBanner from "@/components/LocationBanner";
 import { useGeneralSettings } from "@/components/AnnouncementBanner";
 import { apiGet, apiPost, apiPut, apiDelete } from "@/lib/api-call";
 import { useQuery } from "@tanstack/react-query";
+import { isWatSundayAt, watServiceDateAt, watWeekdayAt } from "@/lib/wat-date";
 
 type Tab = "qr" | "face" | "assist";
 type SlotChoice = "7am" | "10:30am" | "both";
@@ -31,7 +31,7 @@ const DEFAULT_SLOT_OPTIONS: { value: SlotChoice; label: string }[] = [
 ];
 
 function isSunday() {
-  return new Date().getDay() === 0;
+  return isWatSundayAt();
 }
 
 function ChildSlotPicker({
@@ -100,7 +100,7 @@ export default function CheckIn() {
   const escortMutation = useEscortToClass();
   const scanFaceMutation = useScanFace();
 
-  const today = format(new Date(), "yyyy-MM-dd");
+  const today = watServiceDateAt();
 
   useEffect(() => {
     setQueueCount(user ? getQueue(user.id).length : 0);
@@ -536,7 +536,7 @@ export default function CheckIn() {
         <div className="w-full mb-3 px-4 py-2.5 rounded-xl flex items-center gap-2 text-sm font-medium"
           style={{ background: "#fef9c3", color: "#92400e", border: "1px solid #fde68a" }}>
           <AlertTriangle className="w-4 h-4 flex-shrink-0" />
-          Services are held on Sundays only — today is {new Date().toLocaleDateString("en-GB", { weekday: "long" })}.
+          Services are held on Sundays only — today is {watWeekdayAt()}.
         </div>
       )}
 

@@ -5,6 +5,7 @@ export type OriginatingRole =
   | "admin"
   | "teacher"
   | "support"
+  | "attendant"
   | "parent";
 
 export interface QueuedCheckIn {

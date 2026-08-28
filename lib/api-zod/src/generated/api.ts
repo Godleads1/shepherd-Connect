@@ -1675,7 +1675,7 @@ export const CheckInBody = zod.object({
     .optional()
     .describe("Authenticated user who originated the event."),
   originatingRole: zod
-    .enum(["super_admin", "admin", "teacher", "support", "parent"])
+    .enum(["super_admin", "admin", "teacher", "support", "attendant", "parent"])
     .optional()
     .describe("Active authenticated role that originated the event."),
   queuedAt: zod

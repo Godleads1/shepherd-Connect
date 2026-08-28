@@ -2680,7 +2680,7 @@ components:
           description: Authenticated user who originated the event.
         originatingRole:
           type: string
-          enum: [super_admin, admin, teacher, support, parent]
+          enum: [super_admin, admin, teacher, support, attendant, parent]
           description: Active authenticated role that originated the event.
         queuedAt:
           type: string

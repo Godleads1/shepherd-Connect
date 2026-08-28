@@ -1,0 +1,276 @@
+REPLIT APP — RESUME PHASE 4 ATTENDANCE & OFFLINE INTEGRITY IMPLEMENTATION
+
+Continue from the previously APPROVED Phase 4 implementation scope.
+
+Important update:
+
+The development PostgreSQL automated concurrency test gate is now working.
+
+Verified development DB gate:
+
+- 149/149 tests passed
+- 0 failed
+- 0 errors
+- 0 skipped
+- Attendance DB tests: 13 passed
+- OTP DB tests: 9 passed
+- Role DB tests: 12 passed
+- Database/API/frontend typechecks passed
+- Synthetic test data cleanup verified zero
+- No production database accessed
+- No deployment
+- No commit
+- No push
+
+The previous shell PostgreSQL connectivity limitation is therefore resolved.
+
+==================================================
+OBJECTIVE
+==================================================
+
+Resume the APPROVED Phase 4 implementation from exactly where it stopped.
+
+Do not restart completed work unnecessarily.
+
+Determine which approved Phase 4 items are:
+
+DONE
+PARTIAL
+NOT STARTED
+
+Then complete only the remaining approved items.
+
+==================================================
+PHASE 4 REQUIRED OUTCOMES
+==================================================
+
+Complete and verify:
+
+1. CHECKOUT IDEMPOTENCY
+- first checkout performs one authoritative transition
+- exact retry returns existing completed state
+- checkout timestamp is not overwritten
+- checkout actor is not overwritten
+- four simultaneous checkout requests produce one transition
+- notification side effects occur once
+
+2. ARRIVAL IDEMPOTENCY
+- one authoritative in_class transition
+- retry safe
+- concurrent arrival cannot rewrite timestamp/actor
+- notifications occur once
+
+3. CHILD CHECK-IN / OFFLINE EVENT IDENTITY
+- preserve existing child/date advisory lock
+- preserve child/date/slot uniqueness
+- preserve opposing-slot rules
+- preserve intentional bothServices behavior
+- stable attendance event ID
+- repeated same event applies once
+- legitimate new event after pickup still works
+
+4. PROCESSED ATTENDANCE EVENT
+- narrowly scoped persistence
+- event ID
+- originating user
+- operation
+- resulting attendance reference where applicable
+- processing timestamp
+- unique user/event/operation semantics
+- processed-event record and attendance mutation transactionally consistent
+
+5. OFFLINE QUEUE USER BINDING
+- queue partitioned by authenticated user
+- User A events cannot execute as User B
+- originating user binding validated by server
+- current authorization revalidated on sync
+
+6. LOGOUT / ACCOUNT SWITCH
+- active user's attendance queue handled safely on logout
+- User B never inherits User A queue
+- no global reusable queue
+
+7. ROLE REMOVAL / SUSPENSION
+- queued operation rejected if role has since been removed
+- queued operation rejected if account is suspended/inactive
+- current DB-backed auth remains authoritative
+
+8. OFFLINE EXPIRY
+- current authoritative WAT service date required
+- maximum age 24 hours
+- server-authoritative expiry
+- expired event cannot mutate attendance
+
+9. WAT SERVICE DATE
+- one server-side Africa/Lagos helper for implicit attendance "today"
+- UTC/browser-local boundary inconsistency removed for scoped attendance paths
+- no global timezone redesign
+
+10. STAFF ATTENDANCE CONCURRENCY
+- checkpoint unique
+- clock-out unique
+- emergency-out unique
+- four simultaneous requests produce one logical transition
+- duplicate notifications prevented
+
+==================================================
+DATABASE SAFETY
+==================================================
+
+The development PostgreSQL test gate is now available.
+
+Use DEVELOPMENT database only.
+
+Before any remaining schema change:
+
+- confirm development target
+- inspect strict schema diff
+- no production DB
+- stop if unrelated schema changes appear
+
+Do not weaken or skip PostgreSQL tests.
+
+==================================================
+DO NOT REDO TEST INFRASTRUCTURE
+==================================================
+
+The following test-environment work is already complete:
+
+- Vitest development DATABASE_URL handling
+- development DB guarded runner
+- test:db:development
+- automated Replit development DB gate
+- production/loopback refusal
+
+Do not redesign that work unless a real defect is found.
+
+==================================================
+FINAL VERIFICATION
+==================================================
+
+When all Phase 4 implementation items are complete, run:
+
+- attendance DB tests
+- attendance route tests
+- offline queue tests
+- four-way concurrency tests
+- staff attendance concurrency tests
+- WAT boundary tests
+- Phase 1 auth regression
+- MFA regression
+- Phase 2 OTP regression
+- Phase 3 role regression
+- complete development DB gate
+- ordinary full API suite
+- database typecheck
+- API typecheck
+- frontend typecheck
+- build/start
+- health check
+- safe browser attendance smoke test
+- final scoped diff/security review
+
+Do not trigger paid provider traffic.
+
+==================================================
+CONTROL
+==================================================
+
+Do NOT:
+
+- deploy
+- commit
+- push
+- access production database
+- change secrets
+- change authentication architecture
+- redesign roles
+- redesign attendance
+- change MFA
+- change OTP
+- add unrelated dependencies
+
+==================================================
+FINAL REPORT
+==================================================
+
+Return:
+
+PHASE 4 ITEMS ALREADY COMPLETE:
+PHASE 4 ITEMS COMPLETED IN THIS CONTINUATION:
+
+FILES CHANGED:
+
+CHECKOUT IDEMPOTENCY:
+FIRST CHECKOUT:
+EXACT RETRY:
+FOUR-WAY CHECKOUT:
+CHECKOUT NOTIFICATION COUNT:
+
+ARRIVAL IDEMPOTENCY:
+CONCURRENT ARRIVAL:
+
+CHECK-IN:
+SAME-SLOT:
+OPPOSING-SLOT:
+BOTH-SERVICES:
+EVENT REPLAY:
+
+PROCESSED EVENT STORAGE:
+EVENT UNIQUE KEY:
+TRANSACTION BOUNDARY:
+
+QUEUE USER PARTITIONING:
+CROSS-USER RESULT:
+LOGOUT RESULT:
+ACCOUNT SWITCH RESULT:
+
+ROLE REMOVAL RESULT:
+SUSPENSION RESULT:
+
+OFFLINE EXPIRY:
+EXPIRED EVENT RESULT:
+
+WAT SERVICE DATE:
+MIDNIGHT BOUNDARY RESULT:
+
+STAFF CHECKPOINT:
+STAFF CLOCK-OUT:
+EMERGENCY-OUT:
+STAFF NOTIFICATION COUNT:
+
+DATABASE SCHEMA CHANGE:
+SCHEMA PREVIEW:
+DATABASE TARGET:
+
+ATTENDANCE DB TESTS:
+DEVELOPMENT DB GATE:
+FULL API SUITE:
+
+PHASE 1 REGRESSION:
+MFA REGRESSION:
+PHASE 2 OTP REGRESSION:
+PHASE 3 ROLE REGRESSION:
+
+DATABASE TYPECHECK:
+API TYPECHECK:
+FRONTEND TYPECHECK:
+BUILD/START:
+HEALTH CHECK:
+
+FRONTEND CHANGE:
+API CONTRACT CHANGE:
+DEPENDENCY CHANGE:
+ARCHITECTURE CHANGE:
+
+REGRESSIONS:
+REMAINING ATTENDANCE RISKS:
+UNRELATED FINDINGS:
+
+DEPLOYED:
+COMMITTED:
+PUSHED:
+
+End exactly:
+
+REPLIT PHASE 4 ATTENDANCE & OFFLINE INTEGRITY FIX COMPLETE — AWAITING HUMAN REVIEW

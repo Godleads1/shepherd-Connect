@@ -53,6 +53,7 @@ describe("offline check-in queue", () => {
   it("partitions entries by authenticated user and snapshots their active role", () => {
     enqueueCheckIn(101, "support", payload);
     enqueueCheckIn(202, "admin", { ...payload, childId: 56 });
+    enqueueCheckIn(303, "attendant", { ...payload, childId: 78 });
 
     expect(getQueue(101)).toHaveLength(1);
     expect(getQueue(101)[0]).toMatchObject({
@@ -67,6 +68,11 @@ describe("offline check-in queue", () => {
       originatingUserId: 202,
       originatingRole: "admin",
       childId: 56,
+    });
+    expect(getQueue(303)[0]).toMatchObject({
+      originatingUserId: 303,
+      originatingRole: "attendant",
+      childId: 78,
     });
   });
 
