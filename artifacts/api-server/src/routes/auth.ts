@@ -475,7 +475,7 @@ router.post("/auth/mfa/verify-login", async (req, res): Promise<void> => {
   let payload: any;
   try {
     payload = jwt.verify(mfaToken, JWT_SECRET) as any;
-    if (!payload.mfaOnly) { res.status(400).json({ error: "Bad request", message: "Invalid token type" }); return; }
+    if (payload.mfaOnly !== true) { res.status(400).json({ error: "Bad request", message: "Invalid token type" }); return; }
   } catch {
     res.status(401).json({ error: "Unauthorized", message: "MFA token expired or invalid. Please log in again." }); return;
   }

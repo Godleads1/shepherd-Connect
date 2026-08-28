@@ -1,0 +1,280 @@
+REPLIT APP — MFA FIX IMPLEMENTATION WITH MULTI-ROLE PRESERVATION
+
+Human clarification:
+
+This application intentionally allows Admin to approve a user for MULTIPLE ROLES.
+
+That behavior must remain unchanged.
+
+Examples of approved roles may include:
+
+- Parent
+- Teacher
+- Support
+- Attendant
+- Admin
+- other roles already supported by the application
+
+A user may have:
+
+- one primary role
+- one or more approved secondary roles
+
+The existing role-switch functionality is intentional and must be preserved.
+
+==================================================
+CRITICAL MULTI-ROLE INVARIANT
+==================================================
+
+A user's valid role set is:
+
+current primary role
++
+currently approved secondary roles
+
+The user may operate under any role currently contained in that approved
+role set.
+
+Do NOT:
+
+- collapse multiple roles into one
+- force every user to only their primary role
+- remove secondary roles
+- disable role switching
+- redesign the role model
+- redesign authentication architecture
+- change the database schema
+- change the frontend role-switch flow
+
+If Admin removes one approved role, only that removed role must become invalid.
+
+Example:
+
+Current approved roles:
+
+Parent
+Teacher
+Support
+
+All three are valid.
+
+If Admin removes Teacher:
+
+Parent  = still valid
+Support = still valid
+Teacher = invalid
+
+An existing token acting as Teacher must stop being accepted.
+
+The user must still be able to use Parent and Support.
+
+==================================================
+MFA SECURITY FIX
+==================================================
+
+The previously confirmed defect remains approved for remediation:
+
+A pre-MFA token containing:
+
+mfaOnly: true
+
+must NEVER be accepted as a fully authenticated bearer credential.
+
+It must not be able to access:
+
+- /api/auth/me
+- ordinary protected routes
+- admin or role-protected routes
+- SSE
+- role switching
+
+The ONLY valid use of the pre-MFA token is the dedicated MFA completion
+flow.
+
+==================================================
+REQUIRED AUTHENTICATION SEQUENCE
+==================================================
+
+For MFA-enabled users:
+
+Password verified
+→ pre-MFA token issued
+→ MFA challenge completed successfully
+→ normal authenticated token issued
+→ user may use or switch among CURRENTLY APPROVED roles
+
+Role switching must only happen AFTER full MFA completion.
+
+A pre-MFA token must never be converted into a normal 24-hour role token
+through the role-switch endpoint.
+
+==================================================
+GENERAL TOKEN VERIFICATION
+==================================================
+
+General JWT verification must reject partial-authentication tokens.
+
+If:
+
+payload.mfaOnly === true
+
+the token must not be accepted by normal protected-route authentication.
+
+This central rejection should protect:
+
+- general auth middleware
+- downstream role middleware
+- role switching
+- SSE when it uses the same token verifier
+
+Normal full tokens remain unchanged.
+
+==================================================
+MFA COMPLETION
+==================================================
+
+The dedicated MFA completion endpoint should continue to verify the
+pre-MFA token separately.
+
+It must require exactly:
+
+payload.mfaOnly === true
+
+Do not accept malformed truthy values such as:
+
+"true"
+1
+{}
+[]
+
+After successful TOTP verification:
+
+issue the existing normal authenticated token.
+
+Do not change:
+
+- normal JWT structure
+- 24-hour full-token lifetime
+- five-minute pre-MFA lifetime unless already required
+- frontend token flow
+- role architecture
+- database schema
+
+==================================================
+MULTI-ROLE VALIDATION
+==================================================
+
+For every normal authenticated request:
+
+1. verify JWT signature and expiry
+2. load the current user
+3. verify account status
+4. determine the current approved role set:
+   - primary role
+   - approved secondary roles
+5. confirm the selected JWT role still exists in that approved set
+6. reject the request if the selected role was removed
+7. preserve the selected role if it is still currently approved
+
+Do not silently replace a valid secondary role with the primary role.
+
+==================================================
+TEST REQUIREMENTS
+==================================================
+
+Add or preserve tests proving:
+
+MULTI-ROLE:
+
+- primary role works
+- approved secondary role works
+- user can switch to another approved role
+- user with several approved roles keeps all valid roles
+- removal of one role invalidates only that role
+- remaining approved roles continue working
+- removed privileged role cannot continue using an old token
+
+MFA:
+
+- normal full token accepted
+- pre-MFA token rejected by /api/auth/me
+- pre-MFA token rejected by ordinary protected route
+- pre-MFA token rejected by admin route
+- pre-MFA token rejected by role switching
+- pre-MFA token rejected by SSE
+- pre-MFA token accepted only by MFA completion
+- malformed mfaOnly values rejected
+- successful MFA produces normal usable token
+- after successful MFA, role switching among approved roles works
+- MFA-disabled login remains unchanged
+
+==================================================
+ARCHITECTURE CONTROL
+==================================================
+
+DATABASE CHANGE:
+NONE
+
+FRONTEND CHANGE:
+NONE
+
+DEPENDENCY CHANGE:
+NONE
+
+ROLE ARCHITECTURE CHANGE:
+NONE
+
+SESSION ARCHITECTURE CHANGE:
+NONE
+
+Do not broaden scope.
+
+Do not modify unrelated features.
+
+Do not deploy.
+
+Do not commit or push unless separately approved.
+
+==================================================
+FINAL REPORT
+==================================================
+
+Return:
+
+FILES CHANGED:
+
+MULTI-ROLE BEHAVIOR BEFORE:
+MULTI-ROLE BEHAVIOR AFTER:
+PRIMARY ROLE TEST:
+SECONDARY ROLE TEST:
+ROLE REMOVAL TEST:
+ROLE SWITCH TEST:
+
+PRE-MFA TOKEN GENERAL AUTH:
+PRE-MFA TOKEN ROLE SWITCH:
+PRE-MFA TOKEN SSE:
+MFA COMPLETION:
+NORMAL TOKEN AFTER MFA:
+
+FOCUSED TESTS:
+FULL API TEST SUITE:
+DATABASE TYPECHECK:
+API TYPECHECK:
+FRONTEND TYPECHECK:
+BUILD/START:
+
+DATABASE CHANGE:
+FRONTEND CHANGE:
+DEPENDENCY CHANGE:
+ARCHITECTURE CHANGE:
+
+REGRESSIONS:
+REMAINING RISKS:
+
+DEPLOYED:
+COMMITTED:
+PUSHED:
+
+End exactly:
+
+MFA SECURITY FIX COMPLETE — MULTI-ROLE BEHAVIOR PRESERVED — AWAITING HUMAN REVIEW

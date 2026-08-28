@@ -1,4 +1,5 @@
 import type { NextFunction, Request, Response } from "express";
+import jwt from "jsonwebtoken";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { selectMock } = vi.hoisted(() => ({
@@ -131,5 +132,95 @@ describe("authoritative authentication", () => {
 
     expect(next).not.toHaveBeenCalled();
     expect(res.status).toHaveBeenCalledWith(401);
+  });
+
+  it.each(["parent", "teacher", "support"])(
+    "preserves the currently approved %s role in a multi-role account",
+    async (selectedRole) => {
+      mockCurrentUser({
+        ...activeUser,
+        role: "parent",
+        secondaryRoles: JSON.stringify(["teacher", "support"]),
+      });
+      const { authMiddleware, generateToken } = await import("../middlewares/auth");
+      const req = {
+        headers: {
+          authorization: `Bearer ${generateToken({
+            userId: activeUser.id,
+            email: activeUser.email,
+            role: selectedRole,
+            firstName: activeUser.firstName,
+            lastName: activeUser.lastName,
+          })}`,
+        },
+      } as Request;
+      const res = response();
+      const next = vi.fn() as NextFunction;
+
+      await authMiddleware(req, res, next);
+
+      expect(next).toHaveBeenCalledOnce();
+      expect(req.user?.role).toBe(selectedRole);
+    },
+  );
+
+  it("invalidates only a removed role while remaining approved roles still work", async () => {
+    mockCurrentUser({
+      ...activeUser,
+      role: "parent",
+      secondaryRoles: JSON.stringify(["support"]),
+    });
+    const { authMiddleware, generateToken } = await import("../middlewares/auth");
+
+    async function authenticateAs(role: string) {
+      const req = {
+        headers: {
+          authorization: `Bearer ${generateToken({
+            userId: activeUser.id,
+            email: activeUser.email,
+            role,
+            firstName: activeUser.firstName,
+            lastName: activeUser.lastName,
+          })}`,
+        },
+      } as Request;
+      const res = response();
+      const next = vi.fn() as NextFunction;
+      await authMiddleware(req, res, next);
+      return { res, next };
+    }
+
+    const removedTeacher = await authenticateAs("teacher");
+    const remainingParent = await authenticateAs("parent");
+    const remainingSupport = await authenticateAs("support");
+
+    expect(removedTeacher.next).not.toHaveBeenCalled();
+    expect(removedTeacher.res.status).toHaveBeenCalledWith(401);
+    expect(remainingParent.next).toHaveBeenCalledOnce();
+    expect(remainingSupport.next).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    ["the boolean pre-MFA marker", true],
+    ["a malformed string pre-MFA marker", "true"],
+    ["a malformed numeric pre-MFA marker", 1],
+    ["a malformed object pre-MFA marker", {}],
+    ["a malformed array pre-MFA marker", []],
+  ])("rejects %s in the general verifier used by middleware and SSE", async (_label, mfaOnly) => {
+    const { verifyToken } = await import("../middlewares/auth");
+    const partialToken = jwt.sign(
+      {
+        userId: activeUser.id,
+        email: activeUser.email,
+        role: activeUser.role,
+        firstName: activeUser.firstName,
+        lastName: activeUser.lastName,
+        mfaOnly,
+      },
+      process.env.SESSION_SECRET!,
+      { expiresIn: "5m" },
+    );
+
+    expect(verifyToken(partialToken)).toBeNull();
   });
 });

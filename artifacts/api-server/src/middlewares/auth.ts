@@ -16,6 +16,7 @@ export interface JwtPayload {
   role: string;
   firstName: string;
   lastName: string;
+  mfaOnly?: unknown;
 }
 
 declare global {
@@ -32,7 +33,11 @@ export function generateToken(payload: JwtPayload): string {
 
 export function verifyToken(token: string): JwtPayload | null {
   try {
-    return jwt.verify(token, JWT_SECRET) as JwtPayload;
+    const payload = jwt.verify(token, JWT_SECRET) as JwtPayload;
+    if (Object.prototype.hasOwnProperty.call(payload, "mfaOnly")) {
+      return null;
+    }
+    return payload;
   } catch {
     return null;
   }
