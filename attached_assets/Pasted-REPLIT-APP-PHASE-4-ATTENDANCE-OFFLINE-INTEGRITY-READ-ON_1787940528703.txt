@@ -1,0 +1,535 @@
+REPLIT APP — PHASE 4 ATTENDANCE & OFFLINE INTEGRITY
+READ-ONLY PROPOSAL FIRST — NO CODE CHANGES WITHOUT APPROVAL
+
+You are continuing after:
+
+- Phase 1 authentication/security fixes
+- MFA pre-authentication boundary fix
+- Phase 2 OTP/registration security
+- Phase 3 multi-role concurrency/integrity
+
+Phase 3 is accepted for its approved scope.
+
+This Phase 4 is limited to ATTENDANCE AND OFFLINE DATA INTEGRITY.
+
+Previously identified findings include:
+
+PR-05
+Attendance checkout is not safely idempotent.
+
+PR-08
+Offline attendance data stored client-side is insufficiently bound to the
+authenticated user/session and may replay across user/session boundaries.
+
+Related integrity concern:
+mixed UTC/WAT/service-date handling may affect attendance correctness.
+
+==================================================
+HARD CONTROL
+==================================================
+
+DO NOT MODIFY CODE YET.
+
+Read and trace first.
+
+You may:
+
+- inspect frontend/backend code
+- inspect database schema
+- inspect attendance endpoints
+- inspect offline queue/storage logic
+- inspect synchronization logic
+- inspect existing tests
+- run safe existing tests
+- use isolated development data for safe reproduction
+
+Do NOT:
+
+- edit source
+- edit tests
+- change schema
+- run Drizzle push
+- install dependencies
+- change secrets
+- deploy
+- commit
+- push
+
+Return a proposal and STOP for human approval.
+
+==================================================
+OBJECTIVES
+==================================================
+
+Determine whether the attendance system guarantees:
+
+1. one logical check-in does not create unintended duplicates
+2. one logical checkout cannot be applied twice
+3. concurrent requests produce deterministic attendance state
+4. retries are safe
+5. offline events belong to the correct authenticated user
+6. events cannot survive logout/account switch incorrectly
+7. stale offline events cannot replay indefinitely
+8. synchronization does not duplicate previously accepted events
+9. attendance dates are calculated consistently
+10. server state remains authoritative
+
+==================================================
+MAP ATTENDANCE DOMAIN
+==================================================
+
+Identify:
+
+ATTENDANCE TABLES:
+KEY FIELDS:
+USER/CHILD/STAFF REFERENCES:
+CHECK-IN FIELD:
+CHECK-OUT FIELD:
+SERVICE DATE:
+CREATED/UPDATED TIMESTAMPS:
+STATUS FIELDS:
+UNIQUE CONSTRAINTS:
+INDEXES:
+
+Map every relevant endpoint:
+
+- check-in
+- checkout
+- attendance creation
+- attendance update
+- bulk attendance
+- offline sync
+- staff/teacher attendance
+- parent/child attendance
+- any pickup-related attendance transition
+
+For every endpoint report:
+
+ENDPOINT:
+AUTHORIZATION:
+REQUEST IDENTIFIER:
+OBJECT IDENTIFIER:
+CURRENT IDEMPOTENCY:
+CURRENT TRANSACTION:
+ROW LOCK:
+UNIQUE CONSTRAINT:
+DUPLICATE BEHAVIOR:
+CONCURRENT BEHAVIOR:
+
+==================================================
+PR-05 — CHECKOUT IDEMPOTENCY
+==================================================
+
+Confirm the previously identified issue.
+
+Inspect whether repeated checkout requests can:
+
+- update checkout time repeatedly
+- produce different results for the same logical action
+- overwrite original checkout evidence
+- trigger duplicate notifications
+- produce inconsistent audit history
+
+Test conceptually:
+
+REQUEST 1:
+checkout attendance X
+
+REQUEST 2:
+retry exact same request
+
+Expected production-safe behavior:
+
+The retry must not produce a second logical checkout.
+
+Determine whether correct behavior should be:
+
+- idempotent 200 returning existing checkout
+- conflict response
+- another existing API convention
+
+Do not change endpoint semantics without proposing them first.
+
+==================================================
+CONCURRENT CHECKOUT
+==================================================
+
+Evaluate two simultaneous checkout requests against one attendance record.
+
+Determine:
+
+- number of successful mutations
+- final checkout timestamp
+- duplicate side effects
+- notification count
+- audit/event count
+
+Required invariant:
+
+ONE ATTENDANCE RECORD
+→ AT MOST ONE AUTHORITATIVE CHECKOUT TRANSITION
+
+==================================================
+CHECK-IN DUPLICATION
+==================================================
+
+Inspect whether multiple requests can create duplicate attendance records
+for the same logical person/date/session.
+
+Determine existing uniqueness rules.
+
+Do not assume checkout is the only concurrency risk.
+
+==================================================
+OFFLINE STORAGE
+==================================================
+
+Inspect exactly where offline attendance actions are stored.
+
+Report:
+
+STORAGE:
+KEY NAME:
+DATA FORMAT:
+USER ID STORED:
+ROLE STORED:
+SESSION ID STORED:
+DEVICE ID STORED:
+EVENT ID STORED:
+CREATED TIME:
+EXPIRY:
+SYNC STATUS:
+
+Determine whether:
+
+User A logs in
+→ records attendance offline
+→ logs out
+→ User B logs in
+→ User A's offline operation can sync under User B
+
+Also check:
+
+- shared devices
+- browser refresh
+- token expiration
+- role switch
+- account suspension
+- browser storage persistence
+
+==================================================
+OFFLINE EVENT IDENTITY
+==================================================
+
+Determine whether every offline operation has a stable unique event ID.
+
+If the client retries synchronization:
+
+same offline event
+→ should be applied at most once
+
+Inspect whether the server persists or otherwise recognizes already processed
+offline event identifiers.
+
+Do NOT propose client-generated financial-style idempotency infrastructure;
+keep the solution proportional to attendance integrity.
+
+==================================================
+SESSION / USER BINDING
+==================================================
+
+Determine the minimum safe binding required.
+
+Evaluate:
+
+- authenticated user ID
+- active role
+- organization/school context if applicable
+- event creation timestamp
+- unique offline event ID
+
+Do not bind unnecessarily to short-lived access-token bytes if doing so would
+make legitimate offline operation impossible.
+
+The goal is:
+
+offline action created by User A
+must never execute as User B.
+
+==================================================
+LOGOUT / ACCOUNT SWITCH
+==================================================
+
+Inspect current logout behavior.
+
+Determine whether attendance offline queues are:
+
+- cleared
+- partitioned by user
+- retained globally
+- resubmitted automatically
+
+Test:
+
+User A creates queued event
+→ logout
+→ User B login
+→ sync
+
+Expected:
+
+User A's event must NOT execute under User B's authority.
+
+==================================================
+STALE OFFLINE EVENTS
+==================================================
+
+Determine whether old offline records remain valid forever.
+
+Propose an appropriate maximum age based on the existing attendance workflow.
+
+Do not invent an arbitrary production policy without explaining its impact.
+
+Report:
+
+CURRENT EXPIRY:
+PROPOSED EXPIRY:
+RATIONALE:
+
+==================================================
+SERVER AUTHORITY
+==================================================
+
+Verify that synchronization re-validates on the server:
+
+- authenticated principal
+- authorization
+- target person/object
+- current attendance state
+- whether action is still logically valid
+
+Offline queue contents must not be treated as trusted authority.
+
+==================================================
+TIMEZONE / SERVICE DATE
+==================================================
+
+Inspect attendance date computation.
+
+Identify use of:
+
+- UTC
+- local browser time
+- server local time
+- WAT/Africa/Lagos
+- date string slicing
+- Date.toISOString()
+- database date/time
+- explicit timezone utilities
+
+Determine whether the same attendance event around midnight can be assigned to
+different service dates depending on client/server code path.
+
+Do not globally redesign timezone handling.
+
+Propose a single authoritative attendance-date rule compatible with the
+existing product.
+
+==================================================
+SIDE EFFECTS
+==================================================
+
+Inspect checkout/check-in side effects:
+
+- notifications
+- SMS/email/WhatsApp
+- logs
+- audit events
+- child pickup state
+- dashboard counters
+
+Idempotent retries must not duplicate side effects.
+
+==================================================
+SAFE REPRODUCTION
+==================================================
+
+Using development-only isolated data, where possible reproduce:
+
+A.
+same checkout request twice sequentially
+
+B.
+four simultaneous checkout requests
+
+C.
+two simultaneous check-ins for same logical attendance slot
+
+D.
+same offline event synchronized twice
+
+E.
+offline event created by User A then sync attempted while User B authenticated
+
+F.
+offline event after role removal/suspension where relevant
+
+G.
+event around attendance-date boundary
+
+Do not use real users.
+
+Do not trigger paid providers.
+
+==================================================
+OPTIONS
+==================================================
+
+For checkout/check-in integrity evaluate minimal existing-architecture options:
+
+OPTION A:
+conditional PostgreSQL UPDATE/INSERT
+
+OPTION B:
+transaction + SELECT FOR UPDATE
+
+OPTION C:
+database uniqueness constraint
+
+OPTION D:
+request/event idempotency key
+
+For each explain:
+
+CORRECTNESS:
+SCHEMA CHANGE:
+API CHANGE:
+FRONTEND CHANGE:
+COMPLEXITY:
+CONCURRENCY SAFETY:
+RECOMMENDATION:
+
+Multiple mechanisms may be appropriate for different attendance operations.
+
+==================================================
+OFFLINE OPTIONS
+==================================================
+
+Evaluate:
+
+OPTION A:
+partition local queue by authenticated user
+
+OPTION B:
+include immutable offline event ID + user binding
+
+OPTION C:
+server-side processed-event record
+
+OPTION D:
+clear queues on logout
+
+Consider combinations.
+
+Do not remove offline support unless absolutely necessary.
+
+==================================================
+TEST PLAN
+==================================================
+
+Prepare exact tests for:
+
+- first checkout succeeds
+- exact retry is safe
+- concurrent checkout gives one authoritative transition
+- duplicate side effects do not occur
+- duplicate check-in prevented where product rules require
+- same offline event synced twice applies once
+- User A offline event cannot execute as User B
+- logout/account switch preserves isolation
+- role removal causes server reauthorization
+- stale event rejected or handled according to approved policy
+- timezone boundary behaves consistently
+- existing attendance behavior remains usable
+- Phase 1–3 security tests remain green
+
+==================================================
+EXPECTED CHANGE BOUNDARY
+==================================================
+
+Prefer:
+
+ARCHITECTURE CHANGE:
+NONE
+
+DEPENDENCY CHANGE:
+NONE
+
+Do not change authentication architecture.
+
+Do not redesign the attendance product.
+
+If schema/API/frontend changes are necessary, identify them explicitly before
+implementation.
+
+==================================================
+REPORT FORMAT
+==================================================
+
+Return:
+
+PHASE 4 SCOPE CONFIRMED:
+
+ATTENDANCE SCHEMA:
+ATTENDANCE ENDPOINTS:
+
+CHECK-IN CURRENT BEHAVIOR:
+CHECKOUT CURRENT BEHAVIOR:
+
+PR-05 CONFIRMED:
+SEQUENTIAL RETRY RESULT:
+CONCURRENT CHECKOUT RESULT:
+CONCURRENT CHECK-IN RESULT:
+
+OFFLINE STORAGE:
+OFFLINE EVENT FORMAT:
+CURRENT USER BINDING:
+CURRENT EVENT IDENTITY:
+CURRENT EXPIRY:
+
+PR-08 CONFIRMED:
+ACCOUNT SWITCH RESULT:
+DUPLICATE SYNC RESULT:
+ROLE/AUTH REVALIDATION:
+
+TIMEZONE FINDINGS:
+CURRENT SERVICE-DATE AUTHORITY:
+
+SIDE EFFECT FINDINGS:
+
+OPTION ANALYSIS:
+
+RECOMMENDED CHECK-IN FIX:
+RECOMMENDED CHECKOUT FIX:
+RECOMMENDED OFFLINE FIX:
+RECOMMENDED TIMEZONE FIX:
+
+DATABASE SCHEMA CHANGE REQUIRED:
+API CONTRACT CHANGE REQUIRED:
+FRONTEND CHANGE REQUIRED:
+DEPENDENCY CHANGE:
+ARCHITECTURE CHANGE:
+
+EXACT SOURCE FILES:
+EXACT TEST FILES:
+
+PRE-IMPLEMENTATION TEST BASELINE:
+FILES MODIFIED DURING ANALYSIS:
+
+IMPLEMENTATION ORDER:
+
+Do not write code.
+
+End exactly:
+
+REPLIT PHASE 4 ATTENDANCE & OFFLINE INTEGRITY PROPOSAL COMPLETE — NO CODE CHANGES MADE — AWAITING HUMAN APPROVAL
