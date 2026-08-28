@@ -18,7 +18,35 @@ import request from "supertest";
 // vi.mock calls are hoisted to the top by vitest even though they appear here.
 
 vi.mock("@workspace/db", () => ({
-  db: { select: vi.fn(), insert: vi.fn(), update: vi.fn(), delete: vi.fn() },
+  db: {
+    select: vi.fn().mockReturnValue({
+      from: vi.fn().mockReturnValue({
+        where: vi.fn().mockResolvedValue([{
+          id: 1,
+          email: "test@test.com",
+          role: "parent",
+          firstName: "Test",
+          lastName: "User",
+          isActive: true,
+          status: "active",
+          secondaryRoles: JSON.stringify(["teacher", "support", "admin", "super_admin", "attendant"]),
+        }]),
+      }),
+    }),
+    insert: vi.fn(),
+    update: vi.fn(),
+    delete: vi.fn(),
+  },
+  usersTable: {
+    id: "id",
+    email: "email",
+    role: "role",
+    firstName: "firstName",
+    lastName: "lastName",
+    isActive: "isActive",
+    status: "status",
+    secondaryRoles: "secondaryRoles",
+  },
   pool: { on: vi.fn(), connect: vi.fn(), end: vi.fn() },
 }));
 

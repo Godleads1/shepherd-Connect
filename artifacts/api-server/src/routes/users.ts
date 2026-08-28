@@ -124,6 +124,12 @@ router.get("/users/pending-roles", authMiddleware, requireRoles("super_admin"), 
 router.get("/users/:id", authMiddleware, async (req, res): Promise<void> => {
   const id = parseInt(req.params.id as string, 10);
   if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
+  const isSelf = req.user!.userId === id;
+  const isAdmin = req.user!.role === "admin" || req.user!.role === "super_admin";
+  if (!isSelf && !isAdmin) {
+    res.status(404).json({ error: "Not found", message: "User not found" });
+    return;
+  }
   const [user] = await db.select().from(usersTable).where(eq(usersTable.id, id));
   if (!user) { res.status(404).json({ error: "Not found", message: "User not found" }); return; }
   const viewer = { role: req.user!.role, userId: req.user!.userId };

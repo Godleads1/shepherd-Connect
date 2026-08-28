@@ -1,0 +1,238 @@
+REPLIT APP — PHASE 1 IMPLEMENTATION APPROVAL
+
+The revised minimal-fix proposal is approved.
+
+You may now implement ONLY the approved Phase 1 corrections:
+
+PR-01 — authoritative current-user/status/role validation
+PR-02 — object-level authorization for GET /api/users/:id
+PR-10 — removal of predictable SESSION_SECRET fallback
+
+==================================================
+STRICT SCOPE
+==================================================
+
+Preserve the existing application architecture.
+
+No:
+
+- database migration
+- securityVersion field
+- session table
+- refresh-token architecture
+- frontend changes
+- new dependencies
+- API redesign
+- deployment redesign
+- logout redesign
+- unrelated refactors
+- unrelated bug fixes
+
+Expected architecture changes:
+
+NONE.
+
+==================================================
+AUTHORIZED SOURCE FILES
+==================================================
+
+Primary expected source files:
+
+artifacts/api-server/src/middlewares/auth.ts
+artifacts/api-server/src/routes/users.ts
+
+You may add or modify focused test files required to verify PR-01, PR-02,
+and PR-10.
+
+Do not modify any additional source file unless implementation proves it
+is strictly necessary.
+
+If another source file becomes necessary:
+
+STOP.
+
+Explain exactly why and wait for approval.
+
+==================================================
+IMPLEMENT TEST-FIRST
+==================================================
+
+For each defect:
+
+1. establish existing baseline
+2. add/identify a test demonstrating the defect
+3. confirm the test fails for the expected reason
+4. implement the smallest approved fix
+5. confirm focused test passes
+6. run regression suite
+
+Do not modify tests merely to hide failures.
+
+==================================================
+PR-10
+==================================================
+
+Remove the predictable SESSION_SECRET fallback from the existing
+authentication middleware.
+
+Required result:
+
+- configured SESSION_SECRET continues to work
+- missing SESSION_SECRET fails closed
+- no secret value printed
+- no automatic secret generation
+- no rotation
+- no environment mutation
+- normal JWT signing/verifying preserved
+
+==================================================
+PR-01
+==================================================
+
+After JWT signature/expiry verification:
+
+- load the current user from PostgreSQL
+- reject if user no longer exists
+- reject if inactive
+- reject if suspended
+- reject if rejected
+- reject any other state already disallowed by login
+- confirm selected JWT role still belongs to the user's current primary
+  or secondary role set
+- reject removed/stale role
+- construct the request principal using current DB-backed account data
+
+Preserve:
+
+- current JWT format
+- 24-hour expiration
+- current role-switch flow
+- current-device logout
+- frontend token handling
+
+Known accepted limitation:
+
+Password change/reset does NOT invalidate an otherwise-valid token during
+this phase.
+
+Do not attempt to solve that by adding schema/session infrastructure.
+
+==================================================
+PR-02
+==================================================
+
+For:
+
+GET /api/users/:id
+
+Implement:
+
+SELF → allow
+
+ADMIN → allow
+
+SUPER ADMIN → allow
+
+PARENT requesting another user → concealed 404
+
+TEACHER requesting another user → concealed 404
+
+SUPPORT requesting another user → concealed 404
+
+ATTENDANT requesting another user → concealed 404
+
+Use the same 404 response body for denied cross-user access and
+nonexistent targets where applicable.
+
+Preserve:
+
+- self-profile behavior
+- admin behavior
+- super-admin behavior
+- existing sanitizeUser response
+- existing contact privacy behavior
+- existing collection endpoints
+
+Do not create a generalized authorization framework.
+
+==================================================
+VALIDATION
+==================================================
+
+Run:
+
+- relevant focused tests
+- complete existing API test suite
+- database TypeScript check
+- API TypeScript check
+- frontend TypeScript check
+- API build/start verification
+
+Also run safe API behavior checks for:
+
+PR-01:
+- active account
+- suspended account
+- inactive account
+- deleted account
+- stale removed role
+
+PR-02:
+- self
+- unauthorized cross-user
+- admin
+- super-admin
+- nonexistent target
+
+PR-10:
+- configured secret
+- missing secret failure
+
+Do not reveal secrets.
+
+==================================================
+FINAL REPORT
+==================================================
+
+Return:
+
+FILES CHANGED:
+
+PR-10:
+BEFORE:
+AFTER:
+TESTS:
+
+PR-01:
+BEFORE:
+AFTER:
+TESTS:
+KNOWN LIMITATION:
+
+PR-02:
+BEFORE:
+AFTER:
+TESTS:
+
+API TEST SUITE:
+DATABASE TYPECHECK:
+API TYPECHECK:
+FRONTEND TYPECHECK:
+API BUILD/START:
+
+REGRESSIONS FOUND:
+UNRESOLVED PHASE 1 RISKS:
+UNRELATED ISSUES OBSERVED:
+
+DATABASE MIGRATION:
+DEPENDENCY CHANGES:
+FRONTEND CHANGES:
+ARCHITECTURE CHANGES:
+
+Do not deploy.
+
+Do not commit or push unless I separately ask.
+
+End exactly:
+
+REPLIT PHASE 1 MINIMAL SECURITY FIXES COMPLETE — AWAITING HUMAN REVIEW

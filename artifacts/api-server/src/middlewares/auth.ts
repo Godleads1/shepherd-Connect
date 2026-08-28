@@ -1,8 +1,14 @@
 import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
+import { eq } from "drizzle-orm";
+import { db, usersTable } from "@workspace/db";
 import { logger } from "../lib/logger";
 
-const JWT_SECRET = process.env.SESSION_SECRET || "shepherd-connect-secret";
+const configuredSessionSecret = process.env.SESSION_SECRET;
+if (!configuredSessionSecret) {
+  throw new Error("SESSION_SECRET environment variable is required");
+}
+const JWT_SECRET: string = configuredSessionSecret;
 
 export interface JwtPayload {
   userId: number;
@@ -32,7 +38,7 @@ export function verifyToken(token: string): JwtPayload | null {
   }
 }
 
-export function authMiddleware(req: Request, res: Response, next: NextFunction): void {
+export async function authMiddleware(req: Request, res: Response, next: NextFunction): Promise<void> {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
     res.status(401).json({ error: "Unauthorized", message: "No token provided" });
@@ -44,8 +50,50 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction):
     res.status(401).json({ error: "Unauthorized", message: "Invalid or expired token" });
     return;
   }
-  req.user = payload;
-  next();
+  try {
+    const [currentUser] = await db.select({
+      id: usersTable.id,
+      email: usersTable.email,
+      role: usersTable.role,
+      firstName: usersTable.firstName,
+      lastName: usersTable.lastName,
+      isActive: usersTable.isActive,
+      status: usersTable.status,
+      secondaryRoles: usersTable.secondaryRoles,
+    }).from(usersTable).where(eq(usersTable.id, payload.userId));
+
+    if (!currentUser || !currentUser.isActive || currentUser.status !== "active") {
+      res.status(401).json({ error: "Unauthorized", message: "Account is not active" });
+      return;
+    }
+
+    let secondaryRoles: string[] = [];
+    if (currentUser.secondaryRoles) {
+      try {
+        const parsed = JSON.parse(currentUser.secondaryRoles);
+        if (Array.isArray(parsed)) secondaryRoles = parsed.filter((role): role is string => typeof role === "string");
+      } catch {
+        secondaryRoles = [];
+      }
+    }
+    const currentRoles = new Set<string>([currentUser.role, ...secondaryRoles]);
+    if (!currentRoles.has(payload.role)) {
+      res.status(401).json({ error: "Unauthorized", message: "Account role has changed" });
+      return;
+    }
+
+    req.user = {
+      userId: currentUser.id,
+      email: currentUser.email,
+      role: payload.role,
+      firstName: currentUser.firstName,
+      lastName: currentUser.lastName,
+    };
+    next();
+  } catch (err) {
+    logger.error({ err, userId: payload.userId }, "Failed to validate authenticated user");
+    res.status(500).json({ error: "Internal server error", message: "Authentication service unavailable" });
+  }
 }
 
 export function requireRoles(...roles: string[]) {
