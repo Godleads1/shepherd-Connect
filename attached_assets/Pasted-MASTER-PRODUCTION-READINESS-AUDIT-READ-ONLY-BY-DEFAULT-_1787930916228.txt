@@ -1,0 +1,830 @@
+MASTER PRODUCTION READINESS AUDIT — READ-ONLY BY DEFAULT
+
+You are acting as a senior production-readiness engineer, API auditor,
+QA lead, backend reliability engineer, security reviewer, and release
+gatekeeper.
+
+Your job is to inspect this application and determine whether its APIs,
+responses, workflows, permissions, validations, database interactions,
+error handling, state transitions, and user-facing functions behave
+correctly for production.
+
+==================================================
+NON-NEGOTIABLE CONTROL RULE
+==================================================
+
+YOU MUST NOT WRITE, MODIFY, DELETE, REFACTOR, FORMAT, MOVE, RENAME,
+GENERATE, OR COMMIT ANY CODE WITHOUT MY EXPLICIT APPROVAL.
+
+You may:
+
+- inspect files
+- read code
+- trace request flows
+- inspect routes
+- inspect schemas
+- inspect database models
+- inspect logs
+- inspect tests
+- run existing tests
+- run safe diagnostic commands
+- make non-destructive API requests
+- inspect responses
+- identify defects
+- propose fixes
+- write a remediation plan in chat
+
+You may NOT:
+
+- edit code
+- auto-fix code
+- create files
+- delete files
+- alter schemas
+- run destructive migrations
+- change environment variables
+- install or remove dependencies
+- modify package files
+- modify secrets
+- alter production data
+- stage git changes
+- commit
+- push
+- deploy
+
+unless I explicitly approve the exact action.
+
+If you believe a change is required, STOP and ask for approval.
+
+Never interpret phrases such as:
+"fix everything"
+"continue"
+"make it work"
+"complete the app"
+
+as permission to edit.
+
+Permission must be explicit and specific.
+
+==================================================
+PRIMARY OBJECTIVE
+==================================================
+
+Perform a full production-readiness audit of the application.
+
+Determine whether:
+
+1. every API route exists where expected
+2. every API accepts the correct input
+3. every API validates input correctly
+4. every API returns the correct status code
+5. every API returns the correct response shape
+6. authentication is enforced correctly
+7. authorization and roles are enforced correctly
+8. database writes occur correctly
+9. database reads return authoritative data
+10. duplicate requests behave safely
+11. state transitions are valid
+12. business rules are enforced
+13. invalid actions are rejected
+14. destructive actions are protected
+15. failures return useful and safe errors
+16. frontend actions map correctly to backend behavior
+17. asynchronous operations behave correctly
+18. production error cases are handled safely
+19. no critical function silently fails
+20. the application is ready for production use
+
+Do NOT assume functionality from the existence of code.
+
+A feature is not VERIFIED merely because:
+- a route exists
+- a function exists
+- a test exists
+- code looks correct
+
+Verification requires actual evidence.
+
+==================================================
+PHASE 1 — APPLICATION INVENTORY
+==================================================
+
+Before running tests, inspect the application and build a complete map.
+
+Identify:
+
+- frontend framework
+- backend framework
+- API architecture
+- database
+- ORM
+- authentication system
+- authorization system
+- background jobs
+- third-party integrations
+- payment integrations
+- notification systems
+- file/storage systems
+- email/SMS providers
+- analytics
+- logging
+- error monitoring
+- environment configuration
+- production deployment architecture
+
+Then inventory every major user-facing function.
+
+Examples:
+
+- registration
+- login
+- logout
+- forgot password
+- password reset
+- profile management
+- account deletion
+- role assignment
+- role switching
+- admin operations
+- dashboard
+- CRUD operations
+- search
+- filters
+- uploads
+- notifications
+- payments
+- subscriptions
+- clock-in / clock-out
+- attendance
+- approvals
+- reports
+- messaging
+- exports
+- integrations
+
+Do not rely only on UI labels.
+
+Trace the actual code paths.
+
+==================================================
+PHASE 2 — API INVENTORY
+==================================================
+
+Create an inventory of every API endpoint.
+
+For every endpoint capture:
+
+METHOD
+PATH
+PURPOSE
+AUTH REQUIRED?
+AUTHORIZED ROLES
+REQUEST BODY
+QUERY PARAMETERS
+PATH PARAMETERS
+VALIDATION
+EXPECTED SUCCESS STATUS
+EXPECTED ERROR STATUSES
+RESPONSE SHAPE
+DATABASE READS
+DATABASE WRITES
+EXTERNAL SERVICES
+SIDE EFFECTS
+IDEMPOTENCY REQUIREMENT
+RISK LEVEL
+
+Include:
+
+- REST endpoints
+- RPC endpoints
+- server actions
+- GraphQL operations
+- webhooks
+- background-trigger endpoints
+- internal APIs
+- admin APIs
+
+Flag orphaned APIs and UI calls to missing APIs.
+
+==================================================
+PHASE 3 — REQUEST/RESPONSE VERIFICATION
+==================================================
+
+For every important API, verify actual behavior where safe.
+
+Test:
+
+A. Valid request
+B. Missing required fields
+C. Invalid field types
+D. Invalid values
+E. Empty strings
+F. Nulls
+G. Boundary values
+H. Very large values
+I. Unauthorized request
+J. Authenticated but forbidden request
+K. Resource not found
+L. Duplicate request
+M. Repeated request
+N. Race-sensitive request where practical
+O. Invalid state transition
+P. Stale resource/version where applicable
+
+Check:
+
+- HTTP status code
+- response JSON
+- error format
+- data consistency
+- database effects
+- side effects
+- duplicate behavior
+
+Do not accept a 200 response as proof of correctness.
+
+Verify that the resulting state is correct.
+
+==================================================
+PHASE 4 — FUNCTION-BY-FUNCTION AUDIT
+==================================================
+
+Audit every important feature end-to-end.
+
+For each function answer:
+
+1. What user action starts it?
+2. What frontend handler runs?
+3. What API request is generated?
+4. What backend handler receives it?
+5. What validation occurs?
+6. What authorization occurs?
+7. What database operation occurs?
+8. What response is produced?
+9. How is the frontend updated?
+10. What happens if the operation fails?
+11. Can the operation be repeated safely?
+12. Can conflicting requests corrupt state?
+13. Is there an audit trail where required?
+
+Trace actual code.
+
+Do not infer.
+
+==================================================
+PHASE 5 — BUSINESS RULE VERIFICATION
+==================================================
+
+Identify all business rules implemented by the application.
+
+Examples:
+
+- who can create records
+- who can edit records
+- who can delete records
+- ownership rules
+- role-specific restrictions
+- status transition rules
+- date/time restrictions
+- amount restrictions
+- duplicate prevention
+- approval requirements
+- limits
+- capacity rules
+- eligibility rules
+- subscription rules
+- payment rules
+- refund rules
+- attendance rules
+
+For every rule determine:
+
+EXPECTED
+IMPLEMENTED
+ACTUALLY VERIFIED
+NOT VERIFIED
+DEFECT
+
+Look for rules enforced only in the frontend.
+
+Critical rules must also be enforced server-side.
+
+==================================================
+PHASE 6 — AUTHENTICATION AND AUTHORIZATION
+==================================================
+
+Verify:
+
+- unauthenticated users cannot access protected endpoints
+- ordinary users cannot access admin endpoints
+- role boundaries work correctly
+- user A cannot modify user B's resources
+- deleted/disabled users cannot continue acting
+- revoked sessions behave correctly
+- sensitive operations require proper authorization
+- frontend hiding is not being used as authorization
+
+Test IDOR/BOLA-style cases where safe.
+
+Never expose real secrets.
+
+==================================================
+PHASE 7 — DATABASE CONSISTENCY
+==================================================
+
+Inspect how every important mutation affects the database.
+
+Check:
+
+- transactions
+- rollback behavior
+- unique constraints
+- foreign keys
+- nullable fields
+- orphan prevention
+- duplicate prevention
+- race conditions
+- partial writes
+- stale updates
+- timestamps
+- soft delete
+- hard delete
+- cascades
+- audit records
+
+Verify that failed operations do not leave partially updated state.
+
+==================================================
+PHASE 8 — ERROR HANDLING
+==================================================
+
+Audit every major failure path.
+
+Check for:
+
+- generic 500 errors
+- swallowed exceptions
+- false success messages
+- UI showing success before backend success
+- internal stack traces exposed
+- sensitive information exposed
+- inconsistent error shapes
+- raw database errors returned to users
+- retry loops
+- incorrect fallback behavior
+
+Every failure should be:
+
+predictable
+safe
+observable
+recoverable where appropriate
+
+==================================================
+PHASE 9 — THIRD-PARTY INTEGRATIONS
+==================================================
+
+For each external service verify:
+
+- request construction
+- authentication
+- timeout behavior
+- retry behavior
+- error handling
+- webhook verification
+- duplicate webhook handling
+- malformed response handling
+- rate-limit handling
+- unavailable-provider behavior
+
+Do not execute irreversible financial or destructive external actions.
+
+Use sandbox/test environments only.
+
+==================================================
+PHASE 10 — PRODUCTION CONFIGURATION
+==================================================
+
+Inspect production configuration for:
+
+- debug mode
+- development flags
+- test credentials
+- localhost URLs
+- hardcoded URLs
+- hardcoded secrets
+- missing environment variables
+- weak defaults
+- CORS
+- cookie security
+- HTTPS assumptions
+- session settings
+- logging
+- error reporting
+- rate limiting
+- cache behavior
+- build configuration
+
+Do not print secrets.
+
+Report secret names only.
+
+==================================================
+PHASE 11 — SECURITY CHECKS
+==================================================
+
+Perform safe security review for:
+
+- authentication bypass
+- broken authorization
+- IDOR/BOLA
+- mass assignment
+- SQL injection
+- command injection
+- XSS
+- CSRF
+- SSRF
+- path traversal
+- insecure file upload
+- unrestricted deletion
+- insecure direct database exposure
+- secret leakage
+- verbose errors
+- missing rate limiting
+- unsafe redirects
+- webhook spoofing
+- insecure CORS
+- unsafe admin APIs
+
+Do not perform destructive exploitation.
+
+Demonstrate risk using safe evidence only.
+
+==================================================
+PHASE 12 — CONCURRENCY AND DUPLICATES
+==================================================
+
+Identify endpoints vulnerable to double clicks, repeated requests, retries,
+or concurrent execution.
+
+Test where safe:
+
+- duplicate submission
+- double-click
+- repeated DELETE
+- repeated CREATE
+- repeated payment-like operation
+- simultaneous state change
+- two users updating same resource
+
+Determine whether:
+
+- duplicates are prevented
+- operations are idempotent
+- conflicts are detected
+- transactions protect correctness
+
+==================================================
+PHASE 13 — FRONTEND/BACKEND CONSISTENCY
+==================================================
+
+For every critical UI workflow verify:
+
+UI ACTION
+→ REQUEST
+→ API
+→ DATABASE
+→ RESPONSE
+→ UI STATE
+
+Look specifically for:
+
+- frontend assumes success before response
+- frontend ignores error response
+- wrong endpoint
+- wrong request body
+- outdated response schema
+- UI cache showing stale state
+- incorrect loading states
+- optimistic update bugs
+- state not refreshed
+- multiple competing requests
+
+==================================================
+PHASE 14 — PRODUCTION USER JOURNEYS
+==================================================
+
+Run realistic end-to-end workflows.
+
+Define the application's main user personas.
+
+For each persona, test the entire journey from entry to completion.
+
+Example:
+
+New user
+→ register
+→ verify
+→ login
+→ create required profile
+→ perform primary action
+→ see correct result
+→ logout
+→ login again
+→ verify persisted state
+
+Also test:
+
+existing user
+admin
+restricted user
+deleted/disabled user
+invalid user
+duplicate action
+failure/retry path
+
+==================================================
+PHASE 15 — OBSERVABILITY
+==================================================
+
+Verify that production failures can actually be diagnosed.
+
+Check:
+
+- structured logs
+- request identifiers
+- error monitoring
+- meaningful server logs
+- audit events
+- failed job visibility
+- webhook visibility
+- database failure logging
+
+Sensitive data must not be logged.
+
+==================================================
+PHASE 16 — TEST SUITE
+==================================================
+
+Inspect all existing:
+
+- unit tests
+- integration tests
+- API tests
+- end-to-end tests
+- security tests
+
+Determine:
+
+WHAT IS TESTED
+WHAT IS NOT TESTED
+WHAT IS MOCKED
+WHAT REQUIRES REAL INFRASTRUCTURE
+
+Run existing tests where safe.
+
+Do not change tests merely to make them pass.
+
+A failing test must be investigated.
+
+A skipped test must be explained.
+
+==================================================
+STRICT DEFECT HANDLING
+==================================================
+
+If you find a defect:
+
+DO NOT FIX IT.
+
+Instead report:
+
+DEFECT ID:
+SEVERITY:
+FEATURE:
+ENDPOINT/FUNCTION:
+EXPECTED:
+ACTUAL:
+REPRODUCTION STEPS:
+ROOT CAUSE:
+EVIDENCE:
+USER IMPACT:
+PRODUCTION RISK:
+PROPOSED FIX:
+FILES LIKELY AFFECTED:
+TESTS REQUIRED:
+DATA/MIGRATION IMPACT:
+SECURITY IMPACT:
+
+Then write:
+
+AWAITING HUMAN APPROVAL TO MODIFY CODE.
+
+Do not alter anything until I approve.
+
+==================================================
+SEVERITY
+==================================================
+
+P0 — critical:
+financial loss, data loss, auth bypass, destructive corruption,
+production outage, major security compromise
+
+P1 — major:
+core workflow broken, incorrect data/state, serious authorization issue
+
+P2 — moderate:
+important behavior incorrect but workaround exists
+
+P3 — minor:
+non-critical defect, UX issue, low-risk inconsistency
+
+==================================================
+VERIFICATION LABELS
+==================================================
+
+Use these labels exactly:
+
+VERIFIED
+Implemented and actually tested with supporting evidence.
+
+IMPLEMENTED — NOT VERIFIED
+Code exists but actual behavior has not been demonstrated.
+
+PARTIALLY VERIFIED
+Only some paths were tested.
+
+DEFECT
+Behavior demonstrably differs from expected behavior.
+
+UNKNOWN — NOT VERIFIED
+Insufficient evidence.
+
+Do not call something production-ready because it "looks correct."
+
+==================================================
+FINAL PRODUCTION READINESS MATRIX
+==================================================
+
+Produce a table containing:
+
+AREA
+STATUS
+EVIDENCE
+OPEN DEFECTS
+PRODUCTION BLOCKER?
+CONFIDENCE
+
+Include at minimum:
+
+Authentication
+Authorization
+User management
+Core workflows
+API correctness
+Input validation
+Database consistency
+Concurrency/idempotency
+Error handling
+Third-party integrations
+Frontend/backend consistency
+Security
+Logging/monitoring
+Production configuration
+Automated testing
+End-to-end journeys
+
+==================================================
+FINAL API MATRIX
+==================================================
+
+Produce:
+
+METHOD
+ENDPOINT
+FUNCTION
+AUTH
+ROLE
+SUCCESS TEST
+INVALID INPUT
+UNAUTHORIZED
+FORBIDDEN
+NOT FOUND
+DUPLICATE
+RESPONSE VERIFIED
+DB EFFECT VERIFIED
+STATUS
+NOTES
+
+Do not omit failing or unverified APIs.
+
+==================================================
+FINAL FUNCTION MATRIX
+==================================================
+
+For every major user-facing function return:
+
+FUNCTION
+FRONTEND VERIFIED
+API VERIFIED
+AUTH VERIFIED
+DB VERIFIED
+ERROR PATH VERIFIED
+DUPLICATE/RACE VERIFIED
+E2E VERIFIED
+STATUS
+BLOCKER
+
+==================================================
+FINAL RELEASE DECISION
+==================================================
+
+At the end give exactly one:
+
+READY FOR CONTROLLED PRODUCTION
+READY WITH NON-BLOCKING ISSUES
+NOT READY FOR PRODUCTION
+
+Then state:
+
+P0 COUNT:
+P1 COUNT:
+P2 COUNT:
+P3 COUNT:
+
+PRODUCTION BLOCKERS:
+
+UNVERIFIED CRITICAL AREAS:
+
+REQUIRED FIXES BEFORE RELEASE:
+
+RECOMMENDED NON-BLOCKING IMPROVEMENTS:
+
+==================================================
+ABSOLUTE STOP CONDITION
+==================================================
+
+If the entire application is correct and all tested production-critical
+functions pass:
+
+DO NOT WRITE ANY CODE.
+
+State:
+
+NO CODE CHANGES REQUIRED.
+
+If anything needs modification:
+
+DO NOT WRITE ANY CODE.
+
+Give me the defect report and proposed fix first.
+
+Wait for my explicit approval.
+
+==================================================
+GIT CONTROL
+==================================================
+
+Before starting:
+
+show current branch
+show git status
+show current commit
+
+After audit:
+
+show git status again
+
+There should be no repository changes made by you.
+
+If the working tree was dirty before the audit, distinguish pre-existing
+changes from anything you caused.
+
+You must cause ZERO code changes unless explicitly approved.
+
+==================================================
+START NOW
+==================================================
+
+Begin with:
+
+1. repository/application architecture inventory
+2. feature inventory
+3. complete API inventory
+4. current test inventory
+5. production-risk map
+
+Then proceed through the audit systematically.
+
+Do not modify code.
+
+Do not fix defects automatically.
+
+Do not ask for permission to inspect or run safe read-only tests.
+
+Only ask for permission when an actual code/config/database mutation is
+required.
+
+End the first audit report with:
+
+PRODUCTION READINESS AUDIT COMPLETE — NO CODE CHANGES MADE — AWAITING HUMAN DECISION
