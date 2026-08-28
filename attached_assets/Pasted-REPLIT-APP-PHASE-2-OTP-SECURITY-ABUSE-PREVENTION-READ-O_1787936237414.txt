@@ -1,0 +1,508 @@
+REPLIT APP — PHASE 2 OTP SECURITY & ABUSE PREVENTION
+READ-ONLY PROPOSAL FIRST — NO CODE CHANGES WITHOUT APPROVAL
+
+You are continuing from the completed Phase 1 security remediation and MFA bypass fix.
+
+Current objective:
+
+Review and prepare the smallest production-safe corrections for OTP issuance and OTP verification.
+
+This phase is limited to the previously identified OTP defects:
+
+PR-03 — OTP issuance abuse / insufficient throttling
+PR-04 — OTP verification security / replay / atomicity
+
+==================================================
+HARD CONTROL RULE
+==================================================
+
+DO NOT MODIFY CODE YET.
+
+Before changing anything:
+
+1. inspect the current OTP flow
+2. confirm each defect still exists
+3. trace every OTP consumer
+4. inspect the current database schema
+5. inspect provider calls
+6. inspect rate-limiting behavior
+7. inspect existing tests
+8. propose the smallest safe fixes
+9. identify exact files
+10. identify whether schema changes are truly necessary
+11. STOP
+12. wait for explicit human approval
+
+Do NOT:
+
+- edit source files
+- edit tests
+- change database schema
+- create migrations
+- install dependencies
+- change environment variables
+- change Replit Secrets
+- modify provider configuration
+- deploy
+- commit
+- push
+
+Safe read-only inspection and existing test execution are allowed.
+
+==================================================
+ARCHITECTURE PRESERVATION
+==================================================
+
+Preserve the existing application architecture.
+
+Do NOT redesign:
+
+- React frontend
+- Express backend
+- REST API structure
+- JWT authentication
+- Drizzle ORM
+- existing OTP endpoint structure
+- messaging-provider architecture
+- existing deployment model
+
+Do not introduce a new authentication platform or session architecture.
+
+The goal is:
+
+FIX OTP SECURITY,
+NOT REBUILD AUTHENTICATION.
+
+==================================================
+PR-03 — OTP ISSUANCE ABUSE
+==================================================
+
+Previously reported endpoint:
+
+POST /api/auth/send-otp
+
+Previously reported concerns:
+
+- broad global rate limit is not sufficient
+- repeated requests can generate many OTP records
+- repeated requests can invoke paid SMS/email delivery
+- no dedicated per-contact cooldown
+- no strict outstanding-OTP policy
+- abuse may exhaust provider credits
+
+Inspect the actual implementation.
+
+Determine:
+
+1. Which registration/login/reset flows call send-otp?
+2. Which contact types are supported?
+   - email
+   - phone
+   - both
+3. What rate limiting exists currently?
+4. Is limiting:
+   - per IP?
+   - per account?
+   - per contact?
+   - global?
+5. Can the same contact request many OTPs quickly?
+6. Are previous OTPs invalidated?
+7. Can multiple active OTP sessions exist simultaneously?
+8. Are expired OTP rows cleaned?
+9. What happens if SMS/email provider delivery fails?
+10. Is an OTP persisted before or after provider success?
+11. Can provider failures leave unusable or excessive OTP rows?
+12. Can attackers use many IPs against one phone/email?
+13. Does the response leak whether an account/contact exists?
+
+==================================================
+OTP ISSUANCE POLICY OPTIONS
+==================================================
+
+Evaluate the smallest production-safe approach using the existing architecture.
+
+At minimum consider:
+
+- per-contact cooldown
+- per-IP limit
+- per-contact rolling limit
+- maximum outstanding OTP sessions
+- invalidation of previous active OTP
+- provider-failure behavior
+- generic/non-enumerating responses
+- expiry cleanup
+
+Do not invent extreme limits without justification.
+
+Propose practical values based on the existing OTP expiry and user flow.
+
+For every proposed limit state:
+
+LIMIT:
+WINDOW:
+KEY:
+RESPONSE:
+USER IMPACT:
+ABUSE PREVENTED:
+
+==================================================
+PR-04 — OTP GENERATION AND STORAGE
+==================================================
+
+Previously reported:
+
+- OTP uses Math.random()
+- OTP stored in plaintext
+
+Confirm whether this remains true.
+
+If so, evaluate a minimal correction using existing Node.js capabilities.
+
+Preferred direction if compatible:
+
+- cryptographically secure randomness
+- no new dependency if Node crypto is sufficient
+- store a one-way representation rather than raw OTP
+
+Do NOT implement yet.
+
+For secure randomness, inspect whether existing runtime can use:
+
+crypto.randomInt()
+
+or another built-in cryptographic primitive.
+
+For storage, evaluate:
+
+- cryptographic hash
+- keyed HMAC
+- other appropriate one-way representation
+
+State clearly:
+
+- what should be stored
+- how incoming OTP should be compared
+- whether database migration is required
+- whether existing plaintext rows require transitional compatibility
+
+Do not expose OTP values in logs.
+
+==================================================
+OTP ATTEMPT LIMITS
+==================================================
+
+Inspect whether an attacker can attempt unlimited codes against one OTP.
+
+Propose a bounded attempt policy.
+
+Determine:
+
+- attempt counter storage
+- maximum attempts
+- behavior after limit reached
+- whether OTP should immediately become unusable
+- whether another OTP can immediately be requested
+- whether cooldown applies after exhaustion
+
+Do not use only IP throttling as the attempt-control mechanism.
+
+The OTP credential itself needs bounded verification attempts.
+
+==================================================
+ATOMIC ONE-TIME CONSUMPTION
+==================================================
+
+Previously reported behavior:
+
+OTP verification may:
+
+1. read OTP
+2. validate it
+3. delete it
+
+as separate operations.
+
+This may allow concurrent verification of the same OTP.
+
+Confirm the current implementation.
+
+If confirmed, propose a database-atomic solution compatible with Drizzle/PostgreSQL.
+
+Required invariant:
+
+ONE OTP
+→ MAXIMUM ONE SUCCESSFUL CONSUMPTION
+
+Two simultaneous correct verification requests must NOT both succeed.
+
+Evaluate the smallest existing-architecture implementation, such as:
+
+- transaction + row lock
+- conditional atomic update/delete
+- DELETE ... RETURNING
+- UPDATE ... WHERE unused/valid ... RETURNING
+
+Do not choose until you inspect the current schema and Drizzle capabilities.
+
+==================================================
+EXPIRY
+==================================================
+
+Verify:
+
+- OTP expiration duration
+- authoritative clock source
+- whether expiry is enforced server-side
+- whether expired codes remain stored
+- whether expiry comparison is race-safe
+- whether timezone assumptions exist
+
+Expired OTPs must never authenticate.
+
+==================================================
+OTP PURPOSE BOUNDARY
+==================================================
+
+Check whether OTP sessions are bound to their intended purpose.
+
+Examples:
+
+- registration
+- login MFA if applicable
+- password reset
+- phone verification
+- email verification
+
+Determine whether an OTP generated for one purpose can be reused for another.
+
+If the current schema has a purpose/type field, inspect enforcement.
+
+If it does not, report the risk.
+
+Do NOT add a new purpose model unless necessary and separately approved.
+
+==================================================
+CONTACT BINDING
+==================================================
+
+Verify that an OTP is bound to exactly the intended:
+
+- phone/email
+- account/user where applicable
+- flow/purpose where applicable
+
+Determine whether changing request parameters during verification could cause a code issued to one contact to verify another.
+
+==================================================
+ENUMERATION & PRIVACY
+==================================================
+
+Inspect OTP responses for account/contact enumeration.
+
+Examples:
+
+- "user not found"
+- "phone already registered"
+- different timing/status codes
+- different provider behavior
+
+Do not weaken useful registration validation unnecessarily.
+
+Report whether responses expose sensitive existence information and whether
+the current product flow legitimately requires it.
+
+==================================================
+PROVIDER FAILURE HANDLING
+==================================================
+
+Inspect SMS/email OTP delivery.
+
+Verify:
+
+- timeout handling
+- error handling
+- retries
+- duplicate send risk
+- persistence ordering
+- misleading success responses
+- provider error leakage
+- provider credential leakage
+
+A successful API response should accurately represent what has happened.
+
+Clearly distinguish:
+
+OTP CREATED
+MESSAGE QUEUED
+MESSAGE SENT
+MESSAGE DELIVERY CONFIRMED
+
+Do not claim more than the provider can prove.
+
+==================================================
+DATABASE IMPACT
+==================================================
+
+Do NOT assume a migration is required.
+
+First inspect the current OTP table.
+
+Report existing columns.
+
+Then determine whether the minimal fix can use existing fields.
+
+If new fields are necessary, propose only what is required.
+
+Possible examples:
+
+attemptCount
+consumedAt
+purpose
+codeHash
+
+But do not add any of these automatically.
+
+For each proposed field state:
+
+WHY REQUIRED:
+TYPE:
+DEFAULT:
+NULLABILITY:
+INDEX/CONSTRAINT:
+MIGRATION IMPACT:
+
+==================================================
+TEST PLAN
+==================================================
+
+Prepare exact tests.
+
+OTP ISSUANCE:
+
+- first OTP request succeeds
+- immediate resend blocked according to approved cooldown
+- resend after cooldown succeeds
+- per-contact limit enforced
+- per-IP limit preserved
+- one contact across several IPs cannot bypass contact limit
+- provider failure handled correctly
+- no duplicate/unbounded active OTP sessions
+- no secret/code leakage
+
+OTP RANDOMNESS/STORAGE:
+
+- Math.random no longer used if defect confirmed
+- plaintext OTP not persisted if defect confirmed
+- valid code still verifies
+- wrong code fails
+
+OTP ATTEMPTS:
+
+- wrong attempts increment correctly
+- maximum attempts enforced
+- correct code after exhaustion rejected
+- new OTP behavior after exhaustion follows approved policy
+
+OTP ATOMICITY:
+
+- one correct request succeeds
+- same OTP replay fails
+- two concurrent correct verification requests result in exactly one success
+
+OTP EXPIRY:
+
+- valid unexpired OTP accepted
+- expired OTP rejected
+- boundary-time behavior tested
+
+CONTACT/PURPOSE:
+
+- OTP for contact A cannot verify contact B
+- OTP for one purpose cannot verify another if purpose binding exists/is added
+
+REGRESSION:
+
+- registration still works
+- password reset still works if OTP-backed
+- MFA flow remains unchanged unless it explicitly uses this OTP mechanism
+- existing 97 API tests remain green
+
+==================================================
+PRODUCTION SAFETY
+==================================================
+
+Do not use real customer phone numbers or emails for abuse testing.
+
+Use development/test identities only.
+
+Do not intentionally generate large provider charges.
+
+Do not perform denial-of-service style tests against real providers.
+
+Where abuse testing would trigger provider cost, use safe mocks or existing
+test-provider paths.
+
+==================================================
+REPORT FORMAT
+==================================================
+
+Return:
+
+PHASE 2 SCOPE CONFIRMED:
+
+CURRENT OTP FLOWS:
+OTP ENDPOINTS:
+OTP TABLE/SCHEMA:
+OTP EXPIRY:
+OTP PROVIDERS:
+
+PR-03 STATUS:
+CURRENT RATE LIMITS:
+CURRENT RESEND BEHAVIOR:
+CURRENT OUTSTANDING OTP BEHAVIOR:
+ENUMERATION BEHAVIOR:
+PROVIDER FAILURE BEHAVIOR:
+
+PROPOSED ISSUANCE POLICY:
+PER-IP LIMIT:
+PER-CONTACT LIMIT:
+RESEND COOLDOWN:
+MAX OUTSTANDING OTP:
+PRIOR OTP INVALIDATION:
+PROVIDER FAILURE POLICY:
+
+PR-04 STATUS:
+CURRENT RANDOMNESS:
+CURRENT STORAGE:
+CURRENT VERIFICATION:
+CURRENT ATTEMPT LIMIT:
+CURRENT ATOMICITY:
+CURRENT REPLAY BEHAVIOR:
+
+PROPOSED RANDOM GENERATION:
+PROPOSED STORAGE:
+PROPOSED ATTEMPT POLICY:
+PROPOSED ATOMIC CONSUMPTION:
+PROPOSED EXPIRY HANDLING:
+
+CONTACT BINDING:
+PURPOSE BINDING:
+
+DATABASE MIGRATION REQUIRED:
+PROPOSED SCHEMA CHANGES:
+EXACT SOURCE FILES:
+EXACT TEST FILES:
+DEPENDENCY CHANGES:
+FRONTEND CHANGES:
+ARCHITECTURE CHANGES:
+
+PRE-IMPLEMENTATION TEST BASELINE:
+FILES MODIFIED BY THIS ANALYSIS:
+
+IMPLEMENTATION ORDER:
+
+Do NOT write code.
+
+End exactly:
+
+REPLIT PHASE 2 OTP SECURITY PROPOSAL COMPLETE — NO CODE CHANGES MADE — AWAITING HUMAN APPROVAL
