@@ -193,6 +193,22 @@ describe("Role guard — 403 when role is insufficient", () => {
       .send({ descriptor: Array(128).fill(0) });
     expect(res.status).toBe(403);
   });
+
+  it("POST /api/sunday-attendance/scan as parent → 403 before QR lookup", async () => {
+    const res = await request(app)
+      .post("/api/sunday-attendance/scan")
+      .set("Authorization", token("parent"))
+      .send({ token: "not-looked-up", date: "2026-08-23" });
+    expect(res.status).toBe(403);
+  });
+
+  it("POST /api/sunday-attendance/emergency-out as parent → 403 before any side effect", async () => {
+    const res = await request(app)
+      .post("/api/sunday-attendance/emergency-out")
+      .set("Authorization", token("parent"))
+      .send({ date: "2026-08-23" });
+    expect(res.status).toBe(403);
+  });
 });
 
 describe("Input validation — 400 on bad request body", () => {

@@ -1,0 +1,602 @@
+REPLIT APP — PHASE 4 ATTENDANCE & OFFLINE INTEGRITY
+IMPLEMENTATION APPROVAL
+
+Human review complete.
+
+The Phase 4 proposal is APPROVED.
+
+Implement only the approved attendance/offline integrity scope.
+
+==================================================
+PRIMARY OBJECTIVES
+==================================================
+
+Correct:
+
+- non-idempotent checkout
+- duplicate checkout side effects
+- concurrent checkout races
+- concurrent individual arrival races
+- offline event replay
+- cross-user offline queue leakage
+- account-switch replay
+- logout queue persistence
+- stale offline event replay
+- mixed WAT/UTC service-date authority
+- duplicate staff checkpoint
+- duplicate staff clock-out
+- duplicate emergency-out
+
+Preserve intentional same-day multi-service attendance behavior.
+
+==================================================
+ARCHITECTURE CONTROL
+==================================================
+
+Preserve:
+
+- React frontend
+- localStorage offline queue
+- Express REST API
+- JWT authentication
+- PostgreSQL
+- Drizzle
+- existing attendance domain
+- existing role model
+- existing notification architecture
+
+Do NOT:
+
+- introduce Kafka/Redis/background queues
+- replace localStorage with a new offline platform
+- redesign authentication
+- redesign attendance
+- redesign roles
+- create a generic idempotency framework
+- add unrelated dependencies
+
+==================================================
+APPROVED CHILD CHECKOUT FIX
+==================================================
+
+PUT /attendance/:id/checkout
+
+must become an idempotent one-way transition.
+
+Required:
+
+1. Only a record not already picked_up may perform the authoritative checkout transition.
+2. Only the winning transition writes:
+   - check_out_time
+   - checked_out_by
+   - status
+3. Only the winning transition triggers checkout side effects.
+4. An exact retry returns HTTP 200 with the existing completed attendance record.
+5. A retry must NOT:
+   - change checkout timestamp
+   - change checkout actor
+   - send notifications again
+6. Four simultaneous requests must result in exactly one authoritative transition.
+
+Prefer a conditional PostgreSQL UPDATE with the expected state in the WHERE
+predicate.
+
+Do not depend on frontend state for idempotency.
+
+==================================================
+ARRIVAL FIX
+==================================================
+
+PUT /attendance/:id/arrive
+
+must use the same conditional-transition principle.
+
+Only one request may perform the transition to in_class.
+
+Concurrent/repeated arrival must not:
+
+- rewrite arrival timestamp
+- rewrite confirming teacher
+- repeat arrival notifications
+
+Preserve existing successful retry semantics where compatible.
+
+==================================================
+CHILD CHECK-IN
+==================================================
+
+Preserve the existing:
+
+- child/date advisory lock
+- child/date/slot unique constraint
+- opposing-service validation
+- intentional bothServices behavior
+
+Do not replace these mechanisms.
+
+Add logical event identity only where needed to distinguish:
+
+RETRY OF SAME OFFLINE EVENT
+
+from
+
+LEGITIMATE NEW CHECK-IN AFTER PICKUP
+
+A repeated accepted logical event must not repeat notifications.
+
+A genuinely new event after pickup must remain capable of creating the
+existing intended fresh check-in behavior.
+
+==================================================
+PROCESSED ATTENDANCE EVENT
+==================================================
+
+A narrowly scoped attendance idempotency table is APPROVED.
+
+Keep it minimal and attendance-specific.
+
+Expected information:
+
+- event ID
+- originating/authenticated user ID
+- operation
+- resulting attendance record reference where applicable
+- creation/processing timestamp
+
+Approved uniqueness concept:
+
+(user_id, event_id, operation)
+
+Do not turn this into a general application idempotency platform.
+
+The processed-event record and attendance mutation must be transactionally
+consistent.
+
+A duplicate event must return the already accepted logical result without
+repeating side effects.
+
+==================================================
+DATABASE SAFETY GATE
+==================================================
+
+Before any schema application:
+
+1. confirm DEVELOPMENT database
+2. run strict Drizzle preview
+3. inspect the entire proposed diff
+
+Only approved schema changes are:
+
+A.
+processed attendance event table and its required PK/FK/index/unique
+objects
+
+B.
+staff attendance uniqueness protecting:
+- user
+- service date
+- service
+- scan type
+
+If ANY unrelated schema/table/column/index change appears:
+
+STOP.
+
+Do not apply the diff.
+
+Do not access or modify production.
+
+==================================================
+STAFF ATTENDANCE
+==================================================
+
+Protect:
+
+POST /sunday-attendance/scan
+
+and
+
+POST /sunday-attendance/emergency-out
+
+against concurrent duplication.
+
+Required outcomes:
+
+Concurrent first scans:
+- at most one checkpoint record for the logical slot
+
+Concurrent clock-out:
+- at most one clock-out record
+
+Concurrent emergency-out:
+- at most one emergency-out record
+
+Duplicate requests must not produce duplicate admin notifications.
+
+Convert uniqueness conflicts into safe existing endpoint semantics rather
+than leaking database errors.
+
+==================================================
+OFFLINE EVENT FORMAT
+==================================================
+
+Preserve a stable immutable event ID across retries.
+
+Queue entry must include sufficient binding for:
+
+- event ID
+- originating authenticated user ID
+- active role at creation
+- operation type
+- queuedAt
+- service date
+- existing attendance payload
+
+Do not trust the stored role as current authorization.
+
+The server must always revalidate current authorization.
+
+==================================================
+OFFLINE USER BINDING
+==================================================
+
+Partition local queues by stable authenticated user ID.
+
+Required invariant:
+
+User A queued event
+MUST NEVER
+execute under User B authority.
+
+Server synchronization must compare:
+
+originating user
+vs
+currently authenticated user
+
+Mismatch:
+reject without attendance mutation.
+
+==================================================
+LOGOUT / ACCOUNT SWITCH
+==================================================
+
+On logout:
+
+clear the active user's pending attendance queue according to the approved
+Phase 4 policy.
+
+Do not leave a globally reusable queue.
+
+User B login must never inherit User A's attendance events.
+
+Do not migrate events between users.
+
+==================================================
+ROLE REMOVAL / SUSPENSION
+==================================================
+
+Every offline sync must run current server-side authentication and
+authorization checks.
+
+If since queue creation the user:
+
+- lost the selected role
+- was suspended
+- became inactive
+- no longer has access to the target object
+
+the queued operation must not execute.
+
+Phase 1 authentication remains authoritative.
+
+==================================================
+OFFLINE EXPIRY
+==================================================
+
+Approved policy:
+
+- event must belong to the current authoritative WAT service date
+- maximum age 24 hours
+
+Use server/database time for authoritative enforcement.
+
+Do not rely on browser time.
+
+Expired event:
+
+- must not mutate attendance
+- must return a safe stale/expired response
+- must not repeat notifications
+
+==================================================
+WAT SERVICE DATE
+==================================================
+
+Create one narrowly scoped server-side helper for implicit attendance
+"today".
+
+Authority:
+
+Africa/Lagos
+
+Use it for attendance paths that implicitly determine today's service date.
+
+Preserve PostgreSQL service_date as DATE.
+
+Do not perform a global application timezone refactor.
+
+Explicit historical/future dates supplied by authorized product flows should
+retain existing behavior unless directly identified as unsafe.
+
+Add boundary tests around WAT midnight.
+
+==================================================
+OFFLINE DISPATCH
+==================================================
+
+The current replay code must not ignore event type.
+
+Either:
+
+A. correctly dispatch supported operation types
+
+or
+
+B. remove unsupported checkout typing from the offline queue
+
+Do not allow a queued checkout object to be replayed as check-in.
+
+==================================================
+SIDE EFFECT CONTROL
+==================================================
+
+Only the authoritative successful transition may cause side effects.
+
+Retries / duplicates / losing concurrent operations must not duplicate:
+
+- teacher notifications
+- pickup notifications
+- parent SMS
+- parent email
+- parent push
+- staff/admin notifications
+- other attendance side effects
+
+Use mocks or disabled providers.
+
+Do not generate real paid provider traffic.
+
+==================================================
+AUTHORIZED SOURCE SCOPE
+==================================================
+
+Expected application files:
+
+artifacts/api-server/src/routes/attendance.ts
+
+artifacts/api-server/src/routes/sundayAttendance.ts
+
+artifacts/shepherd-connect/src/lib/offline-queue.ts
+
+artifacts/shepherd-connect/src/pages/checkin/index.tsx
+
+artifacts/shepherd-connect/src/contexts/auth.tsx
+
+lib/db/src/schema/attendance.ts
+OR a focused attendanceEvents.ts
+
+lib/db/src/schema/sundayAttendance.ts
+
+required DB schema export/index files
+
+API contract source / generated outputs required by the approved event fields
+
+Expected tests:
+
+artifacts/api-server/src/__tests__/attendanceConcurrencyDatabase.test.ts
+
+artifacts/api-server/src/__tests__/attendanceRoutes.test.ts
+
+artifacts/api-server/src/__tests__/attendanceGuards.test.ts
+
+artifacts/api-server/src/__tests__/api.smoke.test.ts
+
+artifacts/shepherd-connect/src/lib/offline-queue.test.ts
+
+focused auth/logout queue tests
+
+If another APPLICATION route family or architecture component becomes
+necessary:
+
+STOP.
+
+Explain why and await human approval.
+
+==================================================
+TEST-FIRST REQUIREMENT
+==================================================
+
+Add failing tests before each correction.
+
+Required:
+
+CHECKOUT
+- first checkout succeeds
+- exact retry returns existing result
+- original timestamp preserved
+- original actor preserved
+- four simultaneous requests produce one transition
+- notification count = one logical notification set
+
+ARRIVAL
+- first arrival succeeds
+- exact retry safe
+- concurrent arrival produces one transition
+- notification count correct
+
+CHECK-IN
+- same-slot concurrency produces one record
+- opposing slot remains blocked where expected
+- intentional bothServices remains valid
+- repeated same event does not repeat notification
+- genuinely new event after pickup preserves existing behavior
+
+OFFLINE
+- same event synchronized twice applies once
+- simultaneous duplicate sync applies once
+- User A event rejected under User B
+- account switch isolation
+- logout clearing
+- removed-role sync rejected
+- suspended-user sync rejected
+- expired event rejected
+- stale prior-service-date event rejected
+- correct operation dispatch
+
+WAT
+- event around UTC/WAT date boundary uses authoritative WAT date
+
+STAFF
+- four simultaneous checkpoint requests
+- four simultaneous clock-out requests
+- four simultaneous emergency-out requests
+- one logical record per transition
+- no duplicate notifications
+
+REGRESSION
+- Phase 1 auth
+- MFA
+- Phase 2 OTP
+- Phase 3 multi-role
+- existing attendance flows
+
+==================================================
+FINAL VALIDATION
+==================================================
+
+Run:
+
+- focused attendance tests
+- frontend offline queue tests
+- real DEVELOPMENT PostgreSQL concurrency tests
+- full API suite
+- Phase 1 security tests
+- MFA tests
+- Phase 2 OTP tests
+- Phase 3 role tests
+- database typecheck
+- API typecheck
+- frontend typecheck
+- build/start
+- live health check
+- browser attendance smoke where safe
+- final scoped diff/security review
+
+If shell DB tests cannot run because of the previously observed Replit
+sidecar limitation:
+
+do not falsely report them as passed.
+
+Use managed development PostgreSQL evidence where possible and report the
+automation limitation explicitly.
+
+==================================================
+CONTROL
+==================================================
+
+Do NOT:
+
+- deploy
+- commit
+- push
+- touch production DB
+- change secrets
+- change authentication architecture
+- modify MFA
+- modify OTP
+- redesign roles
+- redesign attendance
+- create unrelated schema
+- generate paid provider traffic
+
+==================================================
+FINAL REPORT
+==================================================
+
+Return:
+
+FILES CHANGED:
+
+CHECKOUT IDEMPOTENCY:
+FIRST CHECKOUT:
+EXACT RETRY:
+FOUR-WAY CHECKOUT:
+CHECKOUT NOTIFICATION COUNT:
+
+ARRIVAL IDEMPOTENCY:
+CONCURRENT ARRIVAL:
+
+CHECK-IN:
+SAME-SLOT:
+OPPOSING-SLOT:
+BOTH-SERVICES:
+EVENT REPLAY:
+
+PROCESSED EVENT STORAGE:
+EVENT UNIQUE KEY:
+EVENT TRANSACTION BOUNDARY:
+
+QUEUE USER PARTITIONING:
+CROSS-USER RESULT:
+LOGOUT RESULT:
+ACCOUNT SWITCH RESULT:
+
+ROLE REMOVAL RESULT:
+SUSPENSION RESULT:
+
+OFFLINE EXPIRY:
+EXPIRED EVENT RESULT:
+
+WAT SERVICE DATE:
+MIDNIGHT BOUNDARY RESULT:
+
+STAFF CHECKPOINT:
+STAFF CLOCK-OUT:
+EMERGENCY-OUT:
+STAFF NOTIFICATION COUNT:
+
+DATABASE SCHEMA CHANGE:
+SCHEMA PREVIEW:
+DATABASE TARGET:
+
+PHASE 1 REGRESSION:
+MFA REGRESSION:
+PHASE 2 OTP REGRESSION:
+PHASE 3 ROLE REGRESSION:
+
+FOCUSED TESTS:
+DB CONCURRENCY TESTS:
+FULL API SUITE:
+DATABASE TYPECHECK:
+API TYPECHECK:
+FRONTEND TYPECHECK:
+BUILD/START:
+HEALTH CHECK:
+
+FRONTEND CHANGE:
+API CONTRACT CHANGE:
+DEPENDENCY CHANGE:
+ARCHITECTURE CHANGE:
+
+REGRESSIONS:
+REMAINING ATTENDANCE RISKS:
+UNRELATED FINDINGS:
+
+DEPLOYED:
+COMMITTED:
+PUSHED:
+
+End exactly:
+
+REPLIT PHASE 4 ATTENDANCE & OFFLINE INTEGRITY FIX COMPLETE — AWAITING HUMAN REVIEW

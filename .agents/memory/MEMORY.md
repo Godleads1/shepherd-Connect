@@ -1,3 +1,4 @@
 - [Cloud Run trust proxy + pg pool error](cloud-run-trust-proxy.md) — express-rate-limit v8 + missing pool error listener cause 500s on every Cloud Run health check probe.
 - [Classroom display credentials](classroom-display-credentials.md) — shared TVs use revocable class-only credentials, never normal staff sessions.
 - [PDF/PPTX rendering on TVs](pdf-rendering-tv.md) — pdfjs v4 legacy + ?url worker; PPTX→PDF via headless LibreOffice (per-run profile, concurrency cap, guarded write).
+- [Shell PostgreSQL sidecar gap](shell-postgres-sidecar.md) — Drizzle Kit and managed DB access may work while Node pg tests still fail at 127.0.0.1:5432.

@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { eq, and } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import {
   db,
   sundayQrCodesTable,
@@ -17,7 +17,23 @@ import { sendNotification } from "../lib/notify";
 
 const router = Router();
 
-export const STAFF_ROLES = ["teacher", "support", "attendant", "admin", "super_admin"];
+export const STAFF_ROLES = ["teacher", "support", "admin", "super_admin"];
+export const STAFF_SCAN_DEBOUNCE_MS = 30_000;
+
+export function decideStaffScan(
+  scans: Array<{ service: string | null; scanType: string; scannedAt: Date }>,
+  service: "1st" | "2nd",
+  now: Date,
+): "checkpoint" | "duplicate_checkpoint" | "clock_out" | "already_done" {
+  const checkpoint = scans.find(scan => scan.service === service && scan.scanType === "checkpoint");
+  const clockOut = scans.some(scan => scan.service === service && scan.scanType === "clock_out");
+  if (checkpoint && clockOut) return "already_done";
+  if (!checkpoint) return "checkpoint";
+  if (now.getTime() - checkpoint.scannedAt.getTime() < STAFF_SCAN_DEBOUNCE_MS) {
+    return "duplicate_checkpoint";
+  }
+  return "clock_out";
+}
 
 const WAT_OFFSET_MS = 60 * 60 * 1000;
 
@@ -32,6 +48,10 @@ function getService(watHour: number): "1st" | "2nd" {
 function formatWAT(date: Date): string {
   const wat = toWAT(date);
   return `${String(wat.getUTCHours()).padStart(2, "0")}:${String(wat.getUTCMinutes()).padStart(2, "0")}`;
+}
+
+function todayWAT(): string {
+  return toWAT(new Date()).toISOString().slice(0, 10);
 }
 
 function getAppUrl(): string {
@@ -57,7 +77,7 @@ router.post("/sunday-attendance/qr/generate", authMiddleware, async (req, res): 
   }
 
   const serviceDate: string =
-    (req.body.serviceDate as string) ?? new Date().toISOString().slice(0, 10);
+    (req.body.serviceDate as string) ?? todayWAT();
   const force: boolean = req.body.force === true;
 
   const [existing] = await db
@@ -104,7 +124,7 @@ router.get("/sunday-attendance/qr", authMiddleware, async (req, res): Promise<vo
     return;
   }
 
-  const date = (req.query.date as string) ?? new Date().toISOString().slice(0, 10);
+  const date = (req.query.date as string) ?? todayWAT();
   const [qr] = await db
     .select()
     .from(sundayQrCodesTable)
@@ -121,6 +141,10 @@ router.get("/sunday-attendance/qr", authMiddleware, async (req, res): Promise<vo
 
 // POST /sunday-attendance/scan — staff scans QR code (toggles check-in → clock-out)
 router.post("/sunday-attendance/scan", authMiddleware, async (req, res): Promise<void> => {
+  if (!STAFF_ROLES.includes(req.user!.role)) {
+    res.status(403).json({ error: "Forbidden" });
+    return;
+  }
   const { token, date } = req.body as { token?: string; date?: string };
   if (!token || !date) {
     res.status(400).json({ error: "token and date are required" });
@@ -142,42 +166,40 @@ router.post("/sunday-attendance/scan", authMiddleware, async (req, res): Promise
   const wat = toWAT(now);
   const service = getService(wat.getUTCHours());
 
-  const todayScans = await db
-    .select()
-    .from(staffScansTable)
-    .where(and(eq(staffScansTable.serviceDate, date), eq(staffScansTable.userId, userId)));
+  const scanLockKey = Number(date.replace(/-/g, "")) * 10 + (service === "1st" ? 1 : 2);
+  const outcome = await db.transaction(async (tx) => {
+    // The lock covers the read/decision/write sequence. In particular, four
+    // simultaneous first scans must all see the same winning checkpoint rather
+    // than interpreting one another as sequential clock-out scans.
+    const lock = await tx.execute(sql`SELECT pg_try_advisory_xact_lock(${userId}, ${scanLockKey}) AS acquired`);
+    if (!(lock.rows[0] as { acquired: boolean }).acquired) return "concurrent_duplicate" as const;
+    const todayScans = await tx.select().from(staffScansTable)
+      .where(and(eq(staffScansTable.serviceDate, date), eq(staffScansTable.userId, userId)));
+    const decision = decideStaffScan(todayScans, service, now);
+    if (decision === "already_done" || decision === "duplicate_checkpoint") return decision;
+    const scanType = decision;
+    const inserted = await tx.insert(staffScansTable).values({
+      serviceDate: date, userId, scannedAt: now, scanType, intervalLabel: null, service,
+    }).onConflictDoNothing().returning({ id: staffScansTable.id });
+    return inserted.length === 0 ? "already_done" as const : scanType;
+  });
 
-  const hasCheckIn = todayScans.some(
-    s => s.service === service && s.scanType === "checkpoint"
-  );
-  const hasClockOut = todayScans.some(
-    s => s.service === service && s.scanType === "clock_out"
-  );
-
-  // Already completed the full cycle for this service — same QR, no more action
-  if (hasCheckIn && hasClockOut) {
+  if (outcome === "already_done" || outcome === "concurrent_duplicate" || outcome === "duplicate_checkpoint") {
+    const duplicateCheckIn = outcome === "concurrent_duplicate" || outcome === "duplicate_checkpoint";
     res.json({
       ok: true,
       duplicate: true,
-      action: "already_done",
-      message: `You've already checked in and clocked out for the ${service} service`,
+      action: duplicateCheckIn ? "checked_in" : "already_done",
+      message: duplicateCheckIn
+        ? `Check-in is already being recorded for the ${service} service`
+        : `You've already checked in and clocked out for the ${service} service`,
       service,
       scannedAt: formatWAT(now),
     });
     return;
   }
 
-  // First scan of this service → check in
-  if (!hasCheckIn) {
-    await db.insert(staffScansTable).values({
-      serviceDate: date,
-      userId,
-      scannedAt: now,
-      scanType: "checkpoint",
-      intervalLabel: null,
-      service,
-    });
-
+  if (outcome === "checkpoint") {
     logger.info({ userId, date, service }, "sunday-attendance: check-in recorded");
 
     res.json({
@@ -190,16 +212,6 @@ router.post("/sunday-attendance/scan", authMiddleware, async (req, res): Promise
     });
     return;
   }
-
-  // Second scan of this service → clock out
-  await db.insert(staffScansTable).values({
-    serviceDate: date,
-    userId,
-    scannedAt: now,
-    scanType: "clock_out",
-    intervalLabel: null,
-    service,
-  });
 
   logger.info({ userId, date, service }, "sunday-attendance: clock-out recorded via scan");
 
@@ -215,6 +227,10 @@ router.post("/sunday-attendance/scan", authMiddleware, async (req, res): Promise
 
 // POST /sunday-attendance/emergency-out — staff leaves early due to emergency
 router.post("/sunday-attendance/emergency-out", authMiddleware, async (req, res): Promise<void> => {
+  if (!STAFF_ROLES.includes(req.user!.role)) {
+    res.status(403).json({ error: "Forbidden" });
+    return;
+  }
   const { date, service, reason } = req.body as { date?: string; service?: string; reason?: string };
   if (!date) {
     res.status(400).json({ error: "date is required" });
@@ -226,19 +242,21 @@ router.post("/sunday-attendance/emergency-out", authMiddleware, async (req, res)
   const wat = toWAT(now);
   const derivedService = service ?? getService(wat.getUTCHours());
 
-  const existing = await db
-    .select()
-    .from(staffScansTable)
-    .where(
-      and(
-        eq(staffScansTable.serviceDate, date),
-        eq(staffScansTable.userId, userId),
-        eq(staffScansTable.scanType, "emergency_out")
-      )
-    );
+  const emergencyLockKey = Number(date.replace(/-/g, "")) * 10 + (derivedService === "1st" ? 1 : 2);
+  const inserted = await db.transaction(async (tx) => {
+    const lock = await tx.execute(sql`SELECT pg_try_advisory_xact_lock(${userId}, ${emergencyLockKey}) AS acquired`);
+    if (!(lock.rows[0] as { acquired: boolean }).acquired) return [];
+    return tx.insert(staffScansTable).values({
+      serviceDate: date,
+      userId,
+      scannedAt: now,
+      scanType: "emergency_out",
+      intervalLabel: reason ?? null,
+      service: derivedService,
+    }).onConflictDoNothing().returning({ id: staffScansTable.id });
+  });
 
-  const alreadyOut = existing.some(s => s.service === derivedService);
-  if (alreadyOut) {
+  if (inserted.length === 0) {
     res.json({
       ok: true,
       duplicate: true,
@@ -246,15 +264,6 @@ router.post("/sunday-attendance/emergency-out", authMiddleware, async (req, res)
     });
     return;
   }
-
-  await db.insert(staffScansTable).values({
-    serviceDate: date,
-    userId,
-    scannedAt: now,
-    scanType: "emergency_out",
-    intervalLabel: reason ?? null,
-    service: derivedService,
-  });
 
   const user = req.user!;
   logger.info(
@@ -265,13 +274,10 @@ router.post("/sunday-attendance/emergency-out", authMiddleware, async (req, res)
   // Notify admins about the emergency exit
   try {
     const admins = await db
-      .select({ id: usersTable.id })
+      .select({ id: usersTable.id, role: usersTable.role })
       .from(usersTable)
       .where(eq(usersTable.isActive, true));
-    const adminUsers = admins.filter(
-      u => (u as typeof u & { role: string }).role === "admin" ||
-           (u as typeof u & { role: string }).role === "super_admin"
-    );
+    const adminUsers = admins.filter(u => u.role === "admin" || u.role === "super_admin");
     for (const admin of adminUsers) {
       await sendNotification({
         userId: admin.id,
@@ -301,7 +307,7 @@ router.get("/sunday-attendance/summary", authMiddleware, async (req, res): Promi
     return;
   }
 
-  const date = (req.query.date as string) ?? new Date().toISOString().slice(0, 10);
+  const date = (req.query.date as string) ?? todayWAT();
 
   const [qr] = await db
     .select()
@@ -428,7 +434,7 @@ router.get("/sunday-attendance/summary", authMiddleware, async (req, res): Promi
 
 // GET /sunday-attendance/my-scans?date= — staff see their own record
 router.get("/sunday-attendance/my-scans", authMiddleware, async (req, res): Promise<void> => {
-  const date = (req.query.date as string) ?? new Date().toISOString().slice(0, 10);
+  const date = (req.query.date as string) ?? todayWAT();
   const userId = req.user!.userId;
 
   const scans = await db

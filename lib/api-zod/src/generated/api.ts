@@ -1651,6 +1651,8 @@ export const ListAttendanceResponse = zod.array(ListAttendanceResponseItem);
 /**
  * @summary Check in a child (drop-off)
  */
+export const checkInBodyEventIdMax = 200;
+
 export const CheckInBody = zod.object({
   childId: zod.number(),
   classId: zod.number(),
@@ -1662,6 +1664,86 @@ export const CheckInBody = zod.object({
     .describe(
       "Set by the check-in UI when staff deliberately book BOTH services at drop-off. Skips the guard that otherwise blocks checking in for a second service while the child is still checked in (not checked out) for the other service.",
     ),
+  eventId: zod
+    .string()
+    .min(1)
+    .max(checkInBodyEventIdMax)
+    .optional()
+    .describe("Client-generated idempotency event identifier."),
+  originatingUserId: zod
+    .number()
+    .optional()
+    .describe("Authenticated user who originated the event."),
+  originatingRole: zod
+    .enum(["super_admin", "admin", "teacher", "support", "parent"])
+    .optional()
+    .describe("Active authenticated role that originated the event."),
+  queuedAt: zod
+    .string()
+    .datetime({})
+    .optional()
+    .describe("Time the client queued the attendance event."),
+});
+
+export const CheckInResponse = zod.object({
+  id: zod.number(),
+  childId: zod.number(),
+  classId: zod.number(),
+  serviceDate: zod.string().date(),
+  serviceSlot: zod.string(),
+  checkInTime: zod.string().datetime({}).nullish(),
+  escortTime: zod.string().datetime({}).nullish(),
+  checkOutTime: zod.string().datetime({}).nullish(),
+  checkedInBy: zod.number().nullish(),
+  escortedBy: zod.number().nullish(),
+  checkedOutBy: zod.number().nullish(),
+  status: zod.enum(["dropped_off", "in_transit", "in_class", "picked_up"]),
+  child: zod
+    .object({
+      id: zod.number(),
+      familyId: zod.number(),
+      firstName: zod.string(),
+      lastName: zod.string(),
+      dob: zod.string().date(),
+      age: zod.number(),
+      gender: zod.string(),
+      allergies: zod.string().nullish(),
+      medicalNotes: zod.string().nullish(),
+      photoUrl: zod.string().nullish(),
+      faceDescriptorJson: zod.string().nullish(),
+      servicePreference: zod.enum(["7am", "10:30am", "both"]).nullish(),
+      currentClassId: zod.number().nullish(),
+      currentClass: zod
+        .object({
+          id: zod.number(),
+          name: zod.string(),
+          ageMin: zod.number(),
+          ageMax: zod.number(),
+          capacity: zod.number(),
+          roomLocation: zod.string(),
+          serviceSlot: zod.enum(["7am", "10:30am"]),
+          description: zod.string().nullish(),
+          enrollmentCount: zod.number(),
+          createdAt: zod.string().datetime({}),
+        })
+        .nullish(),
+      createdAt: zod.string().datetime({}),
+    })
+    .nullish(),
+  class: zod
+    .object({
+      id: zod.number(),
+      name: zod.string(),
+      ageMin: zod.number(),
+      ageMax: zod.number(),
+      capacity: zod.number(),
+      roomLocation: zod.string(),
+      serviceSlot: zod.enum(["7am", "10:30am"]),
+      description: zod.string().nullish(),
+      enrollmentCount: zod.number(),
+      createdAt: zod.string().datetime({}),
+    })
+    .nullish(),
 });
 
 /**

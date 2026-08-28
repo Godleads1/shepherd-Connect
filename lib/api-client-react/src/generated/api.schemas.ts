@@ -407,6 +407,20 @@ export interface UpdateTeacherAllocationBody {
   serviceSlot?: string;
 }
 
+/**
+ * Active authenticated role that originated the event.
+ */
+export type CheckInBodyOriginatingRole =
+  (typeof CheckInBodyOriginatingRole)[keyof typeof CheckInBodyOriginatingRole];
+
+export const CheckInBodyOriginatingRole = {
+  super_admin: "super_admin",
+  admin: "admin",
+  teacher: "teacher",
+  support: "support",
+  parent: "parent",
+} as const;
+
 export interface CheckInBody {
   childId: number;
   classId: number;
@@ -414,6 +428,18 @@ export interface CheckInBody {
   serviceSlot: string;
   /** Set by the check-in UI when staff deliberately book BOTH services at drop-off. Skips the guard that otherwise blocks checking in for a second service while the child is still checked in (not checked out) for the other service. */
   bothServices?: boolean;
+  /**
+   * Client-generated idempotency event identifier.
+   * @minLength 1
+   * @maxLength 200
+   */
+  eventId?: string;
+  /** Authenticated user who originated the event. */
+  originatingUserId?: number;
+  /** Active authenticated role that originated the event. */
+  originatingRole?: CheckInBodyOriginatingRole;
+  /** Time the client queued the attendance event. */
+  queuedAt?: string;
 }
 
 export interface CheckOutBody {

@@ -1,8 +1,17 @@
-const QUEUE_KEY = "shepherd_offline_checkin_queue";
+const QUEUE_KEY_PREFIX = "shepherd_offline_checkin_queue";
+
+export type OriginatingRole =
+  | "super_admin"
+  | "admin"
+  | "teacher"
+  | "support"
+  | "parent";
 
 export interface QueuedCheckIn {
-  id: string;
-  type: "checkin" | "checkout";
+  readonly eventId: string;
+  readonly originatingUserId: number;
+  readonly originatingRole: OriginatingRole;
+  readonly operation: "checkin";
   childId: number;
   classId: number;
   serviceDate: string;
@@ -13,32 +22,60 @@ export interface QueuedCheckIn {
   bothServices?: boolean;
 }
 
-export function enqueueCheckIn(item: Omit<QueuedCheckIn, "id" | "queuedAt">) {
-  const queue = getQueue();
+export type CheckInQueuePayload = Omit<
+  QueuedCheckIn,
+  "eventId" | "originatingUserId" | "originatingRole" | "operation" | "queuedAt"
+>;
+
+function queueKey(userId: number) {
+  if (!Number.isSafeInteger(userId) || userId <= 0) {
+    throw new Error("An authenticated user id is required for the offline queue");
+  }
+  return `${QUEUE_KEY_PREFIX}:${userId}`;
+}
+
+export function enqueueCheckIn(
+  userId: number,
+  role: OriginatingRole,
+  item: CheckInQueuePayload,
+) {
+  const queue = getQueue(userId);
   const entry: QueuedCheckIn = {
     ...item,
-    id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    eventId: crypto.randomUUID(),
+    originatingUserId: userId,
+    originatingRole: role,
+    operation: "checkin",
     queuedAt: new Date().toISOString(),
   };
   queue.push(entry);
-  localStorage.setItem(QUEUE_KEY, JSON.stringify(queue));
-  return entry.id;
+  localStorage.setItem(queueKey(userId), JSON.stringify(queue));
+  return entry.eventId;
 }
 
-export function getQueue(): QueuedCheckIn[] {
+export function getQueue(userId: number): QueuedCheckIn[] {
   try {
-    const raw = localStorage.getItem(QUEUE_KEY);
-    return raw ? (JSON.parse(raw) as QueuedCheckIn[]) : [];
+    const raw = localStorage.getItem(queueKey(userId));
+    if (!raw) return [];
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (item): item is QueuedCheckIn =>
+        typeof item === "object" &&
+        item !== null &&
+        (item as QueuedCheckIn).originatingUserId === userId &&
+        (item as QueuedCheckIn).operation === "checkin",
+    );
   } catch {
     return [];
   }
 }
 
-export function removeFromQueue(id: string) {
-  const queue = getQueue().filter((item) => item.id !== id);
-  localStorage.setItem(QUEUE_KEY, JSON.stringify(queue));
+export function removeFromQueue(userId: number, eventId: string) {
+  const queue = getQueue(userId).filter((item) => item.eventId !== eventId);
+  localStorage.setItem(queueKey(userId), JSON.stringify(queue));
 }
 
-export function clearQueue() {
-  localStorage.removeItem(QUEUE_KEY);
+export function clearQueue(userId: number) {
+  localStorage.removeItem(queueKey(userId));
 }

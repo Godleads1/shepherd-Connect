@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState, useRef, useCallback, ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { User, useGetCurrentUser } from "@workspace/api-client-react";
+import { clearQueue } from "@/lib/offline-queue";
 
 const SESSION_TIMEOUT_MS = 30 * 60 * 1000;
 const WARNING_BEFORE_MS = 2 * 60 * 1000;
@@ -39,6 +40,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [currentUser]);
 
   const logout = useCallback(() => {
+    if (user) clearQueue(user.id);
     localStorage.removeItem("token");
     setToken(null);
     setUser(null);
@@ -47,7 +49,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (warningRef.current) clearTimeout(warningRef.current);
     // Clear all cached query data so the next user always sees their own fresh data
     queryClient.clear();
-  }, [queryClient]);
+  }, [queryClient, user]);
 
   const resetSessionTimer = useCallback(() => {
     if (!token) return;

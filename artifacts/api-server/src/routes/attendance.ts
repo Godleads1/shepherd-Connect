@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { eq, and, ne, lt, inArray, sql } from "drizzle-orm";
-import { db, attendanceTable, childrenTable, classesTable, familiesTable, usersTable, notificationsTable, teachersTable, teacherAllocationsTable, hallSessionsTable, dropOffIntentsTable } from "@workspace/db";
+import { db, attendanceTable, attendanceEventsTable, childrenTable, classesTable, familiesTable, usersTable, notificationsTable, teachersTable, teacherAllocationsTable, hallSessionsTable, dropOffIntentsTable } from "@workspace/db";
 import { CheckInBody, CheckOutBody, ListAttendanceQueryParams, ScanQrCodeBody } from "@workspace/api-zod";
 import { authMiddleware, requireRoles } from "../middlewares/auth";
 import { notifyChildCheckedIn, notifyChildInTransit, notifyChildArrivedInClass, notifyChildPickedUp, notifyTeachersChildDroppedOff, notifyTeachersChildInTransit, notifyTeachersChildPickedUp, sendNotification } from "../lib/notify";
@@ -37,9 +37,44 @@ async function getParentContacts(childId: number): Promise<{ phones: (string | n
 
 const router = Router();
 
+const WAT_OFFSET_MS = 60 * 60 * 1000;
+
+export function watServiceDateAt(date: Date): string {
+  return new Date(date.getTime() + WAT_OFFSET_MS).toISOString().slice(0, 10);
+}
+
+export function attendanceEventValidationError(input: {
+  originatingUserId: number;
+  authenticatedUserId: number;
+  originatingRole: string;
+  authenticatedRole: string;
+  queuedAt: Date;
+  now: Date;
+  serviceDate: string;
+}): string | null {
+  if (input.originatingUserId !== input.authenticatedUserId) {
+    return "originatingUserId must match the authenticated user";
+  }
+  if (input.originatingRole !== input.authenticatedRole) {
+    return "originatingRole must match the authenticated role";
+  }
+  if (!Number.isFinite(input.queuedAt.getTime())) return "queuedAt must be a valid timestamp";
+  const age = input.now.getTime() - input.queuedAt.getTime();
+  if (age < 0) return "queuedAt cannot be in the future";
+  if (age > 24 * 60 * 60 * 1000) return "Attendance events must be no more than 24 hours old";
+  if (input.serviceDate !== watServiceDateAt(input.now)) {
+    return "serviceDate must match the current WAT service date";
+  }
+  return null;
+}
+
+export function processedEventOutcome<T>(record: T): { kind: "duplicate_event"; record: T } {
+  return { kind: "duplicate_event", record };
+}
+
 /** Returns the class IDs a teacher is allocated to for today. Empty = not assigned. */
 async function getTeacherAllocatedClassIds(userId: number): Promise<number[]> {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = watServiceDateAt(new Date());
   const [teacher] = await db.select().from(teachersTable).where(eq(teachersTable.userId, userId));
   if (!teacher) return [];
   const allocs = await db
@@ -126,6 +161,17 @@ router.post("/attendance", authMiddleware, requireRoles("super_admin", "admin", 
   const parsed = CheckInBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: "Bad request", message: parsed.error.message }); return; }
   const { childId, classId, serviceDate, serviceSlot, bothServices } = parsed.data;
+  const eventId = parsed.data.eventId;
+  const originatingUserId = parsed.data.originatingUserId;
+  const originatingRole = parsed.data.originatingRole;
+  // `queuedAt` is the client contract name. The event ledger records it as
+  // occurredAt, which is the internal timestamp used for replay auditing.
+  const occurredAt = parsed.data.queuedAt ? new Date(parsed.data.queuedAt) : null;
+  const eventFieldCount = [eventId, originatingUserId, originatingRole, occurredAt].filter((value) => value !== undefined && value !== null).length;
+  if (eventFieldCount !== 0 && eventFieldCount !== 4) {
+    res.status(400).json({ error: "Bad request", message: "eventId, originatingUserId, originatingRole and queuedAt must be supplied together" });
+    return;
+  }
   // Serialize every check-in decision for this child+day with a Postgres
   // advisory lock. Without it, two simultaneous requests for OPPOSING slots
   // could both pass the cross-service guard below before either writes,
@@ -134,12 +180,46 @@ router.post("/attendance", authMiddleware, requireRoles("super_admin", "admin", 
   type CheckInOutcome =
     | { kind: "blocked"; blockingSlot: string }
     | { kind: "existing"; record: typeof attendanceTable.$inferSelect }
+    | { kind: "duplicate_event"; record: typeof attendanceTable.$inferSelect }
     | { kind: "reset"; record: typeof attendanceTable.$inferSelect }
     | { kind: "created"; record: typeof attendanceTable.$inferSelect };
   let outcome: CheckInOutcome;
   try {
     outcome = await db.transaction(async (tx): Promise<CheckInOutcome> => {
       await tx.execute(sql`SELECT pg_advisory_xact_lock(${childId}, ${lockKey})`);
+      if (eventId && originatingUserId !== undefined && originatingRole && occurredAt) {
+        const clock = await tx.execute(sql`
+          SELECT CURRENT_TIMESTAMP AS now,
+                 (CURRENT_TIMESTAMP AT TIME ZONE 'Africa/Lagos')::date::text AS service_date
+        `);
+        const dbNow = new Date((clock.rows[0] as { now: Date | string }).now);
+        const dbServiceDate = (clock.rows[0] as { service_date: string }).service_date;
+        const validationError = attendanceEventValidationError({
+          originatingUserId,
+          authenticatedUserId: req.user!.userId,
+          originatingRole,
+          authenticatedRole: req.user!.role,
+          queuedAt: occurredAt,
+          now: dbNow,
+          serviceDate,
+        });
+        if (validationError || dbServiceDate !== serviceDate) {
+          throw Object.assign(new Error(validationError ?? "serviceDate must match the current WAT service date"), { statusCode: 400 });
+        }
+        // Duplicate replay is resolved only after every authoritative validation,
+        // but before mutable attendance state (including opposing-slot guards).
+        const [processed] = await tx.select().from(attendanceEventsTable).where(and(
+          eq(attendanceEventsTable.userId, originatingUserId),
+          eq(attendanceEventsTable.eventId, eventId),
+          eq(attendanceEventsTable.operation, "check_in"),
+        ));
+        if (processed) {
+          if (!processed.attendanceId) throw new Error("Processed attendance event has no attendance record");
+          const [prior] = await tx.select().from(attendanceTable).where(eq(attendanceTable.id, processed.attendanceId));
+          if (!prior) throw new Error("Processed attendance event attendance record was not found");
+          return processedEventOutcome(prior);
+        }
+      }
       const dayRecords = await tx.select().from(attendanceTable)
         .where(and(eq(attendanceTable.childId, childId), eq(attendanceTable.serviceDate, serviceDate)));
       const existing = dayRecords.find((r) => r.serviceSlot === serviceSlot);
@@ -147,9 +227,43 @@ router.post("/attendance", authMiddleware, requireRoles("super_admin", "admin", 
       // cannot be checked in again — staff must check them out of the first
       // service first. A deliberate "both services" drop-off booking is exempt.
       const blockingSlot = bothServices ? null : findActiveOtherSlot(dayRecords, serviceSlot);
+      if ((!existing || existing.status === "picked_up") && blockingSlot) {
+        return { kind: "blocked", blockingSlot };
+      }
+      let claimedEventId: number | null = null;
+      if (eventId && originatingUserId !== undefined && originatingRole && occurredAt) {
+        const [claimed] = await tx.insert(attendanceEventsTable).values({
+          userId: originatingUserId,
+          eventId,
+          operation: "check_in",
+          serviceDate,
+          occurredAt,
+        }).onConflictDoNothing().returning({ id: attendanceEventsTable.id });
+        if (!claimed) {
+          const [processed] = await tx.select().from(attendanceEventsTable).where(and(
+            eq(attendanceEventsTable.userId, originatingUserId),
+            eq(attendanceEventsTable.eventId, eventId),
+            eq(attendanceEventsTable.operation, "check_in"),
+          ));
+          if (!processed?.attendanceId) throw new Error("Processed attendance event has no attendance record");
+          const [prior] = await tx.select().from(attendanceTable).where(eq(attendanceTable.id, processed.attendanceId));
+          if (!prior) throw new Error("Processed attendance event attendance record was not found");
+          return processedEventOutcome(prior);
+        }
+        claimedEventId = claimed.id;
+      }
+      const finishEvent = async (record: typeof attendanceTable.$inferSelect) => {
+        if (claimedEventId !== null) {
+          await tx.update(attendanceEventsTable)
+            .set({ attendanceId: record.id })
+            .where(eq(attendanceEventsTable.id, claimedEventId));
+        }
+      };
       if (existing) {
-        if (existing.status !== "picked_up") return { kind: "existing", record: existing };
-        if (blockingSlot) return { kind: "blocked", blockingSlot };
+        if (existing.status !== "picked_up") {
+          await finishEvent(existing);
+          return { kind: "existing", record: existing };
+        }
         // Child was already picked up — reset for a new drop-off (e.g. second service,
         // or correcting a premature checkout). Treat this as a fresh check-in.
         const [reset] = await tx.update(attendanceTable).set({
@@ -161,18 +275,23 @@ router.post("/attendance", authMiddleware, requireRoles("super_admin", "admin", 
           classArrivalTime: null,
           confirmedByTeacherId: null,
         }).where(eq(attendanceTable.id, existing.id)).returning();
+        await finishEvent(reset);
         return { kind: "reset", record: reset };
       }
-      if (blockingSlot) return { kind: "blocked", blockingSlot };
       const [inserted] = await tx.insert(attendanceTable).values({
         childId, classId, serviceDate, serviceSlot,
         checkedInBy: req.user!.userId,
         checkInTime: new Date(),
         status: "dropped_off",
       }).returning();
+      await finishEvent(inserted);
       return { kind: "created", record: inserted };
     });
   } catch (err: any) {
+    if (err?.statusCode === 400) {
+      res.status(400).json({ error: "Bad request", message: err.message });
+      return;
+    }
     if (err?.code === "23505") {
       // Unique-constraint race with a writer that doesn't take the advisory
       // lock (e.g. the WhatsApp bot). Return the winning record so the UI
@@ -199,14 +318,8 @@ router.post("/attendance", authMiddleware, requireRoles("super_admin", "admin", 
     res.json(await formatAttendance(reset));
     return;
   }
-  if (outcome.kind === "existing") {
+  if (outcome.kind === "existing" || outcome.kind === "duplicate_event") {
     const existing = outcome.record;
-    // Child is dropped_off or in_transit/in_class — re-notify teacher if still waiting
-    if (existing.status === "dropped_off") {
-      notifyTeachersChildDroppedOff(childId, existing.classId, serviceSlot, serviceDate).catch((err) => {
-        req.log.error({ err, childId, classId: existing.classId }, "notifyTeachersChildDroppedOff failed (re-checkin)");
-      });
-    }
     res.json(await formatAttendance(existing));
     return;
   }
@@ -249,7 +362,7 @@ router.post("/attendance", authMiddleware, requireRoles("super_admin", "admin", 
  */
 router.post("/attendance/bulk-escort", authMiddleware, requireRoles("super_admin", "admin", "support", "attendant"), async (req, res): Promise<void> => {
   const { serviceDate, serviceSlot } = req.body as { serviceDate?: string; serviceSlot?: "7am" | "10:30am" };
-  const today = serviceDate ?? new Date().toISOString().slice(0, 10);
+  const today = serviceDate ?? watServiceDateAt(new Date());
   const now = new Date();
 
   const conditions = [
@@ -310,7 +423,7 @@ router.post("/attendance/bulk-arrive", authMiddleware, requireRoles("super_admin
   const { classId, serviceDate } = req.body as { classId?: number; serviceDate?: string };
   if (!classId) { res.status(400).json({ error: "Bad request", message: "classId is required" }); return; }
 
-  const today = serviceDate ?? new Date().toISOString().slice(0, 10);
+  const today = serviceDate ?? watServiceDateAt(new Date());
 
   // Teachers may only confirm arrivals for their allocated class
   if (req.user!.role === "teacher") {
@@ -346,7 +459,7 @@ router.post("/attendance/bulk-arrive", authMiddleware, requireRoles("super_admin
 
 /** Business day in West Africa Time (UTC+1). */
 function todayWAT(): string {
-  return new Date(Date.now() + 60 * 60 * 1000).toISOString().slice(0, 10);
+  return watServiceDateAt(new Date());
 }
 
 /**
@@ -392,8 +505,6 @@ router.put("/attendance/:id/arrive", authMiddleware, requireRoles("super_admin",
 
   const [existing] = await db.select().from(attendanceTable).where(eq(attendanceTable.id, id));
   if (!existing) { res.status(404).json({ error: "Not found", message: "Attendance record not found" }); return; }
-  if (existing.status === "picked_up") { res.status(400).json({ error: "Bad request", message: "Child has already been picked up" }); return; }
-  if (existing.status === "in_class") { res.json(await formatAttendance(existing)); return; }
 
   // Teachers may only confirm arrivals for children in their allocated class
   if (req.user!.role === "teacher") {
@@ -403,13 +514,27 @@ router.put("/attendance/:id/arrive", authMiddleware, requireRoles("super_admin",
       return;
     }
   }
+  if (existing.status === "in_class" || existing.status === "picked_up") {
+    res.json(await formatAttendance(existing));
+    return;
+  }
 
   const now = new Date();
   const [record] = await db.update(attendanceTable).set({
     status: "in_class",
     classArrivalTime: now,
     confirmedByTeacherId: req.user!.userId,
-  }).where(eq(attendanceTable.id, id)).returning();
+  }).where(and(
+    eq(attendanceTable.id, id),
+    inArray(attendanceTable.status, ["dropped_off", "in_transit"]),
+  )).returning();
+
+  if (!record) {
+    const [current] = await db.select().from(attendanceTable).where(eq(attendanceTable.id, id));
+    if (!current) { res.status(404).json({ error: "Not found", message: "Attendance record not found" }); return; }
+    res.json(await formatAttendance(current));
+    return;
+  }
 
   notifyChildArrivedInClass(record.childId, record.classId).catch(() => {});
 
@@ -425,8 +550,13 @@ router.put("/attendance/:id/checkout", authMiddleware, requireRoles("super_admin
     status: "picked_up",
     checkOutTime: new Date(),
     checkedOutBy: req.user!.userId,
-  }).where(eq(attendanceTable.id, id)).returning();
-  if (!record) { res.status(404).json({ error: "Not found", message: "Attendance record not found" }); return; }
+  }).where(and(eq(attendanceTable.id, id), ne(attendanceTable.status, "picked_up"))).returning();
+  if (!record) {
+    const [current] = await db.select().from(attendanceTable).where(eq(attendanceTable.id, id));
+    if (!current) { res.status(404).json({ error: "Not found", message: "Attendance record not found" }); return; }
+    res.json(await formatAttendance(current));
+    return;
+  }
 
   notifyChildPickedUp(record.childId).catch(() => {});
   notifyTeachersChildPickedUp(record.childId, record.classId).catch(() => {});

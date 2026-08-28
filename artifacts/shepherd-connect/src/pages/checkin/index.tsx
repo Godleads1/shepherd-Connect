@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { useScanQrCode, useCheckIn, useEscortToClass, useScanFace, useListAttendance } from "@workspace/api-client-react";
 import { Input } from "@/components/ui/input";
 import { AlertTriangle, CheckCircle, QrCode, Scan, Truck, ShieldCheck, Users, Camera, WifiOff, Upload, HandHelping, Music, Send } from "lucide-react";
@@ -7,7 +7,7 @@ import { format } from "date-fns";
 import FaceCapture from "@/components/FaceCapture";
 import QrCameraScanner from "@/components/QrCameraScanner";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
-import { enqueueCheckIn, getQueue, removeFromQueue, type QueuedCheckIn } from "@/lib/offline-queue";
+import { enqueueCheckIn, getQueue, removeFromQueue } from "@/lib/offline-queue";
 import { useAuth } from "@/contexts/auth";
 import FamilyAssist from "./FamilyAssist";
 import LocationBanner from "@/components/LocationBanner";
@@ -90,7 +90,8 @@ export default function CheckIn() {
   const [cameraOpen, setCameraOpen] = useState(false);
   const [checkingInAll, setCheckingInAll] = useState(false);
   const [syncingQueue, setSyncingQueue] = useState(false);
-  const [queueCount, setQueueCount] = useState(() => getQueue().length);
+  const [queueCount, setQueueCount] = useState(0);
+  const replayInProgressRef = useRef(false);
   const isOnline = useOnlineStatus();
   const { toast } = useToast();
 
@@ -100,6 +101,10 @@ export default function CheckIn() {
   const scanFaceMutation = useScanFace();
 
   const today = format(new Date(), "yyyy-MM-dd");
+
+  useEffect(() => {
+    setQueueCount(user ? getQueue(user.id).length : 0);
+  }, [user?.id]);
 
   // When "Both Services" is selected, fetch all of today's records (slot filter omitted)
   // so children checked into either slot are visible and can be checked out.
@@ -241,35 +246,51 @@ export default function CheckIn() {
   };
 
   const processOfflineQueue = useCallback(async () => {
-    const queue = getQueue();
-    if (queue.length === 0) return;
+    if (!user || replayInProgressRef.current) return;
+    const queue = getQueue(user.id);
+    if (queue.length === 0) {
+      setQueueCount(0);
+      return;
+    }
+    replayInProgressRef.current = true;
     setSyncingQueue(true);
     let synced = 0;
-    for (const item of queue) {
-      try {
-        await checkInMutation.mutateAsync({
-          data: {
-            childId: item.childId, classId: item.classId, serviceDate: item.serviceDate, serviceSlot: item.serviceSlot,
-            ...(item.bothServices ? { bothServices: true } : {}),
-          },
-        });
-        removeFromQueue(item.id);
-        synced++;
-      } catch { /* leave in queue */ }
+    try {
+      for (const item of queue) {
+        try {
+          await checkInMutation.mutateAsync({
+            data: {
+              childId: item.childId,
+              classId: item.classId,
+              serviceDate: item.serviceDate,
+              serviceSlot: item.serviceSlot,
+              ...(item.bothServices ? { bothServices: true } : {}),
+              eventId: item.eventId,
+              originatingUserId: item.originatingUserId,
+              originatingRole: item.originatingRole,
+              queuedAt: item.queuedAt,
+            },
+          });
+          removeFromQueue(user.id, item.eventId);
+          synced++;
+        } catch { /* server remains authoritative; leave rejected entries queued */ }
+      }
+      setQueueCount(getQueue(user.id).length);
+    } finally {
+      replayInProgressRef.current = false;
+      setSyncingQueue(false);
     }
-    setQueueCount(getQueue().length);
-    setSyncingQueue(false);
     if (synced > 0) {
       toast({ title: `Synced ${synced} offline check-in${synced > 1 ? "s" : ""}` });
       refetchAttendance();
     }
-  }, [checkInMutation, toast, refetchAttendance]);
+  }, [user, checkInMutation, toast, refetchAttendance]);
 
   useEffect(() => {
-    if (isOnline && getQueue().length > 0) {
+    if (isOnline && user && getQueue(user.id).length > 0) {
       processOfflineQueue();
     }
-  }, [isOnline, processOfflineQueue]);
+  }, [isOnline, user, processOfflineQueue]);
 
   const handleCheckIn = async (child: any) => {
     if (!child.currentClass) {
@@ -279,12 +300,15 @@ export default function CheckIn() {
     const slot = getChildSlot(child);
 
     if (!isOnline) {
+      if (!user) {
+        toast({ variant: "destructive", title: "Cannot Queue Check-In", description: "Please sign in before checking in a child." });
+        return;
+      }
       // "Both services" queues one entry per slot, each marked bothServices so
       // the server allows the deliberate double booking on replay.
       const offlineSlots: ("7am" | "10:30am")[] = slot === "both" ? ["7am", "10:30am"] : [slot];
       for (const s of offlineSlots) {
-        enqueueCheckIn({
-          type: "checkin",
+        enqueueCheckIn(user.id, user.role, {
           childId: child.id,
           classId: child.currentClass.id,
           serviceDate: today,
@@ -293,7 +317,7 @@ export default function CheckIn() {
           ...(slot === "both" ? { bothServices: true } : {}),
         });
       }
-      setQueueCount(getQueue().length);
+      setQueueCount(getQueue(user.id).length);
       const label = slot === "both" ? "both services" : slot === "7am" ? "1st service" : "2nd service";
       toast({ title: "Queued Offline", description: `${child.firstName} will be checked in for ${label} when you reconnect.` });
       return;

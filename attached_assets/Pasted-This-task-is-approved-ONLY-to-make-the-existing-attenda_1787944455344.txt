@@ -1,0 +1,202 @@
+This task is approved ONLY to make the existing attendance concurrency
+tests execute automatically against the DEVELOPMENT PostgreSQL database.
+
+Do not change attendance product behavior.
+
+Do not change production database configuration.
+
+Do not deploy.
+
+Do not commit or push.
+
+Do not add dependencies unless you stop and obtain approval first.
+
+Do not change authentication, OTP, roles, notification architecture,
+attendance architecture, or frontend behavior.
+
+OBJECTIVE:
+
+Remove the current test-environment limitation where database-backed
+attendance tests are skipped because the shell resolves PostgreSQL to
+unavailable 127.0.0.1:5432.
+
+The tests should use the existing Replit DEVELOPMENT PostgreSQL database
+through the supported development database connection mechanism.
+
+==================================================
+DATABASE SAFETY
+==================================================
+
+Before doing anything:
+
+1. confirm the target is DEVELOPMENT PostgreSQL
+2. confirm it is NOT production
+3. do not print credentials
+4. do not change production secrets
+5. do not use real users or production records
+
+All concurrency tests must use isolated synthetic development records.
+
+Every synthetic record must be cleaned up after tests.
+
+==================================================
+SCOPE
+==================================================
+
+The goal is TEST EXECUTION ONLY.
+
+Prefer changes limited to:
+
+- test configuration
+- test setup/fixtures
+- development-only test environment wiring
+- existing test scripts/workflows if necessary
+
+Do NOT change application runtime behavior merely to make tests pass.
+
+If application code would need modification:
+
+STOP and report why.
+
+==================================================
+DO NOT WEAKEN TESTS
+==================================================
+
+Do not:
+
+- replace PostgreSQL concurrency tests with mocks
+- mark failing tests skipped
+- catch and suppress database failures
+- convert assertions into warnings
+- disable concurrency
+- reduce correctness requirements
+
+The purpose is to make REAL development PostgreSQL tests run automatically.
+
+==================================================
+REQUIRED DATABASE TESTS
+==================================================
+
+Make the existing opt-in database-backed attendance tests runnable and
+automatically executable against DEVELOPMENT PostgreSQL.
+
+They should cover, where already implemented:
+
+- first checkout
+- exact checkout retry
+- four simultaneous checkouts
+- checkout notification count
+- concurrent arrival
+- same-slot check-in concurrency
+- opposing-slot behavior
+- intentional both-services behavior
+- duplicate offline event synchronization
+- processed-event deduplication
+- cross-user event rejection
+- role-removal reauthorization
+- suspension reauthorization
+- event expiry
+- WAT boundary
+- concurrent staff checkpoint
+- concurrent staff clock-out
+- concurrent emergency-out
+
+Also preserve the existing Phase 2 OTP and Phase 3 role DB tests if the
+same development DB mechanism can safely execute them.
+
+==================================================
+AUTOMATION REQUIREMENT
+==================================================
+
+Determine the smallest existing-project-compatible way for the tests to
+obtain the development database connection.
+
+Do not hard-code credentials.
+
+Do not hard-code a private database URL.
+
+Use Replit's supported development environment/database connection.
+
+Tests must fail clearly if the required development database is unavailable;
+they must not silently skip in the intended automated development DB job.
+
+Ordinary non-DB test environments may retain an explicit opt-in mechanism
+if needed.
+
+==================================================
+FINAL VALIDATION
+==================================================
+
+After configuration:
+
+Run the database-backed attendance concurrency suite.
+
+Report exact:
+
+PASSED:
+FAILED:
+ERRORS:
+SKIPPED:
+DURATION:
+
+Then run:
+
+- full API suite
+- database typecheck
+- API typecheck
+- frontend typecheck
+- build/start if configuration changes could affect runtime
+- git diff review
+
+==================================================
+REPORT
+==================================================
+
+Return:
+
+ROOT CAUSE OF 127.0.0.1:5432 TEST FAILURE:
+
+DEVELOPMENT DATABASE CONNECTION METHOD:
+
+FILES CHANGED:
+
+TEST CONFIGURATION CHANGE:
+
+APPLICATION SOURCE CHANGED:
+YES / NO
+
+PRODUCTION CONFIGURATION CHANGED:
+YES / NO
+
+DEVELOPMENT DB CONFIRMED:
+YES / NO
+
+ATTENDANCE DB TESTS:
+PASSED:
+FAILED:
+ERRORS:
+SKIPPED:
+
+OTP DB TESTS:
+ROLE DB TESTS:
+
+FULL API SUITE:
+
+DATABASE TYPECHECK:
+API TYPECHECK:
+FRONTEND TYPECHECK:
+
+SYNTHETIC DATA CLEANUP:
+
+DEPENDENCY CHANGE:
+ARCHITECTURE CHANGE:
+
+DEPLOYED:
+COMMITTED:
+PUSHED:
+
+Do not deploy, commit, or push.
+
+End exactly:
+
+REPLIT DEVELOPMENT POSTGRESQL AUTOMATED CONCURRENCY TEST GATE COMPLETE — AWAITING HUMAN REVIEW

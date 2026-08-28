@@ -6,6 +6,7 @@ export * from "./teachers";
 export * from "./classAssignments";
 export * from "./teacherAllocations";
 export * from "./attendance";
+export * from "./attendanceEvents";
 export * from "./pickupDelegates";
 export * from "./notifications";
 export * from "./feedback";
