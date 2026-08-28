@@ -1,7 +1,8 @@
 import { Router } from "express";
-import { eq, ilike, or, and } from "drizzle-orm";
+import { eq, ilike, or, and, sql } from "drizzle-orm";
 import { db, familiesTable, usersTable, childrenTable, classesTable, attendanceTable, pickupDelegatesTable } from "@workspace/db";
 import { authMiddleware, requireRoles } from "../middlewares/auth";
+import { findActiveOtherSlot, stillCheckedInMessage } from "../lib/attendanceGuards";
 import { smsDelegateOtp } from "../services/sms";
 
 const router = Router();
@@ -101,30 +102,46 @@ router.post("/family-assist/checkin", authMiddleware, requireRoles("super_admin"
   const [child] = await db.select().from(childrenTable).where(eq(childrenTable.id, Number(childId)));
   if (!child) { res.status(404).json({ error: "Child not found" }); return; }
   if (!child.currentClassId) { res.status(400).json({ error: "Child is not assigned to a class" }); return; }
+  const assignedClassId = child.currentClassId;
 
   const serviceDate = todayString();
   const slotsToBook = serviceSlot === "both" ? ["7am", "10:30am"] : [serviceSlot];
 
-  const results = [];
-  for (const slot of slotsToBook) {
-    const [existing] = await db.select().from(attendanceTable)
-      .where(and(
-        eq(attendanceTable.childId, child.id),
-        eq(attendanceTable.serviceDate, serviceDate),
-        eq(attendanceTable.serviceSlot, slot),
-      ));
-    if (existing) { results.push(existing); continue; }
-
-    const [record] = await db.insert(attendanceTable).values({
-      childId: child.id,
-      classId: child.currentClassId,
-      serviceDate,
-      serviceSlot: slot,
-      checkInTime: new Date(),
-      checkedInBy: req.user!.userId,
-      status: "dropped_off",
-    }).returning();
-    results.push(record);
+  // Same per-child/day advisory lock as the main check-in endpoint so
+  // concurrent requests can't bypass the cross-service rule: a child still
+  // checked in (not picked up) for the other service cannot be checked in
+  // again until staff check them out. A deliberate "both services" booking is
+  // exempt, as is re-tapping a slot the child already has a record for.
+  const lockKey = Number(serviceDate.replace(/-/g, ""));
+  let blockingSlot: string | null = null;
+  const results: (typeof attendanceTable.$inferSelect)[] = [];
+  await db.transaction(async (tx) => {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(${child.id}, ${lockKey})`);
+    const dayRecords = await tx.select().from(attendanceTable)
+      .where(and(eq(attendanceTable.childId, child.id), eq(attendanceTable.serviceDate, serviceDate)));
+    if (serviceSlot !== "both") {
+      const hasSameSlot = dayRecords.some((r) => r.serviceSlot === serviceSlot);
+      blockingSlot = hasSameSlot ? null : findActiveOtherSlot(dayRecords, serviceSlot);
+      if (blockingSlot) return;
+    }
+    for (const slot of slotsToBook) {
+      const existing = dayRecords.find((r) => r.serviceSlot === slot);
+      if (existing) { results.push(existing); continue; }
+      const [record] = await tx.insert(attendanceTable).values({
+        childId: child.id,
+        classId: assignedClassId,
+        serviceDate,
+        serviceSlot: slot,
+        checkInTime: new Date(),
+        checkedInBy: req.user!.userId,
+        status: "dropped_off",
+      }).returning();
+      results.push(record);
+    }
+  });
+  if (blockingSlot) {
+    res.status(409).json({ error: "Conflict", message: stillCheckedInMessage(blockingSlot, serviceSlot) });
+    return;
   }
 
   res.json({ success: true, attendance: results, childName: `${child.firstName} ${child.lastName}` });

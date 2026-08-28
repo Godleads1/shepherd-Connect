@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { eq, and, ne, lt, inArray } from "drizzle-orm";
+import { eq, and, ne, lt, inArray, sql } from "drizzle-orm";
 import { db, attendanceTable, childrenTable, classesTable, familiesTable, usersTable, notificationsTable, teachersTable, teacherAllocationsTable, hallSessionsTable, dropOffIntentsTable } from "@workspace/db";
 import { CheckInBody, CheckOutBody, ListAttendanceQueryParams, ScanQrCodeBody } from "@workspace/api-zod";
 import { authMiddleware, requireRoles } from "../middlewares/auth";
@@ -8,6 +8,7 @@ import { smsChildCheckedIn, smsChildCheckedOut, smsPreDismissal, emailChildCheck
 import { pushToUsers } from "../services/push";
 import { getParentChildIds } from "../lib/parentScope";
 import { resolveDropOffIntentIfFulfilled } from "../lib/dropOffIntentCompletion";
+import { findActiveOtherSlot, stillCheckedInMessage } from "../lib/attendanceGuards";
 
 async function getParentContacts(childId: number): Promise<{ phones: (string | null)[]; emails: (string | null)[]; parentIds: number[]; childName: string; className: string }> {
   const [child] = await db.select().from(childrenTable).where(eq(childrenTable.id, childId));
@@ -124,31 +125,82 @@ router.get("/attendance", authMiddleware, async (req, res): Promise<void> => {
 router.post("/attendance", authMiddleware, requireRoles("super_admin", "admin", "support", "attendant"), async (req, res): Promise<void> => {
   const parsed = CheckInBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: "Bad request", message: parsed.error.message }); return; }
-  const { childId, classId, serviceDate, serviceSlot } = parsed.data;
-  const [existing] = await db.select().from(attendanceTable)
-    .where(and(eq(attendanceTable.childId, childId), eq(attendanceTable.serviceDate, serviceDate), eq(attendanceTable.serviceSlot, serviceSlot)));
-  if (existing) {
-    if (existing.status === "picked_up") {
-      // Child was already picked up — reset for a new drop-off (e.g. second service,
-      // or correcting a premature checkout). Treat this as a fresh check-in.
-      const [reset] = await db.update(attendanceTable).set({
-        status: "dropped_off",
-        checkInTime: new Date(),
+  const { childId, classId, serviceDate, serviceSlot, bothServices } = parsed.data;
+  // Serialize every check-in decision for this child+day with a Postgres
+  // advisory lock. Without it, two simultaneous requests for OPPOSING slots
+  // could both pass the cross-service guard below before either writes,
+  // leaving the child actively checked in for two services at once.
+  const lockKey = Number(serviceDate.replace(/-/g, ""));
+  type CheckInOutcome =
+    | { kind: "blocked"; blockingSlot: string }
+    | { kind: "existing"; record: typeof attendanceTable.$inferSelect }
+    | { kind: "reset"; record: typeof attendanceTable.$inferSelect }
+    | { kind: "created"; record: typeof attendanceTable.$inferSelect };
+  let outcome: CheckInOutcome;
+  try {
+    outcome = await db.transaction(async (tx): Promise<CheckInOutcome> => {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(${childId}, ${lockKey})`);
+      const dayRecords = await tx.select().from(attendanceTable)
+        .where(and(eq(attendanceTable.childId, childId), eq(attendanceTable.serviceDate, serviceDate)));
+      const existing = dayRecords.find((r) => r.serviceSlot === serviceSlot);
+      // A child still checked in (not picked up) for a DIFFERENT service today
+      // cannot be checked in again — staff must check them out of the first
+      // service first. A deliberate "both services" drop-off booking is exempt.
+      const blockingSlot = bothServices ? null : findActiveOtherSlot(dayRecords, serviceSlot);
+      if (existing) {
+        if (existing.status !== "picked_up") return { kind: "existing", record: existing };
+        if (blockingSlot) return { kind: "blocked", blockingSlot };
+        // Child was already picked up — reset for a new drop-off (e.g. second service,
+        // or correcting a premature checkout). Treat this as a fresh check-in.
+        const [reset] = await tx.update(attendanceTable).set({
+          status: "dropped_off",
+          checkInTime: new Date(),
+          checkedInBy: req.user!.userId,
+          checkOutTime: null,
+          escortTime: null,
+          classArrivalTime: null,
+          confirmedByTeacherId: null,
+        }).where(eq(attendanceTable.id, existing.id)).returning();
+        return { kind: "reset", record: reset };
+      }
+      if (blockingSlot) return { kind: "blocked", blockingSlot };
+      const [inserted] = await tx.insert(attendanceTable).values({
+        childId, classId, serviceDate, serviceSlot,
         checkedInBy: req.user!.userId,
-        checkOutTime: null,
-        escortTime: null,
-        classArrivalTime: null,
-        confirmedByTeacherId: null,
-      }).where(eq(attendanceTable.id, existing.id)).returning();
-      notifyChildCheckedIn(childId, reset.classId, serviceSlot).catch((err) => {
-        req.log.error({ err, childId, classId: reset.classId }, "notifyChildCheckedIn failed (re-checkin after pickup)");
-      });
-      notifyTeachersChildDroppedOff(childId, reset.classId, serviceSlot, serviceDate).catch((err) => {
-        req.log.error({ err, childId, classId: reset.classId, serviceSlot, serviceDate }, "notifyTeachersChildDroppedOff failed (re-checkin after pickup)");
-      });
-      res.json(await formatAttendance(reset));
-      return;
+        checkInTime: new Date(),
+        status: "dropped_off",
+      }).returning();
+      return { kind: "created", record: inserted };
+    });
+  } catch (err: any) {
+    if (err?.code === "23505") {
+      // Unique-constraint race with a writer that doesn't take the advisory
+      // lock (e.g. the WhatsApp bot). Return the winning record so the UI
+      // still shows a success state.
+      const [race] = await db.select().from(attendanceTable)
+        .where(and(eq(attendanceTable.childId, childId), eq(attendanceTable.serviceDate, serviceDate), eq(attendanceTable.serviceSlot, serviceSlot)));
+      if (race) { res.json(await formatAttendance(race)); return; }
     }
+    throw err;
+  }
+
+  if (outcome.kind === "blocked") {
+    res.status(409).json({ error: "Conflict", message: stillCheckedInMessage(outcome.blockingSlot, serviceSlot) });
+    return;
+  }
+  if (outcome.kind === "reset") {
+    const reset = outcome.record;
+    notifyChildCheckedIn(childId, reset.classId, serviceSlot).catch((err) => {
+      req.log.error({ err, childId, classId: reset.classId }, "notifyChildCheckedIn failed (re-checkin after pickup)");
+    });
+    notifyTeachersChildDroppedOff(childId, reset.classId, serviceSlot, serviceDate).catch((err) => {
+      req.log.error({ err, childId, classId: reset.classId, serviceSlot, serviceDate }, "notifyTeachersChildDroppedOff failed (re-checkin after pickup)");
+    });
+    res.json(await formatAttendance(reset));
+    return;
+  }
+  if (outcome.kind === "existing") {
+    const existing = outcome.record;
     // Child is dropped_off or in_transit/in_class — re-notify teacher if still waiting
     if (existing.status === "dropped_off") {
       notifyTeachersChildDroppedOff(childId, existing.classId, serviceSlot, serviceDate).catch((err) => {
@@ -158,27 +210,7 @@ router.post("/attendance", authMiddleware, requireRoles("super_admin", "admin", 
     res.json(await formatAttendance(existing));
     return;
   }
-  // Use INSERT … RETURNING so the unique constraint (childId, serviceDate, serviceSlot) acts as
-  // an atomic guard against concurrent check-ins by two staff members at the same moment.
-  let record: typeof attendanceTable.$inferSelect;
-  try {
-    const [inserted] = await db.insert(attendanceTable).values({
-      childId, classId, serviceDate, serviceSlot,
-      checkedInBy: req.user!.userId,
-      checkInTime: new Date(),
-      status: "dropped_off",
-    }).returning();
-    record = inserted;
-  } catch (err: any) {
-    if (err?.code === "23505") {
-      // Unique constraint violation — another staff member checked in this child a split-second ago.
-      // Fetch and return the winning record so the UI still shows a success state.
-      const [race] = await db.select().from(attendanceTable)
-        .where(and(eq(attendanceTable.childId, childId), eq(attendanceTable.serviceDate, serviceDate), eq(attendanceTable.serviceSlot, serviceSlot)));
-      if (race) { res.json(await formatAttendance(race)); return; }
-    }
-    throw err;
-  }
+  const record = outcome.record;
 
   // Resolve the family's "on our way" signal — but only once every intended
   // child/slot in the selection is checked in (partial check-ins keep it open)
@@ -498,13 +530,27 @@ router.post(
       const slots: ("7am" | "10:30am")[] =
         intent.serviceSlot === "both" ? ["7am", "10:30am"] : [intent.serviceSlot];
       const now = new Date();
+      const scanLockKey = Number(scanDate.replace(/-/g, ""));
       for (const child of intended) {
-        const doneSlots: string[] = [];
-        for (const slot of slots) {
-          // Create the check-in record; skip silently if already checked in for this slot
-          let record: typeof attendanceTable.$inferSelect | undefined;
-          try {
-            const [inserted] = await db.insert(attendanceTable).values({
+        // Same per-child/day advisory lock as the manual check-in endpoint so
+        // concurrent requests can't bypass the cross-service rule.
+        const processed: { slot: "7am" | "10:30am"; escorted: boolean }[] = [];
+        await db.transaction(async (tx) => {
+          await tx.execute(sql`SELECT pg_advisory_xact_lock(${child.id}, ${scanLockKey})`);
+          const childDayRecords = await tx
+            .select({ serviceSlot: attendanceTable.serviceSlot, status: attendanceTable.status })
+            .from(attendanceTable)
+            .where(and(eq(attendanceTable.childId, child.id), eq(attendanceTable.serviceDate, scanDate)));
+          // A single-service intent must not auto check-in a child who is still
+          // checked in (not picked up) for the other service — staff must check
+          // them out first via the manual flow, where the block is explained.
+          // "both" intents deliberately book both services at drop-off.
+          if (slots.length === 1 && findActiveOtherSlot(childDayRecords, slots[0])) return;
+          for (const slot of slots) {
+            // Skip silently if already checked in for this slot. The lock makes
+            // this existence check race-free.
+            if (childDayRecords.some((r) => r.serviceSlot === slot)) continue;
+            const [record] = await tx.insert(attendanceTable).values({
               childId: child.id,
               classId: child.currentClass!.id,
               serviceDate: scanDate,
@@ -513,16 +559,16 @@ router.post(
               checkInTime: now,
               status: "dropped_off",
             }).returning();
-            record = inserted;
-          } catch (err: any) {
-            if (err?.code !== "23505") throw err; // already checked in — skip
+            // Straight to in_transit: the scan means the parent has handed over the child
+            const [escorted] = await tx.update(attendanceTable)
+              .set({ status: "in_transit", escortTime: now, escortedBy: req.user!.userId })
+              .where(eq(attendanceTable.id, record.id))
+              .returning();
+            processed.push({ slot, escorted: !!escorted });
           }
-          if (!record) continue;
-          // Straight to in_transit: the scan means the parent has handed over the child
-          const [escorted] = await db.update(attendanceTable)
-            .set({ status: "in_transit", escortTime: now, escortedBy: req.user!.userId })
-            .where(eq(attendanceTable.id, record.id))
-            .returning();
+        });
+        const doneSlots: string[] = [];
+        for (const { slot, escorted } of processed) {
           doneSlots.push(slot);
           notifyChildCheckedIn(child.id, child.currentClass!.id, slot).catch(() => {});
           notifyTeachersChildDroppedOff(child.id, child.currentClass!.id, slot, scanDate).catch(() => {});

@@ -2653,6 +2653,13 @@ components:
           format: date
         serviceSlot:
           type: string
+        bothServices:
+          type: boolean
+          description: >-
+            Set by the check-in UI when staff deliberately book BOTH services
+            at drop-off. Skips the guard that otherwise blocks checking in for
+            a second service while the child is still checked in (not checked
+            out) for the other service.
       required:
         - childId
         - classId
@@ -2819,6 +2826,9 @@ components:
           enum: [in_app, whatsapp, sms, email]
         readStatus:
           type: boolean
+        metadataJson:
+          type: string
+          nullable: true
         createdAt:
           type: string
           format: date-time

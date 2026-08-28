@@ -9,6 +9,8 @@ export interface QueuedCheckIn {
   serviceSlot: string;
   childName: string;
   queuedAt: string;
+  /** Set when this entry is one half of a deliberate both-services booking. */
+  bothServices?: boolean;
 }
 
 export function enqueueCheckIn(item: Omit<QueuedCheckIn, "id" | "queuedAt">) {

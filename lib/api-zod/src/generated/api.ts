@@ -1654,6 +1654,12 @@ export const CheckInBody = zod.object({
   classId: zod.number(),
   serviceDate: zod.string().date(),
   serviceSlot: zod.string(),
+  bothServices: zod
+    .boolean()
+    .optional()
+    .describe(
+      "Set by the check-in UI when staff deliberately book BOTH services at drop-off. Skips the guard that otherwise blocks checking in for a second service while the child is still checked in (not checked out) for the other service.",
+    ),
 });
 
 /**
@@ -2472,6 +2478,7 @@ export const ListNotificationsResponse = zod.object({
       message: zod.string(),
       channel: zod.enum(["in_app", "whatsapp", "sms", "email"]),
       readStatus: zod.boolean(),
+      metadataJson: zod.string().nullish(),
       createdAt: zod.string().datetime({}),
     }),
   ),
@@ -2496,6 +2503,7 @@ export const MarkNotificationReadResponse = zod.object({
   message: zod.string(),
   channel: zod.enum(["in_app", "whatsapp", "sms", "email"]),
   readStatus: zod.boolean(),
+  metadataJson: zod.string().nullish(),
   createdAt: zod.string().datetime({}),
 });
 

@@ -232,7 +232,11 @@ export default function CheckIn() {
   const checkInForSlots = async (childId: number, classId: number, slots: SlotChoice) => {
     const slotsToBook = slots === "both" ? ["7am", "10:30am"] : [slots];
     for (const s of slotsToBook) {
-      await checkInMutation.mutateAsync({ data: { childId, classId, serviceDate: today, serviceSlot: s } });
+      // bothServices marks a deliberate both-services drop-off so the server
+      // doesn't block the second slot as a "still checked in" conflict.
+      await checkInMutation.mutateAsync({
+        data: { childId, classId, serviceDate: today, serviceSlot: s, ...(slots === "both" ? { bothServices: true } : {}) },
+      });
     }
   };
 
@@ -244,7 +248,10 @@ export default function CheckIn() {
     for (const item of queue) {
       try {
         await checkInMutation.mutateAsync({
-          data: { childId: item.childId, classId: item.classId, serviceDate: item.serviceDate, serviceSlot: item.serviceSlot },
+          data: {
+            childId: item.childId, classId: item.classId, serviceDate: item.serviceDate, serviceSlot: item.serviceSlot,
+            ...(item.bothServices ? { bothServices: true } : {}),
+          },
         });
         removeFromQueue(item.id);
         synced++;
@@ -272,14 +279,20 @@ export default function CheckIn() {
     const slot = getChildSlot(child);
 
     if (!isOnline) {
-      enqueueCheckIn({
-        type: "checkin",
-        childId: child.id,
-        classId: child.currentClass.id,
-        serviceDate: today,
-        serviceSlot: slot === "both" ? "7am" : slot,
-        childName: `${child.firstName} ${child.lastName}`,
-      });
+      // "Both services" queues one entry per slot, each marked bothServices so
+      // the server allows the deliberate double booking on replay.
+      const offlineSlots: ("7am" | "10:30am")[] = slot === "both" ? ["7am", "10:30am"] : [slot];
+      for (const s of offlineSlots) {
+        enqueueCheckIn({
+          type: "checkin",
+          childId: child.id,
+          classId: child.currentClass.id,
+          serviceDate: today,
+          serviceSlot: s,
+          childName: `${child.firstName} ${child.lastName}`,
+          ...(slot === "both" ? { bothServices: true } : {}),
+        });
+      }
       setQueueCount(getQueue().length);
       const label = slot === "both" ? "both services" : slot === "7am" ? "1st service" : "2nd service";
       toast({ title: "Queued Offline", description: `${child.firstName} will be checked in for ${label} when you reconnect.` });
@@ -291,8 +304,8 @@ export default function CheckIn() {
       const label = slot === "both" ? "both services" : slot === "7am" ? "1st service" : "2nd service";
       toast({ title: "Checked In", description: `${child.firstName} checked in for ${label}. Assign an escort to take them to class.` });
       refetchAttendance();
-    } catch {
-      toast({ variant: "destructive", title: "Check In Failed" });
+    } catch (e: any) {
+      toast({ variant: "destructive", title: "Check In Failed", description: e?.data?.message ?? e?.message });
     }
   };
 

@@ -410,6 +410,8 @@ export interface CheckInBody {
   classId: number;
   serviceDate: string;
   serviceSlot: string;
+  /** Set by the check-in UI when staff deliberately book BOTH services at drop-off. Skips the guard that otherwise blocks checking in for a second service while the child is still checked in (not checked out) for the other service. */
+  bothServices?: boolean;
 }
 
 export interface CheckOutBody {
@@ -487,8 +489,8 @@ export interface Notification {
   message: string;
   channel: NotificationChannel;
   readStatus: boolean;
-  createdAt: string;
   metadataJson?: string | null;
+  createdAt: string;
 }
 
 export interface PaginatedNotifications {
