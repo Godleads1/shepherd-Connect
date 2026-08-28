@@ -1,0 +1,228 @@
+REPLIT APP — MFA PRE-AUTH TOKEN SECURITY REVIEW
+READ-ONLY FIRST — NO CODE CHANGES
+
+Phase 1 PR-01, PR-02, and PR-10 remediation has completed successfully.
+
+A new security issue was identified during final review:
+
+A JWT containing:
+
+mfaOnly: true
+
+may be issued after password verification but BEFORE completion of MFA,
+and the general authentication middleware may accept that token as a
+fully authenticated bearer credential.
+
+This is now the ONLY authorized investigation.
+
+DO NOT MODIFY CODE YET.
+
+==================================================
+OBJECTIVE
+==================================================
+
+Determine conclusively whether an MFA-enabled account can access ordinary
+protected endpoints using the pre-MFA token before completing MFA.
+
+Do not infer from code appearance alone.
+
+Trace and safely test the actual authentication flow.
+
+==================================================
+INSPECT
+==================================================
+
+Inspect:
+
+- MFA-enabled login flow
+- password verification
+- pre-MFA token issuance
+- JWT claims
+- mfaOnly claim semantics
+- MFA verification endpoint
+- full-token issuance after successful MFA
+- general authentication middleware
+- role middleware
+- representative protected endpoints
+- role-switch flow if it accepts JWTs
+- SSE authentication if it accepts the same JWT format
+
+Identify every place that accepts a bearer JWT.
+
+==================================================
+ANSWER THESE QUESTIONS
+==================================================
+
+1. When an MFA-enabled user enters a correct password, what token is issued?
+
+2. What exact claims distinguish that token from a fully authenticated token?
+
+3. Is mfaOnly = true cryptographically signed as part of the JWT?
+
+4. Does general auth middleware inspect mfaOnly?
+
+5. Can the pre-MFA token access a normal protected endpoint?
+
+6. Can it access:
+   - /api/auth/me
+   - ordinary authenticated routes
+   - admin routes if the user is an admin
+   - role-switch functionality
+   - SSE/live-event authentication
+
+7. Does MFA verification replace the pre-MFA token with a normal token?
+
+8. Does the pre-MFA token remain valid after successful MFA?
+
+9. What is its expiration time?
+
+10. Are there any other partial-authentication token types?
+
+==================================================
+SAFE LIVE VERIFICATION
+==================================================
+
+Using a development/test account only:
+
+A. Enable/use an account that requires MFA.
+
+B. Complete password verification but DO NOT complete MFA.
+
+C. Capture the returned pre-MFA token internally.
+
+Do NOT print the token.
+
+D. Attempt representative protected requests using that token.
+
+Record only:
+
+endpoint
+status code
+whether access was granted
+
+E. Complete MFA normally.
+
+F. Verify that the final authenticated token continues to work.
+
+Do not modify production data beyond safe development/test authentication
+state.
+
+==================================================
+SEVERITY
+==================================================
+
+If a pre-MFA token can access ordinary protected resources before MFA
+completion, classify this as:
+
+P1 SECURITY DEFECT
+
+unless evidence demonstrates a materially more severe privilege boundary.
+
+Do not automatically change severity without explaining the evidence.
+
+==================================================
+IF DEFECT IS CONFIRMED
+==================================================
+
+DO NOT FIX IT YET.
+
+Prepare the smallest architecture-preserving correction.
+
+Preferred principle:
+
+General protected-route authentication must reject partial-authentication
+tokens.
+
+A token carrying:
+
+mfaOnly: true
+
+must ONLY be accepted by endpoints explicitly intended to complete the MFA
+challenge.
+
+Do not redesign JWT/session architecture.
+
+Do not add:
+- session infrastructure
+- refresh tokens
+- database migrations
+- frontend architecture changes
+- new dependencies
+
+unless you prove they are necessary.
+
+Assess whether the minimal solution is simply:
+
+general auth middleware:
+reject mfaOnly === true
+
+while the MFA completion route verifies that token through its existing
+specialized flow.
+
+Also determine whether the same boundary must be applied to:
+
+- role switching
+- SSE
+- other token-verification helpers
+
+==================================================
+TEST PLAN
+==================================================
+
+If confirmed, propose tests for:
+
+- normal non-MFA token accepted
+- pre-MFA token rejected by ordinary protected endpoint
+- pre-MFA token rejected by admin endpoint
+- pre-MFA token rejected by /auth/me if appropriate
+- pre-MFA token rejected by SSE/general token consumers
+- pre-MFA token remains accepted ONLY by MFA completion endpoint
+- completed MFA returns usable full token
+- malformed mfaOnly claim fails safely
+- MFA-disabled login remains unchanged
+- existing authentication tests remain green
+
+==================================================
+REPORT
+==================================================
+
+Return:
+
+DEFECT CONFIRMED:
+SEVERITY:
+
+MFA LOGIN FLOW:
+PRE-MFA TOKEN CLAIMS:
+PRE-MFA TOKEN EXPIRATION:
+FULL TOKEN DIFFERENCE:
+
+GENERAL AUTH CHECKS MFAONLY:
+MFA COMPLETION CHECKS MFAONLY:
+
+PROTECTED ENDPOINT TESTS:
+AUTH/ME:
+ADMIN:
+ROLE SWITCH:
+SSE:
+OTHER TOKEN CONSUMERS:
+
+CAN MFA BE BYPASSED:
+EVIDENCE:
+
+ROOT CAUSE:
+
+MINIMAL PROPOSED FIX:
+EXACT SOURCE FILES:
+TEST FILES:
+DATABASE CHANGE:
+FRONTEND CHANGE:
+DEPENDENCY CHANGE:
+ARCHITECTURE CHANGE:
+
+FILES MODIFIED DURING INVESTIGATION:
+
+Do not write code.
+
+End exactly:
+
+MFA PRE-AUTH TOKEN SECURITY REVIEW COMPLETE — NO CODE CHANGES MADE — AWAITING HUMAN APPROVAL
