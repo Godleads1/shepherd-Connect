@@ -1,0 +1,285 @@
+REPLIT APP — PHASE 1 PLAN REVISION
+PRESERVE EXISTING APPLICATION ARCHITECTURE
+
+I have reviewed your Phase 1 proposal.
+
+DO NOT IMPLEMENT IT YET.
+
+I am NOT authorizing an architectural redesign.
+
+The application was built using the current Replit architecture and that
+architecture must remain intact.
+
+Your task is to fix the confirmed defects with the SMALLEST SAFE CHANGES
+possible inside the existing architecture.
+
+==================================================
+NON-NEGOTIABLE ARCHITECTURE RULE
+==================================================
+
+DO NOT redesign or replace:
+
+- React frontend architecture
+- Express backend architecture
+- existing REST API structure
+- existing JWT bearer authentication model
+- Drizzle ORM architecture
+- existing user model unless absolutely unavoidable
+- existing route organization
+- existing deployment model
+- existing login response contract
+- existing frontend token handling in this phase
+
+Do NOT introduce:
+
+- a new authentication architecture
+- server-side session infrastructure
+- refresh-token architecture
+- a new security subsystem
+- broad middleware rewrites
+- unnecessary database migrations
+- unrelated abstractions
+- new dependencies
+
+The objective is:
+
+FIX THE DEFECTS,
+NOT REBUILD THE APPLICATION.
+
+==================================================
+PR-01 — REVISE TO MINIMAL FIX
+==================================================
+
+Do NOT add users.securityVersion at this stage unless you can prove the
+defect cannot be safely corrected without it.
+
+First investigate whether PR-01 can be resolved using the EXISTING user
+record and authentication middleware.
+
+Preferred minimal approach:
+
+After JWT verification:
+
+1. Load the current user from PostgreSQL.
+2. Reject authentication if the user:
+   - no longer exists
+   - is inactive
+   - is suspended
+   - is rejected
+   - otherwise has a status that currently forbids login
+3. Build the request's authoritative role from the CURRENT database user,
+   not solely from the stale JWT role claim.
+4. Ensure a user whose role has been removed cannot retain that old role
+   through an existing JWT.
+
+This should immediately solve the highest-risk cases:
+
+- suspended account
+- deactivated account
+- deleted account
+- stale privileged role
+
+WITHOUT introducing a new session architecture.
+
+Analyze password-change token invalidation separately.
+
+If password-change revocation cannot be provided safely without adding
+new state, report that specific remaining limitation rather than redesigning
+the authentication system automatically.
+
+Do NOT change logout semantics from current-device logout to account-wide
+logout in this phase.
+
+Current logout behavior should remain unless separately approved.
+
+==================================================
+PR-02 — MINIMAL ROUTE AUTHORIZATION FIX
+==================================================
+
+Use the existing route architecture.
+
+For:
+
+GET /api/users/:id
+
+Implement the smallest object-level authorization rule supported by the
+current application's actual usage.
+
+Based on your analysis:
+
+- Self → allowed
+- Admin → allowed
+- Super admin → allowed
+- Parent requesting another user → denied
+- Teacher requesting another user → denied
+- Support requesting another user → denied
+- Attendant requesting another user → denied
+
+Use concealed 404 behavior where appropriate to prevent enumeration.
+
+Do NOT create a generalized authorization framework unless the existing
+route becomes materially unclear without one.
+
+Prefer an inline or existing-helper solution.
+
+Preserve current self-profile functionality.
+
+Preserve legitimate admin functionality.
+
+Minimize the returned fields for cross-user admin access only where doing
+so does not break an existing verified administrative workflow.
+
+Do NOT alter unrelated user endpoints.
+
+==================================================
+PR-10 — REMOVE FALLBACK WITHOUT REDESIGN
+==================================================
+
+Do NOT create a new authentication subsystem.
+
+Inspect the existing SESSION_SECRET validation already present in the
+application.
+
+The objective is simply:
+
+NO PREDICTABLE JWT SECRET FALLBACK.
+
+Replace/remove the fallback in:
+
+artifacts/api-server/src/middlewares/auth.ts
+
+and make it use the same fail-closed environment requirement already used
+by the existing application.
+
+If a small shared existing configuration helper can be reused, use it.
+
+Do NOT introduce a larger configuration architecture solely for this fix.
+
+Do NOT:
+- generate a secret
+- rotate the secret
+- print the secret
+- modify Replit Secrets
+
+The application should fail clearly if SESSION_SECRET is absent.
+
+==================================================
+DATABASE CHANGE POLICY
+==================================================
+
+Preferred Phase 1 database migration count:
+
+ZERO.
+
+Do not add securityVersion or any new table during this minimal-fix phase.
+
+If you believe a schema change is absolutely required:
+
+STOP.
+
+Explain:
+
+WHY the existing architecture cannot safely solve the defect.
+
+Do not create the migration without separate approval.
+
+==================================================
+ALLOWED FILE SCOPE
+==================================================
+
+Prefer changes limited to existing files such as:
+
+artifacts/api-server/src/middlewares/auth.ts
+artifacts/api-server/src/routes/users.ts
+artifacts/api-server/src/routes/auth.ts
+
+and focused existing/new test files where necessary.
+
+Do not change frontend source unless a confirmed regression requires it.
+
+Do not change database schema in this phase without additional approval.
+
+Do not modify unrelated routes.
+
+==================================================
+TEST-FIRST REQUIREMENT
+==================================================
+
+Before implementing each defect:
+
+1. Add or identify a failing test that demonstrates the defect.
+2. Show the failure.
+3. Implement the smallest fix.
+4. Re-run the focused test.
+5. Run regression tests.
+
+PR-01 must verify at minimum:
+
+- active account token works
+- suspended account token rejected
+- inactive account token rejected
+- deleted account token rejected
+- stale privileged JWT cannot preserve a removed role
+- ordinary login still works
+
+PR-02:
+
+- self profile works
+- unauthenticated request rejected
+- unrelated ordinary user denied
+- admin access still works
+- super-admin access still works
+- unauthorized target enumeration concealed
+- sensitive/internal fields are not leaked
+
+PR-10:
+
+- missing SESSION_SECRET fails closed
+- former predictable fallback cannot be used
+- configured secret still signs/verifies normal tokens
+- normal API startup still works
+
+==================================================
+NO AUTOMATIC CODE CHANGES YET
+==================================================
+
+First return a REVISED implementation proposal.
+
+Do not edit anything yet.
+
+Return:
+
+PR-01 MINIMAL FIX:
+DATABASE CHANGE REQUIRED:
+EXACT FILES:
+BEHAVIOR PRESERVED:
+KNOWN LIMITATION AFTER MINIMAL FIX:
+
+PR-02 MINIMAL FIX:
+EXACT FILES:
+OBJECT AUTHORIZATION RULE:
+FIELDS RETURNED:
+BEHAVIOR PRESERVED:
+
+PR-10 MINIMAL FIX:
+EXACT FILES:
+EXISTING SECRET VALIDATION REUSED:
+BEHAVIOR PRESERVED:
+
+TOTAL FILES EXPECTED TO CHANGE:
+DATABASE MIGRATION:
+DEPENDENCIES:
+FRONTEND CHANGES:
+ARCHITECTURE CHANGES:
+
+The expected answer for ARCHITECTURE CHANGES is:
+
+NONE
+
+unless you identify a concrete blocker and explain it.
+
+Do not write code.
+
+End exactly:
+
+REVISED PHASE 1 MINIMAL-FIX PLAN COMPLETE — EXISTING ARCHITECTURE PRESERVED — AWAITING HUMAN APPROVAL
