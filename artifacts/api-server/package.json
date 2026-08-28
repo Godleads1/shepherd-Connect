@@ -9,6 +9,7 @@
     "start": "node --enable-source-maps ./dist/index.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run --reporter=verbose",
+    "test:db:development": "node ../../scripts/run-development-db-tests.mjs",
     "test:watch": "vitest --reporter=verbose",
     "test:coverage": "vitest run --coverage"
   },

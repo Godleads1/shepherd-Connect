@@ -1,5 +1,9 @@
 import { defineConfig } from "vitest/config";
 
+const fallbackDatabaseEnv = process.env.DATABASE_URL
+  ? {}
+  : { DATABASE_URL: "postgresql://test:test@localhost:5432/test" };
+
 export default defineConfig({
   test: {
     // Only run the mocked unit/smoke tests by default.
@@ -11,12 +15,12 @@ export default defineConfig({
     testTimeout: 15000,
     hookTimeout: 15000,
     reporters: ["verbose"],
-    // Provide dummy env vars so modules that require them at import time
-    // don't throw before vi.mock() hoisting can replace them.
+    // Keep ordinary no-database unit environments importable, but never
+    // override Replit's provisioned development database connection.
     env: {
       SESSION_SECRET: "test-secret-for-vitest",
-      DATABASE_URL: "postgresql://test:test@localhost:5432/test",
       PORT: "8080",
+      ...fallbackDatabaseEnv,
     },
     coverage: {
       provider: "v8",
