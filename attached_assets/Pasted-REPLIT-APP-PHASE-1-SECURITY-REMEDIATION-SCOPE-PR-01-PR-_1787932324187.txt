@@ -1,0 +1,398 @@
+REPLIT APP — PHASE 1 SECURITY REMEDIATION
+SCOPE: PR-01, PR-02, PR-10 ONLY
+READ-ONLY PROPOSAL FIRST — NO CODE CHANGES WITHOUT APPROVAL
+
+You are continuing from the completed production-readiness audit of this
+Replit application.
+
+==================================================
+HARD CONTROL RULE
+==================================================
+
+DO NOT MODIFY ANY CODE YET.
+
+Before writing, editing, deleting, refactoring, formatting, generating,
+or moving any file, you must:
+
+1. inspect the relevant code paths
+2. confirm the defect still exists
+3. determine the root cause
+4. propose the smallest safe fix
+5. identify every file that would change
+6. identify any database/schema impact
+7. identify tests that must be added or changed
+8. present the exact implementation plan
+9. STOP
+10. wait for my explicit approval
+
+Do NOT:
+- auto-fix
+- stage
+- commit
+- push
+- deploy
+- install dependencies
+- change environment variables
+- change production data
+- run destructive database migrations
+
+You may run existing safe tests and read-only diagnostic commands.
+
+==================================================
+AUTHORIZED PHASE 1 DEFECTS
+==================================================
+
+Only investigate and prepare fixes for:
+
+PR-01 — stale JWT/session access after account state changes
+
+PR-02 — IDOR/BOLA on GET /api/users/:id
+
+PR-10 — insecure JWT secret fallback
+
+Do not fix PR-03 through PR-09.
+Do not fix P2 issues.
+Do not perform unrelated cleanup.
+
+If you notice another issue:
+REPORT IT ONLY.
+Do not expand scope.
+
+==================================================
+PR-01 — SESSION REVOCATION
+==================================================
+
+Previously reported behavior:
+
+Existing JWTs may remain usable after:
+
+- account suspension
+- account deactivation
+- account deletion
+- password change
+- role/security changes
+
+because authentication middleware verifies token signature/expiry but may
+not verify current authoritative account state.
+
+Inspect:
+
+artifacts/api-server/src/middlewares/auth.ts
+
+and all relevant user/account mutation routes, including:
+
+artifacts/api-server/src/routes/users.ts
+
+Also inspect:
+- login/token issuance
+- password-change/reset flow
+- role-change flow
+- suspension/deactivation/deletion flow
+- JWT claims
+- user schema
+- session-related schema, if any
+
+Determine exactly which events SHOULD invalidate existing sessions.
+
+At minimum evaluate:
+
+A. suspension
+B. deactivation
+C. deletion
+D. password reset/change
+E. privilege/role change
+F. explicit logout
+
+Compare possible remedies:
+
+1. active-user lookup on every authenticated request
+2. token-version/security-version field
+3. server-side sessions
+4. short-lived access token + revocable refresh token
+5. hybrid approach
+
+Assess:
+
+- security
+- DB load
+- implementation complexity
+- migration need
+- compatibility with existing frontend
+- logout semantics
+- multi-device behavior
+- role-change behavior
+- testability
+
+Recommend the smallest production-safe architecture for this application.
+
+==================================================
+PR-02 — USER PROFILE IDOR / BOLA
+==================================================
+
+Previously reported endpoint:
+
+GET /api/users/:id
+
+Previously reported behavior:
+
+Any authenticated role may be able to retrieve arbitrary users by numeric ID,
+including personal data such as:
+
+- email
+- phone
+- profile data
+- role
+- account status
+
+Inspect the actual implementation.
+
+Determine:
+
+1. who currently can call it
+2. which fields it returns
+3. which UI components consume it
+4. which legitimate cross-user lookups are required
+5. which roles genuinely need cross-user access
+6. whether parents, teachers, support, admins, and super-admins require
+   different views
+7. whether relationship-based access exists elsewhere
+
+Do NOT simply make the route admin-only unless that matches real product behavior.
+
+Design an explicit object-level authorization policy.
+
+Evaluate at minimum:
+
+SELF
+ADMIN
+SUPER ADMIN
+PARENT
+TEACHER
+SUPPORT
+
+and any other actual roles found in the application.
+
+Where relationship-based access is required, define it precisely.
+
+Also define field-level response minimization.
+
+Separate:
+
+CAN ACCESS RECORD?
+
+from:
+
+WHICH FIELDS MAY THIS ROLE RECEIVE?
+
+Tests must include:
+
+- user A -> user B
+- parent -> unrelated parent
+- parent -> unrelated teacher
+- teacher -> unrelated parent
+- teacher -> related classroom user where applicable
+- support -> arbitrary user
+- admin -> user
+- nonexistent ID
+
+Include correct 401 / 403 / 404 behavior and avoid information leakage.
+
+==================================================
+PR-10 — JWT SECRET FALLBACK
+==================================================
+
+Previously reported code contains a predictable fallback signing secret when
+SESSION_SECRET is unavailable.
+
+Inspect all locations where:
+
+SESSION_SECRET
+JWT secret
+token secret
+signing secret
+
+are read or initialized.
+
+Determine whether:
+
+- API startup already fails if SESSION_SECRET is absent
+- some modules can still initialize with the fallback
+- import order can bypass validation
+- tests rely on fallback behavior
+- dev mode relies on fallback behavior
+- deployed workflow always sets the secret
+
+Production-safe objective:
+
+There must be NO predictable signing-secret fallback in runtime authentication.
+
+Preferred behavior:
+
+If the required authentication secret is absent or invalid:
+
+APPLICATION FAILS CLOSED AT STARTUP.
+
+Do not print secret values.
+
+Assess whether minimum secret-quality validation is appropriate.
+
+Do NOT generate or replace the user's production secret.
+
+==================================================
+ARCHITECTURAL CONSISTENCY
+==================================================
+
+Do not implement three unrelated patches if a coherent authentication and
+authorization boundary can solve them safely.
+
+Assess whether authentication should resolve a current authoritative
+user/session principal centrally and expose it to authorization logic.
+
+Avoid unnecessary rewrites.
+
+Prefer:
+
+- central security logic
+- explicit invariants
+- minimal surface area
+- backward-compatible behavior where safe
+- easy automated testing
+
+==================================================
+DATABASE IMPACT
+==================================================
+
+For every proposed approach state:
+
+DATABASE MIGRATION REQUIRED:
+YES / NO
+
+If YES:
+
+describe the exact schema concept only.
+
+Do NOT create the migration yet.
+
+If proposing tokenVersion/securityVersion, specify:
+
+- owning table
+- column type
+- default
+- increment conditions
+- JWT claim relationship
+- behavior of existing tokens
+
+Do not write migration code until approved.
+
+==================================================
+TEST PLAN
+==================================================
+
+Prepare exact tests for Phase 1.
+
+PR-01:
+
+- valid active-user token works
+- suspended user token rejected
+- deactivated user token rejected
+- deleted user token rejected
+- password change invalidates old token
+- password reset invalidates old token
+- security-sensitive role change behavior
+- new token works after legitimate change
+- multi-device behavior
+- logout semantics
+
+PR-02:
+
+- self profile allowed
+- unrelated user denied
+- role-based access rules
+- relationship-based access rules
+- field filtering
+- nonexistent resource behavior
+- unauthenticated behavior
+- privilege escalation attempts
+
+PR-10:
+
+- startup fails if SESSION_SECRET missing
+- predictable fallback impossible
+- valid secret permits startup
+- token signing/verifying remains functional
+- no secret leakage in logs/errors
+
+Prefer unit + integration/API tests.
+
+Identify any browser/E2E tests that should eventually be added.
+
+==================================================
+REGRESSION CHECKS
+==================================================
+
+The proposal must preserve:
+
+- normal login
+- registration
+- legitimate admin access
+- legitimate role workflows
+- existing frontend API contracts unless a change is necessary
+- existing audit/logging behavior
+- existing account-management workflows
+
+Call out any intentional breaking behavior.
+
+==================================================
+PHASE 1 REPORT
+==================================================
+
+Return:
+
+PHASE 1 SCOPE CONFIRMED:
+
+PR-01 STATUS:
+ROOT CAUSE:
+CURRENT AUTH FLOW:
+EVENTS THAT SHOULD REVOKE ACCESS:
+OPTIONS CONSIDERED:
+RECOMMENDED DESIGN:
+DATABASE IMPACT:
+FILES THAT WOULD CHANGE:
+TESTS REQUIRED:
+COMPATIBILITY/RISK:
+
+PR-02 STATUS:
+ROOT CAUSE:
+CURRENT AUTHORIZATION:
+LEGITIMATE CROSS-USER ACCESS:
+PROPOSED OBJECT POLICY:
+PROPOSED FIELD POLICY:
+FILES THAT WOULD CHANGE:
+TESTS REQUIRED:
+COMPATIBILITY/RISK:
+
+PR-10 STATUS:
+ROOT CAUSE:
+ALL SECRET INITIALIZATION LOCATIONS:
+CAN FALLBACK BE REACHED:
+RECOMMENDED DESIGN:
+FILES THAT WOULD CHANGE:
+TESTS REQUIRED:
+COMPATIBILITY/RISK:
+
+SHARED SECURITY ARCHITECTURE:
+EXACT PROPOSED FILE CHANGE SET:
+DATABASE MIGRATION REQUIRED:
+DEPENDENCY CHANGES REQUIRED:
+ENVIRONMENT CHANGES REQUIRED:
+
+PRE-IMPLEMENTATION TEST BASELINE:
+FILES MODIFIED BY THIS ANALYSIS:
+
+IMPLEMENTATION ORDER:
+
+Do not modify code.
+
+End exactly:
+
+REPLIT PHASE 1 SECURITY PROPOSAL COMPLETE — NO CODE CHANGES MADE — AWAITING HUMAN APPROVAL
