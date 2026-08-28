@@ -1,0 +1,489 @@
+REPLIT APP — PHASE 3 MULTI-ROLE CONCURRENCY & ROLE-INTEGRITY REVIEW
+READ-ONLY FIRST — NO CODE CHANGES WITHOUT APPROVAL
+
+You are continuing from the completed Phase 1 security fixes, MFA fix,
+and Phase 2 OTP remediation.
+
+This phase is limited to the previously identified role-concurrency defect:
+
+Concurrent valid registration/role requests may overwrite one another because
+role arrays are stored using whole-JSON replacement.
+
+==================================================
+HARD CONTROL RULE
+==================================================
+
+DO NOT MODIFY CODE YET.
+
+You may:
+
+- inspect code
+- inspect schema
+- inspect existing tests
+- inspect registration and admin approval flows
+- inspect database mutation logic
+- run existing safe tests
+- run safe read-only database queries
+- reproduce concurrency in DEVELOPMENT only if no destructive data risk exists
+
+You may NOT:
+
+- edit source
+- edit tests
+- change schema
+- run schema push
+- add migration
+- install dependencies
+- change secrets
+- deploy
+- commit
+- push
+
+If a fix is needed, propose it first and STOP.
+
+==================================================
+PRODUCT REQUIREMENT — MULTIPLE ROLES ARE INTENTIONAL
+==================================================
+
+This application intentionally allows one user to hold multiple approved roles.
+
+A user may have:
+
+- one primary role
+- multiple approved secondary roles
+- pending role requests where approval is required
+
+Admin approval of multiple roles is a legitimate product feature.
+
+DO NOT:
+
+- collapse roles into one
+- force users to one role
+- remove role switching
+- redesign the role model
+- remove secondary roles
+- change current approval policies
+
+The objective is:
+
+PRESERVE MULTI-ROLE BEHAVIOR
+AND PREVENT CONCURRENT UPDATES FROM LOSING ROLE DATA.
+
+==================================================
+PRIMARY DEFECT TO CONFIRM
+==================================================
+
+Previously observed:
+
+Role-related values are stored as JSON arrays/text and updated using:
+
+READ CURRENT VALUE
+→ MODIFY IN APPLICATION MEMORY
+→ WRITE WHOLE NEW VALUE
+
+If two valid requests occur concurrently:
+
+Request A reads:
+[parent]
+
+Request B reads:
+[parent]
+
+A writes:
+[parent, teacher]
+
+B writes:
+[parent, support]
+
+Possible final state:
+
+[parent, support]
+
+Teacher is silently lost.
+
+Confirm whether this can actually happen in the current implementation.
+
+==================================================
+MAP EVERY ROLE MUTATION PATH
+==================================================
+
+Identify all code paths that can change:
+
+- primary role
+- secondary roles
+- pending roles
+- approved roles
+- rejected roles
+- requested roles
+
+At minimum inspect:
+
+- new registration
+- existing-user registration for another role
+- immediate parent-role additions
+- teacher approval
+- support approval
+- admin approval
+- super-admin approval
+- rejection
+- role removal
+- role switching
+- any user-edit/admin endpoint that modifies roles
+
+For each path report:
+
+ENDPOINT/FUNCTION:
+ROLE FIELD READ:
+ROLE FIELD WRITE:
+TRANSACTION USED:
+ROW LOCK USED:
+ATOMIC UPDATE USED:
+UNIQUE/DUPLICATE PROTECTION:
+CONCURRENCY SAFE?:
+
+==================================================
+APPROVAL POLICY MUST REMAIN UNCHANGED
+==================================================
+
+Preserve the existing product policy discovered during Phase 2:
+
+- Parent role may be immediate where currently supported.
+- Admin, teacher, and support require approval where currently configured.
+- Other roles must follow the existing application policy.
+
+Do not change which roles require approval.
+
+Do not change who may approve them.
+
+==================================================
+CHECK THESE CONCURRENCY SCENARIOS
+==================================================
+
+Using development/test data only, determine behavior for:
+
+SCENARIO A
+
+Same user concurrently requests:
+
+Teacher
+Support
+
+Both requests are valid.
+
+Expected:
+
+Both role requests survive.
+
+No request silently overwrites the other.
+
+--------------------------------------------------
+
+SCENARIO B
+
+Same user concurrently receives two approved role additions.
+
+Expected:
+
+Both approved roles survive.
+
+--------------------------------------------------
+
+SCENARIO C
+
+One role is added while another role is removed.
+
+Expected:
+
+Final state reflects BOTH valid operations in a deterministic manner.
+
+No stale whole-array write should resurrect or delete unrelated roles.
+
+--------------------------------------------------
+
+SCENARIO D
+
+Same role requested twice concurrently.
+
+Expected:
+
+No duplicate role entry.
+
+No server corruption.
+
+Return existing/idempotent/conflict behavior consistent with product rules.
+
+--------------------------------------------------
+
+SCENARIO E
+
+Two different verified OTP proofs are used simultaneously to request two
+different roles for the same existing account.
+
+Expected:
+
+Both valid proof consumptions and role mutations behave correctly.
+
+One role must not overwrite the other.
+
+==================================================
+DATABASE MODEL REVIEW
+==================================================
+
+Inspect how roles are currently represented in PostgreSQL/Drizzle.
+
+Report exact fields and types for:
+
+- primary role
+- secondary roles
+- pending roles
+- any role-request metadata
+
+Determine whether existing schema can safely support concurrency using:
+
+1. transaction + SELECT FOR UPDATE
+2. PostgreSQL JSON/array atomic mutation
+3. compare-and-swap / version check
+4. normalized role rows
+5. another existing-compatible mechanism
+
+DO NOT automatically recommend normalization.
+
+Architecture preservation is important.
+
+Prefer the smallest safe fix compatible with the current schema unless the
+existing structure fundamentally cannot enforce correctness.
+
+==================================================
+OPTIONS ANALYSIS
+==================================================
+
+Compare at minimum:
+
+OPTION A
+Row-level serialization using SELECT ... FOR UPDATE
+
+OPTION B
+Atomic PostgreSQL mutation of JSON/array role fields
+
+OPTION C
+Optimistic concurrency/version field
+
+OPTION D
+Normalize roles into a child table
+
+For each state:
+
+CORRECTNESS:
+SCHEMA CHANGE:
+CODE COMPLEXITY:
+CURRENT API COMPATIBILITY:
+MULTI-ROLE COMPATIBILITY:
+CONCURRENCY SAFETY:
+MIGRATION IMPACT:
+RECOMMENDATION:
+
+Prefer the smallest production-safe option.
+
+Do not choose a large redesign merely because it is theoretically cleaner.
+
+==================================================
+ROLE DUPLICATION
+==================================================
+
+Verify whether arrays can contain duplicates such as:
+
+["parent", "teacher", "teacher"]
+
+Determine whether current code prevents this.
+
+Any proposed solution must maintain set-like role semantics:
+
+one role value
+→ at most one entry
+
+==================================================
+ROLE REMOVAL SAFETY
+==================================================
+
+Verify that removing:
+
+Teacher
+
+does not accidentally remove:
+
+Parent
+Support
+
+or resurrect previously removed roles during concurrent writes.
+
+Also verify that the Phase 1 authentication rule still works:
+
+tokens for a removed role become invalid,
+while remaining approved roles continue working.
+
+==================================================
+PENDING ROLE INTEGRITY
+==================================================
+
+Inspect concurrent pending-role requests.
+
+Determine whether:
+
+- Teacher + Support can both remain pending
+- approving one preserves the other
+- rejecting one preserves the other
+- approving a role removes only that role from pending
+- duplicate pending entries are impossible
+
+==================================================
+TRANSACTION BOUNDARIES
+==================================================
+
+For flows involving OTP proof consumption:
+
+verify whether:
+
+OTP proof consumption
++
+role mutation
+
+already occur in the same transaction after Phase 2.
+
+If yes, determine whether concurrency protection for the user role row can be
+added inside the SAME transaction without changing architecture.
+
+Do not break the one-proof-one-mutation guarantee.
+
+==================================================
+SAFE CONCURRENCY EVIDENCE
+==================================================
+
+If safe on the development database, reproduce using isolated test users.
+
+Preferred:
+
+4 concurrent operations where practical.
+
+Capture:
+
+initial role state
+operations requested
+number succeeded
+final role state
+
+Do not use production users.
+
+Do not create provider traffic.
+
+Do not modify unrelated data.
+
+If real DB reproduction is unsafe or unavailable, report that clearly.
+
+==================================================
+TEST PLAN
+==================================================
+
+Prepare exact tests for:
+
+- concurrent Teacher + Support requests preserve both
+- concurrent two approved role additions preserve both
+- add + remove preserves both intended effects
+- duplicate concurrent same-role request produces no duplicate
+- approval of one pending role preserves other pending roles
+- rejection of one pending role preserves other pending roles
+- distinct verified OTP proofs requesting distinct roles both survive
+- removed role token rejected after mutation
+- remaining approved role tokens remain valid
+- existing role switching still works
+- primary role unchanged unless intentionally modified
+- existing registration policy unchanged
+- Phase 1 + MFA + Phase 2 OTP tests remain green
+
+==================================================
+ARCHITECTURE CONTROL
+==================================================
+
+Preferred outcome:
+
+DATABASE SCHEMA CHANGE:
+NONE
+
+FRONTEND CHANGE:
+NONE
+
+DEPENDENCY CHANGE:
+NONE
+
+API CONTRACT CHANGE:
+NONE
+
+ROLE MODEL CHANGE:
+NONE
+
+If a schema change is genuinely required:
+
+STOP.
+
+Explain exactly why the existing role representation cannot be made safe.
+
+Do not implement it without separate approval.
+
+==================================================
+FINAL PROPOSAL
+==================================================
+
+Return:
+
+PHASE 3 SCOPE CONFIRMED:
+
+CURRENT ROLE SCHEMA:
+PRIMARY ROLE STORAGE:
+SECONDARY ROLE STORAGE:
+PENDING ROLE STORAGE:
+
+ROLE MUTATION PATHS:
+
+CONCURRENCY DEFECT CONFIRMED:
+REPRODUCTION EVIDENCE:
+
+SCENARIO A RESULT:
+SCENARIO B RESULT:
+SCENARIO C RESULT:
+SCENARIO D RESULT:
+SCENARIO E RESULT:
+
+CURRENT TRANSACTION BEHAVIOR:
+CURRENT ROW LOCKING:
+CURRENT ATOMICITY:
+CURRENT DUPLICATE PROTECTION:
+
+OPTION A — ROW LOCK:
+OPTION B — ATOMIC JSON/ARRAY MUTATION:
+OPTION C — OPTIMISTIC VERSION:
+OPTION D — NORMALIZED ROLE TABLE:
+
+RECOMMENDED MINIMAL FIX:
+WHY:
+
+DATABASE SCHEMA CHANGE REQUIRED:
+EXACT SOURCE FILES:
+EXACT TEST FILES:
+FRONTEND CHANGE:
+DEPENDENCY CHANGE:
+API CONTRACT CHANGE:
+ARCHITECTURE CHANGE:
+
+OTP TRANSACTION COMPATIBILITY:
+MULTI-ROLE BEHAVIOR PRESERVED:
+APPROVAL POLICY PRESERVED:
+
+PRE-IMPLEMENTATION TEST BASELINE:
+FILES MODIFIED DURING ANALYSIS:
+
+IMPLEMENTATION ORDER:
+
+Do not write code.
+
+End exactly:
+
+REPLIT PHASE 3 MULTI-ROLE CONCURRENCY PROPOSAL COMPLETE — NO CODE CHANGES MADE — AWAITING HUMAN APPROVAL
