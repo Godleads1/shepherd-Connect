@@ -2,8 +2,9 @@ import { Router } from "express";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import * as OTPAuth from "otpauth";
+import { createHmac, randomInt, randomUUID } from "node:crypto";
 import rateLimit from "express-rate-limit";
-import { eq, lt } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { db, usersTable, otpSessionsTable } from "@workspace/db";
 import { LoginBody, RegisterBody } from "@workspace/api-zod";
 import { generateToken, authMiddleware } from "../middlewares/auth";
@@ -23,10 +24,10 @@ const resetPasswordLimiter = rateLimit({
 
 // ── DB-backed OTP sessions (phone/email verification during registration) ──────
 // Stored in the otp_sessions table so they survive restarts and work across
-// multiple API instances. Expired rows are pruned every 5 minutes.
+// multiple API instances. Keep an hour of issuance history for abuse controls.
 setInterval(async () => {
   try {
-    await db.delete(otpSessionsTable).where(lt(otpSessionsTable.expiresAt, new Date()));
+    await db.execute(sql`DELETE FROM otp_sessions WHERE created_at < now() - interval '1 hour'`);
   } catch { /* non-fatal */ }
 }, 5 * 60_000);
 
@@ -56,6 +57,39 @@ function buildUserPayload(user: typeof usersTable.$inferSelect, activeRole?: Use
 
 const JWT_SECRET = process.env.SESSION_SECRET;
 if (!JWT_SECRET) throw new Error("SESSION_SECRET environment variable is required but not set.");
+const OTP_HMAC_KEY = createHmac("sha256", JWT_SECRET)
+  .update("registration-otp")
+  .digest();
+
+function canonicalPhone(phone: string): string | null {
+  const digits = phone.replace(/\D/g, "");
+  if (digits.length < 7 || digits.length > 15) return null;
+  if (digits.startsWith("0")) return `234${digits.slice(1)}`;
+  return digits;
+}
+
+function typedEmail(email: string): string {
+  return `email:${email.trim().toLowerCase()}`;
+}
+
+function typedPhone(phone: string): string | null {
+  const canonical = canonicalPhone(phone);
+  return canonical ? `phone:${canonical}` : null;
+}
+
+function registrationOtpDigest(pinId: string, contact: string, otp: string): string {
+  return `v1:${createHmac("sha256", OTP_HMAC_KEY)
+    .update(`${pinId}\0${contact}\0${otp}`)
+    .digest("hex")}`;
+}
+
+const otpSendLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many requests", message: "Please wait before requesting another code." },
+});
 
 const router = Router();
 
@@ -128,141 +162,140 @@ router.post("/auth/login", async (req, res): Promise<void> => {
 });
 
 router.post("/auth/register", async (req, res): Promise<void> => {
-  const parsed = RegisterBody.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: "Bad request", message: parsed.error.message });
-    return;
-  }
-  const { email, password, firstName, lastName, phone, role } = parsed.data;
-  const registrationPolicy = getPublicRegistrationPolicy(role);
-  if (!registrationPolicy.allowed) {
+  // Preserve the public-role policy boundary before detailed body validation.
+  const earlyPolicy = getPublicRegistrationPolicy(req.body?.role as UserRole);
+  if (!earlyPolicy.allowed) {
     res.status(403).json({
       error: "Forbidden",
       message: "Super administrator accounts cannot be created through public registration.",
     });
     return;
   }
+  const parsed = RegisterBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Bad request", message: parsed.error.message });
+    return;
+  }
+  const { email, password, firstName, lastName, phone, role, otpPinId } = parsed.data;
+  const registrationPolicy = getPublicRegistrationPolicy(role);
   const primaryClassId = (req.body as any).primaryClassId ? Number((req.body as any).primaryClassId) : null;
-  const [existing] = await db.select().from(usersTable).where(eq(usersTable.email, email));
+  const passwordHash = await bcrypt.hash(password, 12);
+  const emailContact = typedEmail(email);
+  const phoneContact = phone ? typedPhone(phone) : null;
 
-  if (existing) {
-    // Email already registered — add role to pendingRoles if not already held
-    if (existing.role === role) {
-      res.status(409).json({ error: "Conflict", message: "You already have this role" }); return;
-    }
-    const currentSecondary: string[] = parseSecondaryRoles(existing.secondaryRoles);
-    if (currentSecondary.includes(role)) {
-      res.status(409).json({ error: "Conflict", message: "You already have this role" }); return;
-    }
-    const currentPending: string[] = (() => { try { return existing.pendingRoles ? JSON.parse(existing.pendingRoles) : []; } catch { return []; } })();
-    if (currentPending.includes(role)) {
-      res.status(409).json({ error: "Conflict", message: "A request for this role is already pending approval" }); return;
-    }
-    // Verify password matches existing account
-    const passwordValid = await bcrypt.compare(password, existing.passwordHash);
-    if (!passwordValid) {
-      res.status(401).json({ error: "Unauthorized", message: "Incorrect password for this email address" }); return;
+  class RegistrationFailure extends Error {
+    constructor(public status: number, message: string) { super(message); }
+  }
+
+  try {
+    const outcome = await db.transaction(async tx => {
+      const consumed = await tx.execute(sql`
+        DELETE FROM otp_sessions
+        WHERE pin_id = ${otpPinId}
+          AND verified_at IS NOT NULL
+          AND expires_at > now()
+          AND (contact = ${emailContact}
+            OR (${phoneContact}::text IS NOT NULL AND contact = ${phoneContact}))
+        RETURNING pin_id
+      `);
+      if (consumed.rowCount !== 1) {
+        throw new RegistrationFailure(400, "Registration verification is invalid or expired.");
+      }
+
+      const [existing] = await tx.select().from(usersTable).where(eq(usersTable.email, email));
+      if (existing) {
+        if (existing.role === role) throw new RegistrationFailure(409, "You already have this role");
+        const currentSecondary = parseSecondaryRoles(existing.secondaryRoles);
+        if (currentSecondary.includes(role)) throw new RegistrationFailure(409, "You already have this role");
+        const currentPending: string[] = (() => {
+          try { return existing.pendingRoles ? JSON.parse(existing.pendingRoles) : []; } catch { return []; }
+        })();
+        if (currentPending.includes(role)) {
+          throw new RegistrationFailure(409, "A request for this role is already pending approval");
+        }
+        if (!(await bcrypt.compare(password, existing.passwordHash))) {
+          throw new RegistrationFailure(401, "Incorrect password for this email address");
+        }
+
+        if (registrationPolicy.requiresApproval) {
+          await tx.update(usersTable).set({
+            pendingRoles: JSON.stringify([...currentPending, role]),
+            ...(role === "teacher" && primaryClassId ? { primaryClassId } : {}),
+          }).where(eq(usersTable.id, existing.id));
+          return { kind: "pendingRole" as const, user: existing };
+        }
+        await tx.update(usersTable)
+          .set({ secondaryRoles: JSON.stringify([...currentSecondary, role]) })
+          .where(eq(usersTable.id, existing.id));
+        return { kind: "secondaryRole" as const, user: existing };
+      }
+
+      const requiresApproval = registrationPolicy.requiresApproval;
+      const [user] = await tx.insert(usersTable).values({
+        email,
+        passwordHash,
+        firstName,
+        lastName,
+        phone,
+        role: role as UserRole,
+        status: requiresApproval ? "pending_approval" : "active",
+        isActive: !requiresApproval,
+        ...(role === "teacher" && primaryClassId ? { primaryClassId } : {}),
+      }).returning();
+      return { kind: requiresApproval ? "pendingUser" as const : "activeUser" as const, user };
+    });
+
+    // Notifications occur only after the registration transaction commits.
+    if (outcome.kind === "pendingRole" || outcome.kind === "pendingUser") {
+      smsPendingApproval(outcome.user.phone, outcome.user.firstName, req.log).catch(() => {});
+      emailPendingApproval(outcome.user.email, outcome.user.firstName, req.log).catch(() => {});
+    } else {
+      smsWelcome(outcome.user.phone, outcome.user.firstName, req.log).catch(() => {});
+      emailWelcome(outcome.user.email, outcome.user.firstName, req.log).catch(() => {});
     }
 
-    const newRoleRequiresApproval = registrationPolicy.requiresApproval;
-
-    if (newRoleRequiresApproval) {
-      // Queue for admin approval
-      const updatedPending = [...currentPending, role];
-      await db.update(usersTable)
-        .set({
-          pendingRoles: JSON.stringify(updatedPending),
-          ...(role === "teacher" && primaryClassId ? { primaryClassId } : {}),
-        })
-        .where(eq(usersTable.id, existing.id));
-      smsPendingApproval(existing.phone ?? "", existing.firstName, req.log).catch(() => {});
-      emailPendingApproval(existing.email, existing.firstName, req.log).catch(() => {});
+    if (outcome.kind === "pendingRole") {
       res.status(201).json({
         pending: true,
         message: `Your request to join as ${role} has been submitted. An admin will review and approve it. You will be notified once approved.`,
       });
-    } else {
-      // Grant immediately — no approval needed for parent / support
-      const updatedSecondary = [...currentSecondary, role];
-      await db.update(usersTable)
-        .set({ secondaryRoles: JSON.stringify(updatedSecondary) })
-        .where(eq(usersTable.id, existing.id));
-      smsWelcome(existing.phone ?? "", existing.firstName, req.log).catch(() => {});
-      emailWelcome(existing.email, existing.firstName, req.log).catch(() => {});
+    } else if (outcome.kind === "secondaryRole") {
       const roleLabel = role === "support" ? "Support" : "Parent";
       res.status(201).json({
-        roleAdded: true,
-        role,
+        roleAdded: true, role,
         message: `Your ${roleLabel} role has been added. Sign in and select the "${roleLabel}" tab to access your ${roleLabel} dashboard.`,
       });
+    } else if (outcome.kind === "pendingUser") {
+      res.status(201).json({
+        pending: true,
+        message: "Registration submitted. Your account is pending admin approval. You will be notified once approved.",
+        user: {
+          id: outcome.user.id, email: outcome.user.email, role: outcome.user.role,
+          firstName: outcome.user.firstName, lastName: outcome.user.lastName, status: outcome.user.status,
+        },
+      });
+    } else {
+      const user = outcome.user;
+      const token = generateToken({
+        userId: user.id, email: user.email, role: user.role,
+        firstName: user.firstName, lastName: user.lastName,
+      });
+      res.status(201).json({
+        token,
+        user: {
+          id: user.id, email: user.email, phone: user.phone, role: user.role,
+          firstName: user.firstName, lastName: user.lastName, isActive: user.isActive,
+          status: user.status, photoUrl: user.photoUrl, createdAt: user.createdAt,
+        },
+      });
     }
-    return;
+  } catch (error) {
+    if (error instanceof RegistrationFailure) {
+      res.status(error.status).json({ error: error.status === 400 ? "Bad request" : "Registration failed", message: error.message });
+      return;
+    }
+    throw error;
   }
-
-  const passwordHash = await bcrypt.hash(password, 12);
-
-  const requiresApproval = registrationPolicy.requiresApproval;
-  const userStatus = requiresApproval ? "pending_approval" : "active";
-  const isActive = !requiresApproval;
-
-  const [user] = await db
-    .insert(usersTable)
-    .values({
-      email,
-      passwordHash,
-      firstName,
-      lastName,
-      phone,
-      role: role as "super_admin" | "admin" | "teacher" | "support" | "parent",
-      status: userStatus,
-      isActive,
-      ...(role === "teacher" && primaryClassId ? { primaryClassId } : {}),
-    })
-    .returning();
-
-  if (requiresApproval) {
-    smsPendingApproval(user.phone, user.firstName, req.log).catch(() => {});
-    emailPendingApproval(user.email, user.firstName, req.log).catch(() => {});
-    res.status(201).json({
-      pending: true,
-      message: "Registration submitted. Your account is pending admin approval. You will be notified once approved.",
-      user: {
-        id: user.id,
-        email: user.email,
-        role: user.role,
-        firstName: user.firstName,
-        lastName: user.lastName,
-        status: user.status,
-      },
-    });
-    return;
-  }
-
-  smsWelcome(user.phone, user.firstName, req.log).catch(() => {});
-  emailWelcome(user.email, user.firstName, req.log).catch(() => {});
-
-  const token = generateToken({
-    userId: user.id,
-    email: user.email,
-    role: user.role,
-    firstName: user.firstName,
-    lastName: user.lastName,
-  });
-  res.status(201).json({
-    token,
-    user: {
-      id: user.id,
-      email: user.email,
-      phone: user.phone,
-      role: user.role,
-      firstName: user.firstName,
-      lastName: user.lastName,
-      isActive: user.isActive,
-      status: user.status,
-      photoUrl: user.photoUrl,
-      createdAt: user.createdAt,
-    },
-  });
 });
 
 router.get("/auth/me", authMiddleware, async (req, res): Promise<void> => {
@@ -362,43 +395,64 @@ router.post("/auth/reset-password", resetPasswordLimiter, async (req, res): Prom
 
 // ── OTP endpoints (phone verification) ───────────────────────────────────────
 
-router.post("/auth/send-otp", async (req, res): Promise<void> => {
+router.post("/auth/send-otp", otpSendLimiter, async (req, res): Promise<void> => {
   const { phone, email, channel } = req.body as { phone?: string; email?: string; channel?: "sms" | "whatsapp" | "email" };
+  const isEmail = channel === "email";
+  const destination = isEmail
+    ? (typeof email === "string" ? email.trim().toLowerCase() : "")
+    : (typeof phone === "string" ? phone.trim() : "");
+  const contact = isEmail
+    ? (destination.includes("@") ? typedEmail(destination) : null)
+    : typedPhone(destination);
+  if (!contact) {
+    res.status(400).json({ error: "Bad request", message: isEmail ? "A valid email is required" : "A valid phone is required" });
+    return;
+  }
 
-  // Email-only delivery: phone not required
-  if (channel === "email") {
-    if (!email || typeof email !== "string") {
-      res.status(400).json({ error: "Bad request", message: "email is required for email delivery" });
+  const otp = randomInt(100000, 1000000).toString();
+  const pinId = randomUUID();
+  const digest = registrationOtpDigest(pinId, contact, otp);
+
+  try {
+    await db.transaction(async tx => {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${contact}))`);
+      const history = await tx.execute(sql`
+        SELECT
+          count(*) FILTER (WHERE created_at > now() - interval '1 hour')::int AS hour_count,
+          coalesce(bool_or(created_at > now() - interval '60 seconds'), false) AS cooling_down
+        FROM otp_sessions
+        WHERE contact = ${contact}
+      `);
+      const row = history.rows[0] as { hour_count: number; cooling_down: boolean };
+      if (Number(row.hour_count) >= 5) throw new Error("CONTACT_LIMIT");
+      if (row.cooling_down) throw new Error("CONTACT_COOLDOWN");
+
+      await tx.execute(sql`
+        UPDATE otp_sessions SET expires_at = now()
+        WHERE contact = ${contact} AND expires_at > now()
+      `);
+      await tx.execute(sql`
+        INSERT INTO otp_sessions (pin_id, otp, contact, expires_at, created_at, attempt_count)
+        VALUES (${pinId}, ${digest}, ${contact}, now() + interval '10 minutes', now(), 0)
+      `);
+    });
+  } catch (error) {
+    if (error instanceof Error && (error.message === "CONTACT_LIMIT" || error.message === "CONTACT_COOLDOWN")) {
+      res.status(429).json({ error: "Too many requests", message: "Please wait before requesting another code." });
       return;
     }
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    const pinId = crypto.randomUUID();
-    const expiresAt = new Date(Date.now() + 20 * 60 * 1000);
-    await db.insert(otpSessionsTable).values({ pinId, otp, contact: email.trim(), expiresAt });
-    await emailRegistrationOtp(email.trim(), otp, req.log);
-    res.json({ pinId, message: "OTP sent to your email" });
+    throw error;
+  }
+
+  const accepted = isEmail
+    ? await emailRegistrationOtp(destination, otp, req.log)
+    : await smsRegistrationOtp(destination, otp, req.log);
+  if (!accepted) {
+    await db.execute(sql`UPDATE otp_sessions SET expires_at = now() WHERE pin_id = ${pinId}`);
+    res.status(503).json({ error: "Service unavailable", message: "Verification service is temporarily unavailable. Please try again later." });
     return;
   }
-
-  if (!phone || typeof phone !== "string") {
-    res.status(400).json({ error: "Bad request", message: "phone is required" });
-    return;
-  }
-  const otp = Math.floor(100000 + Math.random() * 900000).toString();
-  const pinId = crypto.randomUUID();
-  const expiresAt = new Date(Date.now() + 20 * 60 * 1000);
-  await db.insert(otpSessionsTable).values({ pinId, otp, contact: phone.trim(), expiresAt });
-
-  // Fire SMS/WhatsApp in background — don't block the response on it
-  smsRegistrationOtp(phone.trim(), otp, req.log).catch(() => {});
-
-  // Always send email backup so the user gets the code even if SMS/WhatsApp fails
-  if (email && typeof email === "string") {
-    await emailRegistrationOtp(email.trim(), otp, req.log);
-    res.json({ pinId, message: "OTP sent to your phone and email" });
-  } else {
-    res.json({ pinId, message: "OTP sent to your phone" });
-  }
+  res.json({ pinId, message: "Verification code accepted for sending." });
 });
 
 router.post("/auth/verify-otp", async (req, res): Promise<void> => {
@@ -407,14 +461,42 @@ router.post("/auth/verify-otp", async (req, res): Promise<void> => {
     res.status(400).json({ error: "Bad request", message: "pinId and otp are required" });
     return;
   }
-  const [session] = await db.select().from(otpSessionsTable).where(eq(otpSessionsTable.pinId, pinId));
-  if (!session || session.expiresAt < new Date() || session.otp !== otp.trim()) {
+  const candidate = otp.trim();
+  const session = await db.execute(sql`
+    SELECT contact FROM otp_sessions WHERE pin_id = ${pinId}
+  `);
+  const contact = (session.rows[0] as { contact?: string } | undefined)?.contact;
+  if (!contact) {
     res.status(400).json({ error: "Bad request", message: "Incorrect or expired code. Please try again." });
     return;
   }
-  // One-time use — delete immediately after successful verification
-  await db.delete(otpSessionsTable).where(eq(otpSessionsTable.pinId, pinId));
-  res.json({ verified: true });
+  const digest = registrationOtpDigest(pinId, contact, candidate);
+  const verified = await db.execute(sql`
+    UPDATE otp_sessions
+    SET verified_at = now()
+    WHERE pin_id = ${pinId}
+      AND otp = ${digest}
+      AND otp LIKE 'v1:%'
+      AND expires_at > now()
+      AND attempt_count < 5
+      AND verified_at IS NULL
+    RETURNING pin_id
+  `);
+  if (verified.rowCount === 1) {
+    res.json({ verified: true });
+    return;
+  }
+  await db.execute(sql`
+    UPDATE otp_sessions
+    SET attempt_count = attempt_count + 1,
+        expires_at = CASE WHEN attempt_count + 1 >= 5 THEN now() ELSE expires_at END
+    WHERE pin_id = ${pinId}
+      AND otp <> ${digest}
+      AND expires_at > now()
+      AND attempt_count < 5
+      AND verified_at IS NULL
+  `);
+  res.status(400).json({ error: "Bad request", message: "Incorrect or expired code. Please try again." });
 });
 
 // ── MFA endpoints ─────────────────────────────────────────────────────────────

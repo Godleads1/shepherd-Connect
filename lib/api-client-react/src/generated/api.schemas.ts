@@ -56,6 +56,8 @@ export interface RegisterBody {
   phone?: string;
   password: string;
   role: RegisterBodyRole;
+  /** @minLength 1 */
+  otpPinId: string;
 }
 
 export type UserRole = (typeof UserRole)[keyof typeof UserRole];

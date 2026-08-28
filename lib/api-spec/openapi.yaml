@@ -1992,12 +1992,16 @@ components:
         role:
           type: string
           enum: [super_admin, admin, teacher, support, parent]
+        otpPinId:
+          type: string
+          minLength: 1
       required:
         - firstName
         - lastName
         - email
         - password
         - role
+        - otpPinId
 
     AuthResponse:
       type: object

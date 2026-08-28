@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp } from "drizzle-orm/pg-core";
+import { index, integer, pgTable, text, timestamp } from "drizzle-orm/pg-core";
 
 /**
  * Persistent OTP sessions for phone/email verification during registration.
@@ -8,9 +8,13 @@ import { pgTable, text, timestamp } from "drizzle-orm/pg-core";
 export const otpSessionsTable = pgTable("otp_sessions", {
   pinId: text("pin_id").primaryKey(),
   otp: text("otp").notNull(),
-  contact: text("contact").notNull(), // phone or email address
+  contact: text("contact").notNull(),
   expiresAt: timestamp("expires_at").notNull(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+  attemptCount: integer("attempt_count").notNull().default(0),
+  verifiedAt: timestamp("verified_at"),
+}, table => [
+  index("otp_sessions_contact_created_at_idx").on(table.contact, table.createdAt),
+]);
 
 export type OtpSession = typeof otpSessionsTable.$inferSelect;

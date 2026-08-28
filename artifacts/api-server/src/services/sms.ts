@@ -5,6 +5,23 @@ const API_KEY  = process.env.TERMII_API_KEY;
 const BASE_URL = "https://v3.api.termii.com";
 const SENDER   = "N-Alert"; // Termii's pre-approved Nigerian system sender
 const APP_URL  = "https://shepherdconnect.intelyticslimited.com";
+const REGISTRATION_PROVIDER_TIMEOUT_MS = 8_000;
+
+async function boundedRegistrationProvider(operation: Promise<boolean>): Promise<boolean> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      operation,
+      new Promise<boolean>(resolve => {
+        timer = setTimeout(() => resolve(false), REGISTRATION_PROVIDER_TIMEOUT_MS);
+      }),
+    ]);
+  } catch {
+    return false;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
 
 // ── Resend ────────────────────────────────────────────────────────────────────
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
@@ -68,7 +85,7 @@ async function sendViaTwilio(to: string, body: string, logger?: Logger): Promise
       { method: "POST", headers: { Authorization: `Basic ${creds}`, "Content-Type": "application/x-www-form-urlencoded" }, body: form },
     );
     const data = await res.json() as Record<string, unknown>;
-    if (!res.ok) { logger?.error({ to: e164, status: res.status, data }, "Twilio SMS send failed"); return false; }
+    if (!res.ok) { logger?.error({ to: e164, status: res.status }, "Twilio SMS send failed"); return false; }
     logger?.info({ to: e164, sid: data.sid }, "SMS sent via Twilio");
     return true;
   } catch (err) {
@@ -99,7 +116,7 @@ async function sendViaTwilioWhatsApp(to: string, body: string, logger?: Logger):
     );
     const data = await res.json() as Record<string, unknown>;
     if (!res.ok) {
-      logger?.error({ to: waTo, status: res.status, data }, "Twilio WhatsApp send failed");
+      logger?.error({ to: waTo, status: res.status }, "Twilio WhatsApp send failed");
       return false;
     }
     logger?.info({ to: waTo, sid: data.sid }, "WhatsApp sent via Twilio");
@@ -151,11 +168,13 @@ function infoBox(html: string) { return `<div style="background:#f8fafc;border:1
 
 // ── Email send (Resend only — Termii does not support an email channel on /api/sms/send) ────────
 
-async function sendEmail(to: string, subject: string, html: string, logger?: Logger): Promise<void> {
-  if (!to || !to.includes("@")) { logger?.warn({ to }, "Invalid email address — skipped"); return; }
-  if (!(await sendViaResend(to, subject, html, logger))) {
+async function sendEmail(to: string, subject: string, html: string, logger?: Logger): Promise<boolean> {
+  if (!to || !to.includes("@")) { logger?.warn({ to }, "Invalid email address — skipped"); return false; }
+  const accepted = await sendViaResend(to, subject, html, logger);
+  if (!accepted) {
     logger?.error({ to }, "Email not delivered — Resend failed");
   }
+  return accepted;
 }
 
 async function sendToEmails(emails: (string | null | undefined)[], subject: string, html: string, logger?: Logger) {
@@ -165,8 +184,8 @@ async function sendToEmails(emails: (string | null | undefined)[], subject: stri
 
 // ── SMS send ─────────────────────────────────────────────────────────────────
 
-async function send(to: string, sms: string, channel: "generic" | "dnd" | "whatsapp" = "dnd", logger?: Logger): Promise<void> {
-  if (!isConfigured()) { logger?.warn("No SMS provider configured — SMS skipped"); return; }
+async function send(to: string, sms: string, channel: "generic" | "dnd" | "whatsapp" = "dnd", logger?: Logger): Promise<boolean> {
+  if (!isConfigured()) { logger?.warn("No SMS provider configured — SMS skipped"); return false; }
   const normalised = normalisePhone(to);
 
   // Try Termii first (if API key is present)
@@ -177,16 +196,16 @@ async function send(to: string, sms: string, channel: "generic" | "dnd" | "whats
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ to: normalised, from: SENDER, sms, type: "plain", channel: "dnd", api_key: API_KEY }),
       });
-      const data = await res.json() as Record<string, unknown>;
-      if (res.ok) { logger?.info({ to: normalised }, "SMS sent via Termii"); return; }
-      logger?.warn({ to: normalised, status: res.status, data }, "Termii SMS failed — trying WhatsApp fallback");
+      await res.json();
+      if (res.ok) { logger?.info({ to: normalised }, "SMS accepted by Termii"); return true; }
+      logger?.warn({ to: normalised, status: res.status }, "Termii SMS failed — trying WhatsApp fallback");
     } catch (err) {
       logger?.warn({ to: normalised, err: String(err) }, "Termii SMS error — trying WhatsApp fallback");
     }
   }
 
   // Fallback: Baileys WhatsApp → Twilio WhatsApp → Twilio SMS
-  await sendWhatsAppWithFallback(to, sms, logger);
+  return sendWhatsAppWithFallback(to, sms, logger);
 }
 
 /**
@@ -438,18 +457,18 @@ export async function smsPreDismissal(phones: (string | null | undefined)[], chi
   await sendToPhones(phones, `📢 Service ending soon. ${childName} is ready for pickup at the children's church exit. — Shepherd Connect`, logger);
 }
 
-export async function smsRegistrationOtp(phone: string | null | undefined, otp: string, logger?: Logger) {
-  if (!phone) return;
-  await send(
-    phone,
-    `Your Shepherd Connect Verification Pin is ${otp} for Shepherd Connect app. It expires in 10 minutes.`,
-    "dnd",
-    logger,
-  );
+export async function smsRegistrationOtp(phone: string | null | undefined, otp: string, logger?: Logger): Promise<boolean> {
+  if (!phone) return false;
+  return boundedRegistrationProvider(send(
+      phone,
+      `Your Shepherd Connect Verification Pin is ${otp} for Shepherd Connect app. It expires in 10 minutes.`,
+      "dnd",
+      logger,
+  ));
 }
 
-export async function emailRegistrationOtp(email: string | null | undefined, otp: string, logger?: Logger) {
-  if (!email) return;
+export async function emailRegistrationOtp(email: string | null | undefined, otp: string, logger?: Logger): Promise<boolean> {
+  if (!email) return false;
   const html = `
     <div style="font-family:Inter,Arial,sans-serif;max-width:480px;margin:0 auto;background:#fff;border-radius:12px;border:1px solid #e2e8f0;padding:32px 28px">
       <div style="text-align:center;margin-bottom:24px">
@@ -458,14 +477,14 @@ export async function emailRegistrationOtp(email: string | null | undefined, otp
         <p style="color:#64748b;font-size:13px;margin:4px 0 0">RCCG City of David · Children's Church</p>
       </div>
       <h3 style="color:#0f172a;font-size:17px;margin:0 0 8px">Your verification code</h3>
-      <p style="color:#475569;font-size:14px;margin:0 0 20px">Use the code below to verify your phone number and complete registration.</p>
+      <p style="color:#475569;font-size:14px;margin:0 0 20px">Use the code below to verify your email address and complete registration.</p>
       <div style="background:#f1f5f9;border-radius:10px;padding:20px;text-align:center;margin-bottom:20px">
         <span style="font-size:36px;font-weight:800;letter-spacing:10px;color:#1e3a8a">${otp}</span>
       </div>
       <p style="color:#94a3b8;font-size:12px;margin:0">This code expires in <strong>10 minutes</strong>. Do not share it with anyone.</p>
     </div>
   `;
-  await sendEmail(email, "Shepherd Connect — Your verification code", html, logger);
+  return boundedRegistrationProvider(sendEmail(email, "Shepherd Connect — Your verification code", html, logger));
 }
 
 async function emailVerificationEmail_UNUSED(email: string | null | undefined, firstName: string, token: string, logger?: Logger) {

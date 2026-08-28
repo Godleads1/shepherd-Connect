@@ -1,0 +1,577 @@
+REPLIT APP — PHASE 2 OTP SECURITY IMPLEMENTATION APPROVAL
+
+Human review complete.
+
+Phase 2 PR-03 / PR-04 remediation is APPROVED subject to the controls
+below.
+
+The confirmed server-side registration verification bypass is also
+approved for correction as part of this phase.
+
+==================================================
+APPROVED OBJECTIVES
+==================================================
+
+Correct:
+
+PR-03
+- OTP issuance abuse
+- resend abuse
+- per-contact abuse
+- excessive provider invocation
+
+PR-04
+- insecure OTP randomness
+- plaintext OTP storage
+- unlimited credential attempts
+- non-atomic verification
+- concurrent replay
+
+Also correct the confirmed registration boundary defect:
+
+/api/auth/register must require valid SERVER-SIDE evidence that the
+appropriate registration contact OTP was successfully verified.
+
+Frontend progression alone is not security evidence.
+
+==================================================
+PRESERVE EXISTING ARCHITECTURE
+==================================================
+
+Preserve:
+
+- React frontend
+- Express backend
+- REST API design
+- JWT authentication
+- Drizzle ORM
+- PostgreSQL
+- existing registration wizard
+- existing role/multi-role behavior
+- existing provider architecture
+- existing deployment architecture
+
+Do not redesign authentication.
+
+Do not change MFA.
+
+Do not change password-reset OTP in this phase.
+
+Do not change pickup/delegate OTP behavior in this phase.
+
+==================================================
+APPROVED OTP SESSION SCHEMA CHANGE
+==================================================
+
+Approved additions to otp_sessions:
+
+attemptCount
+- integer
+- NOT NULL
+- default 0
+
+verifiedAt
+- timestamp
+- nullable
+
+Approved index:
+
+(contact, created_at)
+
+Do not add:
+
+- purpose column
+- codeHash column
+- consumedAt
+- session infrastructure
+- unrelated schema fields
+
+The existing otp text column may hold the versioned OTP digest.
+
+==================================================
+DATABASE SAFETY GATE
+==================================================
+
+The project uses drizzle-kit push.
+
+Before applying any schema change:
+
+1. confirm the target database is DEVELOPMENT/TEST
+2. inspect the proposed schema diff
+3. confirm only:
+   - attemptCount
+   - verifiedAt
+   - contact/created_at index
+   are being introduced
+
+If drizzle-kit proposes ANY unrelated schema change:
+
+STOP.
+
+Do not apply it.
+
+Do not run schema push against production.
+
+Do not destroy existing production data.
+
+==================================================
+SECURE OTP GENERATION
+==================================================
+
+Replace Math.random registration OTP generation with Node's cryptographic
+random generator.
+
+Approved direction:
+
+crypto.randomInt(100000, 1000000)
+
+Preserve the six-digit user experience.
+
+No new dependency.
+
+==================================================
+OTP STORAGE
+==================================================
+
+Do not persist plaintext registration OTPs.
+
+Use a versioned HMAC representation in the existing otp column.
+
+Format concept:
+
+v1:<digest>
+
+IMPORTANT:
+
+Do NOT directly reuse SESSION_SECRET as though JWT and OTP hashing were
+the same cryptographic purpose.
+
+Derive a domain-separated OTP HMAC key from SESSION_SECRET inside the
+application.
+
+For example conceptually:
+
+root secret
+→ domain separation for "registration-otp"
+→ OTP HMAC key
+
+Do not add a new environment secret in this phase.
+
+Do not print:
+- SESSION_SECRET
+- derived key
+- OTP
+- OTP digest
+
+Legacy plaintext OTP rows must fail closed and expire naturally.
+
+==================================================
+OTP CONTACT BINDING
+==================================================
+
+Canonicalize and type contacts.
+
+Examples:
+
+email:<normalized email>
+
+phone:<canonical phone>
+
+An email OTP proves that email only.
+
+A phone OTP proves that phone only.
+
+Do NOT send a phone-bound verification credential to a different email
+backup.
+
+Provider fallback between SMS/WhatsApp is allowed only when it still
+delivers to the SAME phone identity.
+
+==================================================
+REGISTRATION PRODUCT BEHAVIOR
+==================================================
+
+Do NOT silently change whether the product requires:
+
+- email verification
+OR
+- phone verification
+OR
+- both
+
+Inspect and preserve the CURRENT intended registration UX.
+
+The server requirement is:
+
+The supplied otpPinId must represent successful verification of the
+contact the registration flow required the user to verify.
+
+If the current product allows the user to verify either email OR phone,
+preserve that.
+
+Do not introduce a new "both contacts must be verified" requirement
+without separate approval.
+
+==================================================
+ISSUANCE CONTROLS
+==================================================
+
+Approved initial controls:
+
+PER-IP:
+10 issuance requests / 15 minutes
+
+PER-CONTACT:
+5 issuance attempts / rolling hour
+
+RESEND COOLDOWN:
+60 seconds per canonical typed contact
+
+ACTIVE OTP:
+maximum one unexpired active registration OTP per typed contact
+
+A permitted resend invalidates the previous active OTP.
+
+Use database-backed contact controls for cross-instance correctness.
+
+The existing global limiter remains.
+
+==================================================
+PROVIDER FAILURE
+==================================================
+
+Persist the OTP session before attempting delivery.
+
+Do not hold database locks during provider network calls.
+
+Provider helper behavior must stop swallowing definitive final failure.
+
+A successful response must not claim delivery unless delivery is actually
+known.
+
+Distinguish provider acceptance/queueing from actual delivery.
+
+On definite delivery-provider failure or bounded timeout:
+
+- invalidate/expire the new OTP session
+- retain sufficient issuance history for the rolling abuse limit
+- return generic 503
+- do not expose provider internals
+- do not expose OTP
+
+Provider failures may count toward the abuse window so provider outages
+cannot be hammered indefinitely.
+
+==================================================
+FAILED ATTEMPT POLICY
+==================================================
+
+Maximum:
+
+5 failed verification attempts per OTP session.
+
+Requirements:
+
+- durable in PostgreSQL
+- atomic increment
+- fifth failed attempt makes OTP unusable
+- correct code after exhaustion fails
+- IP rate limiting is NOT a substitute for credential attempt counting
+
+==================================================
+ATOMIC VERIFICATION
+==================================================
+
+One registration OTP may successfully transition to VERIFIED at most once.
+
+Use a PostgreSQL conditional atomic mutation.
+
+Required predicates include:
+
+- correct pinId
+- correct HMAC
+- not expired using database time
+- attemptCount below limit
+- verifiedAt IS NULL
+
+Successful transition:
+
+verifiedAt = database now()
+
+Only one concurrent correct verification request may succeed.
+
+Do not implement read → compare → delete as separate unprotected steps.
+
+==================================================
+REGISTRATION PROOF
+==================================================
+
+The final registration request must include:
+
+otpPinId
+
+The frontend already holds it.
+
+The API contract and generated clients may be updated through the
+project's existing generation workflow.
+
+The backend must not trust a frontend boolean such as:
+
+verified = true
+
+The server must consume the verified OTP session itself.
+
+==================================================
+ATOMIC REGISTRATION CONSUMPTION
+==================================================
+
+Inside the same PostgreSQL transaction as the registration mutation:
+
+1. validate registration request
+2. normalize the relevant contact
+3. atomically consume the verified otpPinId
+4. require:
+   - verifiedAt IS NOT NULL
+   - still within permitted validity
+   - contact matches the contact being registered
+5. perform the applicable registration mutation:
+   - new user
+   - approved secondary role
+   - pending role
+6. commit
+
+One verified OTP proof may authorize at most ONE registration mutation.
+
+If the registration mutation fails:
+
+transaction rollback must preserve the OTP proof where appropriate.
+
+Two concurrent registrations using one proof must result in at most one
+successful mutation.
+
+==================================================
+EXPIRY
+==================================================
+
+Standardize the registration OTP validity to:
+
+10 minutes
+
+because that is the validity already communicated to users.
+
+Use PostgreSQL database time for authoritative predicates.
+
+Expired OTPs must never:
+
+- verify
+- authorize registration
+
+Historical rows needed for the one-hour contact issuance limit may remain
+until cleanup.
+
+==================================================
+AUTHORIZED SOURCE SCOPE
+==================================================
+
+Expected source files:
+
+artifacts/api-server/src/routes/auth.ts
+
+artifacts/api-server/src/services/sms.ts
+
+lib/db/src/schema/otpSessions.ts
+
+lib/api-spec/openapi.yaml
+
+artifacts/shepherd-connect/src/pages/register.tsx
+
+existing generated API contract files produced by the normal generation
+workflow
+
+Focused tests may be added/updated.
+
+If another APPLICATION source file becomes necessary:
+
+STOP.
+
+Explain why and await approval.
+
+==================================================
+TEST-FIRST REQUIREMENT
+==================================================
+
+Before each implementation area:
+
+1. demonstrate failing security behavior
+2. add focused regression test
+3. confirm expected failure
+4. implement smallest correction
+5. rerun focused test
+6. continue
+
+Required coverage includes:
+
+ISSUANCE
+- first request succeeds
+- immediate resend blocked
+- resend after cooldown succeeds
+- sixth request within hour blocked
+- many IPs cannot bypass contact limit
+- only newest active OTP works
+- provider failure returns appropriate failure
+- no OTP appears in response/logs
+
+STORAGE
+- Math.random absent from registration OTP generation
+- database does not contain plaintext OTP
+- valid code verifies
+- wrong code fails
+- legacy plaintext rows fail closed
+
+ATTEMPTS
+- incorrect attempts increment
+- fifth failure exhausts OTP
+- correct code after exhaustion fails
+
+ATOMICITY
+- correct verification succeeds once
+- sequential replay fails
+- simultaneous correct verification produces exactly one success
+
+REGISTRATION
+- registration without otpPinId fails
+- unverified otpPinId fails
+- expired otpPinId fails
+- contact mismatch fails
+- verified matching proof succeeds
+- proof cannot be reused
+- concurrent registration with same proof produces one mutation
+- transaction failure does not incorrectly consume proof
+
+REGRESSION
+- new registration works
+- pending-role registration works
+- existing-user secondary-role request works
+- multi-role behavior remains unchanged
+- password reset unchanged
+- MFA unchanged
+- delegate/pickup OTP unchanged
+- existing 97 API tests remain green
+
+==================================================
+DATABASE CONCURRENCY EVIDENCE
+==================================================
+
+Mock tests are not sufficient for atomicity claims.
+
+Use the DEVELOPMENT PostgreSQL database to prove:
+
+- concurrent OTP verification
+- concurrent registration-proof consumption
+
+Do not perform destructive testing against production.
+
+==================================================
+FINAL VALIDATION
+==================================================
+
+Run:
+
+- focused OTP tests
+- database-backed concurrency tests
+- complete API suite
+- database TypeScript check
+- API TypeScript check
+- frontend TypeScript check
+- build/start
+- safe development runtime verification
+- final scoped diff/security review
+
+Do not generate paid-message abuse traffic.
+
+Use mocks/test identities for rate-limit/provider testing.
+
+==================================================
+CONTROL
+==================================================
+
+Do NOT:
+
+- deploy
+- commit
+- push
+- change production database
+- change secrets
+- add dependencies
+- modify password-reset OTP
+- modify delegate OTP
+- modify MFA
+- modify unrelated code
+
+==================================================
+REPORT
+==================================================
+
+Return:
+
+FILES CHANGED:
+
+SCHEMA CHANGE:
+DATABASE TARGET:
+SCHEMA DIFF VERIFIED:
+
+OTP GENERATION:
+OTP STORAGE:
+OTP EXPIRY:
+
+PER-IP LIMIT:
+PER-CONTACT LIMIT:
+RESEND COOLDOWN:
+ACTIVE SESSION POLICY:
+
+PROVIDER FAILURE BEHAVIOR:
+
+FAILED ATTEMPTS:
+FIFTH-ATTEMPT BEHAVIOR:
+
+ATOMIC VERIFICATION:
+CONCURRENT VERIFICATION RESULT:
+
+REGISTRATION OTP REQUIREMENT:
+CONTACT BINDING:
+REGISTRATION PROOF CONSUMPTION:
+CONCURRENT REGISTRATION RESULT:
+
+NEW REGISTRATION:
+PENDING ROLE:
+SECONDARY ROLE:
+MULTI-ROLE REGRESSION:
+
+PASSWORD RESET REGRESSION:
+MFA REGRESSION:
+DELEGATE OTP REGRESSION:
+
+FOCUSED TESTS:
+DB CONCURRENCY TESTS:
+FULL API SUITE:
+DATABASE TYPECHECK:
+API TYPECHECK:
+FRONTEND TYPECHECK:
+BUILD/START:
+
+DATABASE MIGRATION/SCHEMA PUSH:
+FRONTEND CHANGE:
+DEPENDENCY CHANGE:
+ARCHITECTURE CHANGE:
+
+REGRESSIONS:
+REMAINING OTP RISKS:
+UNRELATED FINDINGS:
+
+DEPLOYED:
+COMMITTED:
+PUSHED:
+
+End exactly:
+
+REPLIT PHASE 2 OTP SECURITY FIX COMPLETE — AWAITING HUMAN REVIEW

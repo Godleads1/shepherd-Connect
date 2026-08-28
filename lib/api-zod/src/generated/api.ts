@@ -67,6 +67,7 @@ export const LoginResponse = zod.object({
 /**
  * @summary Register new user
  */
+
 export const RegisterBody = zod.object({
   firstName: zod.string(),
   lastName: zod.string(),
@@ -74,6 +75,7 @@ export const RegisterBody = zod.object({
   phone: zod.string().optional(),
   password: zod.string(),
   role: zod.enum(["super_admin", "admin", "teacher", "support", "parent"]),
+  otpPinId: zod.string().min(1),
 });
 
 /**

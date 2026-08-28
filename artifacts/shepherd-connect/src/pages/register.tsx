@@ -250,7 +250,7 @@ export default function Register() {
     const s2d = s2 ?? step2Data;
     try {
       const authRes = await regMutation.mutateAsync({
-        data: { firstName: step1Data.firstName, lastName: step1Data.lastName, email: step1Data.email, phone: step1Data.phone, password: step1Data.password, role: selectedRole, ...(selectedRole === "teacher" && selectedPrimaryClassId ? { primaryClassId: selectedPrimaryClassId } : {}) } as any
+        data: { firstName: step1Data.firstName, lastName: step1Data.lastName, email: step1Data.email, phone: step1Data.phone, password: step1Data.password, role: selectedRole, otpPinId, ...(selectedRole === "teacher" && selectedPrimaryClassId ? { primaryClassId: selectedPrimaryClassId } : {}) } as any
       }) as any;
 
       if (authRes.pending) {
