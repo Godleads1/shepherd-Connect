@@ -11,6 +11,12 @@ import { generateToken, authMiddleware } from "../middlewares/auth";
 import { smsWelcome, smsPendingApproval, smsPasswordResetCode, smsRegistrationOtp, emailRegistrationOtp, emailWelcome, emailPendingApproval, emailPasswordResetCode } from "../services/sms";
 import { withDbRetry } from "../lib/db-retry";
 import { getPublicRegistrationPolicy } from "../lib/registrationPolicy";
+import {
+  canonicalPendingRoles,
+  canonicalSecondaryRoles,
+  lockUserByEmail,
+  type UserRole,
+} from "../lib/roleMutations";
 
 // Tight limiter for password-reset verification — prevents brute-forcing the
 // 6-digit code (1,000,000 combinations) by capping to 5 attempts / 15 min / IP.
@@ -31,16 +37,8 @@ setInterval(async () => {
   } catch { /* non-fatal */ }
 }, 5 * 60_000);
 
-const VALID_ROLES = ["super_admin", "admin", "teacher", "support", "parent"] as const;
-type UserRole = typeof VALID_ROLES[number];
-
-function parseSecondaryRoles(raw: string | null | undefined): UserRole[] {
-  if (!raw) return [];
-  try { return JSON.parse(raw) as UserRole[]; } catch { return []; }
-}
-
 function buildUserPayload(user: typeof usersTable.$inferSelect, activeRole?: UserRole) {
-  const secondary = parseSecondaryRoles(user.secondaryRoles).filter(r => r !== user.role);
+  const secondary = canonicalSecondaryRoles(user.secondaryRoles, user.role);
   const allRoles: UserRole[] = [user.role, ...secondary];
   const role = activeRole ?? user.role;
   return {
@@ -136,7 +134,7 @@ router.post("/auth/login", async (req, res): Promise<void> => {
   }
 
   const { requestedRole } = req.body as { requestedRole?: string };
-  const secondary = parseSecondaryRoles(user.secondaryRoles).filter(r => r !== user.role);
+  const secondary = canonicalSecondaryRoles(user.secondaryRoles, user.role);
   const allRoles: UserRole[] = [user.role, ...secondary];
 
   // If user has multiple roles and no requestedRole given, ask them to pick
@@ -202,14 +200,12 @@ router.post("/auth/register", async (req, res): Promise<void> => {
         throw new RegistrationFailure(400, "Registration verification is invalid or expired.");
       }
 
-      const [existing] = await tx.select().from(usersTable).where(eq(usersTable.email, email));
+      const existing = await lockUserByEmail(tx, email);
       if (existing) {
         if (existing.role === role) throw new RegistrationFailure(409, "You already have this role");
-        const currentSecondary = parseSecondaryRoles(existing.secondaryRoles);
+        const currentSecondary = canonicalSecondaryRoles(existing.secondaryRoles, existing.role);
         if (currentSecondary.includes(role)) throw new RegistrationFailure(409, "You already have this role");
-        const currentPending: string[] = (() => {
-          try { return existing.pendingRoles ? JSON.parse(existing.pendingRoles) : []; } catch { return []; }
-        })();
+        const currentPending = canonicalPendingRoles(existing.pendingRoles);
         if (currentPending.includes(role)) {
           throw new RegistrationFailure(409, "A request for this role is already pending approval");
         }
@@ -581,7 +577,7 @@ router.post("/auth/switch-role", authMiddleware, async (req, res): Promise<void>
   const [user] = await db.select().from(usersTable).where(eq(usersTable.id, req.user!.userId));
   if (!user) { res.status(404).json({ error: "Not found", message: "User not found" }); return; }
 
-  const secondary = parseSecondaryRoles(user.secondaryRoles).filter(r => r !== user.role);
+  const secondary = canonicalSecondaryRoles(user.secondaryRoles, user.role);
   const allRoles: UserRole[] = [user.role, ...secondary];
 
   if (!allRoles.includes(requestedRole as UserRole)) {

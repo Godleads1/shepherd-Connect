@@ -4,6 +4,11 @@ import { db, teachersTable, usersTable, classesTable, notificationsTable } from 
 import { CreateTeacherBody } from "@workspace/api-zod";
 import { authMiddleware, requireRoles } from "../middlewares/auth";
 import { z } from "zod";
+import {
+  canonicalPendingRoles,
+  canonicalSecondaryRoles,
+  lockUserById,
+} from "../lib/roleMutations";
 
 const UpdateTeacherUserBody = z.object({
   firstName:      z.string().min(1).optional(),
@@ -87,12 +92,23 @@ router.post("/teachers", authMiddleware, requireRoles("super_admin", "admin"), a
   try {
     const parsed = CreateTeacherBody.safeParse(req.body);
     if (!parsed.success) { res.status(400).json({ error: "Bad request", message: parsed.error.message }); return; }
-    const [teacher] = await db.insert(teachersTable).values(parsed.data).returning();
-    // Promote the user to teacher role and activate them so they appear in all teacher
-    // dropdowns (including allocations) regardless of their original registration role.
-    await db.update(usersTable)
-      .set({ role: "teacher", isActive: true, status: "active" })
-      .where(eq(usersTable.id, parsed.data.userId));
+    const teacher = await db.transaction(async tx => {
+      const user = await lockUserById(tx, parsed.data.userId);
+      if (!user) throw new Error("Teacher user not found");
+      const [created] = await tx.insert(teachersTable).values(parsed.data).returning();
+      // Promote the user to teacher role and activate them so they appear in all teacher
+      // dropdowns (including allocations) regardless of their original registration role.
+      await tx.update(usersTable)
+        .set({
+          role: "teacher",
+          isActive: true,
+          status: "active",
+          secondaryRoles: JSON.stringify(canonicalSecondaryRoles(user.secondaryRoles, "teacher")),
+          pendingRoles: JSON.stringify(canonicalPendingRoles(user.pendingRoles)),
+        })
+        .where(eq(usersTable.id, parsed.data.userId));
+      return created;
+    });
     res.status(201).json(await formatTeacher(teacher));
   } catch (err) {
     req.log.error({ err }, "Failed to create teacher");
@@ -117,16 +133,29 @@ router.put("/teachers/:id", authMiddleware, requireRoles("super_admin", "admin")
   try {
     const id = parseInt(req.params.id as string, 10);
     if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
-    const [teacher] = await db.select().from(teachersTable).where(eq(teachersTable.id, id));
-    if (!teacher) { res.status(404).json({ error: "Not found", message: "Teacher not found" }); return; }
     const parsed = UpdateTeacherUserBody.safeParse(req.body);
     if (!parsed.success) { res.status(400).json({ error: "Bad request", message: parsed.error.message }); return; }
     const { primaryClassId, ...userUpdates } = parsed.data;
-    // Always promote to teacher role and ensure active — mirrors the POST handler.
-    const updates: Record<string, any> = { ...userUpdates, role: "teacher", isActive: true, status: "active" };
-    if (primaryClassId !== undefined) updates.primaryClassId = primaryClassId;
-    await db.update(usersTable).set(updates).where(eq(usersTable.id, teacher.userId));
-    res.json(await formatTeacher(teacher));
+    const result = await db.transaction(async tx => {
+      const [teacher] = await tx.select().from(teachersTable).where(eq(teachersTable.id, id));
+      if (!teacher) return { kind: "notFound" as const };
+      const user = await lockUserById(tx, teacher.userId);
+      if (!user) return { kind: "notFound" as const };
+      // Always promote to teacher role and ensure active — mirrors the POST handler.
+      const updates: Record<string, any> = {
+        ...userUpdates,
+        role: "teacher",
+        isActive: true,
+        status: "active",
+        secondaryRoles: JSON.stringify(canonicalSecondaryRoles(user.secondaryRoles, "teacher")),
+        pendingRoles: JSON.stringify(canonicalPendingRoles(user.pendingRoles)),
+      };
+      if (primaryClassId !== undefined) updates.primaryClassId = primaryClassId;
+      await tx.update(usersTable).set(updates).where(eq(usersTable.id, teacher.userId));
+      return { kind: "updated" as const, teacher };
+    });
+    if (result.kind === "notFound") { res.status(404).json({ error: "Not found", message: "Teacher not found" }); return; }
+    res.json(await formatTeacher(result.teacher));
   } catch (err) {
     req.log.error({ err }, "Failed to update teacher");
     res.status(500).json({ error: "Failed to update teacher" });

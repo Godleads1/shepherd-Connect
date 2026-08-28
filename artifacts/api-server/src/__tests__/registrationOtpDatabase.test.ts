@@ -18,6 +18,7 @@ vi.mock("../services/sms", () => {
 import app from "../app";
 
 const prefix = `phase2-otp-${Date.now()}-`;
+const distinctProofPhone = `+234802${String(Date.now()).slice(-7)}`;
 const emails: string[] = [];
 const email = (label: string) => { const value = `${prefix}${label}-${emails.length}@example.test`; emails.push(value); return value; };
 const body = (address: string, otpPinId?: string, role = "parent") => ({
@@ -33,6 +34,18 @@ async function verifiedProof(address: string) {
   expect(verified.status).toBe(200);
   return issued.body.pinId as string;
 }
+async function verifiedPhoneProof(phone: string) {
+  const issued = await request(app)
+    .post("/api/auth/send-otp")
+    .set("X-Forwarded-For", `198.18.7.${emails.length}`)
+    .send({ phone, channel: "sms" });
+  expect(issued.status).toBe(200);
+  const verified = await request(app)
+    .post("/api/auth/verify-otp")
+    .send({ pinId: issued.body.pinId, otp: provider.codes.get(phone) });
+  expect(verified.status).toBe(200);
+  return issued.body.pinId as string;
+}
 beforeAll(() => {
   if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is required for registration OTP database tests");
   process.env.SESSION_SECRET ??= "development-test-session-secret";
@@ -40,6 +53,7 @@ beforeAll(() => {
 afterAll(async () => {
   await db.execute(sql`DELETE FROM otp_sessions WHERE contact LIKE ${`email:${prefix}%`}`);
   await db.execute(sql`DELETE FROM otp_sessions WHERE contact = 'phone:2348012345678'`);
+  await db.execute(sql`DELETE FROM otp_sessions WHERE contact = ${`phone:${distinctProofPhone.replace(/\D/g, "").replace(/^2340?/, "234")}`}`);
   await db.execute(sql`DELETE FROM users WHERE email LIKE ${`${prefix}%`}`);
 });
 
@@ -151,5 +165,35 @@ databaseDescribe("registration OTP PostgreSQL security controls", () => {
     await db.execute(sql`INSERT INTO users (email, password_hash, first_name, last_name, role, status, is_active) VALUES (${secondaryAddress}, ${await bcrypt.hash("correct-horse-battery", 4)}, 'Phase', 'Two', 'teacher', 'active', true)`);
     expect((await request(app).post("/api/auth/register").send(body(secondaryAddress, await verifiedProof(secondaryAddress), "parent"))).status).toBe(201);
     expect((await db.execute(sql`SELECT secondary_roles FROM users WHERE email = ${secondaryAddress}`)).rows[0]).toMatchObject({ secondary_roles: '["parent"]' });
+  });
+
+  it("preserves two role requests backed by distinct verified proofs", async () => {
+    const address = email("distinct-proofs");
+    const phone = distinctProofPhone;
+    await db.execute(sql`
+      INSERT INTO users (email, phone, password_hash, first_name, last_name, role, status, is_active)
+      VALUES (${address}, ${phone}, ${await bcrypt.hash("correct-horse-battery", 4)}, 'Phase', 'Three', 'parent', 'active', true)
+    `);
+
+    const teacherProof = await verifiedProof(address);
+    const supportProof = await verifiedPhoneProof(phone);
+    const replies = await Promise.all([
+      request(app).post("/api/auth/register").send({ ...body(address, teacherProof, "teacher"), phone }),
+      request(app).post("/api/auth/register").send({ ...body(address, supportProof, "support"), phone }),
+    ]);
+
+    expect(replies.every(reply => reply.status === 201)).toBe(true);
+    const result = await db.execute(sql`
+      SELECT pending_roles
+      FROM users
+      WHERE email = ${address}
+    `);
+    expect(JSON.parse((result.rows[0] as { pending_roles: string }).pending_roles).sort()).toEqual(["support", "teacher"]);
+    const proofs = await db.execute(sql`
+      SELECT count(*)::int AS remaining
+      FROM otp_sessions
+      WHERE pin_id IN (${teacherProof}, ${supportProof})
+    `);
+    expect(proofs.rows[0]).toMatchObject({ remaining: 0 });
   });
 });

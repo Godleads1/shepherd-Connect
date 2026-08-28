@@ -6,21 +6,17 @@ import { CreateUserBody, UpdateUserBody, ListUsersQueryParams } from "@workspace
 import { authMiddleware, requireRoles } from "../middlewares/auth";
 import { bindObjectToResource } from "../lib/privateObjectAccess";
 import { smsAccountApproved, smsAccountRejected, emailAccountApproved, emailAccountRejected } from "../services/sms";
+import {
+  canonicalPendingRoles,
+  canonicalSecondaryRoles,
+  lockUserById,
+  USER_ROLES,
+  type UserRole,
+} from "../lib/roleMutations";
 
 const router = Router();
 
-const VALID_ROLES = ["super_admin", "admin", "teacher", "support", "parent"] as const;
-type UserRole = typeof VALID_ROLES[number];
-
-function parseSecondaryRoles(raw: string | null | undefined): UserRole[] {
-  if (!raw) return [];
-  try { return JSON.parse(raw) as UserRole[]; } catch { return []; }
-}
-
-function parsePendingRoles(raw: string | null | undefined): UserRole[] {
-  if (!raw) return [];
-  try { return JSON.parse(raw) as UserRole[]; } catch { return []; }
-}
+const VALID_ROLES = USER_ROLES;
 
 function sanitizeUser(
   u: typeof usersTable.$inferSelect,
@@ -45,8 +41,8 @@ function sanitizeUser(
     placeOfWork: u.placeOfWork,
     communicationPrefs: u.communicationPrefs,
     hideContactFromAdmin: isSelf ? u.hideContactFromAdmin : undefined,
-    secondaryRoles: parseSecondaryRoles(u.secondaryRoles),
-    pendingRoles: parsePendingRoles(u.pendingRoles),
+    secondaryRoles: canonicalSecondaryRoles(u.secondaryRoles, u.role),
+    pendingRoles: canonicalPendingRoles(u.pendingRoles),
     createdAt: u.createdAt,
   };
 }
@@ -116,7 +112,7 @@ router.get("/users/pending-roles", authMiddleware, requireRoles("super_admin"), 
   const allUsers = await db.select().from(usersTable);
   const withPending = allUsers
     .filter(u => u.pendingRoles && u.pendingRoles !== "[]")
-    .map(u => ({ ...sanitizeUser(u), pendingRoles: parsePendingRoles(u.pendingRoles) }))
+    .map(u => ({ ...sanitizeUser(u), pendingRoles: canonicalPendingRoles(u.pendingRoles) }))
     .filter(u => u.pendingRoles.length > 0);
   res.json({ data: withPending, total: withPending.length });
 });
@@ -139,16 +135,19 @@ router.get("/users/:id", authMiddleware, async (req, res): Promise<void> => {
 router.put("/users/:id/approve", authMiddleware, requireRoles("super_admin", "admin"), async (req, res): Promise<void> => {
   const id = parseInt(req.params.id as string, 10);
   if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
-  const [user] = await db.update(usersTable)
-    .set({ status: "active", isActive: true })
-    .where(eq(usersTable.id, id))
-    .returning();
+  const user = await db.transaction(async tx => {
+    const target = await lockUserById(tx, id);
+    if (!target) return undefined;
+    const [approved] = await tx.update(usersTable)
+      .set({ status: "active", isActive: true })
+      .where(eq(usersTable.id, id))
+      .returning();
+    if (target.role === "teacher") {
+      await tx.insert(teachersTable).values({ userId: target.id }).onConflictDoNothing();
+    }
+    return approved;
+  });
   if (!user) { res.status(404).json({ error: "Not found", message: "User not found" }); return; }
-  // Auto-create teacher profile when a teacher account is approved.
-  // Uses ON CONFLICT DO NOTHING — safe if two admins approve simultaneously.
-  if (user.role === "teacher") {
-    await db.insert(teachersTable).values({ userId: user.id }).onConflictDoNothing();
-  }
   smsAccountApproved(user.phone, user.firstName, req.log).catch(() => {});
   emailAccountApproved(user.email, user.firstName, req.log).catch(() => {});
   const viewer = { role: req.user!.role, userId: req.user!.userId };
@@ -240,7 +239,18 @@ router.put("/users/:id", authMiddleware, async (req, res): Promise<void> => {
   if (body["communicationPrefs"] !== undefined) updates.communicationPrefs = body["communicationPrefs"] as string | null;
   if (isSelf && body["hideContactFromAdmin"] !== undefined) updates.hideContactFromAdmin = Boolean(body["hideContactFromAdmin"]);
 
-  const [user] = await db.update(usersTable).set(updates).where(eq(usersTable.id, id)).returning();
+  const [user] = updates.role
+    ? await db.transaction(async tx => {
+        const locked = await lockUserById(tx, id);
+        if (!locked) return [];
+        const primaryRole = updates.role as UserRole;
+        return tx.update(usersTable).set({
+          ...updates,
+          secondaryRoles: JSON.stringify(canonicalSecondaryRoles(locked.secondaryRoles, primaryRole)),
+          pendingRoles: JSON.stringify(canonicalPendingRoles(locked.pendingRoles)),
+        }).where(eq(usersTable.id, id)).returning();
+      })
+    : await db.update(usersTable).set(updates).where(eq(usersTable.id, id)).returning();
   if (!user) { res.status(404).json({ error: "Not found", message: "User not found" }); return; }
   const viewer = { role: requesterRole, userId: requesterId };
   res.json(sanitizeUser(user, viewer));
@@ -256,31 +266,38 @@ router.post("/users/:id/reassign-role", authMiddleware, requireRoles("super_admi
   const requesterRole = req.user!.role;
   const requesterId = req.user!.userId;
 
-  const [target] = await db.select().from(usersTable).where(eq(usersTable.id, id));
-  if (!target) { res.status(404).json({ error: "Not found", message: "User not found" }); return; }
   if (requesterId === id) { res.status(400).json({ error: "Bad request", message: "Cannot reassign your own role" }); return; }
-
-  const adminAllowed = ["parent", "teacher"];
-  if (requesterRole === "admin") {
-    if (!adminAllowed.includes(target.role) || !adminAllowed.includes(role)) {
-      res.status(403).json({ error: "Forbidden", message: "Admins can only reassign between parent and teacher" }); return;
-    }
-  }
 
   const validRoles = ["super_admin", "admin", "teacher", "support", "parent"];
   if (!validRoles.includes(role)) { res.status(400).json({ error: "Bad request", message: "Invalid role" }); return; }
 
-  const [updated] = await db.update(usersTable)
-    .set({ role: role as "super_admin" | "admin" | "teacher" | "support" | "parent" })
-    .where(eq(usersTable.id, id))
-    .returning();
-
-  if (role === "teacher") {
-    const [existingTeacher] = await db.select().from(teachersTable).where(eq(teachersTable.userId, id));
-    if (!existingTeacher) await db.insert(teachersTable).values({ userId: id });
+  const result = await db.transaction(async tx => {
+    const target = await lockUserById(tx, id);
+    if (!target) return { kind: "notFound" as const };
+    const adminAllowed = ["parent", "teacher"];
+    if (requesterRole === "admin" && (!adminAllowed.includes(target.role) || !adminAllowed.includes(role))) {
+      return { kind: "forbidden" as const };
+    }
+    const primaryRole = role as UserRole;
+    const [updated] = await tx.update(usersTable)
+      .set({
+        role: primaryRole,
+        secondaryRoles: JSON.stringify(canonicalSecondaryRoles(target.secondaryRoles, primaryRole)),
+        pendingRoles: JSON.stringify(canonicalPendingRoles(target.pendingRoles)),
+      })
+      .where(eq(usersTable.id, id))
+      .returning();
+    if (role === "teacher") {
+      await tx.insert(teachersTable).values({ userId: id }).onConflictDoNothing();
+    }
+    return { kind: "updated" as const, user: updated };
+  });
+  if (result.kind === "notFound") { res.status(404).json({ error: "Not found", message: "User not found" }); return; }
+  if (result.kind === "forbidden") {
+    res.status(403).json({ error: "Forbidden", message: "Admins can only reassign between parent and teacher" }); return;
   }
 
-  res.json({ success: true, user: sanitizeUser(updated), message: `Role updated to ${role}` });
+  res.json({ success: true, user: sanitizeUser(result.user), message: `Role updated to ${role}` });
 });
 
 router.post("/users/:id/approve-role", authMiddleware, requireRoles("super_admin"), async (req, res): Promise<void> => {
@@ -292,35 +309,36 @@ router.post("/users/:id/approve-role", authMiddleware, requireRoles("super_admin
     res.status(400).json({ error: "Bad request", message: "Invalid role" }); return;
   }
 
-  const [target] = await db.select().from(usersTable).where(eq(usersTable.id, id));
-  if (!target) { res.status(404).json({ error: "Not found", message: "User not found" }); return; }
-
-  const pending = parsePendingRoles(target.pendingRoles);
-  if (!pending.includes(role as UserRole)) {
+  const result = await db.transaction(async tx => {
+    const target = await lockUserById(tx, id);
+    if (!target) return { kind: "notFound" as const };
+    const pending = canonicalPendingRoles(target.pendingRoles);
+    if (!pending.includes(role as UserRole)) return { kind: "notPending" as const };
+    const existing = canonicalSecondaryRoles(target.secondaryRoles, target.role);
+    const updatedSecondary = target.role === role || existing.includes(role as UserRole)
+      ? existing
+      : [...existing, role as UserRole];
+    const updatedPending = pending.filter(entry => entry !== role);
+    const [saved] = await tx.update(usersTable)
+      .set({ secondaryRoles: JSON.stringify(updatedSecondary), pendingRoles: JSON.stringify(updatedPending) })
+      .where(eq(usersTable.id, id))
+      .returning();
+    if (role === "teacher") {
+      await tx.insert(teachersTable).values({ userId: id }).onConflictDoNothing();
+    }
+    return { kind: "approved" as const, target, user: saved };
+  });
+  if (result.kind === "notFound") { res.status(404).json({ error: "Not found", message: "User not found" }); return; }
+  if (result.kind === "notPending") {
     res.status(400).json({ error: "Bad request", message: "This role is not pending for this user" }); return;
-  }
-
-  const existing = parseSecondaryRoles(target.secondaryRoles);
-  const updatedSecondary = existing.includes(role as UserRole) ? existing : [...existing, role as UserRole];
-  const updatedPending = pending.filter(r => r !== role);
-
-  const [saved] = await db.update(usersTable)
-    .set({ secondaryRoles: JSON.stringify(updatedSecondary), pendingRoles: JSON.stringify(updatedPending) })
-    .where(eq(usersTable.id, id))
-    .returning();
-
-  // Auto-create teacher profile when a teacher secondary role is approved.
-  // Uses ON CONFLICT DO NOTHING — safe if two super admins approve simultaneously.
-  if (role === "teacher") {
-    await db.insert(teachersTable).values({ userId: id }).onConflictDoNothing();
   }
 
   // Notify user
   const { smsAccountApproved: smsApproved, emailAccountApproved: emailApproved } = await import("../services/sms");
-  smsApproved(target.phone ?? "", target.firstName, req.log).catch(() => {});
-  emailApproved(target.email, target.firstName, req.log).catch(() => {});
+  smsApproved(result.target.phone ?? "", result.target.firstName, req.log).catch(() => {});
+  emailApproved(result.target.email, result.target.firstName, req.log).catch(() => {});
 
-  res.json({ success: true, user: sanitizeUser(saved), message: `Role ${role} approved and granted` });
+  res.json({ success: true, user: sanitizeUser(result.user), message: `Role ${role} approved and granted` });
 });
 
 router.post("/users/:id/reject-role", authMiddleware, requireRoles("super_admin"), async (req, res): Promise<void> => {
@@ -330,22 +348,27 @@ router.post("/users/:id/reject-role", authMiddleware, requireRoles("super_admin"
   const { role } = req.body as { role: string };
   if (!role) { res.status(400).json({ error: "Bad request", message: "role is required" }); return; }
 
-  const [target] = await db.select().from(usersTable).where(eq(usersTable.id, id));
-  if (!target) { res.status(404).json({ error: "Not found", message: "User not found" }); return; }
-
-  const pending = parsePendingRoles(target.pendingRoles);
-  const updatedPending = pending.filter(r => r !== role);
-
-  const [saved] = await db.update(usersTable)
-    .set({ pendingRoles: JSON.stringify(updatedPending) })
-    .where(eq(usersTable.id, id))
-    .returning();
+  const result = await db.transaction(async tx => {
+    const target = await lockUserById(tx, id);
+    if (!target) return { kind: "notFound" as const };
+    const pending = canonicalPendingRoles(target.pendingRoles);
+    const updatedPending = pending.filter(entry => entry !== role);
+    const [saved] = await tx.update(usersTable)
+      .set({
+        secondaryRoles: JSON.stringify(canonicalSecondaryRoles(target.secondaryRoles, target.role)),
+        pendingRoles: JSON.stringify(updatedPending),
+      })
+      .where(eq(usersTable.id, id))
+      .returning();
+    return { kind: "rejected" as const, target, user: saved };
+  });
+  if (result.kind === "notFound") { res.status(404).json({ error: "Not found", message: "User not found" }); return; }
 
   const { smsAccountRejected: smsRejected, emailAccountRejected: emailRejected } = await import("../services/sms");
-  smsRejected(target.phone ?? "", target.firstName, req.log).catch(() => {});
-  emailRejected(target.email, target.firstName, req.log).catch(() => {});
+  smsRejected(result.target.phone ?? "", result.target.firstName, req.log).catch(() => {});
+  emailRejected(result.target.email, result.target.firstName, req.log).catch(() => {});
 
-  res.json({ success: true, user: sanitizeUser(saved), message: `Role ${role} request rejected` });
+  res.json({ success: true, user: sanitizeUser(result.user), message: `Role ${role} request rejected` });
 });
 
 router.post("/users/:id/grant-role", authMiddleware, requireRoles("super_admin"), async (req, res): Promise<void> => {
@@ -358,16 +381,22 @@ router.post("/users/:id/grant-role", authMiddleware, requireRoles("super_admin")
     res.status(400).json({ error: "Bad request", message: "Invalid role" }); return;
   }
 
-  const [target] = await db.select().from(usersTable).where(eq(usersTable.id, id));
-  if (!target) { res.status(404).json({ error: "Not found", message: "User not found" }); return; }
-  if (target.role === role) { res.status(400).json({ error: "Bad request", message: "This is already the user's primary role" }); return; }
-
-  const existing = parseSecondaryRoles(target.secondaryRoles);
-  if (existing.includes(role as UserRole)) { res.status(400).json({ error: "Conflict", message: "User already has this secondary role" }); return; }
-
-  const updated = [...existing, role as UserRole];
-  const [saved] = await db.update(usersTable).set({ secondaryRoles: JSON.stringify(updated) }).where(eq(usersTable.id, id)).returning();
-  res.json({ success: true, user: sanitizeUser(saved), message: `Secondary role ${role} granted` });
+  const result = await db.transaction(async tx => {
+    const target = await lockUserById(tx, id);
+    if (!target) return { kind: "notFound" as const };
+    if (target.role === role) return { kind: "primary" as const };
+    const existing = canonicalSecondaryRoles(target.secondaryRoles, target.role);
+    if (existing.includes(role as UserRole)) return { kind: "duplicate" as const };
+    const [saved] = await tx.update(usersTable).set({
+      secondaryRoles: JSON.stringify([...existing, role as UserRole]),
+      pendingRoles: JSON.stringify(canonicalPendingRoles(target.pendingRoles)),
+    }).where(eq(usersTable.id, id)).returning();
+    return { kind: "granted" as const, user: saved };
+  });
+  if (result.kind === "notFound") { res.status(404).json({ error: "Not found", message: "User not found" }); return; }
+  if (result.kind === "primary") { res.status(400).json({ error: "Bad request", message: "This is already the user's primary role" }); return; }
+  if (result.kind === "duplicate") { res.status(400).json({ error: "Conflict", message: "User already has this secondary role" }); return; }
+  res.json({ success: true, user: sanitizeUser(result.user), message: `Secondary role ${role} granted` });
 });
 
 router.delete("/users/:id/grant-role/:role", authMiddleware, requireRoles("super_admin"), async (req, res): Promise<void> => {
@@ -375,13 +404,18 @@ router.delete("/users/:id/grant-role/:role", authMiddleware, requireRoles("super
   const role = req.params.role as string;
   if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
 
-  const [target] = await db.select().from(usersTable).where(eq(usersTable.id, id));
-  if (!target) { res.status(404).json({ error: "Not found", message: "User not found" }); return; }
-
-  const existing = parseSecondaryRoles(target.secondaryRoles);
-  const updated = existing.filter(r => r !== role);
-  const [saved] = await db.update(usersTable).set({ secondaryRoles: JSON.stringify(updated) }).where(eq(usersTable.id, id)).returning();
-  res.json({ success: true, user: sanitizeUser(saved), message: `Secondary role ${role} revoked` });
+  const result = await db.transaction(async tx => {
+    const target = await lockUserById(tx, id);
+    if (!target) return { kind: "notFound" as const };
+    const existing = canonicalSecondaryRoles(target.secondaryRoles, target.role);
+    const [saved] = await tx.update(usersTable).set({
+      secondaryRoles: JSON.stringify(existing.filter(entry => entry !== role)),
+      pendingRoles: JSON.stringify(canonicalPendingRoles(target.pendingRoles)),
+    }).where(eq(usersTable.id, id)).returning();
+    return { kind: "revoked" as const, user: saved };
+  });
+  if (result.kind === "notFound") { res.status(404).json({ error: "Not found", message: "User not found" }); return; }
+  res.json({ success: true, user: sanitizeUser(result.user), message: `Secondary role ${role} revoked` });
 });
 
 router.delete("/users/:id", authMiddleware, requireRoles("super_admin", "admin"), async (req, res): Promise<void> => {

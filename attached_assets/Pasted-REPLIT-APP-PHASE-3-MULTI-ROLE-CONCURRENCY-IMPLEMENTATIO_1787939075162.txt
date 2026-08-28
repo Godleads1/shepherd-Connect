@@ -1,0 +1,453 @@
+REPLIT APP — PHASE 3 MULTI-ROLE CONCURRENCY IMPLEMENTATION APPROVAL
+
+Human review complete.
+
+The Phase 3 proposal is APPROVED.
+
+Approved strategy:
+
+OPTION A — PER-USER ROW SERIALIZATION USING SELECT ... FOR UPDATE
+
+Do not redesign the role model.
+
+==================================================
+PRIMARY OBJECTIVE
+==================================================
+
+Prevent concurrent valid role mutations from:
+
+- losing another valid role
+- resurrecting a removed role
+- erasing unrelated pending roles
+- creating duplicate role entries
+- consuming valid OTP proofs without preserving the corresponding role outcome
+
+Preserve the current intentional multi-role product behavior.
+
+==================================================
+ARCHITECTURE / SCOPE CONTROLS
+==================================================
+
+Preserve:
+
+- Express
+- PostgreSQL
+- Drizzle
+- JWT authentication
+- REST API
+- current users table
+- current role fields
+- current registration workflow
+- current approval policy
+- current role switching
+- current multi-role support
+
+DO NOT:
+
+- create a normalized role table
+- add a schema migration
+- add a role-version column
+- change API contracts
+- change frontend behavior
+- add dependencies
+- redesign authorization
+- change which roles require approval
+
+==================================================
+APPROVED SOURCE SCOPE
+==================================================
+
+Approved application files:
+
+artifacts/api-server/src/routes/auth.ts
+
+artifacts/api-server/src/routes/users.ts
+
+artifacts/api-server/src/routes/teachers.ts
+
+artifacts/api-server/src/lib/roleMutations.ts
+
+Approved focused test changes:
+
+artifacts/api-server/src/__tests__/roleConcurrencyDatabase.test.ts
+
+artifacts/api-server/src/__tests__/registrationOtpDatabase.test.ts
+
+artifacts/api-server/src/__tests__/authSecurity.test.ts
+
+artifacts/api-server/src/__tests__/api.smoke.test.ts
+
+If another APPLICATION source file is required:
+
+STOP.
+
+Explain why and await approval.
+
+==================================================
+LOCKING RULE
+==================================================
+
+For every role mutation affecting an existing user:
+
+1. start or reuse a PostgreSQL transaction
+2. lock the target user row using SELECT ... FOR UPDATE
+3. only AFTER the lock:
+   - read primary role
+   - read secondary roles
+   - read pending roles
+   - run duplicate checks
+   - run current-role policy checks
+   - calculate new role state
+4. write the final canonical result
+5. commit
+6. perform notifications after commit
+
+Do not:
+
+READ role state
+→ later lock
+→ write stale state
+
+The lock must protect the decision itself, not just the final UPDATE.
+
+==================================================
+ROLE SET INVARIANTS
+==================================================
+
+Within the locked transaction, preserve canonical set-like role behavior.
+
+Required:
+
+- known role names only
+- no duplicate secondary role
+- no duplicate pending role
+- primary role must not also appear in secondary roles
+- approving one pending role removes only that pending role
+- rejecting one pending role removes only that pending role
+- granting one secondary role preserves all unrelated approved roles
+- revoking one secondary role preserves all unrelated approved roles
+- a removed role must not be resurrected by a concurrent stale writer
+
+Do not silently change role priority or approval policy.
+
+==================================================
+REGISTRATION + OTP
+==================================================
+
+Preserve Phase 2 one-proof-one-mutation semantics.
+
+For an existing user registration request:
+
+verified OTP proof
+→ consume proof inside transaction
+→ lock existing user
+→ read authoritative current role state
+→ validate current policy
+→ mutate pending/secondary role
+→ commit
+
+If the role mutation fails:
+
+the OTP proof consumption must roll back.
+
+If two distinct valid proofs simultaneously request different roles for
+the same user:
+
+both valid requests must serialize on the user row.
+
+Expected durable result:
+
+both legitimate role outcomes survive.
+
+==================================================
+ROLE APPROVAL / REJECTION
+==================================================
+
+POST /api/users/:id/approve-role
+
+must:
+
+- lock user
+- read current pending + secondary roles after lock
+- confirm requested role state using existing policy
+- add approved role once
+- remove only that role from pending
+- preserve unrelated pending roles
+- preserve unrelated approved roles
+
+POST /api/users/:id/reject-role
+
+must:
+
+- lock user
+- remove only the intended pending role
+- preserve all others
+
+Notifications must occur only after successful commit.
+
+==================================================
+GRANT / REVOKE
+==================================================
+
+POST /api/users/:id/grant-role
+
+must preserve unrelated secondary roles and avoid duplicates.
+
+DELETE /api/users/:id/grant-role/:role
+
+must remove only the specified role and must not resurrect or erase
+unrelated roles.
+
+Both must serialize on the user row.
+
+==================================================
+PRIMARY ROLE CHANGES
+==================================================
+
+For:
+
+PUT /api/users/:id
+
+POST /api/users/:id/reassign-role
+
+teacher promotion paths
+
+ensure role invariants remain consistent.
+
+If a role becomes primary:
+
+it must not remain duplicated in secondary_roles.
+
+Do not silently alter other secondary roles.
+
+Do not change current authorization policy for who may perform primary-role changes.
+
+==================================================
+TEACHER PROMOTION
+==================================================
+
+Where teacher profile creation and user role mutation belong to one logical
+operation:
+
+serialize the user role mutation with other role mutations.
+
+Do not allow concurrent role updates to leave Teacher duplicated as both:
+
+primary role
+and secondary role
+
+Do not redesign the teacher model.
+
+==================================================
+TEST-FIRST REQUIREMENT
+==================================================
+
+Before implementation, add failing DB-backed tests proving current behavior.
+
+Required scenarios:
+
+A.
+Concurrent Teacher + Support pending requests
+
+Expected final:
+both pending roles survive
+
+B.
+Concurrent Teacher + Support approved additions
+
+Expected final:
+both secondary roles survive
+
+C.
+Concurrent Support addition + Teacher removal
+
+Expected final:
+Support present
+Teacher absent
+
+D.
+Two concurrent same-role requests
+
+Expected:
+no duplicate role
+behavior matches sequential existing policy
+
+E.
+Two distinct verified OTP proofs requesting different roles
+
+Expected:
+both proofs consumed successfully only if both corresponding role mutations
+durably survive
+
+Additional required tests:
+
+- approving Teacher preserves pending Support
+- rejecting Teacher preserves pending Support
+- approving Teacher preserves existing Parent/Support roles
+- revoking Teacher preserves Support
+- role cannot be duplicated between primary and secondary
+- removed-role token becomes invalid
+- Parent/Support tokens remain valid after Teacher removal
+- role switching among remaining approved roles still works
+- existing approval policy unchanged
+- Phase 2 OTP tests remain green
+
+==================================================
+DATABASE EVIDENCE
+==================================================
+
+Run concurrency tests against DEVELOPMENT PostgreSQL using isolated synthetic
+users only.
+
+No production data.
+
+No provider traffic.
+
+For each concurrency scenario report:
+
+INITIAL STATE:
+CONCURRENT OPERATIONS:
+SUCCEEDED:
+FAILED/CONFLICTED:
+FINAL STATE:
+
+Use at least 4 simultaneous operations where useful.
+
+==================================================
+HELPER CONTROL
+==================================================
+
+A small shared helper in:
+
+artifacts/api-server/src/lib/roleMutations.ts
+
+is approved if it is limited to:
+
+- loading a user FOR UPDATE
+- parsing/canonicalizing secondary roles
+- parsing/canonicalizing pending roles
+- enforcing set-like representation
+
+Do not turn this into a new authorization framework or role service architecture.
+
+==================================================
+NO SCHEMA CHANGE
+==================================================
+
+Expected:
+
+DATABASE SCHEMA CHANGE: NONE
+
+Do not run drizzle push.
+
+Do not modify lib/db/src/schema/users.ts.
+
+If implementation proves a schema change is required:
+
+STOP.
+
+Do not implement it.
+
+==================================================
+FINAL VALIDATION
+==================================================
+
+Run:
+
+- focused role-concurrency DB tests
+- registration OTP DB tests
+- Phase 1 auth security tests
+- MFA tests
+- Phase 2 OTP tests
+- API smoke tests
+- full API suite
+- database typecheck
+- API typecheck
+- frontend typecheck
+- build/start
+- live health check
+- final diff review
+
+No provider traffic required.
+
+==================================================
+CONTROL
+==================================================
+
+Do NOT:
+
+- deploy
+- commit
+- push
+- modify production database
+- change schema
+- change secrets
+- add dependencies
+- modify MFA
+- modify password reset
+- modify delegate OTP
+- modify notification architecture
+- alter role approval policy
+
+==================================================
+FINAL REPORT
+==================================================
+
+Return:
+
+FILES CHANGED:
+
+ROLE HELPER:
+LOCKING STRATEGY:
+
+REGISTRATION LOCKING:
+OTP TRANSACTION PRESERVED:
+
+APPROVE-ROLE LOCKING:
+REJECT-ROLE LOCKING:
+GRANT-ROLE LOCKING:
+REVOKE-ROLE LOCKING:
+PRIMARY-ROLE LOCKING:
+TEACHER-PROMOTION LOCKING:
+
+ROLE SET CANONICALIZATION:
+PRIMARY/SECONDARY DUPLICATION PREVENTED:
+PENDING ROLE PRESERVATION:
+
+SCENARIO A:
+SCENARIO B:
+SCENARIO C:
+SCENARIO D:
+SCENARIO E:
+
+REMOVED ROLE TOKEN RESULT:
+REMAINING ROLE TOKEN RESULT:
+ROLE SWITCH RESULT:
+
+FOCUSED DB TESTS:
+OTP REGRESSION TESTS:
+AUTH REGRESSION TESTS:
+FULL API SUITE:
+DATABASE TYPECHECK:
+API TYPECHECK:
+FRONTEND TYPECHECK:
+BUILD/START:
+HEALTH CHECK:
+
+DATABASE SCHEMA CHANGE:
+FRONTEND CHANGE:
+API CONTRACT CHANGE:
+DEPENDENCY CHANGE:
+ARCHITECTURE CHANGE:
+
+REGRESSIONS:
+REMAINING ROLE RISKS:
+UNRELATED FINDINGS:
+
+DEPLOYED:
+COMMITTED:
+PUSHED:
+
+End exactly:
+
+REPLIT PHASE 3 MULTI-ROLE CONCURRENCY FIX COMPLETE — AWAITING HUMAN REVIEW
