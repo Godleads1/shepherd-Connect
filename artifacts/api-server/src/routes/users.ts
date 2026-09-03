@@ -1,7 +1,7 @@
 import { Router } from "express";
 import bcrypt from "bcryptjs";
 import { eq, ilike, or, and, sql } from "drizzle-orm";
-import { db, usersTable, teachersTable, pool } from "@workspace/db";
+import { db, usersTable, teachersTable, classesTable, pool } from "@workspace/db";
 import { CreateUserBody, UpdateUserBody, ListUsersQueryParams } from "@workspace/api-zod";
 import { authMiddleware, requireRoles } from "../middlewares/auth";
 import { bindObjectToResource } from "../lib/privateObjectAccess";
@@ -160,7 +160,20 @@ router.get("/users/:id", authMiddleware, async (req, res): Promise<void> => {
   const [user] = await db.select().from(usersTable).where(eq(usersTable.id, id));
   if (!user) { res.status(404).json({ error: "Not found", message: "User not found" }); return; }
   const viewer = { role: req.user!.role, userId: req.user!.userId };
-  res.json(sanitizeUser(user, viewer));
+  let primaryClass: { id: number; name: string; ageMin: number; ageMax: number } | null = null;
+  if (user.primaryClassId != null) {
+    const [assignedClass] = await db
+      .select({
+        id: classesTable.id,
+        name: classesTable.name,
+        ageMin: classesTable.ageMin,
+        ageMax: classesTable.ageMax,
+      })
+      .from(classesTable)
+      .where(eq(classesTable.id, user.primaryClassId));
+    primaryClass = assignedClass ?? null;
+  }
+  res.json({ ...sanitizeUser(user, viewer), primaryClass });
 });
 
 router.put("/users/:id/approve", authMiddleware, requireRoles("super_admin", "admin"), async (req, res): Promise<void> => {

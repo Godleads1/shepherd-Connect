@@ -22,6 +22,12 @@ vi.mock("@workspace/db", () => ({
     email: "email",
     createdAt: "createdAt",
   },
+  classesTable: {
+    id: "classId",
+    name: "className",
+    ageMin: "ageMin",
+    ageMax: "ageMax",
+  },
   teachersTable: {},
   pool: { connect: vi.fn() },
 }));
@@ -55,6 +61,7 @@ const users = [
     hideContactFromAdmin: false,
     secondaryRoles: "[]",
     pendingRoles: "[]",
+    primaryClassId: null,
     createdAt: new Date(),
     passwordHash: "must-never-leak",
     resetToken: "must-never-leak",
@@ -77,6 +84,7 @@ const users = [
     hideContactFromAdmin: false,
     secondaryRoles: "[]",
     pendingRoles: "[]",
+    primaryClassId: 7,
     createdAt: new Date(),
     passwordHash: "must-never-leak",
     resetToken: "must-never-leak",
@@ -87,10 +95,14 @@ const users = [
 let queryResult = users[0];
 
 function mockUserQueries() {
-  selectMock.mockImplementation(() => ({
-    from: vi.fn().mockReturnValue({
-      where: vi.fn().mockResolvedValue(queryResult ? [queryResult] : []),
-    }),
+  selectMock.mockImplementation((selection) => ({
+    from: vi.fn().mockImplementation(() => ({
+      where: vi.fn().mockResolvedValue(
+        selection
+          ? [{ id: 7, name: "Explorers", ageMin: 6, ageMax: 8 }]
+          : queryResult ? [queryResult] : [],
+      ),
+    })),
   }));
 }
 
@@ -153,5 +165,37 @@ describe("GET /api/users/:id object authorization", () => {
     const res = await request(app).get("/api/users/2");
     expect(res.status).toBe(200);
     expect(res.body.id).toBe(2);
+  });
+
+  it("includes the assigned class and age range on a teacher's own profile", async () => {
+    queryResult = users[1];
+    const app = await appFor("teacher", 2);
+    const res = await request(app).get("/api/users/2");
+    expect(res.status).toBe(200);
+    expect(res.body.primaryClass).toEqual({
+      id: 7,
+      name: "Explorers",
+      ageMin: 6,
+      ageMax: 8,
+    });
+  });
+
+  it("includes the assigned class when teacher access is a secondary role", async () => {
+    queryResult = {
+      ...users[1],
+      role: "parent",
+      secondaryRoles: '["teacher"]',
+    };
+    const app = await appFor("teacher", 2);
+    const res = await request(app).get("/api/users/2");
+    expect(res.status).toBe(200);
+    expect(res.body.role).toBe("parent");
+    expect(res.body.secondaryRoles).toContain("teacher");
+    expect(res.body.primaryClass).toEqual({
+      id: 7,
+      name: "Explorers",
+      ageMin: 6,
+      ageMax: 8,
+    });
   });
 });

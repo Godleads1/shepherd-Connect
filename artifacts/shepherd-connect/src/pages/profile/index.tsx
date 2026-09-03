@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
-import { User, Phone, Briefcase, Bell, Save, CheckCircle, MessageSquare, Smartphone, ShieldCheck, ShieldOff, QrCode, Loader2, KeyRound, Mail, BellRing, EyeOff, HelpCircle } from "lucide-react";
+import { User, Phone, Briefcase, Bell, Save, CheckCircle, MessageSquare, Smartphone, ShieldCheck, ShieldOff, QrCode, Loader2, KeyRound, Mail, BellRing, EyeOff, HelpCircle, School } from "lucide-react";
 import { usePushNotifications } from "@/hooks/usePushNotifications";
 import { QRCodeSVG } from "qrcode.react";
 import { PhotoUploader, SecurePhoto } from "@/components/PhotoUploader";
@@ -20,6 +20,29 @@ interface CommPrefs {
   whatsapp: boolean;
   sms: boolean;
   email: boolean;
+}
+
+interface ProfileClass {
+  id: number;
+  name: string;
+  ageMin: number;
+  ageMax: number;
+}
+
+interface ProfileData {
+  firstName?: string;
+  lastName?: string;
+  email?: string;
+  phone?: string;
+  role?: string;
+  status?: string;
+  dob?: string;
+  gender?: string;
+  placeOfWork?: string;
+  photoUrl?: string;
+  communicationPrefs?: string;
+  hideContactFromAdmin?: boolean;
+  primaryClass?: ProfileClass | null;
 }
 
 function PushToggleSection() {
@@ -352,7 +375,7 @@ export default function Profile() {
 
   const { data: profile, isLoading, isError, refetch } = useQuery({
     queryKey: ["profile", authUser?.id],
-    queryFn: () => apiGet<any>(`/users/${authUser?.id}`),
+    queryFn: () => apiGet<ProfileData>(`/users/${authUser?.id}`),
     enabled: !!authUser?.id,
   });
 
@@ -500,6 +523,33 @@ export default function Profile() {
           </Button>
         </div>
       </div>
+
+      {/* Teacher class assignment */}
+      {authUser?.role === "teacher" && (
+        <div className="bg-white border rounded-2xl p-5">
+          <h2 className="font-semibold text-gray-900 mb-1 flex items-center gap-2">
+            <School className="w-4 h-4 text-[#1e3a8a]" /> Assigned Class
+          </h2>
+          <p className="text-xs text-gray-500 mb-4">Your permanent class assignment</p>
+          {profile?.primaryClass ? (
+            <div className="rounded-xl border border-blue-200 bg-blue-50 p-4">
+              <p className="font-bold text-blue-950">{profile.primaryClass.name}</p>
+              <p className="text-sm text-blue-700 mt-0.5">
+                Ages {profile.primaryClass.ageMin}–{profile.primaryClass.ageMax}
+              </p>
+              <p className="text-xs text-blue-600 mt-2">Read-only — contact an admin to request a change.</p>
+            </div>
+          ) : (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+              <Badge className="bg-amber-100 text-amber-800 border-amber-300">Unassigned</Badge>
+              <p className="text-sm text-amber-900 mt-2">You do not have a permanent class assignment yet.</p>
+              <a href="/my-class" className="inline-flex mt-3 text-sm font-semibold text-[#1e3a8a] hover:underline">
+                Visit My Class to select a class
+              </a>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Personal Info */}
       <div className="bg-white border rounded-2xl p-5">
