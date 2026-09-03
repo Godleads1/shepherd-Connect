@@ -1,5 +1,5 @@
 import { db, usersTable } from "@workspace/db";
-import { eq, sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { logger } from "./logger";
 
 function normalizeNigerianE164(phone: string): string | null {
@@ -17,13 +17,6 @@ function normalizeNigerianE164(phone: string): string | null {
  * or silently revoking access.
  */
 export async function backfillLegacyPhoneIdentities(): Promise<void> {
-  // Explicit additive migration for existing development databases. It is
-  // idempotent and happens before webhook processing can rely on a lease.
-  await db.execute(sql`
-    ALTER TABLE bot_inbound_events
-      ADD COLUMN IF NOT EXISTS processing_started_at timestamptz NOT NULL DEFAULT NOW(),
-      ADD COLUMN IF NOT EXISTS completed_at timestamptz
-  `);
   const users = await db.select({ id: usersTable.id, phone: usersTable.phone }).from(usersTable);
   const candidates = users.flatMap(user => {
     const canonical = user.phone ? normalizeNigerianE164(user.phone) : null;
