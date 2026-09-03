@@ -1,87 +1,1015 @@
 <!doctype html>
 <html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Shepherd Connect — Phases 1–5 Security and Reliability Report</title>
-<style>
-:root{--navy:#122047;--blue:#2f4da0;--green:#087f5b;--amber:#b56a00;--red:#b42318;--ink:#182230;--muted:#667085;--line:#d8dee9;--wash:#f5f7fb;--gold:#d6a84b}*{box-sizing:border-box}body{margin:0;font-family:Inter,Segoe UI,Arial,sans-serif;color:var(--ink);background:#eef1f6;line-height:1.55}.document{max-width:980px;margin:32px auto;background:white;box-shadow:0 15px 50px #12204722}.cover{min-height:720px;padding:80px 72px;color:white;background:linear-gradient(145deg,#0f1b3d 0%,#243d86 75%,#3659b7 100%);display:flex;flex-direction:column;justify-content:center}.eyebrow{color:#f0cb79;font-weight:800;letter-spacing:.18em;text-transform:uppercase;font-size:12px}.cover h1{font-size:54px;line-height:1.05;margin:22px 0 14px}.cover h2{font-weight:500;color:#dbe5ff;margin:0;font-size:24px}.cover .rule{width:80px;height:5px;background:var(--gold);margin:34px 0}.cover-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:20px 36px;margin-top:34px;padding:26px;border:1px solid #ffffff33;border-radius:14px;background:#ffffff0d}.label{font-size:11px;text-transform:uppercase;letter-spacing:.12em;color:#aebfe9}.value{font-size:15px;font-weight:700;margin-top:3px}.content{padding:58px 72px 76px}.summary{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:24px 0 30px}.metric{padding:18px;border:1px solid var(--line);border-radius:12px;background:var(--wash)}.metric strong{display:block;font-size:25px;color:var(--blue)}.metric span{font-size:12px;color:var(--muted)}h2{color:var(--navy);font-size:28px;margin:48px 0 16px;padding-bottom:9px;border-bottom:3px solid var(--blue)}h3{font-size:19px;color:var(--blue);margin:28px 0 10px}p{margin:8px 0 14px}ul{margin:8px 0 18px;padding-left:22px}li{margin:5px 0}.callout{padding:18px 20px;border-left:5px solid var(--blue);background:#eef3ff;border-radius:7px;margin:20px 0}.callout.good{border-color:var(--green);background:#ecfdf5}.callout.warn{border-color:var(--amber);background:#fff8e7}.callout.danger{border-color:var(--red);background:#fff1f0}.pill{display:inline-block;border-radius:999px;padding:4px 10px;font-size:11px;font-weight:800;letter-spacing:.04em}.pass{background:#dff7eb;color:#05603f}.limited{background:#fff0c7;color:#805000}.phase{border:1px solid var(--line);border-radius:14px;margin:22px 0;overflow:hidden}.phase-head{padding:18px 22px;background:var(--navy);color:white;display:flex;justify-content:space-between;gap:15px;align-items:center}.phase-head h3{color:white;margin:0;font-size:21px}.phase-body{padding:22px}.grid2{display:grid;grid-template-columns:1fr 1fr;gap:22px}.data{width:100%;border-collapse:collapse;margin:15px 0;font-size:13px}.data th{background:var(--navy);color:white;text-align:left;padding:10px}.data td{border:1px solid var(--line);padding:9px;vertical-align:top}.data tr:nth-child(even) td{background:#f8fafc}.checklist li::marker{color:var(--green)}code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;background:#f1f3f8;padding:2px 5px;border-radius:4px;font-size:.92em}.files{columns:2;column-gap:28px;font-size:12px}.files li{break-inside:avoid;margin-bottom:7px}.footer{margin-top:52px;padding-top:18px;border-top:1px solid var(--line);color:var(--muted);font-size:12px}.small{font-size:12px;color:var(--muted)}@media(max-width:720px){.document{margin:0}.cover,.content{padding:42px 26px}.cover h1{font-size:39px}.summary,.grid2,.cover-grid{grid-template-columns:1fr}.files{columns:1}}@media print{body{background:white}.document{margin:0;max-width:none;box-shadow:none}.phase{break-inside:avoid}.cover{min-height:100vh;page-break-after:always}h2{break-after:avoid}}
-</style>
-</head>
-<body><main class="document">
-<section class="cover">
-<div class="eyebrow">Security, Integrity &amp; Operational Reliability</div>
-<h1>Shepherd Connect</h1>
-<h2>Consolidated Phase 1–5 Implementation Report</h2>
-<div class="rule"></div>
-<p>Authoritative authentication, OTP security, multi-role concurrency, attendance/offline integrity, and durable notification delivery.</p>
-<div class="cover-grid">
-<div><div class="label">Report date</div><div class="value">3 September 2026</div></div>
-<div><div class="label">Environment verified</div><div class="value">Development only</div></div>
-<div><div class="label">Implementation status</div><div class="value">Phases 1–5 complete</div></div>
-<div><div class="label">Release status</div><div class="value">Awaiting human review</div></div>
-<div><div class="label">Production changes</div><div class="value">None</div></div>
-<div><div class="label">Architecture review</div><div class="value">PASS — approved scope</div></div>
-</div>
-</section>
-<section class="content">
-<h2>Executive summary</h2>
-<p>The five approved remediation phases were implemented while preserving the existing React, Express, PostgreSQL, Drizzle, REST, JWT, and deployment architecture. The work closes the approved high-risk gaps at the authentication boundary, registration OTP boundary, role-mutation boundary, attendance/offline boundary, and notification/SSE boundary.</p>
-<div class="summary">
-<div class="metric"><strong>5 / 5</strong><span>approved phases completed</span></div>
-<div class="metric"><strong>193 / 193</strong><span>full development DB gate tests passed</span></div>
-<div class="metric"><strong>PASS</strong><span>final scoped architecture/security review</span></div>
-<div class="metric"><strong>0</strong><span>synthetic test rows remaining</span></div>
-</div>
-<div class="callout good"><strong>Current result.</strong> Required domain mutations and delivery intents now commit atomically; external provider calls happen after commit; offline attendance replay is user-bound and idempotent; role and OTP races serialize safely; SSE URLs contain no bearer JWT.</div>
-<div class="callout warn"><strong>Release boundary.</strong> The Phase 5 database schema was applied only to the development PostgreSQL database. No production database change, deployment, commit, push, dependency addition, secret change, or paid provider call was performed.</div>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Shepherd Connect — Phases 1–5 Security and Reliability Report</title>
+    <style>
+      :root {
+        --navy: #122047;
+        --blue: #2f4da0;
+        --green: #087f5b;
+        --amber: #b56a00;
+        --red: #b42318;
+        --ink: #182230;
+        --muted: #667085;
+        --line: #d8dee9;
+        --wash: #f5f7fb;
+        --gold: #d6a84b;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        font-family:
+          Inter,
+          Segoe UI,
+          Arial,
+          sans-serif;
+        color: var(--ink);
+        background: #eef1f6;
+        line-height: 1.55;
+      }
+      .document {
+        max-width: 980px;
+        margin: 32px auto;
+        background: white;
+        box-shadow: 0 15px 50px #12204722;
+      }
+      .cover {
+        min-height: 720px;
+        padding: 80px 72px;
+        color: white;
+        background: linear-gradient(
+          145deg,
+          #0f1b3d 0%,
+          #243d86 75%,
+          #3659b7 100%
+        );
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+      }
+      .eyebrow {
+        color: #f0cb79;
+        font-weight: 800;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        font-size: 12px;
+      }
+      .cover h1 {
+        font-size: 54px;
+        line-height: 1.05;
+        margin: 22px 0 14px;
+      }
+      .cover h2 {
+        font-weight: 500;
+        color: #dbe5ff;
+        margin: 0;
+        font-size: 24px;
+      }
+      .cover .rule {
+        width: 80px;
+        height: 5px;
+        background: var(--gold);
+        margin: 34px 0;
+      }
+      .cover-grid {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 20px 36px;
+        margin-top: 34px;
+        padding: 26px;
+        border: 1px solid #ffffff33;
+        border-radius: 14px;
+        background: #ffffff0d;
+      }
+      .label {
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+        color: #aebfe9;
+      }
+      .value {
+        font-size: 15px;
+        font-weight: 700;
+        margin-top: 3px;
+      }
+      .content {
+        padding: 58px 72px 76px;
+      }
+      .summary {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 14px;
+        margin: 24px 0 30px;
+      }
+      .metric {
+        padding: 18px;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: var(--wash);
+      }
+      .metric strong {
+        display: block;
+        font-size: 25px;
+        color: var(--blue);
+      }
+      .metric span {
+        font-size: 12px;
+        color: var(--muted);
+      }
+      h2 {
+        color: var(--navy);
+        font-size: 28px;
+        margin: 48px 0 16px;
+        padding-bottom: 9px;
+        border-bottom: 3px solid var(--blue);
+      }
+      h3 {
+        font-size: 19px;
+        color: var(--blue);
+        margin: 28px 0 10px;
+      }
+      p {
+        margin: 8px 0 14px;
+      }
+      ul {
+        margin: 8px 0 18px;
+        padding-left: 22px;
+      }
+      li {
+        margin: 5px 0;
+      }
+      .callout {
+        padding: 18px 20px;
+        border-left: 5px solid var(--blue);
+        background: #eef3ff;
+        border-radius: 7px;
+        margin: 20px 0;
+      }
+      .callout.good {
+        border-color: var(--green);
+        background: #ecfdf5;
+      }
+      .callout.warn {
+        border-color: var(--amber);
+        background: #fff8e7;
+      }
+      .callout.danger {
+        border-color: var(--red);
+        background: #fff1f0;
+      }
+      .pill {
+        display: inline-block;
+        border-radius: 999px;
+        padding: 4px 10px;
+        font-size: 11px;
+        font-weight: 800;
+        letter-spacing: 0.04em;
+      }
+      .pass {
+        background: #dff7eb;
+        color: #05603f;
+      }
+      .limited {
+        background: #fff0c7;
+        color: #805000;
+      }
+      .phase {
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        margin: 22px 0;
+        overflow: hidden;
+      }
+      .phase-head {
+        padding: 18px 22px;
+        background: var(--navy);
+        color: white;
+        display: flex;
+        justify-content: space-between;
+        gap: 15px;
+        align-items: center;
+      }
+      .phase-head h3 {
+        color: white;
+        margin: 0;
+        font-size: 21px;
+      }
+      .phase-body {
+        padding: 22px;
+      }
+      .grid2 {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 22px;
+      }
+      .data {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 15px 0;
+        font-size: 13px;
+      }
+      .data th {
+        background: var(--navy);
+        color: white;
+        text-align: left;
+        padding: 10px;
+      }
+      .data td {
+        border: 1px solid var(--line);
+        padding: 9px;
+        vertical-align: top;
+      }
+      .data tr:nth-child(even) td {
+        background: #f8fafc;
+      }
+      .checklist li::marker {
+        color: var(--green);
+      }
+      code {
+        font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+        background: #f1f3f8;
+        padding: 2px 5px;
+        border-radius: 4px;
+        font-size: 0.92em;
+      }
+      .files {
+        columns: 2;
+        column-gap: 28px;
+        font-size: 12px;
+      }
+      .files li {
+        break-inside: avoid;
+        margin-bottom: 7px;
+      }
+      .footer {
+        margin-top: 52px;
+        padding-top: 18px;
+        border-top: 1px solid var(--line);
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .small {
+        font-size: 12px;
+        color: var(--muted);
+      }
+      @media (max-width: 720px) {
+        .document {
+          margin: 0;
+        }
+        .cover,
+        .content {
+          padding: 42px 26px;
+        }
+        .cover h1 {
+          font-size: 39px;
+        }
+        .summary,
+        .grid2,
+        .cover-grid {
+          grid-template-columns: 1fr;
+        }
+        .files {
+          columns: 1;
+        }
+      }
+      @media print {
+        body {
+          background: white;
+        }
+        .document {
+          margin: 0;
+          max-width: none;
+          box-shadow: none;
+        }
+        .phase {
+          break-inside: avoid;
+        }
+        .cover {
+          min-height: 100vh;
+          page-break-after: always;
+        }
+        h2 {
+          break-after: avoid;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="document">
+      <section class="cover">
+        <div class="eyebrow">
+          Security, Integrity &amp; Operational Reliability
+        </div>
+        <h1>Shepherd Connect</h1>
+        <h2>Consolidated Phase 1–5 Implementation Report</h2>
+        <div class="rule"></div>
+        <p>
+          Authoritative authentication, OTP security, multi-role concurrency,
+          attendance/offline integrity, and durable notification delivery.
+        </p>
+        <div class="cover-grid">
+          <div>
+            <div class="label">Report date</div>
+            <div class="value">3 September 2026</div>
+          </div>
+          <div>
+            <div class="label">Environment verified</div>
+            <div class="value">Development only</div>
+          </div>
+          <div>
+            <div class="label">Implementation status</div>
+            <div class="value">Phases 1–5 complete</div>
+          </div>
+          <div>
+            <div class="label">Release status</div>
+            <div class="value">Awaiting human review</div>
+          </div>
+          <div>
+            <div class="label">Production changes</div>
+            <div class="value">None</div>
+          </div>
+          <div>
+            <div class="label">Architecture review</div>
+            <div class="value">PASS — approved scope</div>
+          </div>
+        </div>
+      </section>
+      <section class="content">
+        <h2>Executive summary</h2>
+        <p>
+          The five approved remediation phases were implemented while preserving
+          the existing React, Express, PostgreSQL, Drizzle, REST, JWT, and
+          deployment architecture. The work closes the approved high-risk gaps
+          at the authentication boundary, registration OTP boundary,
+          role-mutation boundary, attendance/offline boundary, and
+          notification/SSE boundary.
+        </p>
+        <div class="summary">
+          <div class="metric">
+            <strong>5 / 5</strong><span>approved phases completed</span>
+          </div>
+          <div class="metric">
+            <strong>193 / 193</strong
+            ><span>full development DB gate tests passed</span>
+          </div>
+          <div class="metric">
+            <strong>PASS</strong
+            ><span>final scoped architecture/security review</span>
+          </div>
+          <div class="metric">
+            <strong>0</strong><span>synthetic test rows remaining</span>
+          </div>
+        </div>
+        <div class="callout good">
+          <strong>Current result.</strong> Required domain mutations and
+          delivery intents now commit atomically; external provider calls happen
+          after commit; offline attendance replay is user-bound and idempotent;
+          role and OTP races serialize safely; SSE URLs contain no bearer JWT.
+        </div>
+        <div class="callout warn">
+          <strong>Release boundary.</strong> The Phase 5 database schema was
+          applied only to the development PostgreSQL database. No production
+          database change, deployment, commit, push, dependency addition, secret
+          change, or paid provider call was performed.
+        </div>
 
-<h2>Phase-by-phase implementation</h2>
-<div class="phase"><div class="phase-head"><h3>Phase 1 — Authentication boundary and user-record privacy</h3><span class="pill pass">COMPLETE</span></div><div class="phase-body">
-<div class="grid2"><div><h3>Implemented</h3><ul class="checklist"><li>JWT signature and expiry remain intact, followed by a current PostgreSQL user lookup.</li><li>Deleted, inactive, suspended, rejected, or otherwise disallowed accounts are rejected immediately.</li><li>The selected role in the token must still belong to the current primary or secondary role set.</li><li>The request principal is rebuilt from authoritative database state.</li><li><code>GET /api/users/:id</code> permits self, admin, and super admin access; unauthorized cross-user access is concealed as the same 404 shape used for absent records.</li><li>The predictable session-secret fallback was removed; missing configuration fails closed without generating, printing, or mutating a secret.</li></ul></div><div><h3>Preserved</h3><ul><li>Existing JWT format and 24-hour expiry.</li><li>Current-device logout and role switching.</li><li>Existing frontend token handling and sanitized user responses.</li><li>No schema, frontend, dependency, API, or deployment redesign.</li></ul></div></div>
-<p class="small"><strong>Accepted limitation:</strong> Phase 1 intentionally did not make password change/reset revoke an otherwise valid token. A separate account-security/session-invalidation task remains appropriate.</p>
-</div></div>
+        <h2>Phase-by-phase implementation</h2>
+        <div class="phase">
+          <div class="phase-head">
+            <h3>Phase 1 — Authentication boundary and user-record privacy</h3>
+            <span class="pill pass">COMPLETE</span>
+          </div>
+          <div class="phase-body">
+            <div class="grid2">
+              <div>
+                <h3>Implemented</h3>
+                <ul class="checklist">
+                  <li>
+                    JWT signature and expiry remain intact, followed by a
+                    current PostgreSQL user lookup.
+                  </li>
+                  <li>
+                    Deleted, inactive, suspended, rejected, or otherwise
+                    disallowed accounts are rejected immediately.
+                  </li>
+                  <li>
+                    The selected role in the token must still belong to the
+                    current primary or secondary role set.
+                  </li>
+                  <li>
+                    The request principal is rebuilt from authoritative database
+                    state.
+                  </li>
+                  <li>
+                    <code>GET /api/users/:id</code> permits self, admin, and
+                    super admin access; unauthorized cross-user access is
+                    concealed as the same 404 shape used for absent records.
+                  </li>
+                  <li>
+                    The predictable session-secret fallback was removed; missing
+                    configuration fails closed without generating, printing, or
+                    mutating a secret.
+                  </li>
+                </ul>
+              </div>
+              <div>
+                <h3>Preserved</h3>
+                <ul>
+                  <li>Existing JWT format and 24-hour expiry.</li>
+                  <li>Current-device logout and role switching.</li>
+                  <li>
+                    Existing frontend token handling and sanitized user
+                    responses.
+                  </li>
+                  <li>
+                    No schema, frontend, dependency, API, or deployment
+                    redesign.
+                  </li>
+                </ul>
+              </div>
+            </div>
+            <p class="small">
+              <strong>Accepted limitation:</strong> Phase 1 intentionally did
+              not make password change/reset revoke an otherwise valid token. A
+              separate account-security/session-invalidation task remains
+              appropriate.
+            </p>
+          </div>
+        </div>
 
-<div class="phase"><div class="phase-head"><h3>Phase 2 — Registration OTP security and abuse prevention</h3><span class="pill pass">COMPLETE</span></div><div class="phase-body">
-<ul class="checklist"><li>Six-digit registration OTPs use cryptographic randomness.</li><li>Stored OTP values are versioned, domain-separated HMAC digests; plaintext legacy rows fail closed.</li><li>Email and phone proofs are canonicalized and bound to the exact typed contact being registered.</li><li>Issuance limits are enforced per IP, per contact, with a resend cooldown and one active OTP per contact.</li><li>Five durable failed attempts exhaust an OTP session.</li><li>Verification is an atomic PostgreSQL transition using database time; one concurrent correct verification can win.</li><li>Registration requires a verified server-side <code>otpPinId</code>, consumed in the same transaction as the user/role mutation.</li><li>Rollback preserves a proof when the registration mutation fails; concurrent proof reuse yields at most one registration mutation.</li><li>Provider failures return bounded generic responses without leaking OTPs or provider internals.</li></ul>
-<table class="data"><tr><th>Control</th><th>Enforced policy</th></tr><tr><td>Validity</td><td>10 minutes, evaluated with PostgreSQL time</td></tr><tr><td>Per-IP issuance</td><td>10 requests per 15 minutes</td></tr><tr><td>Per-contact issuance</td><td>5 attempts per rolling hour</td></tr><tr><td>Resend cooldown</td><td>60 seconds</td></tr><tr><td>Verification attempts</td><td>Maximum 5 failed attempts</td></tr></table>
-<p class="small">Password-reset, MFA, and delegate/pickup OTP behavior were intentionally preserved outside this phase.</p>
-</div></div>
+        <div class="phase">
+          <div class="phase-head">
+            <h3>Phase 2 — Registration OTP security and abuse prevention</h3>
+            <span class="pill pass">COMPLETE</span>
+          </div>
+          <div class="phase-body">
+            <ul class="checklist">
+              <li>Six-digit registration OTPs use cryptographic randomness.</li>
+              <li>
+                Stored OTP values are versioned, domain-separated HMAC digests;
+                plaintext legacy rows fail closed.
+              </li>
+              <li>
+                Email and phone proofs are canonicalized and bound to the exact
+                typed contact being registered.
+              </li>
+              <li>
+                Issuance limits are enforced per IP, per contact, with a resend
+                cooldown and one active OTP per contact.
+              </li>
+              <li>Five durable failed attempts exhaust an OTP session.</li>
+              <li>
+                Verification is an atomic PostgreSQL transition using database
+                time; one concurrent correct verification can win.
+              </li>
+              <li>
+                Registration requires a verified server-side
+                <code>otpPinId</code>, consumed in the same transaction as the
+                user/role mutation.
+              </li>
+              <li>
+                Rollback preserves a proof when the registration mutation fails;
+                concurrent proof reuse yields at most one registration mutation.
+              </li>
+              <li>
+                Provider failures return bounded generic responses without
+                leaking OTPs or provider internals.
+              </li>
+            </ul>
+            <table class="data">
+              <tr>
+                <th>Control</th>
+                <th>Enforced policy</th>
+              </tr>
+              <tr>
+                <td>Validity</td>
+                <td>10 minutes, evaluated with PostgreSQL time</td>
+              </tr>
+              <tr>
+                <td>Per-IP issuance</td>
+                <td>10 requests per 15 minutes</td>
+              </tr>
+              <tr>
+                <td>Per-contact issuance</td>
+                <td>5 attempts per rolling hour</td>
+              </tr>
+              <tr>
+                <td>Resend cooldown</td>
+                <td>60 seconds</td>
+              </tr>
+              <tr>
+                <td>Verification attempts</td>
+                <td>Maximum 5 failed attempts</td>
+              </tr>
+            </table>
+            <p class="small">
+              Password-reset, MFA, and delegate/pickup OTP behavior were
+              intentionally preserved outside this phase.
+            </p>
+          </div>
+        </div>
 
-<div class="phase"><div class="phase-head"><h3>Phase 3 — Multi-role concurrency and role integrity</h3><span class="pill pass">COMPLETE</span></div><div class="phase-body">
-<ul class="checklist"><li>All existing-user role decisions lock the target user row with <code>SELECT ... FOR UPDATE</code> before reading role state.</li><li>Primary, secondary, and pending role sets are calculated from locked authoritative state.</li><li>Role values are canonicalized with set semantics: no duplicate secondary/pending roles and no primary/secondary duplication.</li><li>Approving or rejecting one pending role preserves unrelated pending and approved roles.</li><li>Grant, revoke, primary-role change, reassignment, teacher promotion, and registration role paths serialize on the same user row.</li><li>Two distinct valid OTP proofs requesting different roles can both succeed without losing either durable outcome.</li><li>A removed-role token is rejected while tokens for remaining roles continue to work.</li></ul>
-<div class="callout"><strong>Architecture retained.</strong> No normalized role table, role-version column, schema migration, API-contract change, frontend change, or authorization redesign was introduced.</div>
-</div></div>
+        <div class="phase">
+          <div class="phase-head">
+            <h3>Phase 3 — Multi-role concurrency and role integrity</h3>
+            <span class="pill pass">COMPLETE</span>
+          </div>
+          <div class="phase-body">
+            <ul class="checklist">
+              <li>
+                All existing-user role decisions lock the target user row with
+                <code>SELECT ... FOR UPDATE</code> before reading role state.
+              </li>
+              <li>
+                Primary, secondary, and pending role sets are calculated from
+                locked authoritative state.
+              </li>
+              <li>
+                Role values are canonicalized with set semantics: no duplicate
+                secondary/pending roles and no primary/secondary duplication.
+              </li>
+              <li>
+                Approving or rejecting one pending role preserves unrelated
+                pending and approved roles.
+              </li>
+              <li>
+                Grant, revoke, primary-role change, reassignment, teacher
+                promotion, and registration role paths serialize on the same
+                user row.
+              </li>
+              <li>
+                Two distinct valid OTP proofs requesting different roles can
+                both succeed without losing either durable outcome.
+              </li>
+              <li>
+                A removed-role token is rejected while tokens for remaining
+                roles continue to work.
+              </li>
+            </ul>
+            <div class="callout">
+              <strong>Architecture retained.</strong> No normalized role table,
+              role-version column, schema migration, API-contract change,
+              frontend change, or authorization redesign was introduced.
+            </div>
+          </div>
+        </div>
 
-<div class="phase"><div class="phase-head"><h3>Phase 4 — Attendance and offline integrity</h3><span class="pill pass">COMPLETE</span></div><div class="phase-body">
-<div class="grid2"><div><h3>Attendance transitions</h3><ul class="checklist"><li>Check-in, escort, arrival, checkout, staff checkpoint, clock-out, and emergency-out are idempotent under retries and concurrency.</li><li>Only the winning conditional transition writes timestamps/actors and produces side effects.</li><li>Exact retries return the authoritative existing result without rewriting provenance.</li><li>Intentional same-day multi-service behavior is preserved while opposing active slots remain blocked.</li><li>Attendance-specific event identity distinguishes a retry from a legitimate new check-in after pickup.</li></ul></div><div><h3>Offline safety</h3><ul class="checklist"><li>Queues are partitioned by authenticated user ID and cleared according to logout policy.</li><li>Account switching never reassigns one user’s queued events to another.</li><li>Every sync revalidates current account, role, and object authorization.</li><li>Events older than 24 hours or outside the authoritative WAT service date are rejected.</li><li>Event type is dispatched explicitly; checkout data cannot replay as check-in.</li><li>Queued check-ins retain <code>attendant</code> provenance.</li></ul></div></div>
-<p>Implicit service dates, Sundays, and weekday calculations use Africa/Lagos authority across the relevant frontend and backend attendance flows. PostgreSQL concurrency tests run automatically through the development database gate.</p>
-</div></div>
+        <div class="phase">
+          <div class="phase-head">
+            <h3>Phase 4 — Attendance and offline integrity</h3>
+            <span class="pill pass">COMPLETE</span>
+          </div>
+          <div class="phase-body">
+            <div class="grid2">
+              <div>
+                <h3>Attendance transitions</h3>
+                <ul class="checklist">
+                  <li>
+                    Check-in, escort, arrival, checkout, staff checkpoint,
+                    clock-out, and emergency-out are idempotent under retries
+                    and concurrency.
+                  </li>
+                  <li>
+                    Only the winning conditional transition writes
+                    timestamps/actors and produces side effects.
+                  </li>
+                  <li>
+                    Exact retries return the authoritative existing result
+                    without rewriting provenance.
+                  </li>
+                  <li>
+                    Intentional same-day multi-service behavior is preserved
+                    while opposing active slots remain blocked.
+                  </li>
+                  <li>
+                    Attendance-specific event identity distinguishes a retry
+                    from a legitimate new check-in after pickup.
+                  </li>
+                </ul>
+              </div>
+              <div>
+                <h3>Offline safety</h3>
+                <ul class="checklist">
+                  <li>
+                    Queues are partitioned by authenticated user ID and cleared
+                    according to logout policy.
+                  </li>
+                  <li>
+                    Account switching never reassigns one user’s queued events
+                    to another.
+                  </li>
+                  <li>
+                    Every sync revalidates current account, role, and object
+                    authorization.
+                  </li>
+                  <li>
+                    Events older than 24 hours or outside the authoritative WAT
+                    service date are rejected.
+                  </li>
+                  <li>
+                    Event type is dispatched explicitly; checkout data cannot
+                    replay as check-in.
+                  </li>
+                  <li>
+                    Queued check-ins retain <code>attendant</code> provenance.
+                  </li>
+                </ul>
+              </div>
+            </div>
+            <p>
+              Implicit service dates, Sundays, and weekday calculations use
+              Africa/Lagos authority across the relevant frontend and backend
+              attendance flows. PostgreSQL concurrency tests run automatically
+              through the development database gate.
+            </p>
+          </div>
+        </div>
 
-<div class="phase"><div class="phase-head"><h3>Phase 5 — Notification outbox, SSE, and operational reliability</h3><span class="pill pass">COMPLETE</span></div><div class="phase-body">
-<h3>Transactional notification outbox</h3><ul class="checklist"><li>PostgreSQL is the sole delivery coordination mechanism; no broker or new dependency was added.</li><li>The existing <code>notifications</code> table remains the authoritative user-visible in-app projection.</li><li>For required consequences, domain mutation, in-app projection, and external delivery intent commit in one PostgreSQL transaction.</li><li>Provider calls always happen outside the domain transaction; provider failure cannot roll back committed domain state.</li><li>One outbox row represents one logical notification, recipient, channel, and template generation.</li><li>A PostgreSQL unique logical key enforces deduplication, including late-pickup reruns.</li><li>Attendance parent intents use WhatsApp, SMS, and email; teacher intents use WhatsApp only.</li><li>WhatsApp remains preference-gated. Required SMS/email behavior is preserved when communication preferences are absent.</li></ul>
-<h3>Worker correctness</h3><ul class="checklist"><li>Eligible rows are claimed with <code>FOR UPDATE SKIP LOCKED</code>, an unpredictable claim token, and a bounded lease.</li><li>A stale worker cannot finalize a row after lease expiry and reclaim.</li><li>Clearly retryable failures use a bounded five-attempt schedule of approximately 30 seconds, 2 minutes, 10 minutes, 30 minutes, and 2 hours.</li><li>Ambiguous post-submission outcomes become terminal <code>uncertain</code>; they are not blindly retried or switched to another provider.</li><li><code>accepted</code> means provider submission acceptance, never handset/inbox delivery.</li><li>Failures are classified, redacted, and bounded; operational history exposes attempts, next retry, provider acceptance, uncertainty, and safe-to-retry state.</li><li>Legacy WhatsApp pending rows migrate idempotently before worker startup: unclaimed work becomes pending; previously claimed unfinished work becomes uncertain.</li></ul>
-<table class="data"><tr><th>State</th><th>Meaning</th></tr><tr><td>pending / processing / retryable</td><td>Active coordination states; only retryable failures are scheduled again.</td></tr><tr><td>accepted</td><td>Provider accepted/submitted the request; final delivery is not asserted.</td></tr><tr><td>uncertain</td><td>Provider may have accepted before connection loss; automatic delivery stops.</td></tr><tr><td>skipped</td><td>Delivery is intentionally not attempted, such as missing contact or disabled preference.</td></tr><tr><td>dead_letter</td><td>Retry budget exhausted or permanent processing failure.</td></tr></table>
-<h3>SSE credential hardening</h3><ul class="checklist"><li>The normal bearer JWT is removed from the EventSource URL.</li><li>An authenticated POST mints a short-lived, purpose-bound one-time ticket; only its SHA-256 hash is stored.</li><li>The ticket is bound to user, selected role, purpose, expiry, and consumed state.</li><li>The ticket is transmitted in an HttpOnly, SameSite Strict cookie scoped to <code>/api/events</code>; Secure is enabled for production HTTPS.</li><li>GET redemption atomically consumes the ticket and revalidates current user/account/role state.</li><li>Streams are bounded to five minutes. Every reconnect closes the prior EventSource, mints a fresh ticket, opens a token-free URL, and refetches authoritative state.</li><li>SSE remains an invalidation hint; no replay or Last-Event-ID durability was introduced.</li></ul>
-<h3>Lifecycle and operational controls</h3><ul class="checklist"><li>Empty broadcast and pre-dismissal audiences do not consume the 60-second send lock.</li><li>Unsupported SMS/email broadcast requests fail explicitly rather than being silently skipped.</li><li>Terminal outbox coordination records are retained for 90 days.</li><li>Expired or consumed SSE tickets are retained for one day.</li><li>Phase 5 user references are removed before notification/user deletion, preventing the new outbox and ticket FKs from introducing a deletion regression.</li></ul>
-</div></div>
+        <div class="phase">
+          <div class="phase-head">
+            <h3>
+              Phase 5 — Notification outbox, SSE, and operational reliability
+            </h3>
+            <span class="pill pass">COMPLETE</span>
+          </div>
+          <div class="phase-body">
+            <h3>Transactional notification outbox</h3>
+            <ul class="checklist">
+              <li>
+                PostgreSQL is the sole delivery coordination mechanism; no
+                broker or new dependency was added.
+              </li>
+              <li>
+                The existing <code>notifications</code> table remains the
+                authoritative user-visible in-app projection.
+              </li>
+              <li>
+                For required consequences, domain mutation, in-app projection,
+                and external delivery intent commit in one PostgreSQL
+                transaction.
+              </li>
+              <li>
+                Provider calls always happen outside the domain transaction;
+                provider failure cannot roll back committed domain state.
+              </li>
+              <li>
+                One outbox row represents one logical notification, recipient,
+                channel, and template generation.
+              </li>
+              <li>
+                A PostgreSQL unique logical key enforces deduplication,
+                including late-pickup reruns.
+              </li>
+              <li>
+                Attendance parent intents use WhatsApp, SMS, and email; teacher
+                intents use WhatsApp only.
+              </li>
+              <li>
+                WhatsApp remains preference-gated. Required SMS/email behavior
+                is preserved when communication preferences are absent.
+              </li>
+            </ul>
+            <h3>Worker correctness</h3>
+            <ul class="checklist">
+              <li>
+                Eligible rows are claimed with
+                <code>FOR UPDATE SKIP LOCKED</code>, an unpredictable claim
+                token, and a bounded lease.
+              </li>
+              <li>
+                A stale worker cannot finalize a row after lease expiry and
+                reclaim.
+              </li>
+              <li>
+                Clearly retryable failures use a bounded five-attempt schedule
+                of approximately 30 seconds, 2 minutes, 10 minutes, 30 minutes,
+                and 2 hours.
+              </li>
+              <li>
+                Ambiguous post-submission outcomes become terminal
+                <code>uncertain</code>; they are not blindly retried or switched
+                to another provider.
+              </li>
+              <li>
+                <code>accepted</code> means provider submission acceptance,
+                never handset/inbox delivery.
+              </li>
+              <li>
+                Failures are classified, redacted, and bounded; operational
+                history exposes attempts, next retry, provider acceptance,
+                uncertainty, and safe-to-retry state.
+              </li>
+              <li>
+                Legacy WhatsApp pending rows migrate idempotently before worker
+                startup: unclaimed work becomes pending; previously claimed
+                unfinished work becomes uncertain.
+              </li>
+            </ul>
+            <table class="data">
+              <tr>
+                <th>State</th>
+                <th>Meaning</th>
+              </tr>
+              <tr>
+                <td>pending / processing / retryable</td>
+                <td>
+                  Active coordination states; only retryable failures are
+                  scheduled again.
+                </td>
+              </tr>
+              <tr>
+                <td>accepted</td>
+                <td>
+                  Provider accepted/submitted the request; final delivery is not
+                  asserted.
+                </td>
+              </tr>
+              <tr>
+                <td>uncertain</td>
+                <td>
+                  Provider may have accepted before connection loss; automatic
+                  delivery stops.
+                </td>
+              </tr>
+              <tr>
+                <td>skipped</td>
+                <td>
+                  Delivery is intentionally not attempted, such as missing
+                  contact or disabled preference.
+                </td>
+              </tr>
+              <tr>
+                <td>dead_letter</td>
+                <td>Retry budget exhausted or permanent processing failure.</td>
+              </tr>
+            </table>
+            <h3>SSE credential hardening</h3>
+            <ul class="checklist">
+              <li>
+                The normal bearer JWT is removed from the EventSource URL.
+              </li>
+              <li>
+                An authenticated POST mints a short-lived, purpose-bound
+                one-time ticket; only its SHA-256 hash is stored.
+              </li>
+              <li>
+                The ticket is bound to user, selected role, purpose, expiry, and
+                consumed state.
+              </li>
+              <li>
+                The ticket is transmitted in an HttpOnly, SameSite Strict cookie
+                scoped to <code>/api/events</code>; Secure is enabled for
+                production HTTPS.
+              </li>
+              <li>
+                GET redemption atomically consumes the ticket and revalidates
+                current user/account/role state.
+              </li>
+              <li>
+                Streams are bounded to five minutes. Every reconnect closes the
+                prior EventSource, mints a fresh ticket, opens a token-free URL,
+                and refetches authoritative state.
+              </li>
+              <li>
+                SSE remains an invalidation hint; no replay or Last-Event-ID
+                durability was introduced.
+              </li>
+            </ul>
+            <h3>Lifecycle and operational controls</h3>
+            <ul class="checklist">
+              <li>
+                Empty broadcast and pre-dismissal audiences do not consume the
+                60-second send lock.
+              </li>
+              <li>
+                Unsupported SMS/email broadcast requests fail explicitly rather
+                than being silently skipped.
+              </li>
+              <li>
+                Terminal outbox coordination records are retained for 90 days.
+              </li>
+              <li>Expired or consumed SSE tickets are retained for one day.</li>
+              <li>
+                Phase 5 user references are removed before notification/user
+                deletion, preventing the new outbox and ticket FKs from
+                introducing a deletion regression.
+              </li>
+            </ul>
+          </div>
+        </div>
 
-<h2>Verification evidence</h2>
-<table class="data"><tr><th>Verification</th><th>Result</th></tr><tr><td>Full development PostgreSQL gate</td><td><strong>PASS</strong> — 20 test files, 193 tests</td></tr><tr><td>Focused attendance/outbox rerun after fixture cleanup</td><td><strong>PASS</strong> — 16 tests</td></tr><tr><td>Notification delivery worker tests</td><td><strong>PASS</strong> — 9 tests, provider adapters mocked</td></tr><tr><td>Frontend SSE reconnect test</td><td><strong>PASS</strong> — fresh ticket before every token-free EventSource</td></tr><tr><td>Workspace TypeScript checks</td><td><strong>PASS</strong> — libraries and artifacts</td></tr><tr><td>API production build</td><td><strong>PASS</strong></td></tr><tr><td>Frontend production build</td><td><strong>PASS</strong> — pre-existing sourcemap/chunk-size warnings only</td></tr><tr><td>API workflow startup</td><td><strong>PASS</strong> — server and scheduler started cleanly</td></tr><tr><td>Development API health</td><td><strong>PASS</strong> — <code>/api/healthz</code> returned status ok</td></tr><tr><td>Browser preview</td><td><strong>PASS</strong> — HTTP 200, login UI rendered, no browser console errors</td></tr><tr><td>Final scoped architecture/security review</td><td><strong>PASS</strong> — no Phase 5 blocker or security finding</td></tr><tr><td>Synthetic development residue</td><td><strong>PASS</strong> — zero matching test users, outbox rows, and SSE tickets</td></tr></table>
-<p>No production database or production application behavior was tested or changed. No paid SMS, email, or WhatsApp provider traffic was generated by the validation suite.</p>
+        <h2>Verification evidence</h2>
+        <table class="data">
+          <tr>
+            <th>Verification</th>
+            <th>Result</th>
+          </tr>
+          <tr>
+            <td>Full development PostgreSQL gate</td>
+            <td><strong>PASS</strong> — 20 test files, 193 tests</td>
+          </tr>
+          <tr>
+            <td>Focused attendance/outbox rerun after fixture cleanup</td>
+            <td><strong>PASS</strong> — 16 tests</td>
+          </tr>
+          <tr>
+            <td>Notification delivery worker tests</td>
+            <td><strong>PASS</strong> — 9 tests, provider adapters mocked</td>
+          </tr>
+          <tr>
+            <td>Frontend SSE reconnect test</td>
+            <td>
+              <strong>PASS</strong> — fresh ticket before every token-free
+              EventSource
+            </td>
+          </tr>
+          <tr>
+            <td>Workspace TypeScript checks</td>
+            <td><strong>PASS</strong> — libraries and artifacts</td>
+          </tr>
+          <tr>
+            <td>API production build</td>
+            <td><strong>PASS</strong></td>
+          </tr>
+          <tr>
+            <td>Frontend production build</td>
+            <td>
+              <strong>PASS</strong> — pre-existing sourcemap/chunk-size warnings
+              only
+            </td>
+          </tr>
+          <tr>
+            <td>API workflow startup</td>
+            <td>
+              <strong>PASS</strong> — server and scheduler started cleanly
+            </td>
+          </tr>
+          <tr>
+            <td>Development API health</td>
+            <td>
+              <strong>PASS</strong> — <code>/api/healthz</code> returned status
+              ok
+            </td>
+          </tr>
+          <tr>
+            <td>Browser preview</td>
+            <td>
+              <strong>PASS</strong> — HTTP 200, login UI rendered, no browser
+              console errors
+            </td>
+          </tr>
+          <tr>
+            <td>Final scoped architecture/security review</td>
+            <td>
+              <strong>PASS</strong> — no Phase 5 blocker or security finding
+            </td>
+          </tr>
+          <tr>
+            <td>Synthetic development residue</td>
+            <td>
+              <strong>PASS</strong> — zero matching test users, outbox rows, and
+              SSE tickets
+            </td>
+          </tr>
+        </table>
+        <p>
+          No production database or production application behavior was tested
+          or changed. No paid SMS, email, or WhatsApp provider traffic was
+          generated by the validation suite.
+        </p>
 
-<h2>Known limitations and operator guidance</h2>
-<ul><li><strong>External exactly-once delivery is not claimed.</strong> PostgreSQL deduplicates application intents and worker attempts, but providers may accept a request before a connection loss becomes visible. Such rows are intentionally marked uncertain for human review.</li><li><strong>Accepted is not delivered.</strong> Final provider delivery/read receipts are not processed in Phase 5.</li><li><strong>Manual resend must be explicit.</strong> A new resend generation is required; the original logical deduplication key must not be bypassed silently.</li><li><strong>SSE is not durable storage.</strong> A missed stream event is recovered by refetching authoritative in-app state, not by stream replay.</li><li><strong>Existing broad user-deletion limitations remain.</strong> Historical rows in unrelated attendance, classroom, safeguarding, scheduling, and other tables can still block deletion depending on their current retention policy. Phase 5 prevents its two new FK categories from making this worse; changing broader deletion/retention semantics requires separate approval.</li><li><strong>Production rollout remains outstanding.</strong> Production requires an approved schema rollout, release process, and post-release observation. This report does not assert that Phase 5 is live in production.</li></ul>
-<div class="callout danger"><strong>Do not publish from this report alone.</strong> Before production rollout, obtain human approval for the database schema migration, release checkpoint, provider configuration review, and operational monitoring plan.</div>
+        <h2>Known limitations and operator guidance</h2>
+        <ul>
+          <li>
+            <strong>External exactly-once delivery is not claimed.</strong>
+            PostgreSQL deduplicates application intents and worker attempts, but
+            providers may accept a request before a connection loss becomes
+            visible. Such rows are intentionally marked uncertain for human
+            review.
+          </li>
+          <li>
+            <strong>Accepted is not delivered.</strong> Final provider
+            delivery/read receipts are not processed in Phase 5.
+          </li>
+          <li>
+            <strong>Manual resend must be explicit.</strong> A new resend
+            generation is required; the original logical deduplication key must
+            not be bypassed silently.
+          </li>
+          <li>
+            <strong>SSE is not durable storage.</strong> A missed stream event
+            is recovered by refetching authoritative in-app state, not by stream
+            replay.
+          </li>
+          <li>
+            <strong>Existing broad user-deletion limitations remain.</strong>
+            Historical rows in unrelated attendance, classroom, safeguarding,
+            scheduling, and other tables can still block deletion depending on
+            their current retention policy. Phase 5 prevents its two new FK
+            categories from making this worse; changing broader
+            deletion/retention semantics requires separate approval.
+          </li>
+          <li>
+            <strong>Production rollout remains outstanding.</strong> Production
+            requires an approved schema rollout, release process, and
+            post-release observation. This report does not assert that Phase 5
+            is live in production.
+          </li>
+        </ul>
+        <div class="callout danger">
+          <strong>Do not publish from this report alone.</strong> Before
+          production rollout, obtain human approval for the database schema
+          migration, release checkpoint, provider configuration review, and
+          operational monitoring plan.
+        </div>
 
-<h2>Phase 5 file inventory</h2>
-<p>The following files are part of the current Phase 5 working change set, including focused regression updates and generated API contract outputs:</p>
-<ul class="files">
-<li>artifacts/api-server/src/index.ts</li><li>artifacts/api-server/src/lib/attendanceNotificationIntents.ts</li><li>artifacts/api-server/src/lib/notify.ts</li><li>artifacts/api-server/src/lib/rateLimitedAudienceOperation.ts</li><li>artifacts/api-server/src/lib/scheduler.ts</li><li>artifacts/api-server/src/lib/whatsapp-queue.ts</li><li>artifacts/api-server/src/routes/attendance.ts</li><li>artifacts/api-server/src/routes/auth.ts</li><li>artifacts/api-server/src/routes/emergencies.ts</li><li>artifacts/api-server/src/routes/events.ts</li><li>artifacts/api-server/src/routes/familyAssist.ts</li><li>artifacts/api-server/src/routes/notifications.ts</li><li>artifacts/api-server/src/routes/sundayAttendance.ts</li><li>artifacts/api-server/src/routes/users.ts</li><li>artifacts/api-server/src/services/notificationDeliveryWorker.ts</li><li>artifacts/api-server/src/services/notificationOutbox.ts</li><li>artifacts/api-server/src/services/sms.ts</li><li>artifacts/api-server/src/services/whatsappBot.ts</li><li>artifacts/api-server/src/__tests__/attendanceConcurrencyDatabase.test.ts</li><li>artifacts/api-server/src/__tests__/authSecurity.test.ts</li><li>artifacts/api-server/src/__tests__/notification-outbox.database.test.ts</li><li>artifacts/api-server/src/__tests__/notification-outbox.test.ts</li><li>artifacts/api-server/src/__tests__/notificationDeliveryWorker.test.ts</li><li>artifacts/api-server/src/__tests__/notificationOutbox.test.ts</li><li>artifacts/api-server/src/__tests__/rateLimitedAudienceOperation.test.ts</li><li>artifacts/api-server/src/__tests__/registrationOtpDatabase.test.ts</li><li>artifacts/api-server/src/__tests__/roleConcurrencyDatabase.test.ts</li><li>artifacts/api-server/src/__tests__/sseRoutes.test.ts</li><li>artifacts/api-server/src/__tests__/whatsappQueueMigration.test.ts</li><li>artifacts/shepherd-connect/src/components/layout.tsx</li><li>artifacts/shepherd-connect/src/hooks/use-sse.ts</li><li>artifacts/shepherd-connect/src/hooks/use-sse.test.ts</li><li>lib/api-spec/openapi.yaml</li><li>lib/api-client-react/src/generated/api.ts</li><li>lib/api-client-react/src/generated/api.schemas.ts</li><li>lib/db/src/schema/index.ts</li><li>lib/db/src/schema/notificationOutbox.ts</li><li>lib/db/src/schema/sseTickets.ts</li><li>scripts/run-development-db-tests.mjs</li>
-</ul>
-<p class="small">The unrelated pre-existing <code>.replit</code> port-removal diff was deliberately not overwritten and is excluded from this implementation inventory.</p>
+        <h2>Phase 5 file inventory</h2>
+        <p>
+          The following files are part of the current Phase 5 working change
+          set, including focused regression updates and generated API contract
+          outputs:
+        </p>
+        <ul class="files">
+          <li>artifacts/api-server/src/index.ts</li>
+          <li>artifacts/api-server/src/lib/attendanceNotificationIntents.ts</li>
+          <li>artifacts/api-server/src/lib/notify.ts</li>
+          <li>artifacts/api-server/src/lib/rateLimitedAudienceOperation.ts</li>
+          <li>artifacts/api-server/src/lib/scheduler.ts</li>
+          <li>artifacts/api-server/src/lib/whatsapp-queue.ts</li>
+          <li>artifacts/api-server/src/routes/attendance.ts</li>
+          <li>artifacts/api-server/src/routes/auth.ts</li>
+          <li>artifacts/api-server/src/routes/emergencies.ts</li>
+          <li>artifacts/api-server/src/routes/events.ts</li>
+          <li>artifacts/api-server/src/routes/familyAssist.ts</li>
+          <li>artifacts/api-server/src/routes/notifications.ts</li>
+          <li>artifacts/api-server/src/routes/sundayAttendance.ts</li>
+          <li>artifacts/api-server/src/routes/users.ts</li>
+          <li>
+            artifacts/api-server/src/services/notificationDeliveryWorker.ts
+          </li>
+          <li>artifacts/api-server/src/services/notificationOutbox.ts</li>
+          <li>artifacts/api-server/src/services/sms.ts</li>
+          <li>artifacts/api-server/src/services/whatsappBot.ts</li>
+          <li>
+            artifacts/api-server/src/__tests__/attendanceConcurrencyDatabase.test.ts
+          </li>
+          <li>artifacts/api-server/src/__tests__/authSecurity.test.ts</li>
+          <li>
+            artifacts/api-server/src/__tests__/notification-outbox.database.test.ts
+          </li>
+          <li>
+            artifacts/api-server/src/__tests__/notification-outbox.test.ts
+          </li>
+          <li>
+            artifacts/api-server/src/__tests__/notificationDeliveryWorker.test.ts
+          </li>
+          <li>artifacts/api-server/src/__tests__/notificationOutbox.test.ts</li>
+          <li>
+            artifacts/api-server/src/__tests__/rateLimitedAudienceOperation.test.ts
+          </li>
+          <li>
+            artifacts/api-server/src/__tests__/registrationOtpDatabase.test.ts
+          </li>
+          <li>
+            artifacts/api-server/src/__tests__/roleConcurrencyDatabase.test.ts
+          </li>
+          <li>artifacts/api-server/src/__tests__/sseRoutes.test.ts</li>
+          <li>
+            artifacts/api-server/src/__tests__/whatsappQueueMigration.test.ts
+          </li>
+          <li>artifacts/shepherd-connect/src/components/layout.tsx</li>
+          <li>artifacts/shepherd-connect/src/hooks/use-sse.ts</li>
+          <li>artifacts/shepherd-connect/src/hooks/use-sse.test.ts</li>
+          <li>lib/api-spec/openapi.yaml</li>
+          <li>lib/api-client-react/src/generated/api.ts</li>
+          <li>lib/api-client-react/src/generated/api.schemas.ts</li>
+          <li>lib/db/src/schema/index.ts</li>
+          <li>lib/db/src/schema/notificationOutbox.ts</li>
+          <li>lib/db/src/schema/sseTickets.ts</li>
+          <li>scripts/run-development-db-tests.mjs</li>
+        </ul>
+        <p class="small">
+          The unrelated pre-existing <code>.replit</code> port-removal diff was
+          deliberately not overwritten and is excluded from this implementation
+          inventory.
+        </p>
 
-<h2>Final status</h2>
-<div class="callout good"><strong>PHASES 1–5 COMPLETE — AWAITING HUMAN REVIEW.</strong><br>All approved Phase 5 controls passed the final scoped architecture/security review. Development verification is green, workflows are running, health is good, and synthetic test data has been removed.</div>
-<div class="footer">Shepherd Connect · Consolidated Phase 1–5 Implementation Report · 3 September 2026 · Development verification only</div>
-</section></main></body></html>
+        <h2>Final status</h2>
+        <div class="callout good">
+          <strong>PHASES 1–5 COMPLETE — AWAITING HUMAN REVIEW.</strong><br />All
+          approved Phase 5 controls passed the final scoped
+          architecture/security review. Development verification is green,
+          workflows are running, health is good, and synthetic test data has
+          been removed.
+        </div>
+        <div class="footer">
+          Shepherd Connect · Consolidated Phase 1–5 Implementation Report · 3
+          September 2026 · Development verification only
+        </div>
+      </section>
+    </main>
+  </body>
+</html>
