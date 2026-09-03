@@ -10,6 +10,7 @@ import { getParentChildIds } from "../lib/parentScope";
 import { resolveDropOffIntentIfFulfilled } from "../lib/dropOffIntentCompletion";
 import { findActiveOtherSlot, stillCheckedInMessage } from "../lib/attendanceGuards";
 import { createAttendanceNotificationIntents } from "../lib/attendanceNotificationIntents";
+import { CustodyHandoverError, releasePhysicalCustody } from "../services/custodyHandover";
 
 async function getParentContacts(childId: number): Promise<{ phones: (string | null)[]; emails: (string | null)[]; parentIds: number[]; childName: string; className: string }> {
   const [child] = await db.select().from(childrenTable).where(eq(childrenTable.id, childId));
@@ -517,6 +518,38 @@ router.put("/attendance/:id/checkout", authMiddleware, requireRoles("super_admin
   if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
   const parsed = CheckOutBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: "Bad request", message: parsed.error.message }); return; }
+  // A custody-backed attendance row is a projection of the custody episode, not
+  // an independently closable record. Keep this legacy endpoint compatible for
+  // the accepting support custodian, but always make the episode transition the
+  // authoritative write. Admins must use the explicit reasoned override route.
+  const [existing] = await db.select().from(attendanceTable).where(eq(attendanceTable.id, id));
+  if (!existing) { res.status(404).json({ error: "Not found", message: "Attendance record not found" }); return; }
+  if (existing.custodyEpisodeId) {
+    if (req.user!.role !== "support") {
+      res.status(409).json({
+        error: "Custody checkout requires canonical release",
+        message: "Custody-backed attendance may only be released by its accepting support custodian. Admin overrides require POST /custody-episodes/:id/override-pickup with a reason.",
+      });
+      return;
+    }
+    try {
+      const outcome = await db.transaction(tx => releasePhysicalCustody(tx, {
+        episodeId: existing.custodyEpisodeId!,
+        actorUserId: req.user!.userId,
+      }));
+      const record = outcome.attendance.find((row: typeof attendanceTable.$inferSelect) => row.id === id)
+        ?? (await db.select().from(attendanceTable).where(eq(attendanceTable.id, id)))[0];
+      if (!record) { res.status(404).json({ error: "Not found", message: "Attendance record not found" }); return; }
+      res.json(await formatAttendance(record));
+      return;
+    } catch (error) {
+      if (error instanceof CustodyHandoverError) {
+        res.status(error.statusCode).json({ error: "Custody handover rejected", message: error.message });
+        return;
+      }
+      throw error;
+    }
+  }
   const [record] = await db.transaction(async tx => {
     const result = await tx.update(attendanceTable).set({
       status: "picked_up", checkOutTime: new Date(), checkedOutBy: req.user!.userId,

@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { eq, and, isNull, sql } from "drizzle-orm";
+import { eq, and, isNull, or, sql } from "drizzle-orm";
 import {
   db,
   sundayQrCodesTable,
@@ -200,11 +200,15 @@ router.post("/sunday-attendance/scan", authMiddleware, async (req, res): Promise
     return;
   }
 
+  const tokenHash = hashStaffQrToken(token);
   const [qr] = await db
     .select()
     .from(sundayQrCodesTable)
     .where(and(
-      eq(sundayQrCodesTable.tokenHash, hashStaffQrToken(token)),
+      // Compatibility bridge for databases upgraded from the old plaintext
+      // column. A legacy bearer is accepted only for its current service date
+      // and immediately replaced atomically by the digest below.
+      or(eq(sundayQrCodesTable.tokenHash, tokenHash), eq(sundayQrCodesTable.tokenHash, token)),
       eq(sundayQrCodesTable.serviceDate, date),
       eq(sundayQrCodesTable.purpose, STAFF_QR_PURPOSE),
       isNull(sundayQrCodesTable.revokedAt),
@@ -222,6 +226,19 @@ router.post("/sunday-attendance/scan", authMiddleware, async (req, res): Promise
 
   const scanLockKey = Number(date.replace(/-/g, "")) * 10 + (service === "1st" ? 1 : 2);
   const outcome = await db.transaction(async (tx) => {
+    if (qr.tokenHash === token) {
+      const upgraded = await tx.update(sundayQrCodesTable)
+        .set({ tokenHash })
+        .where(and(eq(sundayQrCodesTable.id, qr.id), eq(sundayQrCodesTable.tokenHash, token)))
+        .returning({ id: sundayQrCodesTable.id });
+      // A concurrent scanner rotated/upgraded it first. Continue only if it
+      // upgraded to the same presented bearer digest.
+      if (!upgraded.length) {
+        const [current] = await tx.select({ tokenHash: sundayQrCodesTable.tokenHash }).from(sundayQrCodesTable)
+          .where(eq(sundayQrCodesTable.id, qr.id));
+        if (current?.tokenHash !== tokenHash) return "concurrent_duplicate" as const;
+      }
+    }
     // The lock covers the read/decision/write sequence for the independently
     // reportable service. Concurrent requests cannot turn one another into a
     // second attendance transition.

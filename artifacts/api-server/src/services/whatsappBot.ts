@@ -34,8 +34,9 @@ import {
 import { eq, or, desc, and, inArray, lt, sql } from "drizzle-orm";
 import { createHmac, randomBytes, timingSafeEqual } from "crypto";
 import { logger } from "../lib/logger";
-import { createAttendanceNotificationIntents } from "../lib/attendanceNotificationIntents";
-import { sendWhatsAppToJid, sendWhatsAppImageToJid } from "./whatsapp";
+import { CustodyHandoverError, releasePhysicalCustody } from "./custodyHandover";
+import { createNotificationDelivery } from "./notificationOutbox";
+import { ObjectStorageService } from "../lib/objectStorage";
 import {
   classifyIntent,
   fuzzyClassify,
@@ -183,10 +184,10 @@ function stepUpDigest(id: string, userId: number, contactVersion: number, action
     .digest("hex");
 }
 
-async function createStepUpProof(userId: number, contactVersion: number, reference: string): Promise<string> {
+async function createStepUpProof(tx: any, userId: number, contactVersion: number, reference: string): Promise<string> {
   const id = randomBytes(16).toString("hex");
   const code = randomBytes(5).toString("hex").toUpperCase();
-  await db.insert(botStepUpProofsTable).values({
+  await tx.insert(botStepUpProofsTable).values({
     id, userId, contactVersion, action: STEP_UP_ACTION, reference,
     proofDigest: stepUpDigest(id, userId, contactVersion, STEP_UP_ACTION, reference, code),
     expiresAt: new Date(Date.now() + STEP_UP_TTL_MS),
@@ -194,8 +195,8 @@ async function createStepUpProof(userId: number, contactVersion: number, referen
   return code;
 }
 
-async function consumeStepUpProof(userId: number, contactVersion: number, reference: string, code: string): Promise<boolean> {
-  const [proof] = await db.select().from(botStepUpProofsTable).where(and(
+async function consumeStepUpProof(tx: any, userId: number, contactVersion: number, reference: string, code: string): Promise<boolean> {
+  const [proof] = await tx.select().from(botStepUpProofsTable).where(and(
     eq(botStepUpProofsTable.userId, userId), eq(botStepUpProofsTable.contactVersion, contactVersion),
     eq(botStepUpProofsTable.reference, reference), eq(botStepUpProofsTable.action, STEP_UP_ACTION),
     sql`${botStepUpProofsTable.expiresAt} > NOW()`, sql`${botStepUpProofsTable.consumedAt} IS NULL`,
@@ -204,7 +205,7 @@ async function consumeStepUpProof(userId: number, contactVersion: number, refere
   const expected = Buffer.from(proof.proofDigest, "hex");
   const actual = Buffer.from(stepUpDigest(proof.id, userId, contactVersion, STEP_UP_ACTION, reference, code), "hex");
   if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) return false;
-  const [consumed] = await db.update(botStepUpProofsTable).set({ consumedAt: new Date() }).where(and(
+  const [consumed] = await tx.update(botStepUpProofsTable).set({ consumedAt: new Date() }).where(and(
     eq(botStepUpProofsTable.id, proof.id), sql`${botStepUpProofsTable.consumedAt} IS NULL`,
   )).returning();
   return !!consumed;
@@ -252,6 +253,8 @@ function phoneToWaJid(phone: string): string {
 
 function isLidJid(jid: string) { return jid.endsWith("@lid"); }
 function phoneFromWaJid(jid: string) { return jid.split("@")[0]!.split(":")[0]!; }
+
+const objectStorage = new ObjectStorageService();
 
 // ── DB data helpers ───────────────────────────────────────────────────────────
 
@@ -629,7 +632,7 @@ function buildRoleOptions(matches: Awaited<ReturnType<typeof findUsersByPhone>>)
 
 // ── Main handler ──────────────────────────────────────────────────────────────
 
-export async function handleInboundMessage(
+async function processInboundMessage(
   fromJid: string,
   text: string,
   imageBuffer: Buffer | null,
@@ -637,11 +640,6 @@ export async function handleInboundMessage(
   replyWithImage: (buf: Buffer, caption: string) => Promise<void>,
   providerEventId?: string,
 ): Promise<void> {
-  if (providerEventId) {
-    const claimed = await db.insert(botInboundEventsTable).values({ providerEventId })
-      .onConflictDoNothing().returning();
-    if (!claimed.length) return;
-  }
   const input = text.trim().toLowerCase();
 
   // ── Image from support — relay to parent ─────────────────────────────────
@@ -1138,6 +1136,47 @@ export async function handleInboundMessage(
   );
 }
 
+/**
+ * Do not permanently deduplicate before processing: provider retries are the
+ * recovery mechanism after a database/provider failure. The claim is retained
+ * only after the handler completed; a failed attempt deletes its claim.
+ */
+export async function handleInboundMessage(
+  fromJid: string,
+  text: string,
+  imageBuffer: Buffer | null,
+  reply: (msg: string) => Promise<void>,
+  replyWithImage: (buf: Buffer, caption: string) => Promise<void>,
+  providerEventId?: string,
+): Promise<void> {
+  if (!providerEventId) return processInboundMessage(fromJid, text, imageBuffer, reply, replyWithImage);
+  const claimed = await db.insert(botInboundEventsTable).values({ providerEventId })
+    .onConflictDoNothing().returning();
+  let ownsLease = claimed.length > 0;
+  if (!ownsLease) {
+    // A crashed worker leaves an incomplete row behind. Reclaim only after a
+    // bounded lease; completed messages remain permanently idempotent.
+    const reclaimed = await db.execute(sql`
+      UPDATE bot_inbound_events
+      SET processing_started_at = NOW()
+      WHERE provider_event_id = ${providerEventId}
+        AND completed_at IS NULL
+        AND processing_started_at < NOW() - INTERVAL '5 minutes'
+      RETURNING provider_event_id
+    `);
+    ownsLease = reclaimed.rows.length > 0;
+  }
+  if (!ownsLease) return;
+  try {
+    await processInboundMessage(fromJid, text, imageBuffer, reply, replyWithImage);
+    await db.update(botInboundEventsTable).set({ completedAt: new Date() })
+      .where(eq(botInboundEventsTable.providerEventId, providerEventId));
+  } catch (error) {
+    await db.delete(botInboundEventsTable).where(eq(botInboundEventsTable.providerEventId, providerEventId));
+    throw error;
+  }
+}
+
 // ── Numbered command dispatcher ───────────────────────────────────────────────
 // Returns: true (handled), false (handled but no action), null (not a number)
 
@@ -1297,11 +1336,32 @@ async function _createSupportRequest(
   const serviceSlot = todaySlot();
   const childName   = `${child.firstName} ${child.lastName}`;
   const childClass  = child.className ? ` (${child.className})` : "";
-  const slotLabel   = serviceSlot === "7am" ? "7:00 AM" : "10:30 AM";
-
-  await db.insert(supportRequestsTable).values({ referenceNumber: ref, type: requestType, childId: child.id, parentUserId: parent.id, assignedSupportId: assigned.id, status: "pending", serviceDate, serviceSlot });
 
   const isDelegate = requestType === "delegate_pickup";
+  const supportJid = assigned.phone ? phoneToWaJid(assigned.phone) : null;
+  const supportMsg = isDelegate
+    ? `Delegate pickup for ${childName}${childClass}. Parent: ${parent.firstName} ${parent.lastName}. Ref: ${ref}. Ask for ID, photograph the delegate, and do not release until parent approval.`
+    : `${typeLabel(requestType)} request for ${childName}${childClass}. Parent: ${parent.firstName} ${parent.lastName}. Ref: ${ref}.`;
+  await db.transaction(async tx => {
+    await tx.insert(supportRequestsTable).values({ referenceNumber: ref, type: requestType, childId: child.id, parentUserId: parent.id, assignedSupportId: assigned.id, status: "pending", serviceDate, serviceSlot });
+    if (isDelegate && supportJid) {
+      await tx.insert(botPendingApprovalsTable).values({
+        refNumber: ref, parentJid, supportJid, childName, requestType, childId: child.id,
+        parentUserId: parent.id, assignedSupportId: assigned.id, parentContactVersion: parent.contactVersion,
+      });
+    }
+    await createNotificationDelivery(tx, {
+      logicalIdentity: `support-request:${ref}:assigned:${assigned.id}`,
+      domainType: "support_request",
+      domainIdentifier: ref,
+      projection: {
+        userId: assigned.id, type: "support_request_assigned", title: typeLabel(requestType),
+        message: supportMsg, metadata: { referenceNumber: ref, childId: child.id, requestType },
+      },
+      channels: ["whatsapp"],
+      templateKey: "support_request_assigned",
+    });
+  });
 
   // Parent confirmation — delegate pickup requires photo approval; check-in/out does not
   await reply(
@@ -1311,25 +1371,6 @@ async function _createSupportRequest(
       : `A support officer has been notified and will assist you directly at the desk.`) +
     `\n\n_Type *0* for the main menu._`
   );
-
-  const supportJid = assigned.phone ? phoneToWaJid(assigned.phone) : null;
-  if (supportJid) {
-    // Only store relay data for delegate pickup (photo approval flow)
-    if (isDelegate) {
-      await setPendingApproval(ref, { parentJid, supportJid, childName, requestType, childId: child.id, parentUserId: parent.id, assignedSupportId: assigned.id, parentContactVersion: parent.contactVersion });
-    }
-
-    const supportMsg = isDelegate
-      ? `🔔 *Delegate Pickup Request*\nRef: *${ref}*\n\n👦 Child: *${childName}*${childClass}\n` +
-        `👨‍👩‍👧 Parent: *${parent.firstName} ${parent.lastName}*\n${parent.phone ? `📞 ${parent.phone}\n` : ""}⏰ Service: *${slotLabel}*\n\n` +
-        `📸 *Photo verification required:*\n1️⃣ Ask the delegate to show ID\n2️⃣ Type: *PHOTO ${ref}*\n3️⃣ Send their photo immediately\n\n` +
-        `⚠️ _Do NOT release the child until the parent approves the photo._`
-      : `🔔 *${typeLabel(requestType)} Request*\nRef: *${ref}*\n\n👦 Child: *${childName}*${childClass}\n` +
-        `👨‍👩‍👧 Parent: *${parent.firstName} ${parent.lastName}*\n${parent.phone ? `📞 ${parent.phone}\n` : ""}⏰ Service: *${slotLabel}*\n\n` +
-        `Please assist this parent directly at the check-in desk.\n🔖 Ref: *${ref}*`;
-
-    await sendWhatsAppToJid(supportJid, supportMsg);
-  }
 
   logger.info({ ref, parentId: parent.id, supportId: assigned.id, requestType }, "Support request created");
 }
@@ -1428,13 +1469,37 @@ async function _handleSupportPhoto(supportJid: string, ref: string, imageBuffer:
 
   // Delegate pickup: relay photo to parent and wait for YES/NO approval
   if (relay.requestType === "delegate_pickup") {
-    const [updated] = await db.update(supportRequestsTable).set({ status: "photo_sent", updatedAt: new Date() })
-      .where(and(
-        eq(supportRequestsTable.referenceNumber, ref),
-        eq(supportRequestsTable.status, "pending"),
-        eq(supportRequestsTable.assignedSupportId, relay.assignedSupportId),
-      )).returning();
-    if (!updated) {
+    // Uploading can leave an unreferenced object if the DB transaction loses a
+    // race, but it cannot authorize release. The durable delivery intent and
+    // photo_sent state are committed together below.
+    const imageObjectPath = await objectStorage.uploadObjectEntityFromBuffer(imageBuffer, "image/jpeg");
+    const proofCode = await db.transaction(async tx => {
+      const [updated] = await tx.update(supportRequestsTable).set({ status: "photo_sent", updatedAt: new Date() })
+        .where(and(
+          eq(supportRequestsTable.referenceNumber, ref),
+          eq(supportRequestsTable.status, "pending"),
+          eq(supportRequestsTable.assignedSupportId, relay.assignedSupportId),
+        )).returning();
+      if (!updated) return null;
+      const code = await createStepUpProof(tx, relay.parentUserId, relay.parentContactVersion, ref);
+      await createNotificationDelivery(tx, {
+        logicalIdentity: `support-request:${ref}:delegate-photo:${relay.parentUserId}`,
+        domainType: "support_request",
+        domainIdentifier: ref,
+        projection: {
+          userId: relay.parentUserId,
+          type: "delegate_photo_approval",
+          title: "Delegate Identity Verification",
+          message: `Confirm the photographed delegate for ${relay.childName}. Reply APPROVE ${ref} ${code}, or reject the request.`,
+          metadata: { referenceNumber: ref, childId: relay.childId },
+        },
+        channels: ["whatsapp"],
+        templateKey: "delegate_photo_approval",
+        templateMetadata: { imageObjectPath },
+      });
+      return code;
+    });
+    if (!proofCode) {
       await reply(`⚠️ Request *${ref}* has already been processed.`);
       return;
     }
@@ -1445,13 +1510,7 @@ async function _handleSupportPhoto(supportJid: string, ref: string, imageBuffer:
       parentSession.data.pendingApprovalRef = ref;
       await saveSession(relay.parentJid, parentSession);
 
-      const proofCode = await createStepUpProof(relay.parentUserId, relay.parentContactVersion, ref);
-      await sendWhatsAppImageToJid(relay.parentJid, imageBuffer,
-        `📸 *Delegate Identity Verification*\n\n👦 Child: *${relay.childName}*\n🔖 Ref: *${ref}*\n\n` +
-        `Please confirm this is the person you authorised to collect your child:\n\n` +
-        `✅ To approve, reply *APPROVE ${ref} ${proofCode}* — delegate may collect\n❌ Reply *NO* to reject — delegate will be turned away\n\n_This one-time code expires in 5 minutes._`
-      );
-      logger.info({ ref, parentJid: relay.parentJid }, "Delegate photo relayed to parent for approval");
+      logger.info({ ref, parentJid: relay.parentJid }, "Delegate photo queued for parent approval");
     }
     return;
   }
@@ -1491,10 +1550,6 @@ async function _handleApproval(parentJid: string, ref: string, approved: boolean
     await reply(`⛔ Request *${ref}* is no longer authorized for this parent and child.`);
     return;
   }
-  if (approved && (!proofCode || !(await consumeStepUpProof(parent.id, parent.contactVersion, ref, proofCode)))) {
-    await reply(`⛔ That approval code is invalid, expired, or already used. Request a new delegate photo.`);
-    return;
-  }
   const [child] = await db.select().from(childrenTable).where(eq(childrenTable.id, req.childId));
   const [family] = child
     ? await db.select().from(familiesTable).where(and(
@@ -1515,55 +1570,96 @@ async function _handleApproval(parentJid: string, ref: string, approved: boolean
   await saveSession(parentJid, parentSession);
 
   if (approved) {
-    // Claim the approval once. A concurrent YES must not re-run an attendance
-    // transition after the first request has completed.
-    const [claimed] = await db.update(supportRequestsTable)
-      .set({ status: "approved", updatedAt: new Date() })
-      .where(and(
+    // The proof, request decision, custody/attendance transition and its
+    // notification intents share one transaction. A failed transition rolls
+    // back proof consumption so the parent can safely retry the same approval.
+    let completed = false;
+    try {
+      completed = await db.transaction(async tx => {
+        if (!proofCode || !(await consumeStepUpProof(tx, parent.id, parent.contactVersion, ref, proofCode))) {
+          throw new CustodyHandoverError(403, "That approval code is invalid, expired, or already used.");
+        }
+        const [claimed] = await tx.update(supportRequestsTable)
+          .set({ status: "approved", updatedAt: new Date() })
+          .where(and(
+            eq(supportRequestsTable.referenceNumber, ref),
+            eq(supportRequestsTable.status, "photo_sent"),
+            eq(supportRequestsTable.parentUserId, relay.parentUserId),
+            eq(supportRequestsTable.childId, relay.childId),
+            eq(supportRequestsTable.assignedSupportId, relay.assignedSupportId),
+          ))
+          .returning();
+        if (!claimed) return false;
+        await _recordAttendance(tx, claimed, relay);
+        await createNotificationDelivery(tx, {
+          logicalIdentity: `support-request:${ref}:approved:${relay.assignedSupportId}`,
+          domainType: "support_request",
+          domainIdentifier: ref,
+          projection: {
+            userId: relay.assignedSupportId,
+            type: "support_request_approved",
+            title: "Parent Approved Delegate Pickup",
+            message: `${childName}'s delegate pickup was approved by the parent.`,
+            metadata: { referenceNumber: ref, childId: relay.childId, requestType: "delegate_pickup" },
+          },
+          channels: ["whatsapp"],
+          templateKey: "support_request_approved",
+        });
+        await tx.delete(botPendingApprovalsTable).where(eq(botPendingApprovalsTable.refNumber, ref));
+        return true;
+      });
+    } catch (err) {
+      if (err instanceof CustodyHandoverError) {
+        await reply(`⛔ ${err.message} Request a new delegate photo if needed.`);
+        return;
+      }
+      throw err;
+    }
+    if (!completed) {
+      await reply(`⚠️ Request *${ref}* has already been processed.`);
+      return;
+    }
+    await reply(`✅ *Approved!*\n\nYou approved the ${typeLabel(req.type).toLowerCase()} for *${childName}*.\nThe support officer has been notified.\n\nType *0* for the main menu.`);
+  } else {
+    const rejected = await db.transaction(async tx => {
+      const [row] = await tx.update(supportRequestsTable).set({ status: "rejected", updatedAt: new Date() }).where(and(
         eq(supportRequestsTable.referenceNumber, ref),
         eq(supportRequestsTable.status, "photo_sent"),
         eq(supportRequestsTable.parentUserId, relay.parentUserId),
         eq(supportRequestsTable.childId, relay.childId),
         eq(supportRequestsTable.assignedSupportId, relay.assignedSupportId),
-      ))
-      .returning();
-    if (!claimed) {
-      await reply(`⚠️ Request *${ref}* has already been processed.`);
-      return;
-    }
-    await _recordAttendance(claimed, relay);
-    await reply(`✅ *Approved!*\n\nYou approved the ${typeLabel(req.type).toLowerCase()} for *${childName}*.\nThe support officer has been notified.\n\nType *0* for the main menu.`);
-    if (relay.supportJid) {
-      await sendWhatsAppToJid(relay.supportJid, `✅ *Parent Approved!*\n\n👦 *${childName}* — ${typeLabel(req.type)}\n🔖 Ref: *${ref}*\n\nPlease proceed. Attendance has been recorded automatically.`);
-    }
-  } else {
-    const [rejected] = await db.update(supportRequestsTable).set({ status: "rejected", updatedAt: new Date() }).where(and(
-      eq(supportRequestsTable.referenceNumber, ref),
-      eq(supportRequestsTable.status, "photo_sent"),
-      eq(supportRequestsTable.parentUserId, relay.parentUserId),
-      eq(supportRequestsTable.childId, relay.childId),
-      eq(supportRequestsTable.assignedSupportId, relay.assignedSupportId),
-    )).returning();
+      )).returning();
+      if (!row) return null;
+      await createNotificationDelivery(tx, {
+        logicalIdentity: `support-request:${ref}:rejected:${relay.assignedSupportId}`,
+        domainType: "support_request",
+        domainIdentifier: ref,
+        projection: {
+          userId: relay.assignedSupportId, type: "support_request_rejected",
+          title: "Parent Rejected Delegate Pickup",
+          message: `${childName}'s delegate pickup was rejected. Do not release the child.`,
+          metadata: { referenceNumber: ref, childId: relay.childId },
+        },
+        channels: ["whatsapp"],
+        templateKey: "support_request_rejected",
+      });
+      await tx.delete(botPendingApprovalsTable).where(eq(botPendingApprovalsTable.refNumber, ref));
+      return row;
+    });
     if (!rejected) {
       await reply(`⚠️ Request *${ref}* has already been processed.`);
       return;
     }
     await reply(`❌ *Rejected.*\n\nThe support officer has been notified not to proceed for *${childName}*.\n\nType *0* for the main menu.`);
-    if (relay.supportJid) {
-      await sendWhatsAppToJid(relay.supportJid, `❌ *Parent Rejected the Photo*\n\n👦 *${childName}* — ${typeLabel(req.type)}\n🔖 Ref: *${ref}*\n\n⚠️ *Do not proceed.*`);
-    }
   }
 
-  await deletePendingApproval(ref);
 }
 
 // ── Auto-record attendance ────────────────────────────────────────────────────
 
-async function _recordAttendance(req: typeof supportRequestsTable.$inferSelect, relay: RelayData) {
-  try {
-    const today = todayDate();
+async function _recordAttendance(tx: any, req: typeof supportRequestsTable.$inferSelect, relay: RelayData) {
+    const today = req.serviceDate;
     const lockKey = Number(today.replace(/-/g, ""));
-    await db.transaction(async tx => {
       // This is the same child/day lock as the primary attendance endpoint.
       // It prevents bot approvals and desk actions from both becoming winners.
       await tx.execute(sql`SELECT pg_advisory_xact_lock(${req.childId}, ${lockKey})`);
@@ -1575,7 +1671,7 @@ async function _recordAttendance(req: typeof supportRequestsTable.$inferSelect, 
         || currentRequest.parentUserId !== relay.parentUserId
         || currentRequest.childId !== relay.childId
         || currentRequest.assignedSupportId !== relay.assignedSupportId
-      ) return;
+      ) throw new CustodyHandoverError(409, "The approval request is no longer eligible for release.");
       const [parent] = await tx.select().from(usersTable).where(eq(usersTable.id, currentRequest.parentUserId));
       const [support] = await tx.select().from(usersTable).where(eq(usersTable.id, currentRequest.assignedSupportId!));
       const [child] = await tx.select().from(childrenTable).where(eq(childrenTable.id, currentRequest.childId));
@@ -1591,42 +1687,30 @@ async function _recordAttendance(req: typeof supportRequestsTable.$inferSelect, 
         || !userHasRole(support, "support")
         || !child
         || !family
-      ) return;
+      ) throw new CustodyHandoverError(403, "The parent, child, or assigned support authorization is no longer valid.");
 
-      const [existing] = await tx.select().from(attendanceTable)
+      const existing: Array<typeof attendanceTable.$inferSelect> = await tx.select().from(attendanceTable)
         .where(and(eq(attendanceTable.childId, req.childId), eq(attendanceTable.serviceDate, today)));
-      const now = new Date();
-
-      if (req.type === "checkin") {
-        if (existing && existing.status !== "dropped_off") {
-          const [reset] = await tx.update(attendanceTable).set({
-            status: "dropped_off", checkInTime: now, checkOutTime: null,
-          }).where(eq(attendanceTable.id, existing.id)).returning();
-          await createAttendanceNotificationIntents(tx, reset, "checked_in_reset");
-        } else if (!existing) {
-          const [child] = await tx.select().from(childrenTable).where(eq(childrenTable.id, req.childId));
-          if (child?.currentClassId) {
-            const [inserted] = await tx.insert(attendanceTable).values({
-              childId: req.childId, classId: child.currentClassId, serviceDate: today, serviceSlot: req.serviceSlot,
-              checkInTime: now, status: "dropped_off", checkedInBy: req.assignedSupportId ?? undefined,
-            }).returning();
-            await createAttendanceNotificationIntents(tx, inserted, "checked_in");
-          }
-        }
-      } else if ((req.type === "checkout" || req.type === "delegate_pickup") && existing && existing.status !== "picked_up") {
-        const [checkedOut] = await tx.update(attendanceTable).set({
-          status: "picked_up", checkOutTime: now, checkedOutBy: req.assignedSupportId ?? undefined,
-        }).where(and(eq(attendanceTable.id, existing.id), inArray(attendanceTable.status, ["dropped_off", "in_transit", "in_class"]))).returning();
-        if (checkedOut) await createAttendanceNotificationIntents(tx, checkedOut, "picked_up");
+      if (req.type !== "delegate_pickup") {
+        throw new CustodyHandoverError(409, "WhatsApp attendance changes require the normal custody handover workflow.");
       }
+      const active = existing.filter((row: typeof attendanceTable.$inferSelect) => row.status !== "picked_up");
+      const custodyEpisodeIds = active.reduce<number[]>((ids, row: typeof attendanceTable.$inferSelect) => {
+        const episodeId = row.custodyEpisodeId;
+        if (typeof episodeId === "number" && !ids.includes(episodeId)) ids.push(episodeId);
+        return ids;
+      }, []);
+      if (custodyEpisodeIds.length !== 1) {
+        throw new CustodyHandoverError(409, "Delegate release requires one accepted custody episode. Complete the normal custody handover first.");
+      }
+      await releasePhysicalCustody(tx, {
+        episodeId: custodyEpisodeIds[0]!,
+        actorUserId: req.assignedSupportId!,
+      });
 
       await tx.update(supportRequestsTable).set({ status: "completed", updatedAt: new Date() })
         .where(and(eq(supportRequestsTable.referenceNumber, req.referenceNumber), eq(supportRequestsTable.status, "approved")));
-    });
     logger.info({ ref: req.referenceNumber, type: req.type }, "Attendance auto-recorded on approval");
-  } catch (err) {
-    logger.error({ ref: req.referenceNumber, err: String(err) }, "Failed to auto-record attendance");
-  }
 }
 
 // ── Export proactive notification helper for use in attendance routes ─────────

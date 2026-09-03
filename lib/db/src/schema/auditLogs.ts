@@ -9,6 +9,9 @@ export const auditLogsTable = pgTable("audit_logs", {
   entityId: integer("entity_id"),
   ipAddress: text("ip_address"),
   userAgent: text("user_agent"),
+  // Deliberately limited to operational metadata.  Report rows and their
+  // sensitive source data must never be copied into the audit trail.
+  metadataJson: text("metadata_json"),
   timestamp: timestamp("timestamp").notNull().defaultNow(),
 });
 

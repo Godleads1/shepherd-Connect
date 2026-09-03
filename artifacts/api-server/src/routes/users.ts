@@ -137,7 +137,12 @@ router.post("/users", authMiddleware, requireRoles("super_admin"), async (req, r
     res.status(400).json({ error: "Bad request", message: parsed.error.message });
     return;
   }
-  const { email, password, firstName, lastName, phone, role } = parsed.data;
+  const { email, password, firstName, lastName, phone: rawPhone, role } = parsed.data;
+  const phone = rawPhone === undefined || rawPhone === null ? rawPhone : normalizeNigerianE164(rawPhone);
+  if (rawPhone !== undefined && rawPhone !== null && !phone) {
+    res.status(400).json({ error: "Bad request", message: "Enter a valid Nigerian mobile number." });
+    return;
+  }
   const passwordHash = await bcrypt.hash(password, 12);
   const [user] = await db.insert(usersTable).values({
     email, passwordHash, firstName, lastName, phone,
@@ -527,7 +532,9 @@ router.delete("/users/:id", authMiddleware, requireRoles("super_admin", "admin")
       "DELETE FROM sse_tickets WHERE user_id = $1",
       "DELETE FROM notification_outbox WHERE recipient_user_id = $1",
       "DELETE FROM notifications WHERE user_id = $1",
-      "DELETE FROM audit_logs WHERE user_id = $1",
+      // Audit evidence is retained indefinitely; remove the erased account
+      // reference rather than deleting the event itself.
+      "UPDATE audit_logs SET user_id = NULL WHERE user_id = $1",
       "DELETE FROM parent_feedback WHERE parent_id = $1",
       "DELETE FROM consent_forms WHERE parent_id = $1",
       "DELETE FROM messages WHERE sender_id = $1 OR recipient_id = $1",

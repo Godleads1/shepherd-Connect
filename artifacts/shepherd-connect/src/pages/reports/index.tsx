@@ -429,22 +429,13 @@ export default function Reports() {
     } catch { toast({ variant: "destructive", title: "PDF export failed" }); }
   };
 
-  const handleNotPickedUpExport = () => {
-    if (!notPickedUp?.children) return;
-    const rows = notPickedUp.children.map((r: any) => [
-      r.child ? `${r.child.firstName} ${r.child.lastName}` : "Unknown",
-      r.class?.name || "", r.status,
-      r.minutesSinceCheckIn ? r.minutesSinceCheckIn + " min ago" : "",
-      r.family?.familyCode || "", r.family?.parentPhone || "",
-    ]);
-    const csv = [["Child Name", "Class", "Status", "Check-in", "Family Code", "Parent Phone"], ...rows]
-      .map(row => row.map((c: string | number) => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url; a.download = `not-picked-up-${serviceDate}.csv`; a.click();
-    URL.revokeObjectURL(url);
-    toast({ title: "Report downloaded" });
+  const handleNotPickedUpExport = async () => {
+    try {
+      const params = new URLSearchParams({ serviceDate, format: "csv" });
+      if (serviceSlot) params.set("serviceSlot", serviceSlot);
+      await downloadCsv(`/reports/not-picked-up?${params}`, `not-picked-up-${serviceDate}.csv`);
+      toast({ title: "Report downloaded" });
+    } catch { toast({ variant: "destructive", title: "Export failed" }); }
   };
 
   const notPickedUpChildren = notPickedUp?.children || [];

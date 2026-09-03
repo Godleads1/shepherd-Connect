@@ -1,14 +1,71 @@
-import { Router } from "express";
-import { eq, and, ne, sql } from "drizzle-orm";
-import { db, attendanceTable, childrenTable, classesTable, familiesTable, usersTable, emergenciesTable, pickupDelegatesTable, teacherAllocationsTable, teachersTable, parentFeedbackTable, childAppraisalsTable } from "@workspace/db";
+import { Router, Request } from "express";
+import { eq, and, ne, sql, gte, lte, inArray, asc } from "drizzle-orm";
+import { z } from "zod/v4";
+import { db, attendanceTable, childrenTable, classesTable, familiesTable, usersTable, emergenciesTable, pickupDelegatesTable, teacherAllocationsTable, teachersTable, parentFeedbackTable, childAppraisalsTable, staffScansTable, custodyEpisodesTable, auditLogsTable } from "@workspace/db";
 import { authMiddleware, requireRoles } from "../middlewares/auth";
 import { streamPdf, renderReportPdf } from "../lib/pdf";
 
 const router = Router();
 
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+const MAX_REPORT_DAYS = 92;
+const MAX_REPORT_ROWS = 2_000;
+const reportQuerySchema = z.object({
+  from: z.string().regex(ISO_DATE).optional(),
+  to: z.string().regex(ISO_DATE).optional(),
+  format: z.enum(["json", "csv", "pdf"]).default("json"),
+  service: z.enum(["first", "second", "both"]).default("both"),
+  classId: z.coerce.number().int().positive().optional(),
+  serviceSlot: z.string().trim().min(1).max(40).optional(),
+  status: z.enum(["dropped_off", "in_transit", "in_class", "picked_up"]).optional(),
+}).strict();
+
+function validCalendarDate(value: string | undefined): boolean {
+  if (!value || !ISO_DATE.test(value)) return !value;
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
+}
+
+export function parseBoundedReportQuery(query: unknown) {
+  const parsed = reportQuerySchema.safeParse(query);
+  if (!parsed.success || !validCalendarDate(parsed.data?.from) || !validCalendarDate(parsed.data?.to)) return null;
+  const data = parsed.data;
+  if (!data.from || !data.to) return null;
+  if (data.from && data.to) {
+    const days = (Date.parse(`${data.to}T00:00:00.000Z`) - Date.parse(`${data.from}T00:00:00.000Z`)) / 86_400_000;
+    if (days < 0 || days > MAX_REPORT_DAYS) return null;
+  }
+  return data;
+}
+
+export function csv(rows: Array<Array<string | number | null | undefined>>): string {
+  return rows.map(row => row.map(value => {
+    const text = String(value ?? "");
+    const safe = /^\s*[=+\-@]/.test(text) ? `'${text}` : text;
+    return `"${safe.replace(/"/g, '""')}"`;
+  }).join(",")).join("\r\n");
+}
+
+/** Records only an allowlisted, bounded operational event, never report data. */
+async function auditReportExport(req: Request, reportType: string, format: "csv" | "pdf", filters: Record<string, unknown>, rowCount: number, sensitivityClass: "operational" | "restricted"): Promise<void> {
+  const normalizedFilters = Object.fromEntries(Object.entries(filters)
+    .filter(([key, value]) => ["from", "to", "service", "classId", "serviceSlot", "status"].includes(key) && value !== undefined)
+    .map(([key, value]) => [key, typeof value === "string" ? value.slice(0, 40) : value]));
+  await db.insert(auditLogsTable).values({
+    userId: req.user!.userId,
+    action: "report_export",
+    entityType: reportType,
+    ipAddress: req.ip?.slice(0, 64) || null,
+    userAgent: typeof req.headers["user-agent"] === "string" ? req.headers["user-agent"].slice(0, 512) : null,
+    metadataJson: JSON.stringify({ role: req.user!.role, format, filters: normalizedFilters, rowCount: Math.min(rowCount, MAX_REPORT_ROWS), sensitivityClass }),
+  });
+}
+
 router.get("/reports/not-picked-up", authMiddleware, requireRoles("super_admin", "admin", "support"), async (req, res): Promise<void> => {
   try {
-    const { serviceDate, serviceSlot } = req.query as { serviceDate?: string; serviceSlot?: string };
+    const { serviceDate, serviceSlot, format } = req.query as { serviceDate?: string; serviceSlot?: string; format?: string };
+    if ((serviceDate && !validCalendarDate(serviceDate)) || (serviceSlot !== undefined && (typeof serviceSlot !== "string" || serviceSlot.length > 40)) || (format !== undefined && format !== "csv")) { res.status(400).json({ error: "Invalid report filters or format" }); return; }
     const today = serviceDate || new Date().toISOString().split("T")[0];
 
     const conditions = [eq(attendanceTable.serviceDate, today), ne(attendanceTable.status, "picked_up")];
@@ -30,9 +87,14 @@ router.get("/reports/not-picked-up", authMiddleware, requireRoles("super_admin",
         }
       }
       const checkInMins = r.checkInTime ? Math.floor((Date.now() - new Date(r.checkInTime).getTime()) / 60000) : null;
-      return { ...r, child: child || null, class: cls || null, family: family ? { id: family.id, familyCode: family.familyCode, parentPhone } : null, minutesSinceCheckIn: checkInMins };
+      return { id: r.id, status: r.status, checkInTime: r.checkInTime, child: child ? { firstName: child.firstName, lastName: child.lastName } : null, class: cls ? { name: cls.name } : null, family: family ? { familyCode: family.familyCode, parentPhone } : null, minutesSinceCheckIn: checkInMins };
     }));
 
+    if (format === "csv") {
+      await auditReportExport(req, "not_picked_up", "csv", { serviceDate: today, serviceSlot }, enriched.length, "restricted");
+      res.type("text/csv").attachment(`not-picked-up-${today}.csv`).send(csv([["Child Name", "Class", "Status", "Minutes Since Check-in", "Family Code", "Parent Phone"], ...enriched.map(row => [`${row.child?.firstName ?? ""} ${row.child?.lastName ?? ""}`.trim(), row.class?.name ?? "", row.status, row.minutesSinceCheckIn ?? "", row.family?.familyCode ?? "", row.family?.parentPhone ?? ""])]));
+      return;
+    }
     res.json({ date: today, serviceSlot: serviceSlot || "all", total: enriched.length, children: enriched });
   } catch (err) {
     req.log.error({ err }, "Failed to load not-picked-up report");
@@ -42,14 +104,21 @@ router.get("/reports/not-picked-up", authMiddleware, requireRoles("super_admin",
 
 router.get("/reports/attendance-export", authMiddleware, requireRoles("super_admin", "admin"), async (req, res): Promise<void> => {
   try {
-    const { from, to, serviceSlot, classId, format = "json" } = req.query as { from?: string; to?: string; serviceSlot?: string; classId?: string; format?: string };
+    const query = parseBoundedReportQuery(req.query);
+    if (!query || query.format === "pdf") { res.status(400).json({ error: "Invalid report filters or format" }); return; }
+    const { from, to, serviceSlot, classId, format, status } = query;
     const conditions = [];
+    if (from) conditions.push(gte(attendanceTable.serviceDate, from));
+    if (to) conditions.push(lte(attendanceTable.serviceDate, to));
     if (serviceSlot) conditions.push(eq(attendanceTable.serviceSlot, serviceSlot));
-    if (classId) conditions.push(eq(attendanceTable.classId, parseInt(classId, 10)));
+    if (classId) conditions.push(eq(attendanceTable.classId, classId));
+    if (status) conditions.push(eq(attendanceTable.status, status));
 
+    // Bound the primary query before doing the per-record enrichment below.
     const records = await db.select().from(attendanceTable)
       .where(conditions.length ? and(...conditions) : undefined)
-      .orderBy(attendanceTable.serviceDate);
+      .orderBy(attendanceTable.serviceDate)
+      .limit(MAX_REPORT_ROWS);
 
     const enriched = await Promise.all(records.map(async (r) => {
       const [child] = await db.select().from(childrenTable).where(eq(childrenTable.id, r.childId));
@@ -57,19 +126,15 @@ router.get("/reports/attendance-export", authMiddleware, requireRoles("super_adm
       return { date: r.serviceDate, serviceSlot: r.serviceSlot, childName: child ? `${child.firstName} ${child.lastName}` : "Unknown", className: cls?.name || "Unknown", status: r.status, checkInTime: r.checkInTime, checkOutTime: r.checkOutTime };
     }));
 
-    const filtered = enriched.filter(r => {
-      if (from && r.date < from) return false;
-      if (to && r.date > to) return false;
-      return true;
-    });
+    const filtered = enriched;
 
     if (format === "csv") {
       const headers = ["Date", "Service Slot", "Child Name", "Class", "Status", "Check-in Time", "Check-out Time"];
       const rows = filtered.map(r => [r.date, r.serviceSlot, r.childName, r.className, r.status, r.checkInTime ? new Date(r.checkInTime).toLocaleString() : "", r.checkOutTime ? new Date(r.checkOutTime).toLocaleString() : ""]);
-      const csv = [headers, ...rows].map(row => row.map(c => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
+      await auditReportExport(req, "attendance", "csv", { from, to, serviceSlot, classId }, filtered.length, "restricted");
       res.setHeader("Content-Type", "text/csv");
       res.setHeader("Content-Disposition", `attachment; filename="attendance-${from || "all"}-to-${to || "all"}.csv"`);
-      res.send(csv);
+      res.send(csv([headers, ...rows]));
       return;
     }
     res.json({ total: filtered.length, from, to, serviceSlot: serviceSlot || "all", data: filtered });
@@ -80,7 +145,7 @@ router.get("/reports/attendance-export", authMiddleware, requireRoles("super_adm
 });
 
 async function buildFamilyRegistry() {
-  const families = await db.select().from(familiesTable).orderBy(familiesTable.createdAt);
+  const families = await db.select().from(familiesTable).orderBy(familiesTable.createdAt).limit(MAX_REPORT_ROWS);
   return Promise.all(families.map(async (fam) => {
     let parentName = "", parentPhone = "", parentEmail = "";
     let isActive = false;
@@ -115,7 +180,7 @@ router.get("/reports/class-list", authMiddleware, requireRoles("super_admin", "a
     const [cls] = await db.select().from(classesTable).where(eq(classesTable.id, classIdNum));
     if (!cls) { res.status(404).json({ error: "Class not found" }); return; }
 
-    const children = await db.select().from(childrenTable).where(eq(childrenTable.currentClassId, classIdNum));
+    const children = await db.select().from(childrenTable).where(eq(childrenTable.currentClassId, classIdNum)).orderBy(childrenTable.lastName, childrenTable.firstName).limit(MAX_REPORT_ROWS);
 
     const enriched = await Promise.all(children.map(async (child) => {
       const age = child.dob
@@ -141,21 +206,19 @@ router.get("/reports/class-list", authMiddleware, requireRoles("super_admin", "a
         dob: child.dob || "",
         age: age !== null ? String(age) : "",
         gender: child.gender || "",
-        allergies: child.allergies || "",
-        medicalNotes: child.medicalNotes || "",
         parent1Name, parent1Phone, parent1Email,
         parent2Name, parent2Phone,
       };
     }));
 
     if (format === "csv") {
-      const headers = ["Child Name", "Date of Birth", "Age", "Gender", "Allergies", "Medical Notes", "Parent 1 Name", "Parent 1 Phone", "Parent 1 Email", "Parent 2 Name", "Parent 2 Phone"];
-      const rows = enriched.map(r => [r.childName, r.dob, r.age, r.gender, r.allergies, r.medicalNotes, r.parent1Name, r.parent1Phone, r.parent1Email, r.parent2Name, r.parent2Phone]);
-      const csv = [headers, ...rows].map(row => row.map(c => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
+      const headers = ["Child Name", "Date of Birth", "Age", "Gender", "Parent 1 Name", "Parent 1 Phone", "Parent 1 Email", "Parent 2 Name", "Parent 2 Phone"];
+      const rows = enriched.map(r => [r.childName, r.dob, r.age, r.gender, r.parent1Name, r.parent1Phone, r.parent1Email, r.parent2Name, r.parent2Phone]);
+      await auditReportExport(req, "class_list", "csv", { classId: classIdNum }, enriched.length, "restricted");
       const safeName = cls.name.replace(/\s+/g, "-").toLowerCase();
       res.setHeader("Content-Type", "text/csv");
       res.setHeader("Content-Disposition", `attachment; filename="${safeName}-class-list.csv"`);
-      res.send(csv); return;
+      res.send(csv([headers, ...rows])); return;
     }
 
     res.json({ classId: classIdNum, className: cls.name, serviceSlot: cls.serviceSlot, total: enriched.length, children: enriched });
@@ -172,10 +235,10 @@ router.get("/reports/family-registry", authMiddleware, requireRoles("super_admin
     if (format === "csv") {
       const headers = ["Family Code", "Family Name", "Parent Name", "Parent Email", "Parent Phone", "Parent 2 Name", "Parent 2 Email", "Children Count", "Children Names", "Address", "Emergency Contact", "Emergency Phone", "Registered", "Active"];
       const rows = enriched.map(r => [r.familyCode, r.familyName, r.parentName, r.parentEmail, r.parentPhone, r.parent2Name, r.parent2Email, r.childCount, r.childrenNames, r.address, r.emergencyContact, r.emergencyPhone, r.registeredAt, r.isActive ? "Yes" : "No"]);
-      const csv = [headers, ...rows].map(row => row.map(c => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
+      await auditReportExport(req, "family_registry", "csv", {}, enriched.length, "restricted");
       res.setHeader("Content-Type", "text/csv");
       res.setHeader("Content-Disposition", 'attachment; filename="family-registry.csv"');
-      res.send(csv); return;
+      res.send(csv([headers, ...rows])); return;
     }
     res.json({ total: enriched.length, families: enriched });
   } catch (err) {
@@ -189,10 +252,10 @@ router.get("/reports/families-export", authMiddleware, requireRoles("super_admin
     const enriched = await buildFamilyRegistry();
     const headers = ["Family Code", "Parent 1 Name", "Parent 1 Email", "Parent 1 Phone", "Parent 2 Name", "Parent 2 Email", "Parent 2 Phone", "Address", "Emergency Contact", "Emergency Phone", "Children Count", "Children Names", "Registered"];
     const rows = enriched.map(r => [r.familyCode, r.parentName, r.parentEmail, r.parentPhone, r.parent2Name, r.parent2Email, r.parent2Phone, r.address, r.emergencyContact, r.emergencyPhone, r.childCount, r.childrenNames, r.registeredAt]);
-    const csv = [headers, ...rows].map(row => row.map(c => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
+    await auditReportExport(req, "family_registry", "csv", {}, enriched.length, "restricted");
     res.setHeader("Content-Type", "text/csv");
     res.setHeader("Content-Disposition", 'attachment; filename="family-registry.csv"');
-    res.send(csv);
+    res.send(csv([headers, ...rows]));
   } catch (err) {
     req.log.error({ err }, "Failed to export families");
     res.status(500).json({ error: "Failed to export families" });
@@ -202,7 +265,7 @@ router.get("/reports/families-export", authMiddleware, requireRoles("super_admin
 router.get("/reports/emergency-log", authMiddleware, requireRoles("super_admin", "admin"), async (req, res): Promise<void> => {
   try {
     const { format = "json" } = req.query as { format?: string };
-    const records = await db.select().from(emergenciesTable).orderBy(emergenciesTable.createdAt);
+    const records = await db.select().from(emergenciesTable).orderBy(emergenciesTable.createdAt).limit(MAX_REPORT_ROWS);
     const enriched = await Promise.all(records.map(async (r) => {
       let childName = null;
       if (r.childId) {
@@ -216,10 +279,10 @@ router.get("/reports/emergency-log", authMiddleware, requireRoles("super_admin",
     if (format === "csv") {
       const headers = ["ID", "Type", "Level", "Status", "Description", "Child", "Triggered By", "Resolution", "Created At", "Resolved At"];
       const rows = enriched.map(r => [r.id, r.type, r.level, r.status, r.description, r.childName || "", r.triggeredBy, r.resolutionNotes || "", new Date(r.createdAt).toLocaleString(), r.resolvedAt ? new Date(r.resolvedAt).toLocaleString() : ""]);
-      const csv = [headers, ...rows].map(row => row.map(c => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
+      await auditReportExport(req, "emergency_log", "csv", {}, enriched.length, "restricted");
       res.setHeader("Content-Type", "text/csv");
       res.setHeader("Content-Disposition", 'attachment; filename="emergency-log.csv"');
-      res.send(csv);
+      res.send(csv([headers, ...rows]));
       return;
     }
     res.json({ total: enriched.length, data: enriched });
@@ -399,7 +462,7 @@ router.get("/reports/custom-builder", authMiddleware, requireRoles("super_admin"
           const allocs = await db.select({ classId: teacherAllocationsTable.classId }).from(teacherAllocationsTable).where(eq(teacherAllocationsTable.teacherId, tid));
           const classIds = [...new Set(allocs.map(a => a.classId))];
           if (classIds.length > 0) {
-            conds.push(sql`${attendanceTable.classId} = ANY(ARRAY[${sql.raw(classIds.join(","))}]::int[])`);
+            conds.push(inArray(attendanceTable.classId, classIds));
           } else {
             res.json({ title: "Attendance Log", columns: ["Date", "Slot", "Child", "Class", "Status", "Checked In", "In Class", "Picked Up"], rows: [], total: 0, summary: { totalRecords: 0, pickedUp: 0, attendanceRate: 0, uniqueDates: 0 } });
             return;
@@ -725,24 +788,102 @@ router.get("/reports/room-occupancy", authMiddleware, requireRoles("super_admin"
   }
 });
 
+// ─── Hardened operational exports ─────────────────────────────────────────────
+// These endpoints intentionally expose only the report-specific privacy allowlist.
+// They do not reuse the broad record serializers used by live operational views.
+router.get("/reports/staff-attendance", authMiddleware, requireRoles("super_admin", "admin"), async (req, res): Promise<void> => {
+  const query = parseBoundedReportQuery(req.query);
+  if (!query) { res.status(400).json({ error: `Invalid filters; dates must be valid and span no more than ${MAX_REPORT_DAYS} days` }); return; }
+  try {
+    const scanConditions = [];
+    if (query.from) scanConditions.push(gte(staffScansTable.serviceDate, query.from));
+    if (query.to) scanConditions.push(lte(staffScansTable.serviceDate, query.to));
+    if (query.service !== "both") scanConditions.push(eq(staffScansTable.service, query.service === "first" ? "1st" : "2nd"));
+    const scans = await db.select().from(staffScansTable)
+      .where(scanConditions.length ? and(...scanConditions) : undefined)
+      .orderBy(asc(staffScansTable.serviceDate), asc(staffScansTable.userId), asc(staffScansTable.scannedAt))
+      .limit(MAX_REPORT_ROWS);
+    const userIds = [...new Set(scans.map(scan => scan.userId))];
+    const users = userIds.length ? await db.select({ id: usersTable.id, firstName: usersTable.firstName, lastName: usersTable.lastName })
+      .from(usersTable).where(inArray(usersTable.id, userIds)) : [];
+    const names = new Map(users.map(user => [user.id, `${user.firstName} ${user.lastName}`]));
+    const grouped = new Map<string, { date: string; userId: number; staffName: string; firstIn: Date | null; firstOut: Date | null; secondIn: Date | null; secondOut: Date | null }>();
+    for (const scan of scans) {
+      const key = `${scan.serviceDate}:${scan.userId}`;
+      const row = grouped.get(key) ?? { date: scan.serviceDate, userId: scan.userId, staffName: names.get(scan.userId) ?? "Unknown", firstIn: null, firstOut: null, secondIn: null, secondOut: null };
+      if (scan.service === "1st") { if (scan.scanType === "checkpoint") row.firstIn = scan.scannedAt; if (scan.scanType === "clock_out") row.firstOut = scan.scannedAt; }
+      if (scan.service === "2nd") { if (scan.scanType === "checkpoint") row.secondIn = scan.scannedAt; if (scan.scanType === "clock_out") row.secondOut = scan.scannedAt; }
+      grouped.set(key, row);
+    }
+    const data = [...grouped.values()].slice(0, MAX_REPORT_ROWS);
+    const rows = data.map(row => [row.date, row.staffName, row.firstIn?.toISOString() ?? "", row.firstOut?.toISOString() ?? "", row.secondIn?.toISOString() ?? "", row.secondOut?.toISOString() ?? ""]);
+    if (query.format === "csv") {
+      await auditReportExport(req, "staff_attendance", "csv", query, rows.length, "operational");
+      res.type("text/csv").attachment("staff-attendance.csv").send(csv([["Service Date", "Staff", "First Check-in", "First Clock-out", "Second Check-in", "Second Clock-out"], ...rows]));
+      return;
+    }
+    if (query.format === "pdf") {
+      await auditReportExport(req, "staff_attendance", "pdf", query, rows.length, "operational");
+      streamPdf(res, "staff-attendance.pdf", doc => renderReportPdf(doc, { title: "Staff Attendance", subtitle: `${rows.length} staff-day records`, columns: [{ label: "Date", width: 70 }, { label: "Staff", width: 120 }, { label: "First in", width: 80 }, { label: "First out", width: 80 }, { label: "Second in", width: 80 }, { label: "Second out", width: 80 }], rows, summaryStats: [{ label: "Records", value: String(rows.length) }] }));
+      return;
+    }
+    res.json({ total: data.length, data });
+  } catch (err) { req.log.error({ err }, "Failed to generate staff attendance report"); res.status(500).json({ error: "Failed to generate staff attendance report" }); }
+});
+
+router.get("/reports/child-custody", authMiddleware, requireRoles("super_admin", "admin"), async (req, res): Promise<void> => {
+  const query = parseBoundedReportQuery(req.query);
+  if (!query) { res.status(400).json({ error: `Invalid filters; dates must be valid and span no more than ${MAX_REPORT_DAYS} days` }); return; }
+  try {
+    const conditions = [];
+    if (query.from) conditions.push(gte(attendanceTable.serviceDate, query.from));
+    if (query.to) conditions.push(lte(attendanceTable.serviceDate, query.to));
+    if (query.classId) conditions.push(eq(attendanceTable.classId, query.classId));
+    if (query.serviceSlot) conditions.push(eq(attendanceTable.serviceSlot, query.serviceSlot));
+    if (query.status) conditions.push(eq(attendanceTable.status, query.status));
+    const attendance = await db.select().from(attendanceTable).where(conditions.length ? and(...conditions) : undefined)
+      .orderBy(asc(attendanceTable.serviceDate), asc(attendanceTable.classId), asc(attendanceTable.childId)).limit(MAX_REPORT_ROWS);
+    const childIds = [...new Set(attendance.map(row => row.childId))], classIds = [...new Set(attendance.map(row => row.classId))], episodeIds = [...new Set(attendance.flatMap(row => row.custodyEpisodeId ? [row.custodyEpisodeId] : []))];
+    const [children, classes, episodes] = await Promise.all([
+      childIds.length ? db.select({ id: childrenTable.id, firstName: childrenTable.firstName, lastName: childrenTable.lastName }).from(childrenTable).where(inArray(childrenTable.id, childIds)) : [],
+      classIds.length ? db.select({ id: classesTable.id, name: classesTable.name }).from(classesTable).where(inArray(classesTable.id, classIds)) : [],
+      episodeIds.length ? db.select().from(custodyEpisodesTable).where(inArray(custodyEpisodesTable.id, episodeIds)) : [],
+    ]);
+    const actorIds = [...new Set([...attendance.flatMap(row => row.checkedOutBy ? [row.checkedOutBy] : []), ...episodes.flatMap(row => [row.custodianUserId, row.pickedUpBy].filter((id): id is number => id !== null))])];
+    const actors = actorIds.length ? await db.select({ id: usersTable.id, firstName: usersTable.firstName, lastName: usersTable.lastName }).from(usersTable).where(inArray(usersTable.id, actorIds)) : [];
+    const name = new Map(actors.map(actor => [actor.id, `${actor.firstName} ${actor.lastName}`])), child = new Map(children.map(row => [row.id, `${row.firstName} ${row.lastName}`])), className = new Map(classes.map(row => [row.id, row.name])), episode = new Map(episodes.map(row => [row.id, row]));
+    const data = attendance.map(row => {
+      const custody = row.custodyEpisodeId ? episode.get(row.custodyEpisodeId) : undefined;
+      return { date: row.serviceDate, serviceSlot: row.serviceSlot, childName: child.get(row.childId) ?? "Unknown", className: className.get(row.classId) ?? "Unknown", status: row.status, checkInTime: row.checkInTime, checkOutTime: row.checkOutTime, custodian: custody?.custodianUserId ? name.get(custody.custodianUserId) ?? "Unknown" : null, checkoutActor: custody?.pickedUpBy ? name.get(custody.pickedUpBy) ?? "Unknown" : (row.checkedOutBy ? name.get(row.checkedOutBy) ?? "Unknown" : null), checkoutMode: custody?.checkoutMode ?? null, checkoutReason: custody?.overrideReason ?? null };
+    });
+    const rows = data.map(row => [row.date, row.serviceSlot, row.childName, row.className, row.status, row.checkInTime?.toISOString() ?? "", row.checkOutTime?.toISOString() ?? "", row.custodian ?? "", row.checkoutActor ?? "", row.checkoutMode ?? "", row.checkoutReason ?? ""]);
+    const classServiceTotals = Object.entries(data.reduce<Record<string, number>>((all, row) => { all[`${row.className} / ${row.serviceSlot}`] = (all[`${row.className} / ${row.serviceSlot}`] ?? 0) + 1; return all; }, {}))
+      .map(([classService, count]) => ({ classService, count }));
+    if (query.format === "csv") { await auditReportExport(req, "child_custody", "csv", query, rows.length, "restricted"); res.type("text/csv").attachment("child-custody.csv").send(csv([["Date", "Service", "Child", "Class", "Status", "Check-in", "Check-out", "Custodian", "Checkout actor", "Checkout mode", "Override reason"], ...rows])); return; }
+    if (query.format === "pdf") { await auditReportExport(req, "child_custody", "pdf", query, rows.length, "restricted"); streamPdf(res, "child-custody.pdf", doc => renderReportPdf(doc, { title: "Child Custody Report", subtitle: `${rows.length} attendance records`, columns: [{ label: "Date", width: 55 }, { label: "Service", width: 45 }, { label: "Child", width: 80 }, { label: "Class", width: 65 }, { label: "Status", width: 55 }, { label: "Custodian", width: 75 }, { label: "Checkout actor", width: 75 }, { label: "Mode", width: 55 }], rows: rows.map(row => row.slice(0, 5).concat(row.slice(7, 10))), summaryStats: [{ label: "Records", value: String(rows.length) }, { label: "Class/service totals", value: String(classServiceTotals.length) }] })); return; }
+    res.json({ total: data.length, classServiceTotals, data });
+  } catch (err) { req.log.error({ err }, "Failed to generate child custody report"); res.status(500).json({ error: "Failed to generate child custody report" }); }
+});
+
 // ─── PDF Export Routes ────────────────────────────────────────────────────────
 
 router.get("/reports/pdf/attendance", authMiddleware, requireRoles("super_admin", "admin"), async (req, res): Promise<void> => {
   try {
-    const { from, to, serviceSlot, classId } = req.query as { from?: string; to?: string; serviceSlot?: string; classId?: string };
+    const query = parseBoundedReportQuery(req.query);
+    if (!query || query.format === "csv") { res.status(400).json({ error: "Invalid report filters or format" }); return; }
+    const { from, to, serviceSlot, classId, status } = query;
     const conds: ReturnType<typeof eq>[] = [];
+    if (from) conds.push(gte(attendanceTable.serviceDate, from));
+    if (to) conds.push(lte(attendanceTable.serviceDate, to));
     if (serviceSlot) conds.push(eq(attendanceTable.serviceSlot, serviceSlot));
-    if (classId) conds.push(eq(attendanceTable.classId, parseInt(classId, 10)));
+    if (classId) conds.push(eq(attendanceTable.classId, classId));
+    if (status) conds.push(eq(attendanceTable.status, status));
 
     const records = await db.select().from(attendanceTable)
       .where(conds.length ? and(...conds) : undefined)
-      .orderBy(attendanceTable.serviceDate);
-
-    const filtered = records.filter(r => {
-      if (from && r.serviceDate < from) return false;
-      if (to && r.serviceDate > to) return false;
-      return true;
-    });
+      .orderBy(attendanceTable.serviceDate, attendanceTable.classId, attendanceTable.childId)
+      .limit(MAX_REPORT_ROWS);
+    const filtered = records;
 
     const rows = await Promise.all(filtered.map(async (r) => {
       const [child] = await db.select().from(childrenTable).where(eq(childrenTable.id, r.childId));
@@ -765,6 +906,7 @@ router.get("/reports/pdf/attendance", authMiddleware, requireRoles("super_admin"
     const dateLabel = from && to ? `${from} to ${to}` : from ? `from ${from}` : to ? `to ${to}` : "All dates";
     const slotLabel = serviceSlot ? ` · ${serviceSlot}` : "";
 
+    await auditReportExport(req, "attendance", "pdf", { from, to, serviceSlot, classId }, rows.length, "restricted");
     streamPdf(res, `attendance-${from || "all"}-to-${to || "all"}.pdf`, (doc) => {
       renderReportPdf(doc, {
         title: "Attendance Report",
@@ -796,7 +938,7 @@ router.get("/reports/pdf/attendance", authMiddleware, requireRoles("super_admin"
 router.get("/reports/pdf/feedback", authMiddleware, requireRoles("super_admin", "admin"), async (req, res): Promise<void> => {
   try {
     const { from, to } = req.query as { from?: string; to?: string };
-    const feedbacks = await db.select().from(parentFeedbackTable).orderBy(parentFeedbackTable.createdAt);
+    const feedbacks = await db.select().from(parentFeedbackTable).orderBy(parentFeedbackTable.createdAt).limit(MAX_REPORT_ROWS);
     const filtered = feedbacks.filter(f => {
       const date = new Date(f.createdAt).toISOString().split("T")[0];
       if (from && date < from) return false;
@@ -828,6 +970,7 @@ router.get("/reports/pdf/feedback", authMiddleware, requireRoles("super_admin", 
 
     const dateLabel = from && to ? `${from} to ${to}` : "All dates";
 
+    await auditReportExport(req, "feedback_summary", "pdf", { from, to }, rows.length, "restricted");
     streamPdf(res, `feedback-${from || "all"}-to-${to || "all"}.pdf`, (doc) => {
       renderReportPdf(doc, {
         title: "Parent Feedback Report",
@@ -861,7 +1004,7 @@ router.get("/reports/pdf/feedback", authMiddleware, requireRoles("super_admin", 
 
 router.get("/reports/pdf/emergency-log", authMiddleware, requireRoles("super_admin", "admin"), async (req, res): Promise<void> => {
   try {
-    const records = await db.select().from(emergenciesTable).orderBy(emergenciesTable.createdAt);
+    const records = await db.select().from(emergenciesTable).orderBy(emergenciesTable.createdAt).limit(MAX_REPORT_ROWS);
     const enriched = await Promise.all(records.map(async (r) => {
       let childName = "—";
       if (r.childId) {
@@ -885,6 +1028,7 @@ router.get("/reports/pdf/emergency-log", authMiddleware, requireRoles("super_adm
     const medical = enriched.filter(r => r[0] === "medical").length;
     const security = enriched.filter(r => r[0] === "security").length;
 
+    await auditReportExport(req, "emergency_log", "pdf", {}, enriched.length, "restricted");
     streamPdf(res, `emergency-log-${new Date().toISOString().split("T")[0]}.pdf`, (doc) => {
       renderReportPdf(doc, {
         title: "Emergency Incident Log",

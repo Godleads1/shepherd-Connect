@@ -4,6 +4,7 @@ import { startScheduler } from "./lib/scheduler";
 import { initWhatsApp, closeWhatsAppClean } from "./services/whatsapp";
 import { startNotificationDeliveryWorker, stopNotificationDeliveryWorker } from "./services/notificationDeliveryWorker";
 import { migrateLegacyWhatsAppQueue } from "./lib/whatsapp-queue";
+import { backfillLegacyPhoneIdentities } from "./lib/phase6Rollout";
 
 const rawPort = process.env["PORT"];
 
@@ -45,5 +46,6 @@ app.listen(port, async (err) => {
   // No outbox polling may begin until every legacy pending recipient has an
   // idempotent outbox representation (or startup fails loudly).
   await migrateLegacyWhatsAppQueue();
+  await backfillLegacyPhoneIdentities();
   startNotificationDeliveryWorker();
 });

@@ -109,4 +109,25 @@ databaseDescribe("custody handover PostgreSQL integrity", () => {
     expect(row.override_reason).toBe("Verified parent identity at desk");
     expect(Number(row.overridden_by)).toBe(adminId);
   });
+
+  it("routes legacy attendance checkout through the custody episode rather than closing one row", async () => {
+    const requested = await create("legacy-checkout");
+    const episodeId = requested.body.episode.id;
+    await request(app).post("/api/custody-episodes").set("Authorization", token(supportId, "support"))
+      .send({ episodeId, eventId: "legacy-checkout-accept" }).expect(201);
+    const attendance = (await db.execute(sql`SELECT id FROM attendance WHERE custody_episode_id=${episodeId} ORDER BY id LIMIT 1`)).rows[0] as any;
+
+    // The legacy endpoint cannot provide an override reason, so an admin is
+    // directed to the explicit custody override endpoint instead.
+    await request(app).put(`/api/attendance/${attendance.id}/checkout`).set("Authorization", token(adminId, "admin"))
+      .send({}).expect(409);
+    await request(app).put(`/api/attendance/${attendance.id}/checkout`).set("Authorization", token(supportId, "support"))
+      .send({}).expect(200);
+
+    const episode = (await db.execute(sql`SELECT status,checkout_mode,picked_up_by FROM custody_episodes WHERE id=${episodeId}`)).rows[0] as any;
+    expect(episode.status).toBe("picked_up");
+    expect(episode.checkout_mode).toBe("normal");
+    expect(Number(episode.picked_up_by)).toBe(supportId);
+    expect(await count("attendance", sql`custody_episode_id=${episodeId} AND status='picked_up'`)).toBe(2);
+  });
 });

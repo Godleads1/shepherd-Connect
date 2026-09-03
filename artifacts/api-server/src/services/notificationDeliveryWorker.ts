@@ -5,11 +5,13 @@ import {
 } from "./notificationOutbox";
 import { logger } from "../lib/logger";
 import { deliverOutboxEmail, deliverOutboxSms, type OutboxProviderOutcome } from "./sms";
+import { ObjectStorageService } from "../lib/objectStorage";
 
 const POLL_MS = 5_000;
 const BATCH_SIZE = 20;
 let timer: ReturnType<typeof setInterval> | undefined;
 let running = false;
+const objectStorage = new ObjectStorageService();
 
 type AuthoritativeDelivery = {
   phone: string | null; email: string | null; communicationPrefs: string | null;
@@ -46,7 +48,13 @@ async function process(row: ClaimedNotification): Promise<void> {
   // WhatsApp has always been opt-in through communicationPrefs. Required SMS
   // and email consequences historically sent regardless of a null preference
   // document, so preserving them must not turn a missing JSON blob into opt-out.
-  if (row.channel === "whatsapp" && !preferenceEnabled(delivery.communicationPrefs, row.channel)) {
+  const requiredWhatsApp = [
+    "support_request_assigned",
+    "delegate_photo_approval",
+    "support_request_approved",
+    "support_request_rejected",
+  ].includes(row.notificationType);
+  if (row.channel === "whatsapp" && !requiredWhatsApp && !preferenceEnabled(delivery.communicationPrefs, row.channel)) {
     await finalizeNotification(db, { ...row, outcome: "skipped", failureClassification: "preference_disabled" });
     return;
   }
@@ -75,7 +83,22 @@ async function process(row: ClaimedNotification): Promise<void> {
     return;
   }
   try {
-    const accepted = await sendWhatsAppMessage(contact, `*${delivery.title}*\n\n${delivery.message}`);
+    let imageObjectPath: string | undefined;
+    try {
+      const metadata = JSON.parse(row.templateMetadataJson) as { imageObjectPath?: unknown };
+      if (typeof metadata.imageObjectPath === "string" && metadata.imageObjectPath.startsWith("/objects/")) {
+        imageObjectPath = metadata.imageObjectPath;
+      }
+    } catch { /* ordinary text delivery */ }
+    const accepted = imageObjectPath
+      ? await (async () => {
+          const { sendWhatsAppImageToJid } = await import("./whatsapp");
+          const file = await objectStorage.getObjectEntityFile(imageObjectPath);
+          const [image] = await file.download();
+          const digits = contact.replace(/\D/g, "");
+          return sendWhatsAppImageToJid(`${digits}@s.whatsapp.net`, image, `*${delivery.title}*\n\n${delivery.message}`);
+        })()
+      : await sendWhatsAppMessage(contact, `*${delivery.title}*\n\n${delivery.message}`);
     if (accepted) {
       await finalizeNotification(db, { ...row, outcome: "accepted", provider: "baileys", providerAcceptedAt: new Date() });
     } else {

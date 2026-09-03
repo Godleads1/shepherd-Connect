@@ -13,6 +13,8 @@ Staff and handover QR tokens must be opaque, purpose-bound, revocable, lifecycle
 
 Legacy escort/arrival paths remain temporary compatibility routes but are not part of the normal workflow and must use the canonical transition service.
 
+Audit logs, including report-download events, are retained indefinitely until an authorized deletion. No time-based cleanup job or inferred numeric retention period should be added.
+
 **Why:** These rulings resolve the human decisions from the Phase 6 architecture review while preserving the Phase 1–5 security and concurrency guarantees.
 
 **How to apply:** Treat these authority boundaries as invariants in attendance, custody, QR, WhatsApp, reporting, and legacy-route work. Stop for human review before weakening or replacing any of them.

@@ -1,10 +1,32 @@
 import { Router } from "express";
+import { z } from "zod/v4";
 import { db } from "@workspace/db";
-import { teacherClockInsTable, usersTable } from "@workspace/db/schema";
+import { teacherClockInsTable, usersTable, auditLogsTable } from "@workspace/db/schema";
 import { eq, and, desc, gte, lte, inArray, sql } from "drizzle-orm";
 import { authMiddleware, requireRoles } from "../middlewares/auth";
 
 const router = Router();
+
+export function teacherClockInCsv(rows: Array<Array<string | number | null | undefined>>): string {
+  return rows.map(row => row.map(value => {
+    const text = String(value ?? "");
+    const safe = /^\s*[=+\-@]/.test(text) ? `'${text}` : text;
+    return `"${safe.replace(/"/g, '""')}"`;
+  }).join(",")).join("\r\n");
+}
+const exportQuery = z.object({
+  from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+}).strict();
+const MAX_EXPORT_DAYS = 92;
+const MAX_EXPORT_ROWS = 2_000;
+
+function validDate(value: string | undefined): boolean {
+  if (!value) return true;
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
+}
 
 function todayWAT(): string {
   // WAT = UTC+1; return YYYY-MM-DD string for today in Lagos time
@@ -263,7 +285,13 @@ router.get("/teacher-clock-ins", authMiddleware, requireRoles("admin", "super_ad
 
 // GET /teacher-clock-ins/export — CSV download
 router.get("/teacher-clock-ins/export", authMiddleware, requireRoles("admin", "super_admin"), async (req, res): Promise<void> => {
-  const { from, to } = req.query as { from?: string; to?: string };
+  const parsed = exportQuery.safeParse(req.query);
+  if (!parsed.success || !validDate(parsed.data?.from) || !validDate(parsed.data?.to)) { res.status(400).json({ error: "Invalid export date filters" }); return; }
+  const { from, to } = parsed.data;
+  if (from && to) {
+    const days = (Date.parse(`${to}T00:00:00.000Z`) - Date.parse(`${from}T00:00:00.000Z`)) / 86_400_000;
+    if (days < 0 || days > MAX_EXPORT_DAYS) { res.status(400).json({ error: `Date range must be ordered and may not exceed ${MAX_EXPORT_DAYS} days` }); return; }
+  }
 
   let whereClause;
   if (from && to) {
@@ -288,7 +316,8 @@ router.get("/teacher-clock-ins/export", authMiddleware, requireRoles("admin", "s
     .from(teacherClockInsTable)
     .innerJoin(usersTable, eq(teacherClockInsTable.userId, usersTable.id))
     .where(whereClause)
-    .orderBy(desc(teacherClockInsTable.serviceDate), teacherClockInsTable.clockInAt);
+    .orderBy(desc(teacherClockInsTable.serviceDate), teacherClockInsTable.clockInAt)
+    .limit(MAX_EXPORT_ROWS);
 
   function fmtTs(ts: Date | null): string {
     if (!ts) return "";
@@ -315,11 +344,17 @@ router.get("/teacher-clock-ins/export", authMiddleware, requireRoles("admin", "s
     r.clockInLat === null ? "Not recorded" : r.isWithinGeofence ? "Yes" : "No",
   ]);
 
-  const csv = [headers, ...csvRows]
-    .map(row => row.map(c => `"${String(c ?? "").replace(/"/g, '""')}"`).join(","))
-    .join("\n");
+  const csv = teacherClockInCsv([headers, ...csvRows]);
 
   const label = from && to ? `${from}-to-${to}` : from ?? to ?? "all";
+  await db.insert(auditLogsTable).values({
+    userId: req.user!.userId,
+    action: "report_export",
+    entityType: "teacher_clock_ins",
+    ipAddress: req.ip?.slice(0, 64) || null,
+    userAgent: typeof req.headers["user-agent"] === "string" ? req.headers["user-agent"].slice(0, 512) : null,
+    metadataJson: JSON.stringify({ role: req.user!.role, format: "csv", filters: { ...(from ? { from } : {}), ...(to ? { to } : {}) }, rowCount: rows.length, sensitivityClass: "operational" }),
+  });
   res.setHeader("Content-Type", "text/csv");
   res.setHeader("Content-Disposition", `attachment; filename="teacher-time-log-${label}.csv"`);
   res.send(csv);
