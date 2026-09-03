@@ -1,0 +1,298 @@
+PHASE 6 SECTION 40 — HUMAN RULINGS
+
+I have reviewed the continuation of Section 40.
+
+The following human decisions are approved.
+
+6. STAFF AND CHILD QR LIFETIME, ROTATION AND REVOCATION
+
+OPTION C APPROVED.
+
+Staff attendance QR:
+
+- Must be cryptographically opaque.
+- Must be purpose-bound specifically to staff attendance.
+- Must not authenticate the acting staff member.
+- Acting staff identity must always come from the authenticated backend principal.
+- Must be valid only for its applicable service date.
+- Must be revocable by an authorized administrator.
+- Rotation/replacement must invalidate the superseded token.
+- Token value must not be written to ordinary application logs.
+- No JWT, OTP, password, secret, staff identity or personal data may be embedded.
+
+Child/family handover QR:
+
+- Replace predictable/raw family identifiers with opaque cryptographically secure tokens.
+- Bind the token to the applicable handover request/family context and its specific handover purpose.
+- Do not expose raw family ID, child ID, child name, medical information or other personal information in the QR.
+- The token must expire automatically at the earliest applicable terminal boundary, including successful acceptance, cancellation, service/handover validity ending, or authorized revocation.
+- It must not remain an indefinitely reusable family credential.
+- Backend support authorization and child/family lookup authorization remain mandatory.
+- QR possession alone grants no user identity or staff/support authority.
+
+No fixed arbitrary minute-based lifetime should be invented if the existing service/handover lifecycle provides the safer bounded expiry rule above.
+
+7. WHATSAPP STEP-UP VERIFICATION
+
+OPTION C APPROVED.
+
+Verified authoritative WhatsApp sender identity is sufficient for ordinary low-risk parent activity, including:
+
+- viewing linked children;
+- viewing authorized attendance/status information;
+- initiating child attendance;
+- selecting children;
+- selecting First Service, Second Service or Both;
+- receiving ordinary parent-facing information.
+
+Step-up verification is mandatory for any WhatsApp operation that directly authorizes or materially changes child release authority, including delegate pickup approval and equivalent release-sensitive operations.
+
+Step-up proof must be:
+
+- bound to the authoritative parent account;
+- bound to the specific child/request;
+- bound to the exact intended action;
+- short-lived;
+- single-purpose;
+- non-replayable.
+
+A five-digit or other short human-readable reference must never itself operate as authorization.
+
+The final mutation must still revalidate:
+
+- account status;
+- sender identity;
+- parent-child relationship;
+- request state;
+- current release authorization.
+
+Do not require OTP for every ordinary WhatsApp interaction.
+
+8. PHONE CANONICALIZATION AND PHONE-CHANGE POLICY
+
+OPTION C APPROVED.
+
+Use canonical E.164 phone identity.
+
+For Nigerian numbers, normalize valid Nigerian formats into E.164 before authoritative storage/matching.
+
+WhatsApp authorization must resolve only through a verified canonical phone identity linked to the registered account.
+
+Store or preserve appropriate:
+
+- verification state;
+- verification timestamp;
+- canonical number;
+- account/contact version where required.
+
+Phone-number change must immediately invalidate authorization derived from the previous number, including:
+
+- old LID mappings;
+- bot sessions;
+- cached WhatsApp identity;
+- pending authorization context that depends on the old identity.
+
+The new phone number must not authorize WhatsApp access until its verification succeeds.
+
+LID bindings must be versioned/bounded so stale mappings fail closed.
+
+Conversation/session state must never override a fresher authoritative phone/account lookup.
+
+9. REPORT-DOWNLOAD AUDITING
+
+OPTION C APPROVED.
+
+Every operational report export/download must create an audit event.
+
+Audit metadata should contain only necessary operational metadata such as:
+
+- acting user;
+- acting role;
+- report type;
+- normalized/bounded filter summary;
+- export format;
+- row count;
+- timestamp;
+- IP/user-agent where consistent with the existing audit policy;
+- sensitivity classification such as child/emergency/feedback data.
+
+Audit records must NOT contain:
+
+- exported child records;
+- medical details;
+- feedback text;
+- emergency narrative content unless specifically required by an existing audit policy;
+- full report contents.
+
+For retention:
+
+Use the application's existing canonical audit-log retention policy if one already exists.
+
+Do not silently invent a new numeric retention period.
+
+If repository inspection shows that no authoritative audit-retention policy currently exists, stop final report/export completion and return that single retention-policy gap for explicit human decision.
+
+This does not block Packages 1–5 from progressing if otherwise approved, but final Package 6 report/export completion must not silently invent retention.
+
+10. EXPORT FORMATS
+
+OPTION B APPROVED.
+
+Initial Phase 6 reporting formats:
+
+- CSV
+- Existing PDF
+
+XLSX is NOT required for Phase 6.
+
+Do not add an XLSX dependency.
+
+CSV must support operational analysis/import into spreadsheet software.
+
+PDF should support printable operational summaries.
+
+Both formats must use the same:
+
+- backend authorization;
+- SQL-side filtering;
+- data minimization;
+- row/date limits;
+- report auditing;
+- privacy controls.
+
+Exports must be generated from authoritative backend queries, never from browser-rendered tables.
+
+11. LEGACY ESCORT / EN-ROUTE / TEACHER-ARRIVAL COMPATIBILITY
+
+OPTION C APPROVED.
+
+Do not immediately delete legacy escort, en-route, arrival or teacher-confirmation states/endpoints.
+
+However, they must no longer be part of the normal Phase 6 Junior Church workflow.
+
+Normal Phase 6 flow is:
+
+parent attendance intention where applicable
+→ physical support acceptance
+→ child immediately under Junior Church care
+→ attendance immediately represented as in_class for compatibility
+→ child automatically appears in assigned class register
+→ class count derives from authoritative attendance
+→ parent and teacher notification intents created transactionally.
+
+Teacher confirmation is not required.
+
+Legacy endpoints must:
+
+- be routed through the shared canonical transition service where they still mutate attendance;
+- remain temporary compatibility/special-purpose paths;
+- not become competing attendance state machines;
+- receive characterization/regression coverage before modification;
+- have bounded usage observability so future removal can be decided safely.
+
+Historical attendance data must not be rewritten simply to match the new terminology.
+
+Final deletion of legacy endpoints requires a later explicit human decision after dependency/usage evidence exists.
+
+12. SUPPORT-TO-SUPPORT CUSTODY TRANSFER
+
+OPTION A APPROVED FOR PHASE 6.
+
+No support-to-support custody transfer workflow is authorized in Phase 6.
+
+The normal rule remains:
+
+Only the support worker who physically accepted the child may perform normal checkout.
+
+The only approved exception is an authorized administrator using the explicit audited admin override.
+
+Support Staff A may not:
+
+- silently transfer checkout authority to Support Staff B;
+- select another support worker as replacement custodian;
+- share a release token that grants the other support worker checkout authority;
+- have custody automatically reassigned because of logout, shift end or inactivity.
+
+If operational use later proves support-to-support transfer is genuinely necessary, it must be designed and human-approved separately with explicit transferor/transferee acceptance, audit, reason, timestamp and concurrency controls.
+
+PHASE 6 IMPLEMENTATION BLOCKERS — RESOLUTION
+
+The previously listed decisions are now resolved as follows:
+
+- QR policy: RESOLVED — Option C.
+- WhatsApp step-up: RESOLVED — Option C.
+- Phone canonicalization: RESOLVED — Option C.
+- Report auditing: RESOLVED — Option C, subject to existing audit-retention policy verification.
+- Export formats: RESOLVED — CSV + existing PDF.
+- Legacy compatibility: RESOLVED — Option C.
+- Support custody transfer: RESOLVED — no transfer in Phase 6.
+
+Previously approved decisions remain in force:
+
+- canonical staff attendance = service-specific staff_scans;
+- First and Second Service independently reportable;
+- Both Services represented as both service attendances;
+- separate per-child custody/handover episode linked to attendance;
+- support physical acceptance immediately results in in_class attendance compatibility state;
+- child automatically appears in existing assigned class;
+- teacher confirmation is not required;
+- two service attendance rows may link to one continuous custody episode;
+- pickup followed by later return creates a new custody episode;
+- normal checkout belongs to accepting support;
+- admin override is explicit, audited and requires a bounded reason;
+- original custodian is never rewritten;
+- Phase 1–5 security guarantees remain binding.
+
+NEXT STEP — DO NOT IMPLEMENT YET
+
+Before implementation, produce one FINAL PHASE 6 IMPLEMENTATION AUTHORIZATION CHECKPOINT.
+
+This must be read-only.
+
+Do not repeat the full architecture report.
+
+Return:
+
+1. All Phase 6 human decisions and their final resolved values.
+2. Any genuinely unresolved blocker.
+3. Whether an authoritative audit-log retention policy already exists in the repository and exactly where it is defined.
+4. Final schema changes proposed.
+5. Final migration/backfill strategy.
+6. Final canonical API/state-transition model.
+7. Final authorization matrix:
+   - parent;
+   - support;
+   - accepting support;
+   - teacher;
+   - staff;
+   - admin;
+   - super admin.
+8. Final WhatsApp security sequence.
+9. Final QR security sequence.
+10. Final notification/outbox transaction boundaries.
+11. Final concurrency/locking/idempotency strategy.
+12. Final legacy endpoint compatibility strategy.
+13. Exact implementation packages and order.
+14. Exact tests required before each package can be accepted.
+15. Confirmation that no new dependency is required.
+16. Confirmation that no Phase 1–5 invariant will be intentionally weakened.
+17. Exact files expected to change.
+18. Files modified during this checkpoint — MUST BE NONE.
+
+Do not implement.
+
+Do not modify code, tests, schema, data, migrations, dependencies, configuration, secrets or provider settings.
+
+Do not deploy.
+
+Do not commit.
+
+Do not push.
+
+Do not contact paid providers.
+
+Do not modify production resources.
+
+End exactly with:
+
+PHASE 6 FINAL IMPLEMENTATION AUTHORIZATION CHECKPOINT COMPLETE — NO CHANGES MADE — AWAITING HUMAN APPROVAL
