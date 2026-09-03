@@ -98,6 +98,7 @@ import type {
   RejectClassChangeRequestBody,
   ScanFaceBody,
   ScanQrBody,
+  SseTicketResponse,
   SuccessResponse,
   Teacher,
   TeacherAllocation,
@@ -695,6 +696,87 @@ export const useLogout = <
   TContext
 > => {
   return useMutation(getLogoutMutationOptions(options));
+};
+
+/**
+ * @summary Mint a one-time cookie for the SSE endpoint
+ */
+export const getCreateSseTicketUrl = () => {
+  return `/api/events/ticket`;
+};
+
+export const createSseTicket = async (
+  options?: RequestInit,
+): Promise<SseTicketResponse> => {
+  return customFetch<SseTicketResponse>(getCreateSseTicketUrl(), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getCreateSseTicketMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createSseTicket>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof createSseTicket>>,
+  TError,
+  void,
+  TContext
+> => {
+  const mutationKey = ["createSseTicket"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof createSseTicket>>,
+    void
+  > = () => {
+    return createSseTicket(requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CreateSseTicketMutationResult = NonNullable<
+  Awaited<ReturnType<typeof createSseTicket>>
+>;
+
+export type CreateSseTicketMutationError = ErrorType<void>;
+
+/**
+ * @summary Mint a one-time cookie for the SSE endpoint
+ */
+export const useCreateSseTicket = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createSseTicket>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof createSseTicket>>,
+  TError,
+  void,
+  TContext
+> => {
+  return useMutation(getCreateSseTicketMutationOptions(options));
 };
 
 /**

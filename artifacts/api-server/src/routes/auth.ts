@@ -8,9 +8,10 @@ import { eq, sql } from "drizzle-orm";
 import { db, usersTable, otpSessionsTable } from "@workspace/db";
 import { LoginBody, RegisterBody } from "@workspace/api-zod";
 import { generateToken, authMiddleware } from "../middlewares/auth";
-import { smsWelcome, smsPendingApproval, smsPasswordResetCode, smsRegistrationOtp, emailRegistrationOtp, emailWelcome, emailPendingApproval, emailPasswordResetCode } from "../services/sms";
+import { smsPasswordResetCode, smsRegistrationOtp, emailRegistrationOtp, emailPasswordResetCode } from "../services/sms";
 import { withDbRetry } from "../lib/db-retry";
 import { getPublicRegistrationPolicy } from "../lib/registrationPolicy";
+import { createNotificationDelivery } from "../services/notificationOutbox";
 import {
   canonicalPendingRoles,
   canonicalSecondaryRoles,
@@ -90,6 +91,55 @@ const otpSendLimiter = rateLimit({
 });
 
 const router = Router();
+
+async function createRegistrationDelivery(
+  tx: any,
+  user: typeof usersTable.$inferSelect,
+  role: UserRole,
+  kind: "pendingUser" | "pendingRole" | "activeUser" | "secondaryRole",
+) {
+  const pending = kind === "pendingUser" || kind === "pendingRole";
+  const decision = pending ? "requested" : "registered";
+  const type = pending ? "registration_pending_approval" : "registration_completed";
+  const title = pending ? "Registration Pending Approval" : "Welcome to Shepherd Connect";
+  const message = pending
+    ? `Your ${role} registration request is pending administrator approval.`
+    : kind === "secondaryRole"
+      ? `Your ${role} role has been added to your account.`
+      : "Your account has been created successfully.";
+  const identity = `registration:${user.id}:${role}:${decision}`;
+  await createNotificationDelivery(tx, {
+    logicalIdentity: identity,
+    domainType: "user_registration",
+    domainIdentifier: `${user.id}:${role}`,
+    projection: { userId: user.id, type, title, message, metadata: { role } },
+    channels: ["sms", "email"],
+    templateKey: type,
+  });
+
+  // Approval requests are also actionable in-app for the administrators who
+  // can decide them. Resolve that recipient set through this same transaction.
+  if (pending) {
+    const admins = await tx.select({ id: usersTable.id }).from(usersTable)
+      .where(sql`${usersTable.isActive} = true AND ${usersTable.role} IN ('admin', 'super_admin')`);
+    for (const admin of admins) {
+      await createNotificationDelivery(tx, {
+        logicalIdentity: `registration-review:${user.id}:${role}:requested:${admin.id}`,
+        domainType: "user_registration",
+        domainIdentifier: `${user.id}:${role}`,
+        projection: {
+          userId: admin.id,
+          type: "registration_review_required",
+          title: "Registration Review Required",
+          message: `${user.firstName} ${user.lastName} requested the ${role} role.`,
+          metadata: { userId: user.id, role },
+        },
+        channels: ["sms", "email"],
+        templateKey: "registration_review_required",
+      });
+    }
+  }
+}
 
 router.post("/auth/login", async (req, res): Promise<void> => {
   const parsed = LoginBody.safeParse(req.body);
@@ -218,11 +268,13 @@ router.post("/auth/register", async (req, res): Promise<void> => {
             pendingRoles: JSON.stringify([...currentPending, role]),
             ...(role === "teacher" && primaryClassId ? { primaryClassId } : {}),
           }).where(eq(usersTable.id, existing.id));
+          await createRegistrationDelivery(tx, existing, role as UserRole, "pendingRole");
           return { kind: "pendingRole" as const, user: existing };
         }
         await tx.update(usersTable)
           .set({ secondaryRoles: JSON.stringify([...currentSecondary, role]) })
           .where(eq(usersTable.id, existing.id));
+        await createRegistrationDelivery(tx, existing, role as UserRole, "secondaryRole");
         return { kind: "secondaryRole" as const, user: existing };
       }
 
@@ -238,17 +290,10 @@ router.post("/auth/register", async (req, res): Promise<void> => {
         isActive: !requiresApproval,
         ...(role === "teacher" && primaryClassId ? { primaryClassId } : {}),
       }).returning();
-      return { kind: requiresApproval ? "pendingUser" as const : "activeUser" as const, user };
+      const kind = requiresApproval ? "pendingUser" as const : "activeUser" as const;
+      await createRegistrationDelivery(tx, user, role as UserRole, kind);
+      return { kind, user };
     });
-
-    // Notifications occur only after the registration transaction commits.
-    if (outcome.kind === "pendingRole" || outcome.kind === "pendingUser") {
-      smsPendingApproval(outcome.user.phone, outcome.user.firstName, req.log).catch(() => {});
-      emailPendingApproval(outcome.user.email, outcome.user.firstName, req.log).catch(() => {});
-    } else {
-      smsWelcome(outcome.user.phone, outcome.user.firstName, req.log).catch(() => {});
-      emailWelcome(outcome.user.email, outcome.user.firstName, req.log).catch(() => {});
-    }
 
     if (outcome.kind === "pendingRole") {
       res.status(201).json({

@@ -3,12 +3,13 @@ import { eq, and, ne, lt, inArray, sql } from "drizzle-orm";
 import { db, attendanceTable, attendanceEventsTable, childrenTable, classesTable, familiesTable, usersTable, notificationsTable, teachersTable, teacherAllocationsTable, hallSessionsTable, dropOffIntentsTable } from "@workspace/db";
 import { CheckInBody, CheckOutBody, ListAttendanceQueryParams, ScanQrCodeBody } from "@workspace/api-zod";
 import { authMiddleware, requireRoles } from "../middlewares/auth";
-import { notifyChildCheckedIn, notifyChildInTransit, notifyChildArrivedInClass, notifyChildPickedUp, notifyTeachersChildDroppedOff, notifyTeachersChildInTransit, notifyTeachersChildPickedUp, sendNotification } from "../lib/notify";
+import { notifyChildArrivedInClass, notifyChildPickedUp, notifyTeachersChildPickedUp, sendNotification } from "../lib/notify";
 import { smsChildCheckedIn, smsChildCheckedOut, smsPreDismissal, emailChildCheckedIn, emailChildCheckedOut } from "../services/sms";
 import { pushToUsers } from "../services/push";
 import { getParentChildIds } from "../lib/parentScope";
 import { resolveDropOffIntentIfFulfilled } from "../lib/dropOffIntentCompletion";
 import { findActiveOtherSlot, stillCheckedInMessage } from "../lib/attendanceGuards";
+import { createAttendanceNotificationIntents } from "../lib/attendanceNotificationIntents";
 
 async function getParentContacts(childId: number): Promise<{ phones: (string | null)[]; emails: (string | null)[]; parentIds: number[]; childName: string; className: string }> {
   const [child] = await db.select().from(childrenTable).where(eq(childrenTable.id, childId));
@@ -275,6 +276,7 @@ router.post("/attendance", authMiddleware, requireRoles("super_admin", "admin", 
           classArrivalTime: null,
           confirmedByTeacherId: null,
         }).where(eq(attendanceTable.id, existing.id)).returning();
+        await createAttendanceNotificationIntents(tx, reset, "checked_in_reset");
         await finishEvent(reset);
         return { kind: "reset", record: reset };
       }
@@ -284,6 +286,7 @@ router.post("/attendance", authMiddleware, requireRoles("super_admin", "admin", 
         checkInTime: new Date(),
         status: "dropped_off",
       }).returning();
+      await createAttendanceNotificationIntents(tx, inserted, "checked_in");
       await finishEvent(inserted);
       return { kind: "created", record: inserted };
     });
@@ -309,12 +312,6 @@ router.post("/attendance", authMiddleware, requireRoles("super_admin", "admin", 
   }
   if (outcome.kind === "reset") {
     const reset = outcome.record;
-    notifyChildCheckedIn(childId, reset.classId, serviceSlot).catch((err) => {
-      req.log.error({ err, childId, classId: reset.classId }, "notifyChildCheckedIn failed (re-checkin after pickup)");
-    });
-    notifyTeachersChildDroppedOff(childId, reset.classId, serviceSlot, serviceDate).catch((err) => {
-      req.log.error({ err, childId, classId: reset.classId, serviceSlot, serviceDate }, "notifyTeachersChildDroppedOff failed (re-checkin after pickup)");
-    });
     res.json(await formatAttendance(reset));
     return;
   }
@@ -330,24 +327,6 @@ router.post("/attendance", authMiddleware, requireRoles("super_admin", "admin", 
   db.select().from(childrenTable).where(eq(childrenTable.id, childId)).then(async ([child]) => {
     if (!child?.familyId) return;
     await resolveDropOffIntentIfFulfilled(child.familyId, serviceDate);
-  }).catch(() => {});
-
-  notifyChildCheckedIn(childId, classId, serviceSlot).catch((err) => {
-    req.log.error({ err, childId, classId }, "notifyChildCheckedIn failed");
-  });
-  notifyTeachersChildDroppedOff(childId, classId, serviceSlot, serviceDate).catch((err) => {
-    req.log.error({ err, childId, classId, serviceSlot, serviceDate }, "notifyTeachersChildDroppedOff failed");
-  });
-
-  getParentContacts(childId).then(({ phones, emails, parentIds, childName, className }) => {
-    smsChildCheckedIn(phones, childName, className, serviceSlot, req.log).catch(() => {});
-    emailChildCheckedIn(emails, childName, className, serviceSlot, req.log).catch(() => {});
-    pushToUsers(parentIds, {
-      title: "✅ Child Checked In",
-      body: `${childName} has been checked in to ${className} (${serviceSlot ?? "service"}).`,
-      icon: "/pwa-192.png",
-      url: "/my-children",
-    }, req.log).catch(() => {});
   }).catch(() => {});
 
   res.status(201).json(await formatAttendance(record));
@@ -371,19 +350,13 @@ router.post("/attendance/bulk-escort", authMiddleware, requireRoles("super_admin
   ];
   if (serviceSlot) conditions.push(eq(attendanceTable.serviceSlot, serviceSlot));
 
-  const records = await db
-    .update(attendanceTable)
-    .set({ status: "in_transit", escortTime: now, escortedBy: req.user!.userId })
-    .where(and(...conditions))
-    .returning();
-
-  // Fire all parent + teacher notifications asynchronously — don't block the response
-  for (const record of records) {
-    notifyChildInTransit(record.childId, record.classId, today).catch(() => {});
-    notifyTeachersChildInTransit(record.childId, record.classId, today).catch((err) => {
-      req.log.error({ err, childId: record.childId, classId: record.classId }, "bulk-escort: notifyTeachersChildInTransit failed");
-    });
-  }
+  const records = await db.transaction(async tx => {
+    const winners = await tx.update(attendanceTable)
+      .set({ status: "in_transit", escortTime: now, escortedBy: req.user!.userId })
+      .where(and(...conditions)).returning();
+    for (const record of winners) await createAttendanceNotificationIntents(tx, record, "in_transit");
+    return winners;
+  });
 
   // Auto-clear the hall session for today so subsequent escort notifications
   // revert to normal wording ("being escorted to class")
@@ -398,17 +371,14 @@ router.post("/attendance/bulk-escort", authMiddleware, requireRoles("super_admin
 router.put("/attendance/:id/escort", authMiddleware, requireRoles("super_admin", "admin", "support", "attendant"), async (req, res): Promise<void> => {
   const id = parseInt(req.params.id as string, 10);
   if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
-  const [record] = await db.update(attendanceTable).set({
-    status: "in_transit",
-    escortTime: new Date(),
-    escortedBy: req.user!.userId,
-  }).where(and(eq(attendanceTable.id, id), eq(attendanceTable.status, "dropped_off"))).returning();
-  if (!record) { res.status(404).json({ error: "Not found", message: "Attendance record not found or not in dropped_off state" }); return; }
-
-  notifyChildInTransit(record.childId, record.classId).catch(() => {});
-  notifyTeachersChildInTransit(record.childId, record.classId).catch((err) => {
-    req.log.error({ err, childId: record.childId, classId: record.classId }, "notifyTeachersChildInTransit failed");
+  const [record] = await db.transaction(async tx => {
+    const result = await tx.update(attendanceTable).set({
+      status: "in_transit", escortTime: new Date(), escortedBy: req.user!.userId,
+    }).where(and(eq(attendanceTable.id, id), eq(attendanceTable.status, "dropped_off"))).returning();
+    if (result[0]) await createAttendanceNotificationIntents(tx, result[0], "in_transit");
+    return result;
   });
+  if (!record) { res.status(404).json({ error: "Not found", message: "Attendance record not found or not in dropped_off state" }); return; }
 
   res.json(await formatAttendance(record));
 });
@@ -434,9 +404,8 @@ router.post("/attendance/bulk-arrive", authMiddleware, requireRoles("super_admin
     }
   }
 
-  const records = await db
-    .update(attendanceTable)
-    .set({
+  const records = await db.transaction(async tx => {
+    const winners = await tx.update(attendanceTable).set({
       status: "in_class",
       classArrivalTime: new Date(),
       confirmedByTeacherId: req.user!.userId,
@@ -446,12 +415,10 @@ router.post("/attendance/bulk-arrive", authMiddleware, requireRoles("super_admin
       eq(attendanceTable.serviceDate, today),
       // dropped_off children who never got the escort step can also be confirmed in bulk
       inArray(attendanceTable.status, ["in_transit", "dropped_off"]),
-    ))
-    .returning();
-
-  for (const record of records) {
-    notifyChildArrivedInClass(record.childId, record.classId).catch(() => {});
-  }
+    )).returning();
+    for (const record of winners) await createAttendanceNotificationIntents(tx, record, "arrived");
+    return winners;
+  });
 
   req.log.info({ count: records.length, classId, today }, "bulk-arrive: confirmed all in-transit children");
   res.json({ success: true, count: records.length });
@@ -520,14 +487,15 @@ router.put("/attendance/:id/arrive", authMiddleware, requireRoles("super_admin",
   }
 
   const now = new Date();
-  const [record] = await db.update(attendanceTable).set({
-    status: "in_class",
-    classArrivalTime: now,
-    confirmedByTeacherId: req.user!.userId,
-  }).where(and(
-    eq(attendanceTable.id, id),
-    inArray(attendanceTable.status, ["dropped_off", "in_transit"]),
-  )).returning();
+  const [record] = await db.transaction(async tx => {
+    const result = await tx.update(attendanceTable).set({
+      status: "in_class", classArrivalTime: now, confirmedByTeacherId: req.user!.userId,
+    }).where(and(
+      eq(attendanceTable.id, id), inArray(attendanceTable.status, ["dropped_off", "in_transit"]),
+    )).returning();
+    if (result[0]) await createAttendanceNotificationIntents(tx, result[0], "arrived");
+    return result;
+  });
 
   if (!record) {
     const [current] = await db.select().from(attendanceTable).where(eq(attendanceTable.id, id));
@@ -535,8 +503,6 @@ router.put("/attendance/:id/arrive", authMiddleware, requireRoles("super_admin",
     res.json(await formatAttendance(current));
     return;
   }
-
-  notifyChildArrivedInClass(record.childId, record.classId).catch(() => {});
 
   res.json(await formatAttendance(record));
 });
@@ -546,31 +512,19 @@ router.put("/attendance/:id/checkout", authMiddleware, requireRoles("super_admin
   if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
   const parsed = CheckOutBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: "Bad request", message: parsed.error.message }); return; }
-  const [record] = await db.update(attendanceTable).set({
-    status: "picked_up",
-    checkOutTime: new Date(),
-    checkedOutBy: req.user!.userId,
-  }).where(and(eq(attendanceTable.id, id), ne(attendanceTable.status, "picked_up"))).returning();
+  const [record] = await db.transaction(async tx => {
+    const result = await tx.update(attendanceTable).set({
+      status: "picked_up", checkOutTime: new Date(), checkedOutBy: req.user!.userId,
+    }).where(and(eq(attendanceTable.id, id), ne(attendanceTable.status, "picked_up"))).returning();
+    if (result[0]) await createAttendanceNotificationIntents(tx, result[0], "picked_up");
+    return result;
+  });
   if (!record) {
     const [current] = await db.select().from(attendanceTable).where(eq(attendanceTable.id, id));
     if (!current) { res.status(404).json({ error: "Not found", message: "Attendance record not found" }); return; }
     res.json(await formatAttendance(current));
     return;
   }
-
-  notifyChildPickedUp(record.childId).catch(() => {});
-  notifyTeachersChildPickedUp(record.childId, record.classId).catch(() => {});
-
-  getParentContacts(record.childId).then(({ phones, emails, parentIds, childName }) => {
-    smsChildCheckedOut(phones, childName, req.log).catch(() => {});
-    emailChildCheckedOut(emails, childName, req.log).catch(() => {});
-    pushToUsers(parentIds, {
-      title: "🎉 Child Picked Up",
-      body: `${childName} has been successfully checked out. Safe journey home!`,
-      icon: "/pwa-192.png",
-      url: "/my-children",
-    }, req.log).catch(() => {});
-  }).catch(() => {});
 
   res.json(await formatAttendance(record));
 });
@@ -689,23 +643,20 @@ router.post(
               checkInTime: now,
               status: "dropped_off",
             }).returning();
+            await createAttendanceNotificationIntents(tx, record, "checked_in");
             // Straight to in_transit: the scan means the parent has handed over the child
             const [escorted] = await tx.update(attendanceTable)
               .set({ status: "in_transit", escortTime: now, escortedBy: req.user!.userId })
               .where(eq(attendanceTable.id, record.id))
               .returning();
+            if (escorted) await createAttendanceNotificationIntents(tx, escorted, "in_transit");
             processed.push({ slot, escorted: !!escorted });
           }
         });
         const doneSlots: string[] = [];
         for (const { slot, escorted } of processed) {
           doneSlots.push(slot);
-          notifyChildCheckedIn(child.id, child.currentClass!.id, slot).catch(() => {});
-          notifyTeachersChildDroppedOff(child.id, child.currentClass!.id, slot, scanDate).catch(() => {});
-          if (escorted) {
-            notifyChildInTransit(child.id, child.currentClass!.id, scanDate).catch(() => {});
-            notifyTeachersChildInTransit(child.id, child.currentClass!.id, scanDate).catch(() => {});
-          }
+          void escorted;
         }
         if (doneSlots.length > 0) {
           autoProcessed.push({ childId: child.id, childName: `${child.firstName} ${child.lastName}`, slots: doneSlots });
@@ -851,6 +802,10 @@ router.post("/attendance/late-pickup-alerts", authMiddleware, requireRoles("supe
         type: "late_pickup_reminder",
         title: "Late Pickup Reminder",
         message: `${child.firstName} ${child.lastName} is still at church and hasn't been picked up yet. Please collect them as soon as possible.`,
+        // A re-run for this attendance slot is idempotent, while a later
+        // service/date remains a distinct logical reminder.
+        identity: `late-pickup:${record.childId}:${parentId}:${today}:${record.serviceSlot}:whatsapp`,
+        metadata: { childId: record.childId, serviceDate: today, serviceSlot: record.serviceSlot },
       });
       notified++;
     }

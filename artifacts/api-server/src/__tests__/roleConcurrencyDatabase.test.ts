@@ -105,6 +105,14 @@ databaseDescribe("multi-role PostgreSQL concurrency integrity", () => {
 
   afterAll(async () => {
     await db.execute(sql`
+      DELETE FROM notification_outbox
+      WHERE recipient_user_id IN (SELECT id FROM users WHERE email LIKE ${`${prefix}%`})
+    `);
+    await db.execute(sql`
+      DELETE FROM notifications
+      WHERE user_id IN (SELECT id FROM users WHERE email LIKE ${`${prefix}%`})
+    `);
+    await db.execute(sql`
       DELETE FROM teachers
       WHERE user_id IN (SELECT id FROM users WHERE email LIKE ${`${prefix}%`})
     `);
@@ -215,5 +223,50 @@ databaseDescribe("multi-role PostgreSQL concurrency integrity", () => {
       .send({ role: "support" });
     expect(switched.status).toBe(200);
     expect(switched.body.user.role).toBe("support");
+  });
+
+  it("transactionally deletes a user with SSE ticket, notification, and outbox history", async () => {
+    const email = `${prefix}-deletion-target@example.test`;
+    const inserted = await db.execute(sql`
+      INSERT INTO users (email, password_hash, first_name, last_name, role, status, is_active)
+      VALUES (${email}, 'not-used', 'Delete', 'Target', 'parent', 'active', true)
+      RETURNING id
+    `);
+    const id = Number((inserted.rows[0] as { id: number }).id);
+    const ticketHash = `${prefix}-delete-ticket`.padEnd(64, "0").slice(0, 64);
+    await db.execute(sql`
+      INSERT INTO sse_tickets (ticket_hash, user_id, selected_role, purpose, expires_at)
+      VALUES (${ticketHash}, ${id}, 'parent', 'sse', now() + interval '1 hour')
+    `);
+    const notification = await db.execute(sql`
+      INSERT INTO notifications (user_id, type, title, message, channel)
+      VALUES (${id}, 'test', 'Delete test', 'Delete test', 'in_app')
+      RETURNING id
+    `);
+    const notificationId = Number((notification.rows[0] as { id: number }).id);
+    await db.execute(sql`
+      INSERT INTO notification_outbox (
+        logical_dedup_key, notification_type, domain_type, domain_identifier,
+        recipient_user_id, channel, template_key, payload_json
+      )
+      VALUES (
+        ${`${prefix}-delete-outbox`}, 'test', 'test', ${String(id)},
+        ${id}, 'email', 'test', ${JSON.stringify({ notificationId })}
+      )
+    `);
+
+    const reply = await request(app)
+      .delete(`/api/users/${id}`)
+      .set("Authorization", authorization);
+    expect(reply.status).toBe(200);
+
+    const remaining = await db.execute(sql`
+      SELECT
+        (SELECT count(*)::int FROM users WHERE id = ${id}) AS users,
+        (SELECT count(*)::int FROM sse_tickets WHERE user_id = ${id}) AS tickets,
+        (SELECT count(*)::int FROM notifications WHERE user_id = ${id}) AS notifications,
+        (SELECT count(*)::int FROM notification_outbox WHERE recipient_user_id = ${id}) AS outbox
+    `);
+    expect(remaining.rows[0]).toEqual({ users: 0, tickets: 0, notifications: 0, outbox: 0 });
   });
 });

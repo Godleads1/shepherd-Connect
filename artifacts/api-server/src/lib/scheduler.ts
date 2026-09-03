@@ -13,6 +13,7 @@ import {
 } from "@workspace/db";
 import { logger } from "./logger";
 import { sendNotification } from "./notify";
+import { cleanupNotificationDeliveryHistory } from "../services/notificationDeliveryWorker";
 
 /**
  * Attempt to acquire a named scheduler lock using an atomic DB upsert.
@@ -71,6 +72,19 @@ async function getScheduledUserIds(today: string, slot: "7am" | "10:30am"): Prom
 }
 
 export function startScheduler() {
+  // Daily bounded retention for terminal delivery coordination and consumed or
+  // long-expired one-time SSE tickets. The database lock keeps this singleton
+  // across horizontally scaled API instances.
+  cron.schedule("20 2 * * *", async () => {
+    if (!await acquireSchedulerLock("notification_delivery_retention", 60)) return;
+    try {
+      const deleted = await cleanupNotificationDeliveryHistory();
+      logger.info(deleted, "scheduler: notification delivery retention completed");
+    } catch (err) {
+      logger.error({ err }, "scheduler: notification delivery retention failed");
+    }
+  });
+
   // Every Sunday at 15:00 WAT (14:00 UTC):
   //   1. Delete all pickup delegates (clean for next service)
   //   2. Delete all guest families + their children
@@ -146,6 +160,7 @@ export function startScheduler() {
             type: "info",
             title: `📍 ${checkpoint.label} Attendance Check-in`,
             message: `Time to scan the attendance QR code for the ${checkpoint.service} service. Open the app → Service Attendance.`,
+            identity: `scheduled-checkpoint:${today}:${checkpoint.slot}:${checkpoint.label}:user:${member.id}`,
           });
         }
 
@@ -203,6 +218,7 @@ export function startScheduler() {
             type: "info",
             title: `🔔 Clock Out — ${reminder.label}`,
             message: `The ${reminder.label} has ended. Please clock out on the Service Attendance page. God bless you for serving!`,
+            identity: `scheduled-clockout:${today}:${reminder.service}:user:${userId}`,
           });
         }
 
@@ -260,6 +276,7 @@ export function startScheduler() {
           title: "⛪ You're On Duty Tomorrow",
           message: `Reminder: you are scheduled to serve in Junior Church tomorrow (${sunday}). Please arrive on time and clock in when you get there. God bless you for serving!`,
           metadata: { serviceDate: sunday, slots: allocatedSlots },
+            identity: `scheduled-duty:${sunday}:user:${user.id}`,
         });
         reminded++;
       }

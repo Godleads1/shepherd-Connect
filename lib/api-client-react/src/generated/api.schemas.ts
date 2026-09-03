@@ -33,6 +33,10 @@ export interface SuccessResponse {
   message?: string;
 }
 
+export interface SseTicketResponse {
+  expiresAt: string;
+}
+
 export interface LoginBody {
   email: string;
   password: string;

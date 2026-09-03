@@ -14,6 +14,7 @@ import QRCode from "qrcode";
 import crypto from "crypto";
 import { logger } from "../lib/logger";
 import { sendNotification } from "../lib/notify";
+import { createNotificationDelivery } from "../services/notificationOutbox";
 
 const router = Router();
 
@@ -246,7 +247,7 @@ router.post("/sunday-attendance/emergency-out", authMiddleware, async (req, res)
   const inserted = await db.transaction(async (tx) => {
     const lock = await tx.execute(sql`SELECT pg_try_advisory_xact_lock(${userId}, ${emergencyLockKey}) AS acquired`);
     if (!(lock.rows[0] as { acquired: boolean }).acquired) return [];
-    return tx.insert(staffScansTable).values({
+    const rows = await tx.insert(staffScansTable).values({
       serviceDate: date,
       userId,
       scannedAt: now,
@@ -254,6 +255,28 @@ router.post("/sunday-attendance/emergency-out", authMiddleware, async (req, res)
       intervalLabel: reason ?? null,
       service: derivedService,
     }).onConflictDoNothing().returning({ id: staffScansTable.id });
+    if (rows.length === 0) return rows;
+    // The emergency scan is the stable domain identity.  Resolve both the
+    // recipients and content before commit so no committed exit can lose its
+    // operator alert, and replay/losers cannot create another alert.
+    const admins = await tx.select({ id: usersTable.id, role: usersTable.role }).from(usersTable)
+      .where(eq(usersTable.isActive, true));
+    for (const admin of admins) {
+      if (admin.role !== "admin" && admin.role !== "super_admin") continue;
+      await createNotificationDelivery(tx, {
+        logicalIdentity: `staff_scan:${rows[0].id}:emergency_out:${admin.id}`,
+        domainType: "staff_scan",
+        domainIdentifier: String(rows[0].id),
+        projection: {
+          userId: admin.id, type: "warning", title: "⚠️ Emergency Exit",
+          message: `A staff member has made an emergency exit from the ${derivedService} service.${reason ? ` Reason: ${reason}` : ""}`,
+          metadata: { staffScanId: rows[0].id, userId, serviceDate: date, service: derivedService, reason: reason ?? null },
+        },
+        channels: ["whatsapp"],
+        templateKey: "staff_emergency_out",
+      });
+    }
+    return rows;
   });
 
   if (inserted.length === 0) {
@@ -265,30 +288,10 @@ router.post("/sunday-attendance/emergency-out", authMiddleware, async (req, res)
     return;
   }
 
-  const user = req.user!;
   logger.info(
     { userId, date, service: derivedService, reason },
     "sunday-attendance: emergency exit recorded"
   );
-
-  // Notify admins about the emergency exit
-  try {
-    const admins = await db
-      .select({ id: usersTable.id, role: usersTable.role })
-      .from(usersTable)
-      .where(eq(usersTable.isActive, true));
-    const adminUsers = admins.filter(u => u.role === "admin" || u.role === "super_admin");
-    for (const admin of adminUsers) {
-      await sendNotification({
-        userId: admin.id,
-        type: "warning",
-        title: "⚠️ Emergency Exit",
-        message: `A staff member has made an emergency exit from the ${derivedService} service.${reason ? ` Reason: ${reason}` : ""}`,
-      });
-    }
-  } catch (err) {
-    logger.error({ err }, "sunday-attendance: failed to notify admins of emergency exit");
-  }
 
   res.json({
     ok: true,

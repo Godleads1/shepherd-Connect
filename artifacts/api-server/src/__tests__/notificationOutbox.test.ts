@@ -8,7 +8,7 @@ import {
 
 describe("notification outbox policy", () => {
   it("uses the bounded approved retry schedule", () => {
-    expect([1, 2, 3, 4].map(retryDelayMs)).toEqual([...OUTBOX_BACKOFF_MS]);
+    expect([1, 2, 3, 4, 5].map(retryDelayMs)).toEqual([...OUTBOX_BACKOFF_MS]);
     expect(retryDelayMs(99)).toBe(OUTBOX_BACKOFF_MS.at(-1));
   });
 

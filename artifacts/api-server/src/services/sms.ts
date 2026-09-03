@@ -1,6 +1,14 @@
 import type { Logger } from "pino";
 import { Resend } from "resend";
 
+export type OutboxProviderOutcome = {
+  outcome: "accepted" | "retryable" | "uncertain" | "skipped";
+  provider?: "termii" | "twilio" | "resend";
+  providerMessageId?: string;
+  failureClassification?: string;
+  failureDetail?: string;
+};
+
 const API_KEY  = process.env.TERMII_API_KEY;
 const BASE_URL = "https://v3.api.termii.com";
 const SENDER   = "N-Alert"; // Termii's pre-approved Nigerian system sender
@@ -55,6 +63,55 @@ async function sendViaResend(to: string, subject: string, html: string, logger?:
   }
 }
 
+function rejectedProviderOutcome(provider: "termii" | "twilio" | "resend", status: number): OutboxProviderOutcome {
+  if (status === 429 || status >= 500) {
+    return { outcome: "retryable", provider, failureClassification: status === 429 ? "provider_rate_limited" : "provider_server_error", failureDetail: `Provider returned HTTP ${status}` };
+  }
+  return { outcome: "skipped", provider, failureClassification: "provider_rejected", failureDetail: `Provider returned HTTP ${status}` };
+}
+
+function submissionException(provider: "termii" | "twilio" | "resend", error: unknown): OutboxProviderOutcome {
+  const message = String(error);
+  const timeout = (error as { name?: string } | null)?.name === "AbortError" || /\btimeout\b/i.test(message);
+  return {
+    outcome: "uncertain", provider,
+    failureClassification: timeout ? "provider_timeout_after_submission" : "provider_exception_after_submission",
+    failureDetail: message,
+  };
+}
+
+function providerId(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+/**
+ * Outbox-only email adapter. Unlike the legacy boolean API, it retains the
+ * distinction between a known provider rejection and a request whose
+ * submission may already have reached Resend.
+ */
+export async function deliverOutboxEmail(to: string | null | undefined, subject: string, html: string, logger?: Logger): Promise<OutboxProviderOutcome> {
+  if (!to?.includes("@")) return { outcome: "skipped", failureClassification: "missing_contact" };
+  if (!resendConfigured()) return { outcome: "skipped", failureClassification: "provider_not_configured" };
+  try {
+    const result = await getResend().emails.send({
+      from: "Shepherd Connect <noreply@shepherdconnect.intelyticslimited.com>",
+      to, subject, html,
+    });
+    if (result.error) {
+      const status = Number((result.error as unknown as { statusCode?: number; status?: number }).statusCode
+        ?? (result.error as unknown as { status?: number }).status);
+      if (Number.isFinite(status)) return rejectedProviderOutcome("resend", status);
+      // The SDK returned a definitive error object, but no retry-safe HTTP
+      // classification. Do not duplicate a potentially accepted email.
+      return { outcome: "uncertain", provider: "resend", failureClassification: "provider_ambiguous_response" };
+    }
+    return { outcome: "accepted", provider: "resend", providerMessageId: providerId(result.data?.id) };
+  } catch (error) {
+    logger?.warn({ err: String(error) }, "Resend outbox submission is ambiguous");
+    return submissionException("resend", error);
+  }
+}
+
 // ── Twilio ────────────────────────────────────────────────────────────────────
 const TWILIO_SID        = process.env.TWILIO_ACCOUNT_SID;
 const TWILIO_TOKEN      = process.env.TWILIO_AUTH_TOKEN;
@@ -91,6 +148,24 @@ async function sendViaTwilio(to: string, body: string, logger?: Logger): Promise
   } catch (err) {
     logger?.error({ to: e164, err: String(err) }, "Twilio SMS request error");
     return false;
+  }
+}
+
+async function deliverOutboxViaTwilio(to: string, body: string): Promise<OutboxProviderOutcome> {
+  if (!twilioConfigured()) return { outcome: "skipped", failureClassification: "provider_not_configured" };
+  const e164 = toE164(to);
+  try {
+    const creds = Buffer.from(`${TWILIO_SID}:${TWILIO_TOKEN}`).toString("base64");
+    const form = new URLSearchParams({ From: TWILIO_FROM!, To: e164, Body: body });
+    const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${TWILIO_SID}/Messages.json`, {
+      method: "POST", headers: { Authorization: `Basic ${creds}`, "Content-Type": "application/x-www-form-urlencoded" }, body: form,
+    });
+    let data: { sid?: string } = {};
+    try { data = await res.json() as { sid?: string }; } catch { /* status is still authoritative */ }
+    if (!res.ok) return rejectedProviderOutcome("twilio", res.status);
+    return { outcome: "accepted", provider: "twilio", providerMessageId: providerId(data.sid) };
+  } catch (error) {
+    return submissionException("twilio", error);
   }
 }
 
@@ -134,6 +209,32 @@ function normalisePhone(phone: string): string {
   if (s.startsWith("0"))   return "234" + s.slice(1);
   if (s.startsWith("234")) return s;
   return s;
+}
+
+/**
+ * Outbox-only SMS adapter. Termii remains the preferred SMS provider, while
+ * Twilio is selected only when Termii is not configured. A provider request is
+ * never followed by another provider: network failures and timeouts are
+ * deliberately terminal-uncertain to avoid a duplicate text.
+ */
+export async function deliverOutboxSms(to: string | null | undefined, message: string, logger?: Logger): Promise<OutboxProviderOutcome> {
+  if (!to?.trim()) return { outcome: "skipped", failureClassification: "missing_contact" };
+  if (!API_KEY) return deliverOutboxViaTwilio(to, message);
+  const normalised = normalisePhone(to);
+  try {
+    const res = await fetch(`${BASE_URL}/api/sms/send`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ to: normalised, from: SENDER, sms: message, type: "plain", channel: "dnd", api_key: API_KEY }),
+    });
+    let data: { message_id?: string; messageId?: string; id?: string } = {};
+    try { data = await res.json() as typeof data; } catch { /* an HTTP status is sufficient */ }
+    if (!res.ok) return rejectedProviderOutcome("termii", res.status);
+    return { outcome: "accepted", provider: "termii", providerMessageId: providerId(data.message_id ?? data.messageId ?? data.id) };
+  } catch (error) {
+    logger?.warn({ err: String(error) }, "Termii outbox submission is ambiguous");
+    return submissionException("termii", error);
+  }
 }
 
 // ── HTML email template ───────────────────────────────────────────────────────

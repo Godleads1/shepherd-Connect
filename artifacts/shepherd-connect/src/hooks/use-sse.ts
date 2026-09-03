@@ -1,6 +1,33 @@
 import { useEffect, useRef } from "react";
 
 type SSEHandler = (data: unknown) => void;
+type EventSourceConstructor = new (url: string) => EventSource;
+
+/**
+ * Minting happens before constructing EventSource so its URL is never a bearer
+ * channel. The small dependency-injected surface also makes this ordering
+ * directly testable without a browser.
+ */
+export async function mintSseConnection(
+  token: string,
+  dependencies: {
+    fetchImpl?: typeof fetch;
+    EventSourceImpl?: EventSourceConstructor;
+  } = {},
+): Promise<EventSource> {
+  const fetchImpl = dependencies.fetchImpl ?? fetch;
+  const EventSourceImpl = dependencies.EventSourceImpl ?? EventSource;
+  const response = await fetchImpl("/api/events/ticket", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+  });
+  if (!response.ok) throw new Error("Unable to mint SSE ticket");
+  return new EventSourceImpl("/api/events");
+}
 
 /**
  * Subscribe to server-sent events from /api/events.
@@ -22,20 +49,29 @@ export function useSSE(
   useEffect(() => {
     if (!enabled) return;
 
-    const token = localStorage.getItem("token");
-    if (!token) return;
-
     let es: EventSource | null = null;
     let retryTimeout: ReturnType<typeof setTimeout> | null = null;
     let retryDelay = 2_000; // start at 2 s
     let unmounted = false;
 
-    function connect() {
+    async function connect() {
       if (unmounted) return;
 
-      es = new EventSource(
-        `/api/events?token=${encodeURIComponent(token!)}`,
-      );
+      // Tickets are minted through the authenticated REST client; EventSource
+      // itself always connects to a token-free URL and sends only its HttpOnly
+      // path-scoped cookie.
+      try {
+        const token = localStorage.getItem("token");
+        if (!token) return;
+        es = await mintSseConnection(token);
+      } catch {
+        if (!unmounted) {
+          retryTimeout = setTimeout(() => { void connect(); }, retryDelay);
+          retryDelay = Math.min(retryDelay * 2, 30_000);
+        }
+        return;
+      }
+      if (unmounted) return;
 
       es.addEventListener("connected", () => {
         retryDelay = 2_000; // reset back-off on successful connect
@@ -60,12 +96,12 @@ export function useSSE(
         if (unmounted) return;
         retryTimeout = setTimeout(() => {
           retryDelay = Math.min(retryDelay * 2, 30_000); // cap at 30 s
-          connect();
+          void connect();
         }, retryDelay);
       };
     }
 
-    connect();
+    void connect();
 
     return () => {
       unmounted = true;

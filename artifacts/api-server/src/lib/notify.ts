@@ -1,6 +1,8 @@
+import { randomUUID } from "node:crypto";
 import { db, notificationsTable, usersTable, familiesTable, childrenTable, classesTable, teachersTable, teacherAllocationsTable, attendanceTable, hallSessionsTable, classMergesTable } from "@workspace/db";
 import { eq, and, isNull, or } from "drizzle-orm";
 import { logger } from "./logger";
+import { createNotificationDelivery, type OutboxChannel } from "../services/notificationOutbox";
 
 /**
  * Returns true if a hall session is active for the given date and (optionally) slot.
@@ -63,23 +65,29 @@ export async function sendNotification(opts: {
   message: string;
   channel?: Channel;
   metadata?: Record<string, unknown>;
+  /** Stable domain identity for callers that can provide one. */
+  identity?: string;
+  externalChannels?: OutboxChannel[];
 }) {
-  await db.insert(notificationsTable).values({
-    userId: opts.userId,
-    type: opts.type,
-    title: opts.title,
-    message: opts.message,
-    channel: (opts.channel ?? "in_app") as Channel,
-    readStatus: false,
-    metadataJson: opts.metadata ? JSON.stringify(opts.metadata) : null,
-  });
-  dispatchExternal(opts.userId, opts.title, opts.message).then(({ delivered }) => {
-    if (!delivered) {
-      logger.warn({ userId: opts.userId }, "sendNotification: external delivery skipped or failed");
-    }
-  }).catch((err) => {
-    logger.warn({ userId: opts.userId, err }, "sendNotification: external delivery threw unexpectedly");
-  });
+  const externalChannels = opts.externalChannels ?? (
+    opts.channel && opts.channel !== "in_app" ? [opts.channel] : ["whatsapp"]
+  ) as OutboxChannel[];
+  // Standalone callers that do not own a domain identity are idempotent for
+  // the exact logical content/recipient rather than using a random UUID.
+  // Ad-hoc calls are intentionally distinct. Domain/scheduled callers must
+  // pass identity; silently hashing content would suppress legitimate future
+  // events with the same wording.
+  const identity = opts.identity ?? `adhoc:${randomUUID()}`;
+  return db.transaction(async tx => createNotificationDelivery(tx, {
+    logicalIdentity: identity,
+    domainType: "standalone_notification",
+    domainIdentifier: identity.slice("standalone:".length),
+    projection: {
+      userId: opts.userId, type: opts.type, title: opts.title, message: opts.message, metadata: opts.metadata,
+    },
+    channels: externalChannels,
+    templateKey: opts.type,
+  }));
 }
 
 /**
@@ -534,10 +542,14 @@ export async function notifyChildPickedUp(childId: number) {
  * L4 — Full community / critical: every active user on the platform
  */
 export async function broadcastEmergency(opts: {
+  /** The emergency lifecycle transaction. External delivery is represented by outbox rows only. */
+  tx?: any;
   type: string;
   level: string;
   description: string;
   emergencyId: number;
+  /** A stable lifecycle generation (normally the alert level). */
+  generation?: string;
   childId?: number | null;
   /**
    * When true, the alert is routed ONLY to admins/super_admins regardless of
@@ -568,33 +580,35 @@ export async function broadcastEmergency(opts: {
 
   const meta = { emergencyId: opts.emergencyId, level: opts.level, type: opts.type };
 
+  const executor: typeof db = opts.tx ?? db;
+  const generation = opts.generation ?? opts.level;
   const insertNotifs = async (userIds: number[], message: string) => {
     if (userIds.length === 0) return;
-    await db.insert(notificationsTable).values(
-      userIds.map(uid => ({
-        userId: uid,
-        type: "emergency_alert",
-        title,
-        message,
-        channel: "in_app" as Channel,
-        readStatus: false,
-        metadataJson: JSON.stringify(meta),
-      }))
-    );
-    Promise.allSettled(userIds.map(uid => dispatchExternal(uid, title, message))).then((results) => {
-      const failed = results.filter(r => r.status === "rejected" || (r.status === "fulfilled" && !r.value.delivered));
-      if (failed.length > 0) {
-        logger.warn({ totalTargets: userIds.length, failedCount: failed.length, level: opts.level }, "broadcastEmergency: some external deliveries failed or were skipped");
-      }
-    }).catch((err) => {
-      logger.warn({ err, level: opts.level }, "broadcastEmergency: external dispatch tracking failed");
-    });
+    for (const uid of [...new Set(userIds)]) {
+      await createNotificationDelivery(executor, {
+        // This identity is intentionally stable across a retried request and
+        // includes every dimension which makes an emergency alert distinct.
+        logicalIdentity: `emergency:${opts.emergencyId}:${generation}:recipient:${uid}`,
+        domainType: "emergency",
+        domainIdentifier: `${opts.emergencyId}:${generation}`,
+        projection: {
+          userId: uid,
+          type: "emergency_alert",
+          title,
+          message,
+          metadata: meta,
+        },
+        channels: ["whatsapp"],
+        templateKey: "emergency_alert",
+        templateMetadata: meta,
+      });
+    }
   };
 
   if (opts.adminsOnly) {
     // Teacher/staff-reported emergency — admins alone are alerted. They review
     // and escalate, which is what triggers any parent-facing broadcast.
-    const allUsers = await db.select({ id: usersTable.id, role: usersTable.role }).from(usersTable).where(eq(usersTable.isActive, true));
+    const allUsers = await executor.select({ id: usersTable.id, role: usersTable.role }).from(usersTable).where(eq(usersTable.isActive, true));
     const targets = allUsers.filter(u => u.role === "admin" || u.role === "super_admin").map(u => u.id);
     await insertNotifs(targets, `[STAFF REPORT — ADMIN REVIEW REQUIRED] ${baseMessage} Reported by staff; review and escalate if parents must be alerted.`);
     return;
@@ -603,20 +617,20 @@ export async function broadcastEmergency(opts: {
   if (opts.level === "L1") {
     // Teachers + Admins only
     const staffRoles = new Set(["teacher", "admin", "super_admin"]);
-    const allUsers = await db.select({ id: usersTable.id, role: usersTable.role }).from(usersTable).where(eq(usersTable.isActive, true));
+    const allUsers = await executor.select({ id: usersTable.id, role: usersTable.role }).from(usersTable).where(eq(usersTable.isActive, true));
     const targets = allUsers.filter(u => staffRoles.has(u.role)).map(u => u.id);
     await insertNotifs(targets, `[STAFF ONLY] ${baseMessage} Please respond immediately and report to your class coordinator.`);
 
   } else if (opts.level === "L2") {
     // All staff + child's parents if childId provided
-    const allUsers = await db.select({ id: usersTable.id, role: usersTable.role }).from(usersTable).where(eq(usersTable.isActive, true));
+    const allUsers = await executor.select({ id: usersTable.id, role: usersTable.role }).from(usersTable).where(eq(usersTable.isActive, true));
     const staffRoles = new Set(["teacher", "support", "admin", "super_admin"]);
     const targets = new Set(allUsers.filter(u => staffRoles.has(u.role)).map(u => u.id));
 
     if (opts.childId) {
-      const [child] = await db.select().from(childrenTable).where(eq(childrenTable.id, opts.childId));
+      const [child] = await executor.select().from(childrenTable).where(eq(childrenTable.id, opts.childId));
       if (child) {
-        const [family] = await db.select().from(familiesTable).where(eq(familiesTable.id, child.familyId));
+        const [family] = await executor.select().from(familiesTable).where(eq(familiesTable.id, child.familyId));
         if (family?.parent1Id) targets.add(family.parent1Id);
         if (family?.parent2Id) targets.add(family.parent2Id);
       }
@@ -627,21 +641,21 @@ export async function broadcastEmergency(opts: {
   } else if (opts.level === "L3") {
     // All staff + all parents of children checked in today
     const today = new Date().toISOString().split("T")[0];
-    const allUsers = await db.select({ id: usersTable.id, role: usersTable.role }).from(usersTable).where(eq(usersTable.isActive, true));
+    const allUsers = await executor.select({ id: usersTable.id, role: usersTable.role }).from(usersTable).where(eq(usersTable.isActive, true));
     const staffRoles = new Set(["teacher", "support", "admin", "super_admin"]);
     const targets = new Set(allUsers.filter(u => staffRoles.has(u.role)).map(u => u.id));
 
     // Find all children checked in today (not yet picked up)
-    const checkedInToday = await db
+    const checkedInToday = await executor
       .select({ childId: attendanceTable.childId })
       .from(attendanceTable)
       .where(eq(attendanceTable.serviceDate, today));
 
     const childIds = [...new Set(checkedInToday.map(r => r.childId))];
     for (const cid of childIds) {
-      const [child] = await db.select().from(childrenTable).where(eq(childrenTable.id, cid));
+      const [child] = await executor.select().from(childrenTable).where(eq(childrenTable.id, cid));
       if (!child) continue;
-      const [family] = await db.select().from(familiesTable).where(eq(familiesTable.id, child.familyId));
+      const [family] = await executor.select().from(familiesTable).where(eq(familiesTable.id, child.familyId));
       if (family?.parent1Id) targets.add(family.parent1Id);
       if (family?.parent2Id) targets.add(family.parent2Id);
     }
@@ -650,7 +664,7 @@ export async function broadcastEmergency(opts: {
 
   } else {
     // L4 — ALL active users
-    const allUsers = await db.select({ id: usersTable.id }).from(usersTable).where(eq(usersTable.isActive, true));
+    const allUsers = await executor.select({ id: usersTable.id }).from(usersTable).where(eq(usersTable.isActive, true));
     await insertNotifs(allUsers.map(u => u.id), `[CRITICAL — FULL COMMUNITY] ${baseMessage} All parents and staff: please respond immediately and follow emergency procedures.`);
   }
 }

@@ -31,7 +31,7 @@ if (["localhost", "127.0.0.1", "::1"].includes(databaseUrl.hostname)) {
 
 const result = spawnSync(
   "pnpm",
-  ["exec", "vitest", "run", "--reporter=verbose"],
+  ["exec", "vitest", "run", "--reporter=verbose", "--no-file-parallelism"],
   {
     cwd: new URL("../artifacts/api-server/", import.meta.url),
     env: {

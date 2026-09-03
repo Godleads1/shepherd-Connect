@@ -223,4 +223,18 @@ describe("authoritative authentication", () => {
 
     expect(verifyToken(partialToken)).toBeNull();
   });
+
+  it("does not treat an opaque SSE ticket as bearer authentication for ordinary APIs", async () => {
+    const { authMiddleware } = await import("../middlewares/auth");
+    const req = {
+      headers: { authorization: `Bearer ${"a".repeat(64)}` },
+    } as Request;
+    const res = response();
+    const next = vi.fn() as NextFunction;
+
+    await authMiddleware(req, res, next);
+
+    expect(next).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(401);
+  });
 });

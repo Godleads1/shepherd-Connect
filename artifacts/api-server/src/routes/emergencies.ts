@@ -4,6 +4,7 @@ import { db, emergenciesTable, emergencyUpdatesTable, childrenTable, usersTable,
 import { TriggerEmergencyBody, UpdateEmergencyBody, ListEmergenciesQueryParams } from "@workspace/api-zod";
 import { authMiddleware, requireRoles } from "../middlewares/auth";
 import { broadcastEmergency, sendNotification } from "../lib/notify";
+import { createNotificationDelivery } from "../services/notificationOutbox";
 
 const router = Router();
 
@@ -53,29 +54,32 @@ router.get("/emergencies", authMiddleware, requireRoles(...STAFF_ROLES), async (
 router.post("/emergencies", authMiddleware, requireRoles(...STAFF_ROLES), async (req, res): Promise<void> => {
   const parsed = TriggerEmergencyBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: "Bad request", message: parsed.error.message }); return; }
-  const [emergency] = await db.insert(emergenciesTable).values({
-    ...parsed.data,
-    triggeredBy: req.user!.userId,
-    status: "active",
-  }).returning();
-
   // Only admins/super_admins may alert parents. Emergencies reported by
   // teachers (or any other role) are routed to admins alone for review.
   const isAdmin = ["admin", "super_admin"].includes(req.user!.role);
-  await broadcastEmergency({
-    type: emergency.type,
-    level: emergency.level,
-    description: emergency.description,
-    emergencyId: emergency.id,
-    childId: emergency.childId,
-    adminsOnly: !isAdmin,
-  });
-
-  await db.insert(emergencyUpdatesTable).values({
-    emergencyId: emergency.id,
-    userId: req.user!.userId,
-    message: `Emergency triggered: ${emergency.description}`,
-    updateType: "update",
+  const emergency = await db.transaction(async tx => {
+    const [created] = await tx.insert(emergenciesTable).values({
+      ...parsed.data,
+      triggeredBy: req.user!.userId,
+      status: "active",
+    }).returning();
+    await tx.insert(emergencyUpdatesTable).values({
+      emergencyId: created.id,
+      userId: req.user!.userId,
+      message: `Emergency triggered: ${created.description}`,
+      updateType: "update",
+    });
+    await broadcastEmergency({
+      tx,
+      type: created.type,
+      level: created.level,
+      generation: created.level,
+      description: created.description,
+      emergencyId: created.id,
+      childId: created.childId,
+      adminsOnly: !isAdmin,
+    });
+    return created;
   });
 
   res.status(201).json(await formatEmergency(emergency));
@@ -127,31 +131,38 @@ router.put("/emergencies/:id/escalate", authMiddleware, requireRoles("super_admi
   if (newLevel && !VALID_LEVELS.includes(newLevel as any)) {
     res.status(400).json({ error: "Bad request", message: `Invalid level. Must be one of: ${VALID_LEVELS.join(", ")}` }); return;
   }
-  const [emergency] = await db.select().from(emergenciesTable).where(eq(emergenciesTable.id, id));
-  if (!emergency) { res.status(404).json({ error: "Not found", message: "Emergency not found" }); return; }
+  const outcome = await db.transaction(async tx => {
+    // Serialize lifecycle generations. In particular, two retries requesting
+    // the same level cannot each create a broadcast/audit generation.
+    const [emergency] = await tx.select().from(emergenciesTable)
+      .where(eq(emergenciesTable.id, id)).for("update");
+    if (!emergency) return null;
+    const levelMap: Record<string, string> = { L1: "L2", L2: "L3", L3: "L4", L4: "L4" };
+    const escalatedLevel = ((newLevel || levelMap[emergency.level]) as "L1" | "L2" | "L3" | "L4");
+    if (escalatedLevel === emergency.level) return emergency;
 
-  const levelMap: Record<string, string> = { L1: "L2", L2: "L3", L3: "L4", L4: "L4" };
-  const escalatedLevel = ((newLevel || levelMap[emergency.level]) as "L1" | "L2" | "L3" | "L4");
-
-  const [updated] = await db.update(emergenciesTable)
-    .set({ level: escalatedLevel, status: "active" })
-    .where(eq(emergenciesTable.id, id)).returning();
-
-  await db.insert(emergencyUpdatesTable).values({
-    emergencyId: id,
-    userId: req.user!.userId,
-    message: reason || `Emergency escalated from ${emergency.level} to ${escalatedLevel}`,
-    updateType: "escalation",
+    const [updated] = await tx.update(emergenciesTable)
+      .set({ level: escalatedLevel, status: "active" })
+      .where(eq(emergenciesTable.id, id)).returning();
+    await tx.insert(emergencyUpdatesTable).values({
+      emergencyId: id,
+      userId: req.user!.userId,
+      message: reason || `Emergency escalated from ${emergency.level} to ${escalatedLevel}`,
+      updateType: "escalation",
+    });
+    await broadcastEmergency({
+      tx,
+      type: emergency.type,
+      level: escalatedLevel,
+      generation: escalatedLevel,
+      description: `ESCALATED to ${escalatedLevel}: ${emergency.description}`,
+      emergencyId: id,
+      childId: emergency.childId,
+    });
+    return updated;
   });
-
-  await broadcastEmergency({
-    type: emergency.type,
-    level: escalatedLevel,
-    description: `ESCALATED to ${escalatedLevel}: ${emergency.description}`,
-    emergencyId: id,
-  });
-
-  res.json(await formatEmergency(updated));
+  if (!outcome) { res.status(404).json({ error: "Not found", message: "Emergency not found" }); return; }
+  res.json(await formatEmergency(outcome));
 });
 
 router.post("/emergencies/:id/update", authMiddleware, requireRoles(...STAFF_ROLES), async (req, res): Promise<void> => {
@@ -177,39 +188,53 @@ router.post("/emergencies/:id/all-clear", authMiddleware, requireRoles("super_ad
   const id = parseInt(req.params.id as string, 10);
   if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
   const { notes } = req.body as { notes?: string };
-  const [emergency] = await db.update(emergenciesTable).set({
-    status: "resolved",
-    resolvedAt: new Date(),
-    resolutionNotes: notes || "All clear issued by admin",
-  }).where(eq(emergenciesTable.id, id)).returning();
-  if (!emergency) { res.status(404).json({ error: "Not found", message: "Emergency not found" }); return; }
-
-  await db.insert(emergencyUpdatesTable).values({
-    emergencyId: id,
-    userId: req.user!.userId,
-    message: notes ? `ALL CLEAR: ${notes}` : "ALL CLEAR — Emergency has been resolved. The situation is under control.",
-    updateType: "all_clear",
-  });
-
-  // Send the all-clear ONLY to the people who received the original alert —
-  // otherwise resolving a staff-only report would leak it to every parent.
-  const alerted = await db.select({ userId: notificationsTable.userId })
-    .from(notificationsTable)
-    .where(and(
-      eq(notificationsTable.type, "emergency_alert"),
-      like(notificationsTable.metadataJson, `%"emergencyId":${id},%`),
-    ));
-  const targetIds = [...new Set(alerted.map(a => a.userId))];
   const allClearMsg = notes
     ? `The emergency has been resolved. ${notes}`
     : "The emergency situation has been fully resolved. All children are safe. Normal operations resuming.";
-  await Promise.all(targetIds.map(uid => sendNotification({
-    userId: uid,
-    type: "emergency_all_clear",
-    title: "✅ ALL CLEAR — Emergency Resolved",
-    message: allClearMsg,
-    metadata: { emergencyId: id },
-  })));
+  const emergency = await db.transaction(async tx => {
+    const [current] = await tx.select().from(emergenciesTable)
+      .where(eq(emergenciesTable.id, id)).for("update");
+    if (!current) return null;
+    if (current.status === "resolved") return current;
+    const [resolved] = await tx.update(emergenciesTable).set({
+      status: "resolved",
+      resolvedAt: new Date(),
+      resolutionNotes: notes || "All clear issued by admin",
+    }).where(eq(emergenciesTable.id, id)).returning();
+    await tx.insert(emergencyUpdatesTable).values({
+      emergencyId: id,
+      userId: req.user!.userId,
+      message: notes ? `ALL CLEAR: ${notes}` : "ALL CLEAR — Emergency has been resolved. The situation is under control.",
+      updateType: "all_clear",
+    });
+    // Only the original alert audience is eligible; this preserves the
+    // staff-report boundary and does not leak an incident to parents.
+    const alerted = await tx.select({ userId: notificationsTable.userId })
+      .from(notificationsTable)
+      .where(and(
+        eq(notificationsTable.type, "emergency_alert"),
+        like(notificationsTable.metadataJson, `%"emergencyId":${id},%`),
+      ));
+    for (const uid of new Set(alerted.map(a => a.userId))) {
+      await createNotificationDelivery(tx, {
+        logicalIdentity: `emergency:${id}:all_clear:recipient:${uid}`,
+        domainType: "emergency",
+        domainIdentifier: `${id}:all_clear`,
+        projection: {
+          userId: uid,
+          type: "emergency_all_clear",
+          title: "✅ ALL CLEAR — Emergency Resolved",
+          message: allClearMsg,
+          metadata: { emergencyId: id },
+        },
+        channels: ["whatsapp"],
+        templateKey: "emergency_all_clear",
+        templateMetadata: { emergencyId: id },
+      });
+    }
+    return resolved;
+  });
+  if (!emergency) { res.status(404).json({ error: "Not found", message: "Emergency not found" }); return; }
 
   res.json(await formatEmergency(emergency));
 });

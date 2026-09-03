@@ -5,7 +5,7 @@ import { db, usersTable, teachersTable, pool } from "@workspace/db";
 import { CreateUserBody, UpdateUserBody, ListUsersQueryParams } from "@workspace/api-zod";
 import { authMiddleware, requireRoles } from "../middlewares/auth";
 import { bindObjectToResource } from "../lib/privateObjectAccess";
-import { smsAccountApproved, smsAccountRejected, emailAccountApproved, emailAccountRejected } from "../services/sms";
+import { createNotificationDelivery } from "../services/notificationOutbox";
 import {
   canonicalPendingRoles,
   canonicalSecondaryRoles,
@@ -17,6 +17,37 @@ import {
 const router = Router();
 
 const VALID_ROLES = USER_ROLES;
+
+async function createDecisionDelivery(
+  tx: any,
+  user: typeof usersTable.$inferSelect,
+  requestedRole: UserRole,
+  decision: "approved" | "rejected",
+  scope: "account" | "role",
+) {
+  const approved = decision === "approved";
+  const type = `${scope}_${decision}`;
+  const subject = scope === "account" ? "account" : `${requestedRole} role request`;
+  await createNotificationDelivery(tx, {
+    // This identity is the decision generation boundary. It intentionally
+    // contains no clock/random value, so retries and racing decisions share
+    // the one projection and one set of delivery intents.
+    logicalIdentity: `${scope}-decision:${user.id}:${requestedRole}:${decision}`,
+    domainType: `${scope}_approval`,
+    domainIdentifier: `${user.id}:${requestedRole}`,
+    projection: {
+      userId: user.id,
+      type,
+      title: approved ? "Approval Confirmed" : "Request Rejected",
+      message: approved
+        ? `Your ${subject} has been approved.`
+        : `Your ${subject} has been rejected.`,
+      metadata: { role: requestedRole, decision },
+    },
+    channels: ["sms", "email"],
+    templateKey: type,
+  });
+}
 
 function sanitizeUser(
   u: typeof usersTable.$inferSelect,
@@ -145,11 +176,10 @@ router.put("/users/:id/approve", authMiddleware, requireRoles("super_admin", "ad
     if (target.role === "teacher") {
       await tx.insert(teachersTable).values({ userId: target.id }).onConflictDoNothing();
     }
+    await createDecisionDelivery(tx, approved, target.role, "approved", "account");
     return approved;
   });
   if (!user) { res.status(404).json({ error: "Not found", message: "User not found" }); return; }
-  smsAccountApproved(user.phone, user.firstName, req.log).catch(() => {});
-  emailAccountApproved(user.email, user.firstName, req.log).catch(() => {});
   const viewer = { role: req.user!.role, userId: req.user!.userId };
   res.json({ success: true, message: "User approved", user: sanitizeUser(user, viewer) });
 });
@@ -157,13 +187,17 @@ router.put("/users/:id/approve", authMiddleware, requireRoles("super_admin", "ad
 router.put("/users/:id/reject", authMiddleware, requireRoles("super_admin", "admin"), async (req, res): Promise<void> => {
   const id = parseInt(req.params.id as string, 10);
   if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
-  const [user] = await db.update(usersTable)
-    .set({ status: "suspended", isActive: false })
-    .where(eq(usersTable.id, id))
-    .returning();
+  const user = await db.transaction(async tx => {
+    const target = await lockUserById(tx, id);
+    if (!target) return undefined;
+    const [rejected] = await tx.update(usersTable)
+      .set({ status: "suspended", isActive: false })
+      .where(eq(usersTable.id, id))
+      .returning();
+    await createDecisionDelivery(tx, rejected, target.role, "rejected", "account");
+    return rejected;
+  });
   if (!user) { res.status(404).json({ error: "Not found", message: "User not found" }); return; }
-  smsAccountRejected(user.phone, user.firstName, req.log).catch(() => {});
-  emailAccountRejected(user.email, user.firstName, req.log).catch(() => {});
   const viewer = { role: req.user!.role, userId: req.user!.userId };
   res.json({ success: true, message: "User rejected", user: sanitizeUser(user, viewer) });
 });
@@ -326,17 +360,13 @@ router.post("/users/:id/approve-role", authMiddleware, requireRoles("super_admin
     if (role === "teacher") {
       await tx.insert(teachersTable).values({ userId: id }).onConflictDoNothing();
     }
+    await createDecisionDelivery(tx, saved, role as UserRole, "approved", "role");
     return { kind: "approved" as const, target, user: saved };
   });
   if (result.kind === "notFound") { res.status(404).json({ error: "Not found", message: "User not found" }); return; }
   if (result.kind === "notPending") {
     res.status(400).json({ error: "Bad request", message: "This role is not pending for this user" }); return;
   }
-
-  // Notify user
-  const { smsAccountApproved: smsApproved, emailAccountApproved: emailApproved } = await import("../services/sms");
-  smsApproved(result.target.phone ?? "", result.target.firstName, req.log).catch(() => {});
-  emailApproved(result.target.email, result.target.firstName, req.log).catch(() => {});
 
   res.json({ success: true, user: sanitizeUser(result.user), message: `Role ${role} approved and granted` });
 });
@@ -360,13 +390,10 @@ router.post("/users/:id/reject-role", authMiddleware, requireRoles("super_admin"
       })
       .where(eq(usersTable.id, id))
       .returning();
+    await createDecisionDelivery(tx, saved, role as UserRole, "rejected", "role");
     return { kind: "rejected" as const, target, user: saved };
   });
   if (result.kind === "notFound") { res.status(404).json({ error: "Not found", message: "User not found" }); return; }
-
-  const { smsAccountRejected: smsRejected, emailAccountRejected: emailRejected } = await import("../services/sms");
-  smsRejected(result.target.phone ?? "", result.target.firstName, req.log).catch(() => {});
-  emailRejected(result.target.email, result.target.firstName, req.log).catch(() => {});
 
   res.json({ success: true, user: sanitizeUser(result.user), message: `Role ${role} request rejected` });
 });
@@ -453,6 +480,8 @@ router.delete("/users/:id", authMiddleware, requireRoles("super_admin", "admin")
       "DELETE FROM teacher_allocations WHERE teacher_id IN (SELECT id FROM teachers WHERE user_id = $1)",
       "DELETE FROM child_appraisals WHERE teacher_id IN (SELECT id FROM teachers WHERE user_id = $1)",
       "DELETE FROM teachers WHERE user_id = $1",
+      "DELETE FROM sse_tickets WHERE user_id = $1",
+      "DELETE FROM notification_outbox WHERE recipient_user_id = $1",
       "DELETE FROM notifications WHERE user_id = $1",
       "DELETE FROM audit_logs WHERE user_id = $1",
       "DELETE FROM parent_feedback WHERE parent_id = $1",

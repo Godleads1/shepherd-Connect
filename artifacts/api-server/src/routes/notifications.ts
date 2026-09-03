@@ -1,12 +1,12 @@
 import { Router } from "express";
 import { eq, and, sql, desc } from "drizzle-orm";
-import { db, notificationsTable, usersTable, churchSettingsTable, whatsappBroadcastsTable } from "@workspace/db";
+import { db, notificationsTable, usersTable, churchSettingsTable, whatsappBroadcastsTable, notificationOutboxTable } from "@workspace/db";
 import { ListNotificationsQueryParams } from "@workspace/api-zod";
 import { authMiddleware, requireRoles } from "../middlewares/auth";
 import { pushToUsers, pushToRole } from "../services/push";
-import { dispatchExternal } from "../lib/notify";
 import { pushEventToUsers } from "../lib/sse";
-import { enqueueWhatsAppBroadcast } from "../lib/whatsapp-queue";
+import { createNotificationDelivery } from "../services/notificationOutbox";
+import { runRateLimitedAudienceOperation } from "../lib/rateLimitedAudienceOperation";
 
 const LOCATION_DEFAULTS = {
   churchName: "RCCG City of David",
@@ -81,21 +81,11 @@ router.post("/notifications/broadcast", authMiddleware, requireRoles("super_admi
     res.status(400).json({ error: "Bad request", message: "title and message are required" });
     return;
   }
-
-  // ── Broadcast rate-limit lock (prevents duplicate sends from concurrent admins) ─
-  // Atomically claim the lock: only succeeds if no broadcast was sent in the last 60 s.
-  await db.execute(sql`INSERT INTO church_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING`);
-  const [locked] = await db.update(churchSettingsTable)
-    .set({ lastBroadcastAt: new Date() })
-    .where(sql`id = 1 AND (last_broadcast_at IS NULL OR last_broadcast_at < now() - interval '60 seconds')`)
-    .returning({ id: churchSettingsTable.id });
-  if (!locked) {
-    res.status(429).json({
-      error: "Too many requests",
-      message: "A broadcast was just sent. Please wait at least 60 seconds before sending another to avoid duplicate messages.",
-    });
+  if (channel && channel !== "in_app" && channel !== "whatsapp") {
+    res.status(400).json({ error: "Bad request", message: "Only in_app and whatsapp broadcast channels are currently supported" });
     return;
   }
+
   const roleFilter = targetRole ? eq(usersTable.role, targetRole as "super_admin" | "admin" | "teacher" | "support" | "parent") : undefined;
   const recipients = await db.select({ id: usersTable.id }).from(usersTable)
     .where(and(eq(usersTable.isActive, true), roleFilter));
@@ -105,48 +95,51 @@ router.post("/notifications/broadcast", authMiddleware, requireRoles("super_admi
     return;
   }
 
-  const notifs = recipients.map(r => ({
-    userId: r.id,
-    type: type || "broadcast",
-    title,
-    message,
-    channel: channel || "in_app" as const,
-    readStatus: false,
-  }));
-
-  await db.insert(notificationsTable).values(notifs);
+  // Select first: an empty audience must never consume the rate-limit lock.
+  const operation = await db.transaction(async tx => {
+    await tx.execute(sql`INSERT INTO church_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING`);
+    const [settings] = await tx.select({ lastBroadcastAt: churchSettingsTable.lastBroadcastAt })
+      .from(churchSettingsTable).where(eq(churchSettingsTable.id, 1)).for("update");
+    return runRateLimitedAudienceOperation({
+      lastOperationAt: settings?.lastBroadcastAt,
+      getRecipientIds: async () => {
+        // This is the authoritative audience, read while the operation lock is held.
+        const rows = await tx.select({ id: usersTable.id }).from(usersTable)
+          .where(and(eq(usersTable.isActive, true), roleFilter));
+        return rows.map(recipient => recipient.id);
+      },
+      setLastOperationAt: operationAt => tx.update(churchSettingsTable)
+        .set({ lastBroadcastAt: operationAt }).where(eq(churchSettingsTable.id, 1)),
+      createForRecipient: async (recipientId, operationAt) => {
+        const identity = `broadcast:${operationAt.toISOString()}`;
+        await createNotificationDelivery(tx, {
+          logicalIdentity: `${identity}:recipient:${recipientId}`,
+          domainType: "broadcast", domainIdentifier: identity,
+          projection: { userId: recipientId, type: type || "broadcast", title, message },
+          channels: channel && channel !== "in_app" ? [channel] : ["whatsapp"], templateKey: type || "broadcast",
+        });
+      },
+    });
+  });
+  if (operation.kind === "rate_limited") {
+    res.status(429).json({ error: "Too many requests", message: "A broadcast was just sent. Please wait at least 60 seconds before sending another to avoid duplicate messages." });
+    return;
+  }
+  if (operation.kind === "empty") { res.json({ success: true, sent: 0, message: "No recipients found" }); return; }
 
   // Push real-time SSE events so recipients' apps update instantly
-  const recipientIds = recipients.map(r => r.id);
+  const recipientIds = operation.recipientIds;
   pushEventToUsers(recipientIds, "new_notification", { type: type || "broadcast" });
 
   // Also send browser push to all recipients
   pushToUsers(recipientIds, { title, body: message, icon: "/pwa-192.png", url: "/notifications" }, req.log).catch(() => {});
 
-  // WhatsApp delivery — throttled queue (220 ms between sends) to avoid
-  // WhatsApp banning the number for bulk/spam. Runs in the background so the
-  // admin's UI responds immediately; results are logged to the server logger.
-  enqueueWhatsAppBroadcast(recipients, title, message, "broadcast");
-
-  res.json({ success: true, sent: recipients.length, message: `Notification sent to ${recipients.length} user(s). WhatsApp delivery is queued and will complete shortly.` });
+  res.json({ success: true, sent: recipientIds.length, message: `Notification sent to ${recipientIds.length} user(s). External delivery is queued.` });
 });
 
 router.post("/notifications/pre-dismissal", authMiddleware, requireRoles("super_admin", "admin"), async (req, res): Promise<void> => {
   const { serviceSlot, minutesBefore = 15 } = req.body as { serviceSlot?: string; minutesBefore?: number };
 
-  // ── Pre-dismissal rate-limit lock (prevents duplicate alerts from concurrent admins) ─
-  await db.execute(sql`INSERT INTO church_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING`);
-  const [locked] = await db.update(churchSettingsTable)
-    .set({ lastPreDismissalAt: new Date() })
-    .where(sql`id = 1 AND (last_pre_dismissal_at IS NULL OR last_pre_dismissal_at < now() - interval '60 seconds')`)
-    .returning({ id: churchSettingsTable.id });
-  if (!locked) {
-    res.status(429).json({
-      error: "Too many requests",
-      message: "A pre-dismissal alert was just sent. Please wait at least 60 seconds to avoid sending it twice.",
-    });
-    return;
-  }
   const { pickupAddress, mapsLink } = await getPickupLocation();
   const title = "Pre-Dismissal Alert";
   const message = serviceSlot
@@ -161,31 +154,45 @@ router.post("/notifications/pre-dismissal", authMiddleware, requireRoles("super_
     return;
   }
 
-  const notifs = parents.map(p => ({
-    userId: p.id,
-    type: "pre_dismissal",
-    title,
-    message,
-    channel: "in_app" as const,
-    readStatus: false,
-    metadataJson: JSON.stringify({ serviceSlot, minutesBefore, pickupAddress, mapsLink }),
-  }));
-
-  await db.insert(notificationsTable).values(notifs);
+  const operation = await db.transaction(async tx => {
+    await tx.execute(sql`INSERT INTO church_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING`);
+    const [settings] = await tx.select({ lastPreDismissalAt: churchSettingsTable.lastPreDismissalAt })
+      .from(churchSettingsTable).where(eq(churchSettingsTable.id, 1)).for("update");
+    return runRateLimitedAudienceOperation({
+      lastOperationAt: settings?.lastPreDismissalAt,
+      getRecipientIds: async () => {
+        const rows = await tx.select({ id: usersTable.id }).from(usersTable)
+          .where(and(eq(usersTable.isActive, true), eq(usersTable.role, "parent")));
+        return rows.map(parent => parent.id);
+      },
+      setLastOperationAt: operationAt => tx.update(churchSettingsTable)
+        .set({ lastPreDismissalAt: operationAt }).where(eq(churchSettingsTable.id, 1)),
+      createForRecipient: async (parentId, operationAt) => {
+        const identity = `pre-dismissal:${operationAt.toISOString()}:${serviceSlot ?? "all"}`;
+        await createNotificationDelivery(tx, {
+          logicalIdentity: `${identity}:recipient:${parentId}`, domainType: "pre_dismissal", domainIdentifier: identity,
+          projection: { userId: parentId, type: "pre_dismissal", title, message, metadata: { serviceSlot, minutesBefore, pickupAddress, mapsLink } },
+          channels: ["whatsapp"], templateKey: "pre_dismissal",
+        });
+      },
+    });
+  });
+  if (operation.kind === "rate_limited") {
+    res.status(429).json({ error: "Too many requests", message: "A pre-dismissal alert was just sent. Please wait at least 60 seconds to avoid sending it twice." });
+    return;
+  }
+  if (operation.kind === "empty") { res.json({ success: true, sent: 0 }); return; }
 
   // Push real-time SSE events to all parents instantly
-  pushEventToUsers(parents.map(p => p.id), "new_notification", { type: "pre_dismissal" });
+  pushEventToUsers(operation.recipientIds, "new_notification", { type: "pre_dismissal" });
 
   // Browser push to all parents
   pushToRole("parent", { title, body: message, icon: "/pwa-192.png", url: "/notifications" }, req.log).catch(() => {});
 
-  // WhatsApp delivery — throttled queue to avoid banning. Background, non-blocking.
-  enqueueWhatsAppBroadcast(parents, title, message, "pre-dismissal");
-
   res.json({
     success: true,
-    sent: parents.length,
-    message: `Pre-dismissal alert sent to ${parents.length} parent(s). WhatsApp delivery is queued and will complete shortly.`,
+    sent: operation.recipientIds.length,
+    message: `Pre-dismissal alert sent to ${operation.recipientIds.length} parent(s). External delivery is queued.`,
   });
 });
 
@@ -197,6 +204,21 @@ router.get("/notifications/whatsapp-broadcasts", authMiddleware, requireRoles("s
     .orderBy(desc(whatsappBroadcastsTable.createdAt))
     .limit(20);
   res.json(rows);
+});
+
+router.get("/notifications/delivery-history", authMiddleware, requireRoles("super_admin", "admin"), async (_req, res): Promise<void> => {
+  const history = await db.select({
+    id: notificationOutboxTable.id, notificationType: notificationOutboxTable.notificationType,
+    domainType: notificationOutboxTable.domainType, domainIdentifier: notificationOutboxTable.domainIdentifier,
+    recipientUserId: notificationOutboxTable.recipientUserId, channel: notificationOutboxTable.channel,
+    status: notificationOutboxTable.status, attempts: notificationOutboxTable.attempts, provider: notificationOutboxTable.provider,
+    failureClassification: notificationOutboxTable.failureClassification, failureDetail: notificationOutboxTable.failureDetail,
+    nextAttemptAt: notificationOutboxTable.nextAttemptAt, providerAcceptedAt: notificationOutboxTable.providerAcceptedAt,
+    terminal: sql<boolean>`${notificationOutboxTable.status} IN ('accepted', 'uncertain', 'skipped', 'dead_letter')`,
+    safeToRetry: sql<boolean>`${notificationOutboxTable.status} = 'retryable'`,
+    createdAt: notificationOutboxTable.createdAt, finalizedAt: notificationOutboxTable.finalizedAt,
+  }).from(notificationOutboxTable).orderBy(desc(notificationOutboxTable.createdAt)).limit(100);
+  res.json({ data: history });
 });
 
 export default router;

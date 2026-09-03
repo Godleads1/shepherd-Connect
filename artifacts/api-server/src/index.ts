@@ -2,7 +2,8 @@ import app from "./app";
 import { logger } from "./lib/logger";
 import { startScheduler } from "./lib/scheduler";
 import { initWhatsApp, closeWhatsAppClean } from "./services/whatsapp";
-import { recoverPendingQueue } from "./lib/whatsapp-queue";
+import { startNotificationDeliveryWorker, stopNotificationDeliveryWorker } from "./services/notificationDeliveryWorker";
+import { migrateLegacyWhatsAppQueue } from "./lib/whatsapp-queue";
 
 const rawPort = process.env["PORT"];
 
@@ -21,6 +22,7 @@ if (Number.isNaN(port) || port <= 0) {
 // Gracefully close the WhatsApp socket on shutdown so WhatsApp sees a clean
 // disconnect (not an abrupt TCP drop which triggers session invalidation / 401).
 const _shutdown = () => {
+  stopNotificationDeliveryWorker();
   logger.info("Graceful shutdown — closing WhatsApp socket");
   closeWhatsAppClean()
     .catch(() => { /* ignore */ })
@@ -40,5 +42,8 @@ app.listen(port, async (err) => {
   logger.info({ port }, "Server listening");
   startScheduler();
   initWhatsApp().catch(() => { /* no session yet — admin will connect via Settings */ });
-  recoverPendingQueue().catch(() => { /* non-fatal — logged inside */ });
+  // No outbox polling may begin until every legacy pending recipient has an
+  // idempotent outbox representation (or startup fails loudly).
+  await migrateLegacyWhatsAppQueue();
+  startNotificationDeliveryWorker();
 });

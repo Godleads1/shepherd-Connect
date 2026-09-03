@@ -1,217 +1,143 @@
-import { db, whatsappBroadcastsTable, whatsappQueueItemsTable } from "@workspace/db";
-import { eq, and, lt, isNull, sql } from "drizzle-orm";
+import { db } from "@workspace/db";
+import { sql } from "drizzle-orm";
 import { logger } from "./logger";
-import { dispatchExternal } from "./notify";
+import { createNotificationDelivery } from "../services/notificationOutbox";
 
-const DELAY_MS = 220; // ~4.5 messages/second — safe for Baileys / WhatsApp unofficial API
-const RECOVERY_AGE_MINUTES = 10; // items pending for longer than this are from a dead process
+// This module deliberately contains no sender. whatsapp_broadcasts and
+// whatsapp_queue_items predate notification_outbox and are retained only as
+// history while installations transition to the outbox worker.
 
-// ─── Internal sender ─────────────────────────────────────────────────────────
+const TITLE_MAX_LENGTH = 255;
+const MESSAGE_MAX_LENGTH = 8192;
 
-async function runQueue(
-  broadcastId: string,
-  recipients: { id: number }[],
-  title: string,
-  message: string,
-  context: string,
-): Promise<void> {
-  let delivered = 0;
-  let failed = 0;
-  let skipped = 0;
+type LegacyItem = {
+  broadcastId: string;
+  userId: number;
+  context: string | null;
+  title: string | null;
+  message: string | null;
+  processedAt: Date | null;
+};
 
-  for (let i = 0; i < recipients.length; i++) {
-    const recipient = recipients[i]!;
-    let itemStatus: "delivered" | "failed" | "skipped" = "skipped";
-
-    // Claim this item atomically BEFORE sending — sets processedAt so that
-    // the restart-recovery path (which filters processedAt IS NULL) won't
-    // re-enqueue an already in-flight message and cause a double-send.
-    await db
-      .update(whatsappQueueItemsTable)
-      .set({ processedAt: new Date() })
-      .where(
-        and(
-          eq(whatsappQueueItemsTable.broadcastId, broadcastId),
-          eq(whatsappQueueItemsTable.userId, recipient.id),
-          eq(whatsappQueueItemsTable.status, "pending"),
-        ),
-      )
-      .catch(() => { /* non-fatal */ });
-
-    try {
-      const result = await dispatchExternal(recipient.id, title, message);
-      itemStatus = result.delivered ? "delivered" : "skipped";
-      if (result.delivered) delivered++;
-      else skipped++;
-    } catch {
-      itemStatus = "failed";
-      failed++;
-    }
-
-    // Update final status
-    await db
-      .update(whatsappQueueItemsTable)
-      .set({ status: itemStatus })
-      .where(
-        and(
-          eq(whatsappQueueItemsTable.broadcastId, broadcastId),
-          eq(whatsappQueueItemsTable.userId, recipient.id),
-        ),
-      )
-      .catch(() => { /* non-fatal */ });
-
-    // Throttle: wait between sends (skip after last item)
-    if (i < recipients.length - 1) {
-      await new Promise<void>(resolve => setTimeout(resolve, DELAY_MS));
-    }
-  }
-
-  // Mark broadcast complete
-  await db
-    .update(whatsappBroadcastsTable)
-    .set({
-      deliveredCount: delivered,
-      failedCount: failed,
-      skippedCount: skipped,
-      status: "completed",
-      completedAt: new Date(),
-    })
-    .where(eq(whatsappBroadcastsTable.id, broadcastId))
-    .catch(() => { /* non-fatal */ });
-
-  const durationSec = ((recipients.length - 1) * DELAY_MS) / 1000;
-  if (failed > 0) {
-    logger.warn({ context, delivered, failed, skipped, total: recipients.length, durationSec },
-      `${context}: WhatsApp queue finished — some deliveries failed`);
-  } else {
-    logger.info({ context, delivered, skipped, total: recipients.length, durationSec },
-      `${context}: WhatsApp queue finished`);
-  }
+function boundedLegacyText(value: string | null, limit: number, fallback: string): string {
+  // PostgreSQL text can contain NUL only through an unusual import, but remove
+  // it here before it becomes JSON/provider-bound content.
+  const text = (value ?? fallback).replace(/\0/g, "");
+  return text.slice(0, limit) || fallback;
 }
 
-// ─── Public API ───────────────────────────────────────────────────────────────
-
-/**
- * Enqueue a WhatsApp broadcast. Persists all queue items to the DB before
- * starting so a server restart mid-send can recover pending items.
- * Returns immediately — delivery happens in the background.
- */
-export function enqueueWhatsAppBroadcast(
-  recipients: { id: number }[],
-  title: string,
-  message: string,
-  context: string,
-): void {
-  if (recipients.length === 0) return;
-
-  (async () => {
-    try {
-      // 1. Create the broadcast record
-      const [broadcast] = await db
-        .insert(whatsappBroadcastsTable)
-        .values({ context, title, message, totalCount: recipients.length, status: "running" })
-        .returning({ id: whatsappBroadcastsTable.id });
-
-      if (!broadcast) return;
-
-      // 2. Insert all queue items as "pending" so they survive a restart
-      await db.insert(whatsappQueueItemsTable).values(
-        recipients.map(r => ({ broadcastId: broadcast.id, userId: r.id, status: "pending" as const })),
-      );
-
-      // 3. Send
-      await runQueue(broadcast.id, recipients, title, message, context);
-    } catch (err) {
-      logger.error({ err, context }, "WhatsApp queue: failed to initialise broadcast");
-    }
-  })();
+function legacyIdentity(item: LegacyItem): string {
+  // Broadcast ids are UUIDs in the legacy schema, so this stays well below the
+  // createNotificationDelivery logical identity bound and is stable on reruns.
+  return `legacy-whatsapp:${item.broadcastId}:recipient:${item.userId}`;
 }
 
-// ─── Restart recovery ─────────────────────────────────────────────────────────
-
 /**
- * Called on server startup. Finds broadcasts whose queue items are still
- * "pending" (left over from a previous process that died mid-send) and
- * re-enqueues them so no parent is silently missed.
+ * Atomically moves every legacy pending item to notification_outbox.  An item
+ * whose old sender had set processed_at crossed the provider-call boundary;
+ * it is represented as terminal `uncertain`, never delivered again.  An
+ * unclaimed item is ordinary pending outbox work.
+ *
+ * The transaction lock makes startup calls from multiple API processes safe;
+ * the outbox logical key additionally makes this safe to re-run after any
+ * interrupted deployment.
  */
-export async function recoverPendingQueue(): Promise<void> {
+export async function migrateLegacyWhatsAppQueue(): Promise<void> {
   try {
-    const cutoff = new Date(Date.now() - RECOVERY_AGE_MINUTES * 60 * 1000);
+    await db.transaction(async tx => {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('legacy-whatsapp-outbox-migration-v1'))`);
+      const result = await tx.execute(sql`
+        SELECT q.broadcast_id AS "broadcastId", q.user_id AS "userId",
+          b.context, b.title, b.message, q.processed_at AS "processedAt"
+        FROM whatsapp_queue_items q
+        JOIN whatsapp_broadcasts b ON b.id = q.broadcast_id
+        WHERE q.status = 'pending'
+        FOR UPDATE OF q, b
+      `);
+      const items = result.rows as LegacyItem[];
+      if (!items.length) return;
 
-    // Find broadcasts that are still "running" and old enough to be orphaned
-    const stale = await db
-      .select({
-        id: whatsappBroadcastsTable.id,
-        context: whatsappBroadcastsTable.context,
-        title: whatsappBroadcastsTable.title,
-        message: whatsappBroadcastsTable.message,
-      })
-      .from(whatsappBroadcastsTable)
-      .where(
-        and(
-          eq(whatsappBroadcastsTable.status, "running"),
-          lt(whatsappBroadcastsTable.createdAt, cutoff),
-        ),
-      );
+      for (const item of items) {
+        const identity = legacyIdentity(item);
+        const title = boundedLegacyText(item.title, TITLE_MAX_LENGTH, "Church notification");
+        const message = boundedLegacyText(item.message, MESSAGE_MAX_LENGTH, "You have a church notification.");
+        await createNotificationDelivery(tx, {
+          logicalIdentity: identity,
+          domainType: "legacy_whatsapp_broadcast",
+          domainIdentifier: item.broadcastId,
+          projection: {
+            userId: item.userId,
+            type: "broadcast",
+            title,
+            message,
+            metadata: { legacyBroadcastId: item.broadcastId, legacyContext: item.context ?? null, migrated: true },
+          },
+          channels: ["whatsapp"],
+          templateKey: "legacy_broadcast",
+          templateMetadata: { legacyBroadcastId: item.broadcastId, migrated: true },
+        });
 
-    if (stale.length === 0) return;
+        if (item.processedAt) {
+          // The old sender claimed before dispatching. Its final provider state
+          // is unknowable after a crash, so terminal uncertainty is required.
+          await tx.execute(sql`
+            UPDATE notification_outbox
+            SET status = 'uncertain', claim_token = NULL, lease_expires_at = NULL,
+              failure_classification = 'legacy_claimed_unfinalized',
+              failure_detail = 'Legacy queue item was claimed before migration; provider acceptance is unknown.',
+              finalized_at = now(), updated_at = now()
+            WHERE logical_dedup_key = ${`${identity}:whatsapp`}
+              AND status IN ('pending', 'retryable', 'processing')
+          `);
+        }
 
-    logger.info({ count: stale.length }, "WhatsApp queue: recovering orphaned broadcasts");
-
-    for (const broadcast of stale) {
-      // Items that were claimed (processedAt set) but never finalized (still
-      // "pending") were in-flight when the process died. Delivery is uncertain,
-      // so we don't re-send — but we mark them "failed" so they show up in the
-      // broadcast history instead of being silently skipped.
-      await db
-        .update(whatsappQueueItemsTable)
-        .set({ status: "failed" })
-        .where(
-          and(
-            eq(whatsappQueueItemsTable.broadcastId, broadcast.id),
-            eq(whatsappQueueItemsTable.status, "pending"),
-            sql`${whatsappQueueItemsTable.processedAt} IS NOT NULL`,
-          ),
-        );
-
-      // Fetch only the items that weren't processed yet
-      // Only recover items that were never claimed (processedAt IS NULL).
-      // Items with processedAt set were already in-flight when the server
-      // died — their delivery may have succeeded; we must not re-send them.
-      const pending = await db
-        .select({ userId: whatsappQueueItemsTable.userId })
-        .from(whatsappQueueItemsTable)
-        .where(
-          and(
-            eq(whatsappQueueItemsTable.broadcastId, broadcast.id),
-            eq(whatsappQueueItemsTable.status, "pending"),
-            isNull(whatsappQueueItemsTable.processedAt),
-          ),
-        );
-
-      if (pending.length === 0) {
-        // All items were processed — just mark the broadcast complete
-        await db
-          .update(whatsappBroadcastsTable)
-          .set({
-            status: "completed",
-            completedAt: new Date(),
-            deliveredCount: sql`(SELECT COUNT(*) FROM whatsapp_queue_items WHERE broadcast_id = ${broadcast.id} AND status = 'delivered')`,
-            failedCount:   sql`(SELECT COUNT(*) FROM whatsapp_queue_items WHERE broadcast_id = ${broadcast.id} AND status = 'failed')`,
-            skippedCount:  sql`(SELECT COUNT(*) FROM whatsapp_queue_items WHERE broadcast_id = ${broadcast.id} AND status = 'skipped')`,
-          })
-          .where(eq(whatsappBroadcastsTable.id, broadcast.id));
-        continue;
+        // The legacy schema has no migrated status. skipped/failed are its
+        // terminal history markers; the outbox row is authoritative from here.
+        await tx.execute(sql`
+          UPDATE whatsapp_queue_items
+          SET status = ${item.processedAt ? "failed" : "skipped"}
+          WHERE broadcast_id = ${item.broadcastId} AND user_id = ${item.userId}
+            AND status = 'pending'
+        `);
       }
 
-      logger.info({ broadcastId: broadcast.id, context: broadcast.context, pending: pending.length },
-        "WhatsApp queue: re-enqueuing orphaned items");
-
-      // Fire recovery in background — don't await so startup isn't delayed
-      runQueue(broadcast.id, pending.map(p => ({ id: p.userId })), broadcast.title, broadcast.message, `${broadcast.context} (recovered)`)
-        .catch(err => logger.error({ err, broadcastId: broadcast.id }, "WhatsApp queue: recovery runQueue failed"));
-    }
+      for (const broadcastId of new Set(items.map(item => item.broadcastId))) {
+        await tx.execute(sql`
+          UPDATE whatsapp_broadcasts b
+          SET status = 'completed', completed_at = COALESCE(completed_at, now()),
+            delivered_count = (SELECT count(*) FROM whatsapp_queue_items q WHERE q.broadcast_id = b.id AND q.status = 'delivered'),
+            failed_count = (SELECT count(*) FROM whatsapp_queue_items q WHERE q.broadcast_id = b.id AND q.status = 'failed'),
+            skipped_count = (SELECT count(*) FROM whatsapp_queue_items q WHERE q.broadcast_id = b.id AND q.status = 'skipped')
+          WHERE b.id = ${broadcastId} AND NOT EXISTS (
+            SELECT 1 FROM whatsapp_queue_items q WHERE q.broadcast_id = b.id AND q.status = 'pending'
+          )
+        `);
+      }
+      logger.info({ count: items.length }, "Migrated legacy WhatsApp queue items into notification outbox");
+    });
   } catch (err) {
-    logger.error({ err }, "WhatsApp queue: recoverPendingQueue failed — skipping");
+    // Do not start delivery until this succeeds; callers intentionally receive
+    // the error so pending legacy recipients cannot be silently stranded.
+    logger.error({ err }, "Legacy WhatsApp queue migration failed");
+    throw err;
   }
+}
+
+/**
+ * Compatibility export for older startup callers. It now migrates only and
+ * never invokes a provider.
+ */
+export const recoverPendingQueue = migrateLegacyWhatsAppQueue;
+
+/**
+ * Legacy enqueueing is retired. Active routes must create notification
+ * projections and outbox rows in their domain transaction instead.
+ */
+export function enqueueWhatsAppBroadcast(
+  _recipients: { id: number }[],
+  _title: string,
+  _message: string,
+  context: string,
+): void {
+  logger.warn({ context }, "Ignored retired legacy WhatsApp enqueue request");
 }

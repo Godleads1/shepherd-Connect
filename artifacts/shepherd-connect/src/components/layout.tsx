@@ -229,6 +229,12 @@ export function Layout({ children }: { children: ReactNode }) {
   // pushes an event instead of waiting for the 5-minute polling fallback.
   useSSE(
     {
+      connected: () => {
+        // Reconcile badge state with the authoritative REST source whenever a
+        // newly minted SSE stream is accepted.
+        qc.invalidateQueries({ queryKey: ["layout-notifications"] });
+        qc.invalidateQueries({ queryKey: ["layout-msg-unread"] });
+      },
       new_notification: () => {
         qc.invalidateQueries({ queryKey: ["layout-notifications"] });
         // Also refresh the Notifications page list if it's open

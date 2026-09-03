@@ -31,6 +31,7 @@ import {
 } from "@workspace/db/schema";
 import { eq, or, desc, and, inArray, lt, sql } from "drizzle-orm";
 import { logger } from "../lib/logger";
+import { createAttendanceNotificationIntents } from "../lib/attendanceNotificationIntents";
 import { sendWhatsAppToJid, sendWhatsAppImageToJid } from "./whatsapp";
 import {
   classifyIntent,
@@ -1283,8 +1284,20 @@ async function _handleApproval(parentJid: string, ref: string, approved: boolean
   await saveSession(parentJid, parentSession);
 
   if (approved) {
-    await db.update(supportRequestsTable).set({ status: "approved", updatedAt: new Date() }).where(eq(supportRequestsTable.referenceNumber, ref));
-    await _recordAttendance(req);
+    // Claim the approval once. A concurrent YES must not re-run an attendance
+    // transition after the first request has completed.
+    const [claimed] = await db.update(supportRequestsTable)
+      .set({ status: "approved", updatedAt: new Date() })
+      .where(and(
+        eq(supportRequestsTable.referenceNumber, ref),
+        inArray(supportRequestsTable.status, ["photo_sent", "pending"]),
+      ))
+      .returning();
+    if (!claimed) {
+      await reply(`⚠️ Request *${ref}* has already been processed.`);
+      return;
+    }
+    await _recordAttendance(claimed);
     await reply(`✅ *Approved!*\n\nYou approved the ${typeLabel(req.type).toLowerCase()} for *${childName}*.\nThe support officer has been notified.\n\nType *0* for the main menu.`);
     if (relay?.supportJid) {
       await sendWhatsAppToJid(relay.supportJid, `✅ *Parent Approved!*\n\n👦 *${childName}* — ${typeLabel(req.type)}\n🔖 Ref: *${ref}*\n\nPlease proceed. Attendance has been recorded automatically.`);
@@ -1305,25 +1318,45 @@ async function _handleApproval(parentJid: string, ref: string, approved: boolean
 async function _recordAttendance(req: typeof supportRequestsTable.$inferSelect) {
   try {
     const today = todayDate();
-    const [existing] = await db.select().from(attendanceTable)
-      .where(and(eq(attendanceTable.childId, req.childId), eq(attendanceTable.serviceDate, today)));
+    const lockKey = Number(today.replace(/-/g, ""));
+    await db.transaction(async tx => {
+      // This is the same child/day lock as the primary attendance endpoint.
+      // It prevents bot approvals and desk actions from both becoming winners.
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(${req.childId}, ${lockKey})`);
+      const [currentRequest] = await tx.select().from(supportRequestsTable)
+        .where(eq(supportRequestsTable.referenceNumber, req.referenceNumber));
+      if (currentRequest?.status !== "approved") return;
 
-    if (req.type === "checkin") {
-      if (existing) {
-        await db.update(attendanceTable).set({ status: "dropped_off", checkInTime: new Date() }).where(eq(attendanceTable.id, existing.id));
-      } else {
-        const [child] = await db.select().from(childrenTable).where(eq(childrenTable.id, req.childId));
-        if (child?.currentClassId) {
-          await db.insert(attendanceTable).values({ childId: req.childId, classId: child.currentClassId, serviceDate: today, serviceSlot: req.serviceSlot, checkInTime: new Date(), status: "dropped_off", checkedInBy: req.assignedSupportId ?? undefined });
+      const [existing] = await tx.select().from(attendanceTable)
+        .where(and(eq(attendanceTable.childId, req.childId), eq(attendanceTable.serviceDate, today)));
+      const now = new Date();
+
+      if (req.type === "checkin") {
+        if (existing && existing.status !== "dropped_off") {
+          const [reset] = await tx.update(attendanceTable).set({
+            status: "dropped_off", checkInTime: now, checkOutTime: null,
+          }).where(eq(attendanceTable.id, existing.id)).returning();
+          await createAttendanceNotificationIntents(tx, reset, "checked_in_reset");
+        } else if (!existing) {
+          const [child] = await tx.select().from(childrenTable).where(eq(childrenTable.id, req.childId));
+          if (child?.currentClassId) {
+            const [inserted] = await tx.insert(attendanceTable).values({
+              childId: req.childId, classId: child.currentClassId, serviceDate: today, serviceSlot: req.serviceSlot,
+              checkInTime: now, status: "dropped_off", checkedInBy: req.assignedSupportId ?? undefined,
+            }).returning();
+            await createAttendanceNotificationIntents(tx, inserted, "checked_in");
+          }
         }
+      } else if ((req.type === "checkout" || req.type === "delegate_pickup") && existing && existing.status !== "picked_up") {
+        const [checkedOut] = await tx.update(attendanceTable).set({
+          status: "picked_up", checkOutTime: now, checkedOutBy: req.assignedSupportId ?? undefined,
+        }).where(and(eq(attendanceTable.id, existing.id), inArray(attendanceTable.status, ["dropped_off", "in_transit", "in_class"]))).returning();
+        if (checkedOut) await createAttendanceNotificationIntents(tx, checkedOut, "picked_up");
       }
-    } else if (req.type === "checkout" || req.type === "delegate_pickup") {
-      if (existing) {
-        await db.update(attendanceTable).set({ status: "picked_up", checkOutTime: new Date(), checkedOutBy: req.assignedSupportId ?? undefined }).where(eq(attendanceTable.id, existing.id));
-      }
-    }
 
-    await db.update(supportRequestsTable).set({ status: "completed", updatedAt: new Date() }).where(eq(supportRequestsTable.referenceNumber, req.referenceNumber));
+      await tx.update(supportRequestsTable).set({ status: "completed", updatedAt: new Date() })
+        .where(and(eq(supportRequestsTable.referenceNumber, req.referenceNumber), eq(supportRequestsTable.status, "approved")));
+    });
     logger.info({ ref: req.referenceNumber, type: req.type }, "Attendance auto-recorded on approval");
   } catch (err) {
     logger.error({ ref: req.referenceNumber, err: String(err) }, "Failed to auto-record attendance");

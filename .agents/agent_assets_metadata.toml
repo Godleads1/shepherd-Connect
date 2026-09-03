@@ -35,78 +35,91 @@ id = "t3S0W6Q7jWiwZw7Mlor4O"
 uri = "file://reports/shepherd-connect-report.zip"
 type = "unspecified"
 title = "Shepherd Connect — Implementation Status Report (HTML, May 2026)"
+logical_id = "31b62232-9d1b-4df9-bda5-fb25e4b2891c"
 
 [[outputs]]
 id = "wzMOIVJyi-EqyorEChsje"
 uri = "file://shepherd-connect-progress-report.pdf"
 type = "pdf"
 title = "Shepherd Connect — Build Progress Report (May 2026)"
+logical_id = "02125614-0d67-412d-a1b6-b10c8916e518"
 
 [[outputs]]
 id = "FCZJ9PII4R9MuQxPUNXGR"
 uri = "file://user-guide.pdf"
 type = "pdf"
 title = "Shepherd Connect — User Guide v2.0"
+logical_id = "37f25e8c-e556-4b89-ba12-6beb687e3bd7"
 
 [[outputs]]
 id = "MOzsJMV6uIhv-HKYZ3h26"
 uri = "file://shepherd-connect-qr.png"
 type = "image"
 title = "Shepherd Connect — Branded QR Code"
+logical_id = "baca2edb-a460-4cf0-be30-21e595411b90"
 
 [[outputs]]
 id = "BSdfByDwTGmHswr2-TOEp"
 uri = "file://artifacts/shepherd-connect/public/shepherd-connect-user-guide.pdf"
 type = "pdf"
 title = "Shepherd Connect — Complete User Guide (PDF)"
+logical_id = "1c838746-dd80-444b-ac5e-1557ea0535bc"
 
 [[outputs]]
 id = "sGDUQJI6UT0JfQvo4o0kH"
 uri = "file://Shepherd_Connect_Annual_Cost_Planner.xlsx"
 type = "table"
 title = "Shepherd Connect — Annual Cost Planner (updated with Deployment Comparison)"
+logical_id = "a52c7e6e-35e0-466b-9834-bf2ef721be3d"
 
 [[outputs]]
 id = "e1izp30YrwTXZUKuaSU2L"
 uri = "file://Shepherd_Connect_Cost_Report_2025.pdf"
 type = "pdf"
 title = "Shepherd Connect — Annual Cost Report 2025 (PDF)"
+logical_id = "71198b0e-1438-4007-a63d-a25d86b68900"
 
 [[outputs]]
 id = "PBPo1jukqYq1KHmrfCQoi"
 uri = "file://Shepherd_Connect_Cost_Report_2025.docx"
 type = "word_document"
 title = "Shepherd Connect — Annual Cost Report 2025 (Word)"
+logical_id = "0f771dda-f567-4c31-9a5f-c6ac1e65f422"
 
 [[outputs]]
 id = "iCYum2_ayqm2xithyfEvq"
 uri = "file://.local/outputs/Shepherd-Connect.pptx"
 type = "slides"
 title = "Shepherd Connect.pptx"
+logical_id = "63d25553-66b2-427d-af59-91d2b22304ab"
 
 [[outputs]]
 id = "_rSuD3V9-gO0xeUCumnar"
 uri = "file://ebook/shepherd-connect-build-guide.md"
 type = "text"
 title = "Building Shepherd Connect — Developer Ebook"
+logical_id = "4001c222-6c80-4b0b-81b2-1da4c108a3ef"
 
 [[outputs]]
 id = "NPHNrxjckCfzVa5KzBut9"
 uri = "file://ebook/shepherd-connect-build-guide.docx"
 type = "word_document"
 title = "Building Shepherd Connect — Developer Ebook (.docx)"
+logical_id = "d3c799e8-c255-4f56-8661-f97c6e5a170b"
 
 [[outputs]]
 id = "vCvn0wuUfaJc7MYW2g497"
 uri = "file://.local/outputs/Shepherd-Connect.pdf"
 type = "pdf"
 title = "Shepherd Connect.pdf"
+logical_id = "0be35e0f-6451-43b4-ac6f-423b83fea4fe"
 
 [[outputs]]
 id = "qNHN2gqtkId6so0WRFcqP"
 uri = "file://Shepherd_Connect_Implementation_Plan.xlsx"
 type = "table"
 title = "Shepherd Connect — Implementation Plan"
+logical_id = "894afccd-9d08-4ee6-a6ba-4e7d41c63c48"
 
 [[outputs]]
 id = "eBwIDKLVVVwPWszu4sijZ"
@@ -114,3 +127,19 @@ uri = "file://reports/shepherd-connect-security-reliability-audit-2026-08-22.htm
 type = "text"
 title = "Shepherd Connect Security & Reliability Audit"
 description = "Read-only evidence report covering architecture, critical findings, security matrix, test gaps, safe-change protocol, fix order, and release verdict."
+logical_id = "ee9f85ab-f30b-4ecf-9b7c-5fdce6bf0454"
+content_type = "text/html"
+
+[[outputs]]
+id = "DDme1Db70YxHNe9fdtbjp"
+uri = "file://reports/shepherd-connect-phases-1-5-security-reliability-report.html"
+type = "text"
+title = "Shepherd Connect — Phases 1–5 Report"
+description = "Consolidated security, integrity, reliability, verification, file inventory, and known-limitations report for Phases 1 through 5."
+logical_id = "8b942b06-13e9-4b40-8914-4e06871db973"
+content_hash = "sha256:6e1c084832937360d4c1bc08cd4422e9b8107f811fd81d4173eda633ccd3265d"
+size = 23042
+mtime_ms = 1788443419000
+storage_uri = "gcs://replit-rams-assets-kirk/rams/assets/repl:121eda0a-d7e2-4425-ab2e-aa06a7816154/8b942b06-13e9-4b40-8914-4e06871db973/a991f0ac-343b-4a36-8fb2-103131fb9e58"
+storage_version_token = "1788443420039799"
+content_type = "text/html"

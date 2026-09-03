@@ -4,6 +4,7 @@ import { db, familiesTable, usersTable, childrenTable, classesTable, attendanceT
 import { authMiddleware, requireRoles } from "../middlewares/auth";
 import { findActiveOtherSlot, stillCheckedInMessage } from "../lib/attendanceGuards";
 import { smsDelegateOtp } from "../services/sms";
+import { createAttendanceNotificationIntents } from "../lib/attendanceNotificationIntents";
 
 const router = Router();
 
@@ -136,6 +137,7 @@ router.post("/family-assist/checkin", authMiddleware, requireRoles("super_admin"
         checkedInBy: req.user!.userId,
         status: "dropped_off",
       }).returning();
+      await createAttendanceNotificationIntents(tx, record, "checked_in");
       results.push(record);
     }
   });

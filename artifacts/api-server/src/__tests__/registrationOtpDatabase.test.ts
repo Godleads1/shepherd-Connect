@@ -54,6 +54,8 @@ afterAll(async () => {
   await db.execute(sql`DELETE FROM otp_sessions WHERE contact LIKE ${`email:${prefix}%`}`);
   await db.execute(sql`DELETE FROM otp_sessions WHERE contact = 'phone:2348012345678'`);
   await db.execute(sql`DELETE FROM otp_sessions WHERE contact = ${`phone:${distinctProofPhone.replace(/\D/g, "").replace(/^2340?/, "234")}`}`);
+  await db.execute(sql`DELETE FROM notification_outbox WHERE recipient_user_id IN (SELECT id FROM users WHERE email LIKE ${`${prefix}%`})`);
+  await db.execute(sql`DELETE FROM notifications WHERE user_id IN (SELECT id FROM users WHERE email LIKE ${`${prefix}%`})`);
   await db.execute(sql`DELETE FROM users WHERE email LIKE ${`${prefix}%`}`);
 });
 

@@ -1,7 +1,8 @@
 import request from "supertest";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { db } from "@workspace/db";
+import { attendanceTable, db } from "@workspace/db";
 import { sql } from "drizzle-orm";
+import { createAttendanceNotificationIntents } from "../lib/attendanceNotificationIntents";
 
 const effects = vi.hoisted(() => ({
   checkedIn: vi.fn(async () => undefined),
@@ -59,9 +60,17 @@ function auth(userId: number, email: string, role: "admin" | "support") {
   })}`;
 }
 
-async function count(table: "attendance" | "attendance_events" | "staff_scans", condition: ReturnType<typeof sql>) {
+async function count(table: "attendance" | "attendance_events" | "staff_scans" | "notification_outbox", condition: ReturnType<typeof sql>) {
   const result = await db.execute(sql`SELECT count(*)::int AS count FROM ${sql.identifier(table)} WHERE ${condition}`);
   return Number((result.rows[0] as { count: number }).count);
+}
+
+function countCurrentChildAttendanceIntents() {
+  return count(
+    "notification_outbox",
+    sql`domain_type = 'attendance'
+      AND domain_identifier IN (SELECT id::text FROM attendance WHERE child_id = ${childId})`,
+  );
 }
 
 async function seedAttendance(status: "dropped_off" | "in_transit" | "in_class" | "picked_up" = "in_class") {
@@ -125,7 +134,12 @@ beforeAll(async () => {
 });
 
 beforeEach(async () => {
+  await db.execute(sql`DELETE FROM drop_off_intents WHERE family_id = ${familyId}`);
   await db.execute(sql`DELETE FROM attendance_events WHERE user_id IN (${adminId}, ${otherId})`);
+  await db.execute(sql`DELETE FROM notification_outbox WHERE recipient_user_id IN (${adminId}, ${otherId})`);
+  await db.execute(sql`DELETE FROM notifications WHERE user_id IN (${adminId}, ${otherId})`);
+  await db.execute(sql`DELETE FROM notification_outbox WHERE domain_type = 'attendance' AND domain_identifier IN (SELECT id::text FROM attendance WHERE child_id = ${childId})`);
+  await db.execute(sql`DELETE FROM notification_outbox WHERE domain_type = 'staff_scan' AND domain_identifier IN (SELECT id::text FROM staff_scans WHERE user_id IN (${adminId}, ${otherId}))`);
   await db.execute(sql`DELETE FROM attendance WHERE child_id = ${childId}`);
   await db.execute(sql`DELETE FROM staff_scans WHERE user_id IN (${adminId}, ${otherId})`);
   vi.clearAllMocks();
@@ -135,7 +149,12 @@ afterAll(async () => {
   // Cleanup remains best-effort per table so a missing newly-added table does
   // not prevent removal of already-seeded rows from older tables.
   const cleanup = [
+    sql`DELETE FROM notification_outbox WHERE recipient_user_id IN (${adminId}, ${otherId})`,
+    sql`DELETE FROM notifications WHERE user_id IN (${adminId}, ${otherId})`,
+    sql`DELETE FROM notification_outbox WHERE domain_type = 'attendance' AND domain_identifier IN (SELECT id::text FROM attendance WHERE child_id = ${childId})`,
+    sql`DELETE FROM notification_outbox WHERE domain_type = 'staff_scan' AND domain_identifier IN (SELECT id::text FROM staff_scans WHERE user_id IN (${adminId}, ${otherId}))`,
     sql`DELETE FROM attendance_events WHERE user_id IN (${adminId}, ${otherId})`,
+    sql`DELETE FROM drop_off_intents WHERE family_id = ${familyId}`,
     sql`DELETE FROM attendance WHERE child_id = ${childId}`,
     sql`DELETE FROM staff_scans WHERE user_id IN (${adminId}, ${otherId})`,
     sql`DELETE FROM sunday_qr_codes WHERE token = ${qrToken}`,
@@ -159,7 +178,7 @@ databaseDescribe("attendance PostgreSQL concurrency integrity", () => {
     ));
     expect([first, ...retries].every(reply => reply.status === 200)).toBe(true);
     expect(retries.every(reply => reply.body.checkOutTime === firstTime && reply.body.checkedOutBy === adminId)).toBe(true);
-    expect(effects.pickedUp).toHaveBeenCalledTimes(1);
+    expect(await count("notification_outbox", sql`domain_type = 'attendance' AND domain_identifier = ${String(id)}`)).toBe(3);
   });
 
   it("makes four-way arrival one transition and one notification", async () => {
@@ -170,7 +189,7 @@ databaseDescribe("attendance PostgreSQL concurrency integrity", () => {
     expect(replies.every(reply => reply.status === 200)).toBe(true);
     expect(new Set(replies.map(reply => reply.body.classArrivalTime)).size).toBe(1);
     expect(new Set(replies.map(reply => reply.body.confirmedByTeacherId))).toEqual(new Set([adminId]));
-    expect(effects.arrived).toHaveBeenCalledTimes(1);
+    expect(await count("notification_outbox", sql`domain_type = 'attendance' AND domain_identifier = ${String(id)}`)).toBe(3);
   });
 
   it("deduplicates four same-slot check-ins", async () => {
@@ -180,7 +199,50 @@ databaseDescribe("attendance PostgreSQL concurrency integrity", () => {
     expect(replies.filter(reply => reply.status === 201)).toHaveLength(1);
     expect(replies.filter(reply => reply.status === 200)).toHaveLength(3);
     expect(await count("attendance", sql`child_id = ${childId}`)).toBe(1);
-    expect(effects.checkedIn).toHaveBeenCalledTimes(1);
+    expect(await countCurrentChildAttendanceIntents()).toBe(3);
+  });
+
+  it("makes four family-assist same-slot check-ins one winner with one outbox intent", async () => {
+    const replies = await Promise.all(Array.from({ length: 4 }, () =>
+      request(app).post("/api/family-assist/checkin").set("Authorization", authorization)
+        .send({ childId, serviceSlot: "7am" }),
+    ));
+    expect(replies.every(reply => reply.status === 200)).toBe(true);
+    expect(await count("attendance", sql`child_id = ${childId}`)).toBe(1);
+    expect(await countCurrentChildAttendanceIntents()).toBe(3);
+  });
+
+  it("commits QR auto check-in and escort intents with the attendance transitions", async () => {
+    await db.execute(sql`
+      INSERT INTO drop_off_intents (family_id, service_date, status, child_ids, service_slot, created_by)
+      VALUES (${familyId}, ${serviceDate}, 'on_the_way', ${JSON.stringify([childId])}::jsonb, '7am', ${adminId})
+    `);
+    const reply = await request(app).post("/api/attendance/scan-qr")
+      .set("Authorization", authorization)
+      .send({ qrCode: `QR:${familyId}`, serviceDate, serviceSlot: "7am" });
+    expect(reply.status).toBe(200);
+    expect(reply.body.autoProcessed).toEqual([
+      expect.objectContaining({ childId, slots: ["7am"] }),
+    ]);
+    const rows = await db.execute(sql`
+      SELECT status FROM attendance WHERE child_id = ${childId} AND service_date = ${serviceDate}
+    `);
+    expect((rows.rows[0] as { status: string }).status).toBe("in_transit");
+    expect(await countCurrentChildAttendanceIntents()).toBe(6);
+  });
+
+  it("rolls back a family-assist-style attendance winner and its notification intent together", async () => {
+    const intentsBefore = await count("notification_outbox", sql`domain_type = 'attendance'`);
+    await expect(db.transaction(async tx => {
+      const [record] = await tx.insert(attendanceTable).values({
+        childId, classId, serviceDate, serviceSlot: "7am", checkInTime: new Date(),
+        checkedInBy: adminId, status: "dropped_off",
+      }).returning();
+      await createAttendanceNotificationIntents(tx, record, "checked_in");
+      throw new Error("force attendance rollback");
+    })).rejects.toThrow("force attendance rollback");
+    expect(await count("attendance", sql`child_id = ${childId}`)).toBe(0);
+    expect(await count("notification_outbox", sql`domain_type = 'attendance'`)).toBe(intentsBefore);
   });
 
   it("allows only one of concurrent opposing slots unless bothServices is explicit", async () => {
@@ -202,6 +264,7 @@ databaseDescribe("attendance PostgreSQL concurrency integrity", () => {
   it("replays duplicate events sequentially and simultaneously without side effects", async () => {
     const body = eventBody(`${prefix}-event-replay`);
     const first = await request(app).post("/api/attendance").set("Authorization", authorization).send(body);
+    const intentsAfterWinner = await countCurrentChildAttendanceIntents();
     const sequential = await request(app).post("/api/attendance").set("Authorization", authorization).send(body);
     const simultaneousBody = eventBody(`${prefix}-event-simultaneous`);
     const simultaneous = await Promise.all(Array.from({ length: 4 }, () =>
@@ -211,7 +274,7 @@ databaseDescribe("attendance PostgreSQL concurrency integrity", () => {
     expect(sequential.status).toBe(200);
     expect(simultaneous.every(reply => reply.status === 200)).toBe(true);
     expect(await count("attendance_events", sql`user_id = ${adminId}`)).toBe(2);
-    expect(effects.checkedIn).toHaveBeenCalledTimes(1);
+    expect(await countCurrentChildAttendanceIntents()).toBe(intentsAfterWinner);
   });
 
   it("treats a genuinely new event after pickup as a fresh check-in", async () => {
@@ -223,7 +286,7 @@ databaseDescribe("attendance PostgreSQL concurrency integrity", () => {
     expect(fresh.status).toBe(200);
     expect(fresh.body.status).toBe("dropped_off");
     expect(await count("attendance_events", sql`user_id = ${adminId}`)).toBe(2);
-    expect(effects.checkedIn).toHaveBeenCalledTimes(2);
+    expect(await countCurrentChildAttendanceIntents()).toBe(9);
   });
 
   it("replays a processed event before evaluating a newer opposing active slot", async () => {
@@ -296,7 +359,7 @@ databaseDescribe("attendance PostgreSQL concurrency integrity", () => {
     ));
     expect(replies.every(reply => reply.status === 200)).toBe(true);
     expect(await count("staff_scans", sql`user_id = ${otherId} AND scan_type = 'emergency_out'`)).toBe(1);
-    expect(effects.emergency).toHaveBeenCalledTimes(Number((activeAdmins.rows[0] as { count: number }).count));
+    expect(await count("notification_outbox", sql`domain_type = 'staff_scan'`)).toBe(Number((activeAdmins.rows[0] as { count: number }).count));
   });
 
   it("rejects a suspended authenticated user before attendance mutation", async () => {
