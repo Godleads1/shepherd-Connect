@@ -44,6 +44,12 @@ import custodyHandoverRouter from "./custodyHandover";
 
 const router: IRouter = Router();
 
+// Compatibility readiness endpoint. Some publishing revisions probe the
+// service mount path even when a more specific startup health path is set.
+router.get("/", (_req, res) => {
+  res.status(200).json({ status: "ok" });
+});
+
 router.use(healthRouter);
 router.use(storageRouter);
 router.use(authRouter);
