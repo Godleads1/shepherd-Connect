@@ -1,0 +1,186 @@
+PHASE 6 READ-ONLY ANALYSIS REVIEW — HUMAN RULINGS
+
+I have reviewed the Phase 6 read-only architecture, security and implementation analysis.
+
+The analysis-only checkpoint is accepted.
+
+No production deployment is authorized.
+
+No Phase 6 implementation is authorized yet because the response supplied to me was truncated in Section 40, “RISKS / HUMAN DECISIONS REQUIRED”.
+
+The following human rulings are approved:
+
+1. CANONICAL STAFF ATTENDANCE SOURCE
+
+APPROVED:
+
+Use the service-specific staff_scans model as the canonical authoritative staff attendance source for Phase 6.
+
+First Service and Second Service must remain independently represented and independently reportable.
+
+“Both Services” means authoritative attendance for both service slots, not one ambiguous combined attendance row.
+
+Actual server/database-authoritative clock-in and clock-out timestamps must be preserved.
+
+teacher_clock_ins and staff checkpoint logs must not remain competing sources of authoritative service attendance.
+
+During migration they may remain compatibility/supplementary sources where required, but new Phase 6 attendance behavior must use the canonical staff attendance service.
+
+Do not destructively remove legacy data or routes until dependencies and compatibility have been verified.
+
+2. CHILD CUSTODY STORAGE
+
+APPROVED:
+
+Use a separate per-child handover/custody episode linked to authoritative attendance.
+
+Do not place all custody semantics directly into the attendance row if doing so would mix physical custody with service attendance.
+
+The handover/custody model must preserve:
+
+- child;
+- family;
+- service date;
+- selected service/service(s);
+- parent request;
+- physical acceptance;
+- accepting support staff;
+- acceptance timestamp;
+- checkout actor;
+- checkout timestamp;
+- checkout mode;
+- admin override reason where applicable;
+- idempotency/concurrency information required for safe operation.
+
+Attendance remains the authoritative source for service presence.
+
+The handover/custody episode remains the authoritative source for physical Junior Church custody.
+
+3. NORMAL CHILD ACCEPTANCE STATUS
+
+APPROVED:
+
+For compatibility with the existing system, successful physical support acceptance should make the child's relevant attendance immediately present as in_class.
+
+The teacher must NOT be required to click “in class”.
+
+The separate custody/handover state must establish that the child is physically under Junior Church care.
+
+Do not introduce a new attendance status named under_care at this stage if doing so requires unnecessary migration of every attendance consumer.
+
+Normal Phase 6 flow becomes:
+
+parent intention where applicable
+→ support physical acceptance
+→ child immediately under Junior Church care
+→ attendance visible in assigned class
+→ class count updates automatically
+→ parent and teacher notification intents created transactionally.
+
+Legacy escort/arrival/in-class endpoints may remain temporarily for compatibility but must not remain part of the normal Phase 6 child check-in UX.
+
+4. BOTH-SERVICES CHILD ATTENDANCE AND CUSTODY
+
+APPROVED:
+
+A child attending Both Services should have two independently reportable service-attendance rows linked to one continuous physical custody episode when the child remains continuously in Junior Church care.
+
+Do not create two artificial physical handovers merely because the child attends two services.
+
+The same accepting support custodian remains responsible for normal checkout during the continuous custody episode.
+
+The final physical pickup closes the custody episode and the applicable still-active attendance state transactionally.
+
+However, pickup after First Service followed by a later physical return for Second Service is a new physical handover and must NOT silently reuse the previous custody episode.
+
+If that scenario occurs:
+
+First custody episode closes at First Service pickup.
+
+A later return for Second Service requires a new support acceptance/custody episode.
+
+This rule is approved.
+
+5. ADMIN CHECKOUT OVERRIDE REASON
+
+APPROVED:
+
+Admin checkout override must require a reason.
+
+Normal checkout remains restricted to the support worker who physically accepted the child.
+
+An authorized administrator may override this restriction when necessary.
+
+The override must preserve:
+
+- original accepting support worker;
+- original acceptance timestamp;
+- admin performing the checkout;
+- checkout timestamp;
+- checkoutMode=admin_override;
+- mandatory bounded override reason;
+- appropriate audit evidence.
+
+The administrator must never be rewritten as the original accepting support worker.
+
+SECURITY PRIORITY
+
+The security findings identified by the Phase 6 analysis are accepted as blockers that must be corrected before WhatsApp attendance capability is expanded.
+
+In particular:
+
+- WhatsApp APPROVE/REJECT operations must be bound to an authoritatively resolved and authorized sender.
+- Weak reference numbers must never function as authorization credentials.
+- PHOTO/reference operations must prove the sender has the required support authority.
+- Parent-child authorization must be revalidated inside every final mutation.
+- Suspended/inactive accounts must not retain bot access.
+- Phone changes must invalidate stale WhatsApp/LID/session authorization.
+- WhatsApp conversational/session state must never supersede authoritative account state.
+- Required WhatsApp operational consequences must use the durable Phase 5 outbox where applicable.
+- Family QR identifiers must be replaced or protected so predictable/reusable identifiers cannot expose child/family information.
+- Child checkout ownership must be enforced by the backend.
+
+Do not weaken these requirements for convenience.
+
+PHASE 1–5 SECURITY GUARANTEES REMAIN BINDING.
+
+TRUNCATED SECTION 40
+
+Your previous response was truncated beginning at:
+
+“5. Admin override reason …”
+
+Before implementation, return ONLY the missing remainder of Section 40 beginning with Decision 5 and continuing through the actual end of the Phase 6 analysis.
+
+Do not repeat Sections 1–39.
+
+Clearly show:
+
+- every remaining human decision;
+- available options;
+- your recommendation;
+- security implications;
+- whether each decision blocks implementation;
+- the actual final completion statement from the analysis.
+
+Do not implement anything.
+
+Do not modify files.
+
+Do not modify schema.
+
+Do not run migrations.
+
+Do not deploy.
+
+Do not commit.
+
+Do not push.
+
+Do not contact paid providers.
+
+Do not modify production configuration or data.
+
+End with:
+
+PHASE 6 SECTION 40 CONTINUATION COMPLETE — NO CHANGES MADE — AWAITING HUMAN REVIEW
