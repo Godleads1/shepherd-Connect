@@ -111,7 +111,11 @@ function Router() {
               <Route path="/safeguarding" component={Safeguarding} />
               <Route path="/user-guide" component={UserGuide} />
               <Route path="/error-logs" component={ErrorLogs} />
-              <Route path="/settings" component={Settings} />
+              <Route path="/settings">
+                <ProtectedRoute allowedRoles={["admin", "super_admin", "support"]}>
+                  <Settings />
+                </ProtectedRoute>
+              </Route>
               <Route path="/safeguarding-info" component={SafeguardingInfo} />
               <Route path="/my-concerns" component={MyConcerns} />
               <Route path="/my-incidents" component={MyIncidents} />

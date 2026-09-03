@@ -700,13 +700,15 @@ export default function Settings() {
   // Once connected (or fully disconnected with no pending action), slow to 30 s
   // to avoid hammering the server unnecessarily.
   useEffect(() => {
+    if (user?.role === "admin") return;
+
     const interval = ["connecting", "qr_ready", "pairing_code_ready"].includes(waState.status)
       ? 3000
       : 30000;
     fetchStatus();
     pollRef.current = setInterval(fetchStatus, interval);
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
-  }, [waState.status]);
+  }, [user?.role, waState.status]);
 
   const isSuperAdmin = user?.role === "super_admin";
   const isAdmin = user?.role === "admin";
@@ -787,14 +789,15 @@ export default function Settings() {
         </p>
       </div>
 
-      {/* Sunday-specific operational cards — visible to support, admin, super_admin */}
-      <HallSessionCard />
-      {(isSuperAdmin || isAdmin) && <ClassMergeCard />}
+      {/* Sunday-specific operational cards — visible to support and super_admin */}
+      {(isSuperAdmin || isSupport) && <HallSessionCard />}
+      {isSuperAdmin && <ClassMergeCard />}
 
       {/* Admin / super-admin settings */}
       {(isSuperAdmin || isAdmin) && <LocationSettingsCard />}
       {isSuperAdmin && <GeneralSettingsCard />}
 
+      {(isSuperAdmin || isSupport) && (
       <div className="border rounded-2xl bg-white overflow-hidden">
         {/* Header */}
         <div className="px-6 py-5 border-b bg-gray-50 flex items-center justify-between">
@@ -980,10 +983,11 @@ export default function Settings() {
           </div>
         </div>
       </div>
+      )}
 
-      <p className="text-xs text-gray-400 text-center">
+      {(isSuperAdmin || isSupport) && <p className="text-xs text-gray-400 text-center">
         WhatsApp is used as a fallback when Termii SMS fails. Powered by Baileys.
-      </p>
+      </p>}
     </div>
   );
 }
