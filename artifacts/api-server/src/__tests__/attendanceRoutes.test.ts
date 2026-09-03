@@ -107,6 +107,11 @@ describe("attendance database conflict keys", () => {
 });
 
 describe("Sunday staff attendance scans", () => {
+  it("uses the explicitly selected service rather than the current clock time", () => {
+    expect(decideStaffScan([], "1st", "check_in")).toBe("checkpoint");
+    expect(decideStaffScan([], "2nd", "check_in")).toBe("checkpoint");
+  });
+
   it("does not combine or toggle first and second service attendance", () => {
     expect(decideStaffScan([
       { service: "1st", scanType: "checkpoint" },

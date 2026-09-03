@@ -185,14 +185,16 @@ router.post("/sunday-attendance/scan", authMiddleware, async (req, res): Promise
     res.status(403).json({ error: "Forbidden" });
     return;
   }
-  if (!hasOnlyKeys(req.body, ["token", "date", "action"])) {
+  if (!hasOnlyKeys(req.body, ["token", "date", "action", "service"])) {
     res.status(400).json({ error: "Invalid scan request" });
     return;
   }
-  const { token, date, action } = req.body as { token?: unknown; date?: unknown; action?: unknown };
+  const { token, date, action, service } = req.body as {
+    token?: unknown; date?: unknown; action?: unknown; service?: unknown;
+  };
   if (typeof token !== "string" || token.length < 32 || token.length > 128 || !isServiceDate(date) ||
-    (action !== "check_in" && action !== "clock_out")) {
-    res.status(400).json({ error: "token, date, and action (check_in or clock_out) are required" });
+    (action !== "check_in" && action !== "clock_out") || (service !== "1st" && service !== "2nd")) {
+    res.status(400).json({ error: "token, date, service (1st or 2nd), and action (check_in or clock_out) are required" });
     return;
   }
   if (date !== todayWAT()) {
@@ -220,9 +222,6 @@ router.post("/sunday-attendance/scan", authMiddleware, async (req, res): Promise
   }
 
   const userId = req.user!.userId;
-  const now = new Date();
-  const wat = toWAT(now);
-  const service = getService(wat.getUTCHours());
 
   const scanLockKey = Number(date.replace(/-/g, "")) * 10 + (service === "1st" ? 1 : 2);
   const outcome = await db.transaction(async (tx) => {

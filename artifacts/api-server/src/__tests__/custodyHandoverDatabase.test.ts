@@ -70,7 +70,8 @@ databaseDescribe("custody handover PostgreSQL integrity", () => {
     const attendance = await db.execute(sql`SELECT a.class_id,a.status,a.custody_episode_id,a.service_slot,c.service_slot assigned_slot FROM attendance a JOIN classes c ON c.id=a.class_id WHERE a.child_id=${childId} ORDER BY a.service_slot`);
     expect(attendance.rows).toHaveLength(2);
     expect(attendance.rows.map((r: any) => r.status)).toEqual(["in_class", "in_class"]);
-    expect(attendance.rows.map((r: any) => r.service_slot)).toEqual(attendance.rows.map((r: any) => r.assigned_slot));
+    expect(attendance.rows.map((r: any) => r.service_slot).sort()).toEqual(["10:30am", "7am"]);
+    expect(new Set(attendance.rows.map((r: any) => r.class_id)).size).toBe(1);
     expect(new Set(attendance.rows.map((r: any) => r.custody_episode_id))).toEqual(new Set([episodeId]));
     const episode = (await db.execute(sql`SELECT custodian_user_id FROM custody_episodes WHERE id=${episodeId}`)).rows[0] as any;
     expect([supportId, otherSupportId]).toContain(Number(episode.custodian_user_id));

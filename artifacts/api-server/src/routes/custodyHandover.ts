@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { AcceptCustodyEpisodeBody, OverrideCustodyPickupBody, RequestCustodyEpisodeBody } from "@workspace/api-zod";
 import { and, eq, inArray, or } from "drizzle-orm";
-import { custodyEpisodesTable, db, familiesTable } from "@workspace/db";
+import { childrenTable, custodyEpisodesTable, db, familiesTable } from "@workspace/db";
 import { authMiddleware, requireRoles } from "../middlewares/auth";
 import { acceptPhysicalCustody, cancelCustodyRequest, CustodyHandoverError, releasePhysicalCustody, requestCustodyEpisode } from "../services/custodyHandover";
 
@@ -39,7 +39,20 @@ router.delete("/custody-requests/:id", authMiddleware, requireRoles("parent"), a
 });
 
 router.get("/custody-episodes/pending", authMiddleware, requireRoles("support", "admin", "super_admin"), async (_req, res): Promise<void> => {
-  res.json(await db.select().from(custodyEpisodesTable).where(eq(custodyEpisodesTable.status, "requested")));
+  const rows = await db.select({
+    episode: custodyEpisodesTable,
+    childFirstName: childrenTable.firstName,
+    childLastName: childrenTable.lastName,
+    familyCode: familiesTable.familyCode,
+  }).from(custodyEpisodesTable)
+    .innerJoin(childrenTable, eq(childrenTable.id, custodyEpisodesTable.childId))
+    .innerJoin(familiesTable, eq(familiesTable.id, custodyEpisodesTable.familyId))
+    .where(eq(custodyEpisodesTable.status, "requested"));
+  res.json(rows.map(({ episode, childFirstName, childLastName, familyCode }) => ({
+    ...episode,
+    child: { firstName: childFirstName, lastName: childLastName },
+    family: { familyCode },
+  })));
 });
 
 router.post("/custody-episodes", authMiddleware, requireRoles("support"), async (req, res): Promise<void> => {

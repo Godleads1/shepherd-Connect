@@ -41,13 +41,13 @@ type SummaryData = {
 };
 type QrData = { token: string; serviceDate: string; qrPng: string; existing: boolean };
 
-function nextSunday(): string {
-  const d = new Date();
-  const day = d.getDay();
-  const diff = day === 0 ? 0 : 7 - day;
-  const sunday = new Date(d);
-  sunday.setDate(d.getDate() + diff);
-  return sunday.toISOString().slice(0, 10);
+function todayInLagos(): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    year: "numeric", month: "2-digit", day: "2-digit", timeZone: "Africa/Lagos",
+  }).formatToParts(new Date());
+  const value = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find(part => part.type === type)?.value ?? "";
+  return `${value("year")}-${value("month")}-${value("day")}`;
 }
 
 function fmtTime(iso: string | Date) {
@@ -422,7 +422,7 @@ function TableRow({ row, i }: { row: StaffRow; i: number }) {
 
 export default function SundayAttendancePage() {
   const qc = useQueryClient();
-  const [date, setDate] = useState(nextSunday);
+  const [date, setDate] = useState(todayInLagos);
   const [qrData, setQrData] = useState<QrData | null>(null);
   const printRef = useRef<HTMLDivElement>(null);
 

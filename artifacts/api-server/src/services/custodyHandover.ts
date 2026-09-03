@@ -80,10 +80,12 @@ export async function acceptPhysicalCustody(tx: any, input: {
   const slots = slotsFor(requested.requestedServices);
   const assignedClasses = new Map<string, typeof classesTable.$inferSelect>();
   for (const slot of slots) {
-    if (currentClass?.serviceSlot === slot) assignedClasses.set(slot, currentClass);
+    // Classes serve both services operationally. A child's assigned class
+    // remains authoritative regardless of which service the family selected.
+    if (currentClass) assignedClasses.set(slot, currentClass);
     else {
       const [resolved] = await tx.select().from(classesTable).where(and(
-        eq(classesTable.serviceSlot, slot), sql`${classesTable.ageMin} <= ${age}`, sql`${classesTable.ageMax} >= ${age}`,
+        sql`${classesTable.ageMin} <= ${age}`, sql`${classesTable.ageMax} >= ${age}`,
       )).limit(1);
       if (!resolved) throw new CustodyHandoverError(422, `No assigned class is available for the ${slot} service`);
       assignedClasses.set(slot, resolved);

@@ -326,7 +326,7 @@ databaseDescribe("attendance PostgreSQL concurrency integrity", () => {
   it("records one checkpoint for four simultaneous first staff scans", async () => {
     const replies = await Promise.all(Array.from({ length: 4 }, () =>
       request(app).post("/api/sunday-attendance/scan").set("Authorization", staffAuthorization)
-        .send({ token: qrToken, date: serviceDate, action: "check_in" }),
+        .send({ token: qrToken, date: serviceDate, service: "1st", action: "check_in" }),
     ));
     expect(replies.every(reply => reply.status === 200)).toBe(true);
     expect(await count("staff_scans", sql`user_id = ${otherId} AND scan_type = 'checkpoint'`)).toBe(1);
@@ -335,10 +335,10 @@ databaseDescribe("attendance PostgreSQL concurrency integrity", () => {
 
   it("records one explicit clockout after sequential setup followed by four concurrent requests", async () => {
     expect((await request(app).post("/api/sunday-attendance/scan").set("Authorization", staffAuthorization)
-      .send({ token: qrToken, date: serviceDate, action: "check_in" })).body.action).toBe("checked_in");
+      .send({ token: qrToken, date: serviceDate, service: "1st", action: "check_in" })).body.action).toBe("checked_in");
     const replies = await Promise.all(Array.from({ length: 4 }, () =>
       request(app).post("/api/sunday-attendance/scan").set("Authorization", staffAuthorization)
-        .send({ token: qrToken, date: serviceDate, action: "clock_out" }),
+        .send({ token: qrToken, date: serviceDate, service: "1st", action: "clock_out" }),
     ));
     expect(replies.every(reply => reply.status === 200)).toBe(true);
     expect(await count("staff_scans", sql`user_id = ${otherId} AND scan_type = 'clock_out'`)).toBe(1);

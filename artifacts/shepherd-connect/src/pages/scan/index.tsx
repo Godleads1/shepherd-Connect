@@ -42,11 +42,13 @@ type Scan = {
   scannedAt: string;
 };
 
-function currentServiceWAT(): "1st" | "2nd" {
-  const hour = Number(new Intl.DateTimeFormat("en-GB", {
-    hour: "2-digit", hourCycle: "h23", timeZone: "Africa/Lagos",
-  }).format(new Date()));
-  return hour < 10 ? "1st" : "2nd";
+function todayInLagos(): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    year: "numeric", month: "2-digit", day: "2-digit", timeZone: "Africa/Lagos",
+  }).formatToParts(new Date());
+  const value = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find(part => part.type === type)?.value ?? "";
+  return `${value("year")}-${value("month")}-${value("day")}`;
 }
 
 export default function ScanPage() {
@@ -57,8 +59,9 @@ export default function ScanPage() {
   const urlParams = new URLSearchParams(window.location.search);
   const [token, setToken] = useState(urlParams.get("token") ?? "");
   const [date,  setDate]  = useState(
-    urlParams.get("date") ?? new Date().toISOString().slice(0, 10),
+    urlParams.get("date") ?? todayInLagos(),
   );
+  const [selectedService, setSelectedService] = useState<"1st" | "2nd">("1st");
 
   const [cameraOpen,            setCameraOpen]            = useState(false);
   const [scanResult,            setScanResult]            = useState<ScanResult | null>(null);
@@ -87,7 +90,7 @@ export default function ScanPage() {
 
   const ptr = usePullToRefresh(async () => { await loadMyScans(); });
 
-  const doScan = useCallback(async (tok: string, dt: string) => {
+  const doScan = useCallback(async (tok: string, dt: string, service: "1st" | "2nd") => {
     if (!tok) {
       setScanError("No QR code token found. Please scan the QR code with your camera.");
       return;
@@ -99,12 +102,12 @@ export default function ScanPage() {
       // Refresh before selecting the explicit action so a reload or a second
       // device cannot accidentally request another check-in.
       const scans = await loadMyScans(dt);
-      const service = currentServiceWAT();
       const checkpoint = scans.some(scan => scan.service === service && scan.scanType === "checkpoint");
       const clockOut = scans.some(scan => scan.service === service && scan.scanType === "clock_out");
       const result = await apiPost<ScanResult>("/sunday-attendance/scan", {
         token: tok,
         date:  dt,
+        service,
         action: checkpoint && !clockOut ? "clock_out" : "check_in",
       });
       setScanResult(result);
@@ -122,7 +125,7 @@ export default function ScanPage() {
     setEmergencyLoading(true);
     setShowEmergencyConfirm(false);
     try {
-      await apiPost<EmergencyResult>("/sunday-attendance/emergency-out", { date });
+      await apiPost<EmergencyResult>("/sunday-attendance/emergency-out", { date, service: selectedService });
       setEmergencyDone(true);
       await loadMyScans();
     } catch (err: unknown) {
@@ -142,13 +145,11 @@ export default function ScanPage() {
       const dt    = url.searchParams.get("date")  ?? date;
       setToken(tok);
       setDate(dt);
-      doScan(tok, dt);
     } catch {
       // rawUrl might not be a full URL; try treating as bare token
       setToken(rawUrl);
-      doScan(rawUrl, date);
     }
-  }, [date, doScan]);
+  }, [date]);
 
   // Auth redirect
   useEffect(() => {
@@ -161,7 +162,6 @@ export default function ScanPage() {
   // Auto-fire if a token arrived via URL (physical QR code scan)
   useEffect(() => {
     if (user) {
-      if (token && !hasScanned && !scanning) doScan(token, date);
       loadMyScans();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -176,7 +176,7 @@ export default function ScanPage() {
   }
   if (!user) return null;
 
-  const activeService  = currentServiceWAT();
+  const activeService  = selectedService;
   const checkIns       = myScans.filter(s => s.scanType === "checkpoint" && s.service === activeService);
   const clockOuts      = myScans.filter(s => s.scanType === "clock_out" && s.service === activeService);
   const emergencyOuts  = myScans.filter(s => s.scanType === "emergency_out" && s.service === activeService);
@@ -266,16 +266,39 @@ export default function ScanPage() {
 
           {/* ── Primary action buttons ── */}
           <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-2" role="group" aria-label="Select service">
+              {(["1st", "2nd"] as const).map(service => (
+                <button
+                  key={service}
+                  type="button"
+                  onClick={() => {
+                    setSelectedService(service);
+                    setScanResult(null);
+                    setScanError(null);
+                  }}
+                  className={`rounded-xl px-3 py-3 text-sm font-bold border transition-colors ${
+                    selectedService === service
+                      ? "bg-yellow-400 border-yellow-300 text-blue-950"
+                      : "bg-blue-800/50 border-blue-600 text-blue-100"
+                  }`}
+                >
+                  {SERVICE_LABELS[service]}
+                </button>
+              ))}
+            </div>
+
             {/* Scan button — explicit action derives from this service's saved scans */}
             {!alreadyOut && !scanning && (
               <Button
                 className="w-full h-14 text-base font-semibold bg-yellow-400 hover:bg-yellow-300 text-blue-950 rounded-2xl shadow-lg"
-                onClick={() => setCameraOpen(true)}
+                onClick={() => token ? doScan(token, date, selectedService) : setCameraOpen(true)}
               >
                 {alreadyIn
                   ? <LogOut className="w-5 h-5 mr-2" />
                   : <Camera className="w-5 h-5 mr-2" />}
-                {alreadyIn ? "Scan QR Code — Clock Out" : "Scan QR Code — Check In"}
+                {alreadyIn
+                  ? `Scan QR — Clock Out of ${SERVICE_LABELS[selectedService]}`
+                  : `Scan QR — Check In to ${SERVICE_LABELS[selectedService]}`}
               </Button>
             )}
 
@@ -334,7 +357,7 @@ export default function ScanPage() {
                   <Button
                     variant="outline" size="sm"
                     className="mt-1 border-blue-400 text-blue-200 hover:bg-blue-800"
-                    onClick={() => { setScanResult(null); setCameraOpen(true); }}
+                    onClick={() => { setScanResult(null); setToken(""); setCameraOpen(true); }}
                     disabled={scanning}
                   >
                     <ScanLine className="w-4 h-4 mr-1" />

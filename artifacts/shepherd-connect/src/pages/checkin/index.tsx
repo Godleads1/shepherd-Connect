@@ -13,7 +13,7 @@ import LocationBanner from "@/components/LocationBanner";
 import { useGeneralSettings } from "@/components/AnnouncementBanner";
 import { apiGet, apiPost, apiPut, apiDelete } from "@/lib/api-call";
 import { useQuery } from "@tanstack/react-query";
-import { isWatSundayAt, watServiceDateAt, watWeekdayAt } from "@/lib/wat-date";
+import { watServiceDateAt } from "@/lib/wat-date";
 
 type Tab = "qr" | "face" | "assist";
 type SlotChoice = "7am" | "10:30am" | "both";
@@ -29,10 +29,6 @@ const DEFAULT_SLOT_OPTIONS: { value: SlotChoice; label: string }[] = [
   { value: "10:30am", label: "2nd" },
   { value: "both",    label: "Both" },
 ];
-
-function isSunday() {
-  return isWatSundayAt();
-}
 
 function ChildSlotPicker({
   value,
@@ -544,15 +540,6 @@ export default function CheckIn() {
               </div>
             ))}
           </div>
-        </div>
-      )}
-
-      {/* Sunday indicator */}
-      {!isSunday() && (
-        <div className="w-full mb-3 px-4 py-2.5 rounded-xl flex items-center gap-2 text-sm font-medium"
-          style={{ background: "#fef9c3", color: "#92400e", border: "1px solid #fde68a" }}>
-          <AlertTriangle className="w-4 h-4 flex-shrink-0" />
-          Services are held on Sundays only — today is {watWeekdayAt()}.
         </div>
       )}
 
