@@ -58,6 +58,13 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// Authenticated API data is mutable and user-scoped. Prevent browser/proxy
+// revalidation from restoring an obsolete response after a mutation.
+app.use("/api", (_req, res, next) => {
+  res.set("Cache-Control", "no-store");
+  next();
+});
+
 app.use("/api", router);
 
 // JSON 404 for any unmatched /api/* path (must come before the error handler)

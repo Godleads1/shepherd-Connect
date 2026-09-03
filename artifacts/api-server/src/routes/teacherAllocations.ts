@@ -62,8 +62,7 @@ router.put("/teacher-allocations/:id", authMiddleware, requireRoles("super_admin
 router.delete("/teacher-allocations/:id", authMiddleware, requireRoles("super_admin", "admin"), async (req, res): Promise<void> => {
   const id = parseInt(req.params.id as string, 10);
   if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
-  const [deleted] = await db.delete(teacherAllocationsTable).where(eq(teacherAllocationsTable.id, id)).returning();
-  if (!deleted) { res.status(404).json({ error: "Not found", message: "Allocation not found" }); return; }
+  await db.delete(teacherAllocationsTable).where(eq(teacherAllocationsTable.id, id));
   res.json({ success: true, id });
 });
 

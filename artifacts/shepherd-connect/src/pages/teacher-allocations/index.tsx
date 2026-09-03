@@ -113,7 +113,10 @@ export default function TeacherAllocations() {
 
   const deleteAllocation = useMutation({
     mutationFn: (id: number) => apiDelete(`/teacher-allocations/${id}`),
-    onSuccess: () => {
+    onSuccess: (_data, deletedId) => {
+      qc.setQueryData<Allocation[]>(allocQueryKey, (current) =>
+        current?.filter((allocation) => allocation.id !== deletedId),
+      );
       qc.invalidateQueries({ queryKey: allocQueryKey });
       toast({ title: "Removed", description: "Allocation removed from schedule." });
     },
