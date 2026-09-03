@@ -43,6 +43,12 @@ import type {
   CreateTeacherAllocationBody,
   CreateTeacherBody,
   CreateUserBody,
+  CustodyAcceptanceInput,
+  CustodyEpisode,
+  CustodyEpisodeResult,
+  CustodyOverrideInput,
+  CustodyRequestInput,
+  CustodyRequestResult,
   DashboardStats,
   Emergency,
   ErrorResponse,
@@ -7756,4 +7762,582 @@ export const useCancelClassChangeRequest = <
   TContext
 > => {
   return useMutation(getCancelClassChangeRequestMutationOptions(options));
+};
+
+/**
+ * @summary Support accepts a parent-requested physical custody episode
+ */
+export const getAcceptCustodyEpisodeUrl = () => {
+  return `/api/custody-episodes`;
+};
+
+export const acceptCustodyEpisode = async (
+  custodyAcceptanceInput: CustodyAcceptanceInput,
+  options?: RequestInit,
+): Promise<CustodyEpisodeResult> => {
+  return customFetch<CustodyEpisodeResult>(getAcceptCustodyEpisodeUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(custodyAcceptanceInput),
+  });
+};
+
+export const getAcceptCustodyEpisodeMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof acceptCustodyEpisode>>,
+    TError,
+    { data: BodyType<CustodyAcceptanceInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof acceptCustodyEpisode>>,
+  TError,
+  { data: BodyType<CustodyAcceptanceInput> },
+  TContext
+> => {
+  const mutationKey = ["acceptCustodyEpisode"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof acceptCustodyEpisode>>,
+    { data: BodyType<CustodyAcceptanceInput> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return acceptCustodyEpisode(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type AcceptCustodyEpisodeMutationResult = NonNullable<
+  Awaited<ReturnType<typeof acceptCustodyEpisode>>
+>;
+export type AcceptCustodyEpisodeMutationBody = BodyType<CustodyAcceptanceInput>;
+export type AcceptCustodyEpisodeMutationError = ErrorType<void>;
+
+/**
+ * @summary Support accepts a parent-requested physical custody episode
+ */
+export const useAcceptCustodyEpisode = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof acceptCustodyEpisode>>,
+    TError,
+    { data: BodyType<CustodyAcceptanceInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof acceptCustodyEpisode>>,
+  TError,
+  { data: BodyType<CustodyAcceptanceInput> },
+  TContext
+> => {
+  return useMutation(getAcceptCustodyEpisodeMutationOptions(options));
+};
+
+/**
+ * @summary List parent-requested custody episodes awaiting support acceptance
+ */
+export const getListPendingCustodyEpisodesUrl = () => {
+  return `/api/custody-episodes/pending`;
+};
+
+export const listPendingCustodyEpisodes = async (
+  options?: RequestInit,
+): Promise<CustodyEpisode[]> => {
+  return customFetch<CustodyEpisode[]>(getListPendingCustodyEpisodesUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListPendingCustodyEpisodesQueryKey = () => {
+  return [`/api/custody-episodes/pending`] as const;
+};
+
+export const getListPendingCustodyEpisodesQueryOptions = <
+  TData = Awaited<ReturnType<typeof listPendingCustodyEpisodes>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listPendingCustodyEpisodes>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getListPendingCustodyEpisodesQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listPendingCustodyEpisodes>>
+  > = ({ signal }) => listPendingCustodyEpisodes({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listPendingCustodyEpisodes>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListPendingCustodyEpisodesQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listPendingCustodyEpisodes>>
+>;
+export type ListPendingCustodyEpisodesQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List parent-requested custody episodes awaiting support acceptance
+ */
+
+export function useListPendingCustodyEpisodes<
+  TData = Awaited<ReturnType<typeof listPendingCustodyEpisodes>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listPendingCustodyEpisodes>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListPendingCustodyEpisodesQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Parent requests per-child handover; this is not custody acceptance
+ */
+export const getRequestCustodyEpisodeUrl = () => {
+  return `/api/custody-requests`;
+};
+
+export const requestCustodyEpisode = async (
+  custodyRequestInput: CustodyRequestInput,
+  options?: RequestInit,
+): Promise<CustodyRequestResult> => {
+  return customFetch<CustodyRequestResult>(getRequestCustodyEpisodeUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(custodyRequestInput),
+  });
+};
+
+export const getRequestCustodyEpisodeMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof requestCustodyEpisode>>,
+    TError,
+    { data: BodyType<CustodyRequestInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof requestCustodyEpisode>>,
+  TError,
+  { data: BodyType<CustodyRequestInput> },
+  TContext
+> => {
+  const mutationKey = ["requestCustodyEpisode"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof requestCustodyEpisode>>,
+    { data: BodyType<CustodyRequestInput> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return requestCustodyEpisode(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RequestCustodyEpisodeMutationResult = NonNullable<
+  Awaited<ReturnType<typeof requestCustodyEpisode>>
+>;
+export type RequestCustodyEpisodeMutationBody = BodyType<CustodyRequestInput>;
+export type RequestCustodyEpisodeMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Parent requests per-child handover; this is not custody acceptance
+ */
+export const useRequestCustodyEpisode = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof requestCustodyEpisode>>,
+    TError,
+    { data: BodyType<CustodyRequestInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof requestCustodyEpisode>>,
+  TError,
+  { data: BodyType<CustodyRequestInput> },
+  TContext
+> => {
+  return useMutation(getRequestCustodyEpisodeMutationOptions(options));
+};
+
+/**
+ * @summary List the authenticated parent's custody requests
+ */
+export const getListMyCustodyRequestsUrl = () => {
+  return `/api/custody-requests`;
+};
+
+export const listMyCustodyRequests = async (
+  options?: RequestInit,
+): Promise<CustodyEpisode[]> => {
+  return customFetch<CustodyEpisode[]>(getListMyCustodyRequestsUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListMyCustodyRequestsQueryKey = () => {
+  return [`/api/custody-requests`] as const;
+};
+
+export const getListMyCustodyRequestsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listMyCustodyRequests>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listMyCustodyRequests>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListMyCustodyRequestsQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listMyCustodyRequests>>
+  > = ({ signal }) => listMyCustodyRequests({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listMyCustodyRequests>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListMyCustodyRequestsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listMyCustodyRequests>>
+>;
+export type ListMyCustodyRequestsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List the authenticated parent's custody requests
+ */
+
+export function useListMyCustodyRequests<
+  TData = Awaited<ReturnType<typeof listMyCustodyRequests>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listMyCustodyRequests>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListMyCustodyRequestsQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Parent cancels an unaccepted custody request
+ */
+export const getCancelCustodyRequestUrl = (id: number) => {
+  return `/api/custody-requests/${id}`;
+};
+
+export const cancelCustodyRequest = async (
+  id: number,
+  options?: RequestInit,
+): Promise<CustodyRequestResult> => {
+  return customFetch<CustodyRequestResult>(getCancelCustodyRequestUrl(id), {
+    ...options,
+    method: "DELETE",
+  });
+};
+
+export const getCancelCustodyRequestMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof cancelCustodyRequest>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof cancelCustodyRequest>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  const mutationKey = ["cancelCustodyRequest"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof cancelCustodyRequest>>,
+    { id: number }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return cancelCustodyRequest(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CancelCustodyRequestMutationResult = NonNullable<
+  Awaited<ReturnType<typeof cancelCustodyRequest>>
+>;
+
+export type CancelCustodyRequestMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Parent cancels an unaccepted custody request
+ */
+export const useCancelCustodyRequest = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof cancelCustodyRequest>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof cancelCustodyRequest>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  return useMutation(getCancelCustodyRequestMutationOptions(options));
+};
+
+/**
+ * @summary Accepting support custodian completes pickup
+ */
+export const getCompleteCustodyPickupUrl = (id: number) => {
+  return `/api/custody-episodes/${id}/pickup`;
+};
+
+export const completeCustodyPickup = async (
+  id: number,
+  options?: RequestInit,
+): Promise<CustodyEpisodeResult> => {
+  return customFetch<CustodyEpisodeResult>(getCompleteCustodyPickupUrl(id), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getCompleteCustodyPickupMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof completeCustodyPickup>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof completeCustodyPickup>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  const mutationKey = ["completeCustodyPickup"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof completeCustodyPickup>>,
+    { id: number }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return completeCustodyPickup(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CompleteCustodyPickupMutationResult = NonNullable<
+  Awaited<ReturnType<typeof completeCustodyPickup>>
+>;
+
+export type CompleteCustodyPickupMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Accepting support custodian completes pickup
+ */
+export const useCompleteCustodyPickup = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof completeCustodyPickup>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof completeCustodyPickup>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  return useMutation(getCompleteCustodyPickupMutationOptions(options));
+};
+
+/**
+ * @summary Admin override of custody pickup, requiring a reason
+ */
+export const getOverrideCustodyPickupUrl = (id: number) => {
+  return `/api/custody-episodes/${id}/override-pickup`;
+};
+
+export const overrideCustodyPickup = async (
+  id: number,
+  custodyOverrideInput: CustodyOverrideInput,
+  options?: RequestInit,
+): Promise<CustodyEpisodeResult> => {
+  return customFetch<CustodyEpisodeResult>(getOverrideCustodyPickupUrl(id), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(custodyOverrideInput),
+  });
+};
+
+export const getOverrideCustodyPickupMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof overrideCustodyPickup>>,
+    TError,
+    { id: number; data: BodyType<CustodyOverrideInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof overrideCustodyPickup>>,
+  TError,
+  { id: number; data: BodyType<CustodyOverrideInput> },
+  TContext
+> => {
+  const mutationKey = ["overrideCustodyPickup"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof overrideCustodyPickup>>,
+    { id: number; data: BodyType<CustodyOverrideInput> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return overrideCustodyPickup(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type OverrideCustodyPickupMutationResult = NonNullable<
+  Awaited<ReturnType<typeof overrideCustodyPickup>>
+>;
+export type OverrideCustodyPickupMutationBody = BodyType<CustodyOverrideInput>;
+export type OverrideCustodyPickupMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Admin override of custody pickup, requiring a reason
+ */
+export const useOverrideCustodyPickup = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof overrideCustodyPickup>>,
+    TError,
+    { id: number; data: BodyType<CustodyOverrideInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof overrideCustodyPickup>>,
+  TError,
+  { id: number; data: BodyType<CustodyOverrideInput> },
+  TContext
+> => {
+  return useMutation(getOverrideCustodyPickupMutationOptions(options));
 };

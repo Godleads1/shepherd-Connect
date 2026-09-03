@@ -19,7 +19,12 @@ export const userStatusEnum = pgEnum("user_status", [
 export const usersTable = pgTable("users", {
   id: serial("id").primaryKey(),
   email: text("email").notNull().unique(),
+  // Canonical E.164 number (for Nigeria, +234XXXXXXXXXX).  This is the
+  // identity used by external messaging channels; display formatting is a UI concern.
   phone: text("phone"),
+  whatsappVerified: boolean("whatsapp_verified").notNull().default(false),
+  whatsappVerifiedAt: timestamp("whatsapp_verified_at", { withTimezone: true }),
+  contactVersion: integer("contact_version").notNull().default(1),
   passwordHash: text("password_hash").notNull(),
   role: userRoleEnum("role").notNull().default("parent"),
   firstName: text("first_name").notNull(),

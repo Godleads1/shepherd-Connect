@@ -538,13 +538,13 @@ export default function SundayAttendancePage() {
             ) : (
               <Button
                 className="bg-blue-600 hover:bg-blue-700 text-white"
-                onClick={() => generateMutation.mutate({ serviceDate: date })}
+                onClick={() => generateMutation.mutate({ serviceDate: date, force: !!summary?.hasQr })}
                 disabled={generateMutation.isPending}
               >
                 {generateMutation.isPending
                   ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
                   : <QrCode className="w-4 h-4 mr-2" />}
-                {summary?.hasQr ? "Load Existing QR" : "Generate QR Code"}
+                {summary?.hasQr ? "Rotate & Show New QR" : "Generate QR Code"}
               </Button>
             )}
           </div>

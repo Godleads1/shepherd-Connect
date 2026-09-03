@@ -40,6 +40,7 @@ import classMergesRouter from "./classMerges";
 import hallSessionsRouter from "./hallSessions";
 import eventsRouter from "./events";
 import teacherClockInsRouter from "./teacherClockIns";
+import custodyHandoverRouter from "./custodyHandover";
 
 const router: IRouter = Router();
 
@@ -84,5 +85,6 @@ router.use(classMergesRouter);
 router.use(hallSessionsRouter);
 router.use(eventsRouter);
 router.use(teacherClockInsRouter);
+router.use(custodyHandoverRouter);
 
 export default router;

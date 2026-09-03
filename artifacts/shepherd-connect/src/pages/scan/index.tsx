@@ -42,6 +42,13 @@ type Scan = {
   scannedAt: string;
 };
 
+function currentServiceWAT(): "1st" | "2nd" {
+  const hour = Number(new Intl.DateTimeFormat("en-GB", {
+    hour: "2-digit", hourCycle: "h23", timeZone: "Africa/Lagos",
+  }).format(new Date()));
+  return hour < 10 ? "1st" : "2nd";
+}
+
 export default function ScanPage() {
   const [, navigate] = useLocation();
   const { user, isLoading: authLoading } = useAuth();
@@ -64,18 +71,21 @@ export default function ScanPage() {
   const [showEmergencyConfirm,  setShowEmergencyConfirm]  = useState(false);
   const [myScans,               setMyScans]               = useState<Scan[]>([]);
 
-  const loadMyScans = useCallback(async () => {
+  const loadMyScans = useCallback(async (serviceDate = date): Promise<Scan[]> => {
     try {
       const data = await apiGet<{ scans: Scan[] }>(
-        `/sunday-attendance/my-scans?date=${date}`,
+        `/sunday-attendance/my-scans?date=${serviceDate}`,
       );
-      setMyScans(data.scans ?? []);
+      const scans = data.scans ?? [];
+      setMyScans(scans);
+      return scans;
     } catch {
       // non-critical
+      return [];
     }
   }, [date]);
 
-  const ptr = usePullToRefresh(loadMyScans);
+  const ptr = usePullToRefresh(async () => { await loadMyScans(); });
 
   const doScan = useCallback(async (tok: string, dt: string) => {
     if (!tok) {
@@ -86,9 +96,16 @@ export default function ScanPage() {
     setScanError(null);
     setScanResult(null);
     try {
+      // Refresh before selecting the explicit action so a reload or a second
+      // device cannot accidentally request another check-in.
+      const scans = await loadMyScans(dt);
+      const service = currentServiceWAT();
+      const checkpoint = scans.some(scan => scan.service === service && scan.scanType === "checkpoint");
+      const clockOut = scans.some(scan => scan.service === service && scan.scanType === "clock_out");
       const result = await apiPost<ScanResult>("/sunday-attendance/scan", {
         token: tok,
         date:  dt,
+        action: checkpoint && !clockOut ? "clock_out" : "check_in",
       });
       setScanResult(result);
       setHasScanned(true);
@@ -159,9 +176,10 @@ export default function ScanPage() {
   }
   if (!user) return null;
 
-  const checkIns       = myScans.filter(s => s.scanType === "checkpoint");
-  const clockOuts      = myScans.filter(s => s.scanType === "clock_out");
-  const emergencyOuts  = myScans.filter(s => s.scanType === "emergency_out");
+  const activeService  = currentServiceWAT();
+  const checkIns       = myScans.filter(s => s.scanType === "checkpoint" && s.service === activeService);
+  const clockOuts      = myScans.filter(s => s.scanType === "clock_out" && s.service === activeService);
+  const emergencyOuts  = myScans.filter(s => s.scanType === "emergency_out" && s.service === activeService);
   const alreadyIn      = checkIns.length > 0;
   const alreadyOut     = clockOuts.length > 0 || emergencyOuts.length > 0 || emergencyDone;
   const showEmergency  = alreadyIn && !alreadyOut && !scanning;
@@ -248,7 +266,7 @@ export default function ScanPage() {
 
           {/* ── Primary action buttons ── */}
           <div className="space-y-3">
-            {/* Scan button — same QR code checks in first, clocks out second */}
+            {/* Scan button — explicit action derives from this service's saved scans */}
             {!alreadyOut && !scanning && (
               <Button
                 className="w-full h-14 text-base font-semibold bg-yellow-400 hover:bg-yellow-300 text-blue-950 rounded-2xl shadow-lg"

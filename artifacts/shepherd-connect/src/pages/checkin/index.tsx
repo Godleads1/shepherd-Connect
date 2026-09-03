@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from "react";
-import { useScanQrCode, useCheckIn, useEscortToClass, useScanFace, useListAttendance } from "@workspace/api-client-react";
+import { useScanQrCode, useCheckIn, useEscortToClass, useScanFace, useListAttendance, useListPendingCustodyEpisodes, useAcceptCustodyEpisode, getListPendingCustodyEpisodesQueryKey } from "@workspace/api-client-react";
 import { Input } from "@/components/ui/input";
-import { AlertTriangle, CheckCircle, QrCode, Scan, Truck, ShieldCheck, Users, Camera, WifiOff, Upload, HandHelping, Music, Send } from "lucide-react";
+import { AlertTriangle, CheckCircle, QrCode, Scan, Truck, ShieldCheck, Users, Camera, WifiOff, Upload, HandHelping, Music, Send, Printer } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import FaceCapture from "@/components/FaceCapture";
 import QrCameraScanner from "@/components/QrCameraScanner";
@@ -173,11 +173,11 @@ export default function CheckIn() {
       setChildSlots({});
       setQrCode("");
       refetchAttendance();
-      refetchExpected();
+      refetchPending();
       const auto = (result as any)?.autoProcessed;
       if (Array.isArray(auto) && auto.length > 0) {
         toast({
-          title: `✅ ${auto.length} ${auto.length === 1 ? "child" : "children"} checked in & in transit`,
+          title: `Success: ${auto.length} ${auto.length === 1 ? "child" : "children"} checked in & in transit`,
           description: `${auto.map((a: any) => a.childName).join(", ")} — pre-arranged drop-off completed in one scan. Parents and teachers have been notified.`,
         });
       }
@@ -226,13 +226,23 @@ export default function CheckIn() {
     }
   };
 
-  // Families that signalled "we're on our way" — expected arrivals panel
-  const { data: expectedRaw, refetch: refetchExpected } = useQuery({
-    queryKey: ["drop-off-intents"],
-    queryFn: () => apiGet<any[]>("/drop-off-intents"),
-    refetchInterval: 30000,
+  const { data: pendingEpisodes, refetch: refetchPending } = useListPendingCustodyEpisodes({
+    query: { queryKey: getListPendingCustodyEpisodesQueryKey(), refetchInterval: 15000 }
   });
-  const expectedArrivals: any[] = Array.isArray(expectedRaw) ? expectedRaw : [];
+  const acceptCustodyMutation = useAcceptCustodyEpisode();
+
+  const handleAcceptCustody = async (episodeId: number, childName: string) => {
+    try {
+      await acceptCustodyMutation.mutateAsync({
+        data: { episodeId, eventId: crypto.randomUUID() }
+      });
+      toast({ title: `Accepted ${childName}`, description: "Child marked as in class." });
+      refetchPending();
+      refetchAttendance();
+    } catch (e: any) {
+      toast({ variant: "destructive", title: "Failed to accept custody", description: e.message });
+    }
+  };
 
   const checkInForSlots = async (childId: number, classId: number, slots: SlotChoice) => {
     const slotsToBook = slots === "both" ? ["7am", "10:30am"] : [slots];
@@ -431,20 +441,26 @@ export default function CheckIn() {
 
       <LocationBanner />
 
-      {/* Families that signalled they're on the way */}
-      {expectedArrivals.length > 0 && (
-        <div className="bg-indigo-50 border border-indigo-200 rounded-2xl p-4">
+      {/* Pending Custody Requests */}
+      {(pendingEpisodes && pendingEpisodes.length > 0) && (
+        <div className="w-full bg-indigo-50 border border-indigo-200 rounded-2xl p-4 mb-6">
           <p className="text-sm font-bold text-indigo-900 mb-2 flex items-center gap-2">
-            <Truck className="w-4 h-4" /> {expectedArrivals.length} famil{expectedArrivals.length !== 1 ? "ies" : "y"} on the way
+            <Truck className="w-4 h-4" /> {pendingEpisodes.length} Pending Custody Request{pendingEpisodes.length !== 1 ? "s" : ""}
           </p>
           <div className="space-y-1.5">
-            {expectedArrivals.map((i: any) => (
-              <div key={i.id} className="flex items-center justify-between text-sm bg-white rounded-xl px-3 py-2 border border-indigo-100">
-                <span className="font-semibold text-gray-800">{i.parentName ?? i.family?.familyCode ?? `Family #${i.familyId}`}</span>
-                <span className="text-xs text-gray-500">
-                  {(i.children ?? []).map((c: any) => c.firstName).join(", ")}
-                  {i.serviceSlot ? ` · ${i.serviceSlot === "both" ? "both services" : i.serviceSlot}` : ""}
-                </span>
+            {pendingEpisodes.map((ep: any) => (
+              <div key={ep.id} className="flex items-center justify-between text-sm bg-white rounded-xl px-3 py-2 border border-indigo-100">
+                <div>
+                  <span className="font-semibold text-gray-800">{(ep as any).child?.firstName ? `${(ep as any).child.firstName} ${(ep as any).child.lastName}` : `Child #${ep.childId}`}</span>
+                  <span className="text-xs text-gray-500 block">Family: {(ep as any).family?.familyCode || `#${ep.familyId}`} · Requested: {ep.requestedServices}</span>
+                </div>
+                <button
+                  onClick={() => handleAcceptCustody(ep.id, (ep as any).child?.firstName || `Child #${ep.childId}`)}
+                  disabled={acceptCustodyMutation.isPending}
+                  className="px-3 py-1.5 rounded-lg text-xs font-bold transition-all active:scale-95 disabled:opacity-60 bg-indigo-600 text-white hover:bg-indigo-700"
+                >
+                  Accept & Check In
+                </button>
               </div>
             ))}
           </div>
@@ -792,7 +808,7 @@ export default function CheckIn() {
                         onClick={() => printBadge(child, scanResult?.family?.familyCode)}
                         className="h-14 px-4 rounded-xl font-semibold text-sm border border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors flex items-center gap-1.5"
                         title="Print name badge">
-                        🖨️
+                        <Printer className="w-5 h-5" />
                       </button>
                     </div>
                   </div>

@@ -1,7 +1,7 @@
 import { Router } from "express";
 import bcrypt from "bcryptjs";
 import { eq, ilike, or, and, sql } from "drizzle-orm";
-import { db, usersTable, teachersTable, classesTable, pool } from "@workspace/db";
+import { db, usersTable, teachersTable, classesTable, pool, botLidCacheTable, botPendingApprovalsTable, botSessionsTable, botStepUpProofsTable } from "@workspace/db";
 import { CreateUserBody, UpdateUserBody, ListUsersQueryParams } from "@workspace/api-zod";
 import { authMiddleware, requireRoles } from "../middlewares/auth";
 import { bindObjectToResource } from "../lib/privateObjectAccess";
@@ -17,6 +17,23 @@ import {
 const router = Router();
 
 const VALID_ROLES = USER_ROLES;
+
+function normalizeNigerianE164(phone: string): string | null {
+  const digits = phone.replace(/\D/g, "");
+  const national = digits.startsWith("0") ? digits.slice(1) : digits.startsWith("234") ? digits.slice(3) : "";
+  return /^(?:7|8|9)\d{9}$/.test(national) ? `+234${national}` : null;
+}
+
+async function invalidateWhatsAppContact(tx: any, userId: number) {
+  // These records all authorize or route a phone identity. They must disappear
+  // atomically with the contact version bump, before the new number is usable.
+  await Promise.all([
+    tx.delete(botLidCacheTable).where(eq(botLidCacheTable.userId, userId)),
+    tx.delete(botSessionsTable).where(eq(botSessionsTable.activeUserId, userId)),
+    tx.delete(botPendingApprovalsTable).where(eq(botPendingApprovalsTable.parentUserId, userId)),
+    tx.delete(botStepUpProofsTable).where(eq(botStepUpProofsTable.userId, userId)),
+  ]);
+}
 
 async function createDecisionDelivery(
   tx: any,
@@ -259,14 +276,18 @@ router.put("/users/:id", authMiddleware, async (req, res): Promise<void> => {
 
   const parsed = UpdateUserBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: "Bad request", message: parsed.error.message }); return; }
-  const [existingUser] = await db.select({ photoUrl: usersTable.photoUrl })
+  const [existingUser] = await db.select({ photoUrl: usersTable.photoUrl, phone: usersTable.phone })
     .from(usersTable).where(eq(usersTable.id, id)).limit(1);
   if (!existingUser) { res.status(404).json({ error: "Not found", message: "User not found" }); return; }
 
   const updates: Partial<typeof usersTable.$inferInsert> = {};
   if (parsed.data.firstName) updates.firstName = parsed.data.firstName;
   if (parsed.data.lastName) updates.lastName = parsed.data.lastName;
-  if (parsed.data.phone !== undefined) updates.phone = parsed.data.phone;
+  if (parsed.data.phone !== undefined) {
+    const phone = normalizeNigerianE164(parsed.data.phone);
+    if (!phone) { res.status(400).json({ error: "Bad request", message: "Enter a valid Nigerian mobile number." }); return; }
+    updates.phone = phone;
+  }
   if (isAdmin && parsed.data.isActive !== undefined) updates.isActive = parsed.data.isActive;
   if (isAdmin && parsed.data.role) updates.role = parsed.data.role as "super_admin" | "admin" | "teacher" | "support" | "parent";
 
@@ -286,15 +307,25 @@ router.put("/users/:id", authMiddleware, async (req, res): Promise<void> => {
   if (body["communicationPrefs"] !== undefined) updates.communicationPrefs = body["communicationPrefs"] as string | null;
   if (isSelf && body["hideContactFromAdmin"] !== undefined) updates.hideContactFromAdmin = Boolean(body["hideContactFromAdmin"]);
 
-  const [user] = updates.role
+  const phoneChanged = updates.phone !== undefined && updates.phone !== existingUser.phone;
+  const [user] = (updates.role || phoneChanged)
     ? await db.transaction(async tx => {
         const locked = await lockUserById(tx, id);
         if (!locked) return [];
         const primaryRole = updates.role as UserRole;
+        const lockedPhoneChanged = updates.phone !== undefined && updates.phone !== locked.phone;
+        if (lockedPhoneChanged) await invalidateWhatsAppContact(tx, id);
         return tx.update(usersTable).set({
           ...updates,
-          secondaryRoles: JSON.stringify(canonicalSecondaryRoles(locked.secondaryRoles, primaryRole)),
-          pendingRoles: JSON.stringify(canonicalPendingRoles(locked.pendingRoles)),
+          ...(updates.role ? {
+            secondaryRoles: JSON.stringify(canonicalSecondaryRoles(locked.secondaryRoles, primaryRole)),
+            pendingRoles: JSON.stringify(canonicalPendingRoles(locked.pendingRoles)),
+          } : {}),
+          ...(lockedPhoneChanged ? {
+            whatsappVerified: false,
+            whatsappVerifiedAt: null,
+            contactVersion: locked.contactVersion + 1,
+          } : {}),
         }).where(eq(usersTable.id, id)).returning();
       })
     : await db.update(usersTable).set(updates).where(eq(usersTable.id, id)).returning();

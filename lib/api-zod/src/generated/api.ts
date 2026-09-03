@@ -3564,3 +3564,323 @@ export const CancelClassChangeRequestResponse = zod.object({
   success: zod.boolean(),
   message: zod.string().optional(),
 });
+
+/**
+ * @summary Support accepts a parent-requested physical custody episode
+ */
+
+export const acceptCustodyEpisodeBodyEventIdMax = 128;
+
+export const AcceptCustodyEpisodeBody = zod.object({
+  episodeId: zod.number().min(1),
+  eventId: zod
+    .string()
+    .min(1)
+    .max(acceptCustodyEpisodeBodyEventIdMax)
+    .optional(),
+});
+
+/**
+ * @summary List parent-requested custody episodes awaiting support acceptance
+ */
+export const ListPendingCustodyEpisodesResponseItem = zod.object({
+  id: zod.number(),
+  childId: zod.number(),
+  familyId: zod.number(),
+  serviceDate: zod.string().date(),
+  requestedServices: zod.enum(["first", "second", "both"]),
+  requestedBy: zod.number(),
+  requestedAt: zod.string().datetime({}),
+  custodianUserId: zod.number().nullish(),
+  status: zod.enum(["requested", "accepted", "picked_up", "cancelled"]),
+  acceptedAt: zod.string().datetime({}).nullish(),
+  pickedUpAt: zod.string().datetime({}).nullish(),
+  pickedUpBy: zod.number().nullish(),
+  overrideReason: zod.string().nullish(),
+  overriddenBy: zod.number().nullish(),
+  checkoutMode: zod
+    .union([
+      zod.literal("normal"),
+      zod.literal("admin_override"),
+      zod.literal(null),
+    ])
+    .nullish(),
+});
+export const ListPendingCustodyEpisodesResponse = zod.array(
+  ListPendingCustodyEpisodesResponseItem,
+);
+
+/**
+ * @summary Parent requests per-child handover; this is not custody acceptance
+ */
+
+export const requestCustodyEpisodeBodyEventIdMax = 128;
+
+export const RequestCustodyEpisodeBody = zod.object({
+  childId: zod.number().min(1),
+  serviceDate: zod.string().date(),
+  requestedServices: zod.enum(["first", "second", "both"]),
+  eventId: zod.string().min(1).max(requestCustodyEpisodeBodyEventIdMax),
+});
+
+/**
+ * @summary List the authenticated parent's custody requests
+ */
+export const ListMyCustodyRequestsResponseItem = zod.object({
+  id: zod.number(),
+  childId: zod.number(),
+  familyId: zod.number(),
+  serviceDate: zod.string().date(),
+  requestedServices: zod.enum(["first", "second", "both"]),
+  requestedBy: zod.number(),
+  requestedAt: zod.string().datetime({}),
+  custodianUserId: zod.number().nullish(),
+  status: zod.enum(["requested", "accepted", "picked_up", "cancelled"]),
+  acceptedAt: zod.string().datetime({}).nullish(),
+  pickedUpAt: zod.string().datetime({}).nullish(),
+  pickedUpBy: zod.number().nullish(),
+  overrideReason: zod.string().nullish(),
+  overriddenBy: zod.number().nullish(),
+  checkoutMode: zod
+    .union([
+      zod.literal("normal"),
+      zod.literal("admin_override"),
+      zod.literal(null),
+    ])
+    .nullish(),
+});
+export const ListMyCustodyRequestsResponse = zod.array(
+  ListMyCustodyRequestsResponseItem,
+);
+
+/**
+ * @summary Parent cancels an unaccepted custody request
+ */
+export const CancelCustodyRequestParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const CancelCustodyRequestResponse = zod.object({
+  episode: zod.object({
+    id: zod.number(),
+    childId: zod.number(),
+    familyId: zod.number(),
+    serviceDate: zod.string().date(),
+    requestedServices: zod.enum(["first", "second", "both"]),
+    requestedBy: zod.number(),
+    requestedAt: zod.string().datetime({}),
+    custodianUserId: zod.number().nullish(),
+    status: zod.enum(["requested", "accepted", "picked_up", "cancelled"]),
+    acceptedAt: zod.string().datetime({}).nullish(),
+    pickedUpAt: zod.string().datetime({}).nullish(),
+    pickedUpBy: zod.number().nullish(),
+    overrideReason: zod.string().nullish(),
+    overriddenBy: zod.number().nullish(),
+    checkoutMode: zod
+      .union([
+        zod.literal("normal"),
+        zod.literal("admin_override"),
+        zod.literal(null),
+      ])
+      .nullish(),
+  }),
+  duplicate: zod.boolean(),
+});
+
+/**
+ * @summary Accepting support custodian completes pickup
+ */
+export const CompleteCustodyPickupParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const CompleteCustodyPickupResponse = zod.object({
+  episode: zod.object({
+    id: zod.number(),
+    childId: zod.number(),
+    familyId: zod.number(),
+    serviceDate: zod.string().date(),
+    requestedServices: zod.enum(["first", "second", "both"]),
+    requestedBy: zod.number(),
+    requestedAt: zod.string().datetime({}),
+    custodianUserId: zod.number().nullish(),
+    status: zod.enum(["requested", "accepted", "picked_up", "cancelled"]),
+    acceptedAt: zod.string().datetime({}).nullish(),
+    pickedUpAt: zod.string().datetime({}).nullish(),
+    pickedUpBy: zod.number().nullish(),
+    overrideReason: zod.string().nullish(),
+    overriddenBy: zod.number().nullish(),
+    checkoutMode: zod
+      .union([
+        zod.literal("normal"),
+        zod.literal("admin_override"),
+        zod.literal(null),
+      ])
+      .nullish(),
+  }),
+  attendance: zod.array(
+    zod.object({
+      id: zod.number(),
+      childId: zod.number(),
+      classId: zod.number(),
+      serviceDate: zod.string().date(),
+      serviceSlot: zod.string(),
+      checkInTime: zod.string().datetime({}).nullish(),
+      escortTime: zod.string().datetime({}).nullish(),
+      checkOutTime: zod.string().datetime({}).nullish(),
+      checkedInBy: zod.number().nullish(),
+      escortedBy: zod.number().nullish(),
+      checkedOutBy: zod.number().nullish(),
+      status: zod.enum(["dropped_off", "in_transit", "in_class", "picked_up"]),
+      child: zod
+        .object({
+          id: zod.number(),
+          familyId: zod.number(),
+          firstName: zod.string(),
+          lastName: zod.string(),
+          dob: zod.string().date(),
+          age: zod.number(),
+          gender: zod.string(),
+          allergies: zod.string().nullish(),
+          medicalNotes: zod.string().nullish(),
+          photoUrl: zod.string().nullish(),
+          faceDescriptorJson: zod.string().nullish(),
+          servicePreference: zod.enum(["7am", "10:30am", "both"]).nullish(),
+          currentClassId: zod.number().nullish(),
+          currentClass: zod
+            .object({
+              id: zod.number(),
+              name: zod.string(),
+              ageMin: zod.number(),
+              ageMax: zod.number(),
+              capacity: zod.number(),
+              roomLocation: zod.string(),
+              serviceSlot: zod.enum(["7am", "10:30am"]),
+              description: zod.string().nullish(),
+              enrollmentCount: zod.number(),
+              createdAt: zod.string().datetime({}),
+            })
+            .nullish(),
+          createdAt: zod.string().datetime({}),
+        })
+        .nullish(),
+      class: zod
+        .object({
+          id: zod.number(),
+          name: zod.string(),
+          ageMin: zod.number(),
+          ageMax: zod.number(),
+          capacity: zod.number(),
+          roomLocation: zod.string(),
+          serviceSlot: zod.enum(["7am", "10:30am"]),
+          description: zod.string().nullish(),
+          enrollmentCount: zod.number(),
+          createdAt: zod.string().datetime({}),
+        })
+        .nullish(),
+    }),
+  ),
+  duplicate: zod.boolean(),
+});
+
+/**
+ * @summary Admin override of custody pickup, requiring a reason
+ */
+export const OverrideCustodyPickupParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const overrideCustodyPickupBodyReasonMax = 500;
+
+export const OverrideCustodyPickupBody = zod.object({
+  reason: zod.string().min(1).max(overrideCustodyPickupBodyReasonMax),
+});
+
+export const OverrideCustodyPickupResponse = zod.object({
+  episode: zod.object({
+    id: zod.number(),
+    childId: zod.number(),
+    familyId: zod.number(),
+    serviceDate: zod.string().date(),
+    requestedServices: zod.enum(["first", "second", "both"]),
+    requestedBy: zod.number(),
+    requestedAt: zod.string().datetime({}),
+    custodianUserId: zod.number().nullish(),
+    status: zod.enum(["requested", "accepted", "picked_up", "cancelled"]),
+    acceptedAt: zod.string().datetime({}).nullish(),
+    pickedUpAt: zod.string().datetime({}).nullish(),
+    pickedUpBy: zod.number().nullish(),
+    overrideReason: zod.string().nullish(),
+    overriddenBy: zod.number().nullish(),
+    checkoutMode: zod
+      .union([
+        zod.literal("normal"),
+        zod.literal("admin_override"),
+        zod.literal(null),
+      ])
+      .nullish(),
+  }),
+  attendance: zod.array(
+    zod.object({
+      id: zod.number(),
+      childId: zod.number(),
+      classId: zod.number(),
+      serviceDate: zod.string().date(),
+      serviceSlot: zod.string(),
+      checkInTime: zod.string().datetime({}).nullish(),
+      escortTime: zod.string().datetime({}).nullish(),
+      checkOutTime: zod.string().datetime({}).nullish(),
+      checkedInBy: zod.number().nullish(),
+      escortedBy: zod.number().nullish(),
+      checkedOutBy: zod.number().nullish(),
+      status: zod.enum(["dropped_off", "in_transit", "in_class", "picked_up"]),
+      child: zod
+        .object({
+          id: zod.number(),
+          familyId: zod.number(),
+          firstName: zod.string(),
+          lastName: zod.string(),
+          dob: zod.string().date(),
+          age: zod.number(),
+          gender: zod.string(),
+          allergies: zod.string().nullish(),
+          medicalNotes: zod.string().nullish(),
+          photoUrl: zod.string().nullish(),
+          faceDescriptorJson: zod.string().nullish(),
+          servicePreference: zod.enum(["7am", "10:30am", "both"]).nullish(),
+          currentClassId: zod.number().nullish(),
+          currentClass: zod
+            .object({
+              id: zod.number(),
+              name: zod.string(),
+              ageMin: zod.number(),
+              ageMax: zod.number(),
+              capacity: zod.number(),
+              roomLocation: zod.string(),
+              serviceSlot: zod.enum(["7am", "10:30am"]),
+              description: zod.string().nullish(),
+              enrollmentCount: zod.number(),
+              createdAt: zod.string().datetime({}),
+            })
+            .nullish(),
+          createdAt: zod.string().datetime({}),
+        })
+        .nullish(),
+      class: zod
+        .object({
+          id: zod.number(),
+          name: zod.string(),
+          ageMin: zod.number(),
+          ageMax: zod.number(),
+          capacity: zod.number(),
+          roomLocation: zod.string(),
+          serviceSlot: zod.enum(["7am", "10:30am"]),
+          description: zod.string().nullish(),
+          enrollmentCount: zod.number(),
+          createdAt: zod.string().datetime({}),
+        })
+        .nullish(),
+    }),
+  ),
+  duplicate: zod.boolean(),
+});

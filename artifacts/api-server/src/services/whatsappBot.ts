@@ -28,8 +28,11 @@ import {
   botLidCacheTable,
   botPendingApprovalsTable,
   botPhotoPendingTable,
+  botStepUpProofsTable,
+  botInboundEventsTable,
 } from "@workspace/db/schema";
 import { eq, or, desc, and, inArray, lt, sql } from "drizzle-orm";
+import { createHmac, randomBytes, timingSafeEqual } from "crypto";
 import { logger } from "../lib/logger";
 import { createAttendanceNotificationIntents } from "../lib/attendanceNotificationIntents";
 import { sendWhatsAppToJid, sendWhatsAppImageToJid } from "./whatsapp";
@@ -85,6 +88,7 @@ interface RelayData {
   childId: number;
   parentUserId: number;
   assignedSupportId: number;
+  parentContactVersion: number;
 }
 
 // ── Round-robin counter (per-process; resets on restart — acceptable) ─────────
@@ -93,6 +97,11 @@ let supportRoundRobinIdx = 0;
 // ── Session TTL ───────────────────────────────────────────────────────────────
 const SESSION_TTL_MS = 15 * 60 * 1000;
 const PHOTO_TTL_MS   = 10 * 60 * 1000;
+const STEP_UP_TTL_MS = 5 * 60 * 1000;
+const STEP_UP_ACTION = "delegate_release_approval";
+const STEP_UP_KEY: string = process.env.SESSION_SECRET ?? (() => {
+  throw new Error("SESSION_SECRET environment variable is required for WhatsApp step-up proofs.");
+})();
 
 // ── DB cleanup every 10 minutes ───────────────────────────────────────────────
 setInterval(async () => {
@@ -140,14 +149,14 @@ async function resetSession(jid: string, keepUserId?: number, keepLastAction?: s
 
 // ── LID cache helpers ─────────────────────────────────────────────────────────
 
-async function getLidUserId(jid: string): Promise<number | null> {
+async function getLidUserId(jid: string): Promise<{ userId: number; contactVersion: number } | null> {
   const [row] = await db.select().from(botLidCacheTable).where(eq(botLidCacheTable.jid, jid));
-  return row?.userId ?? null;
+  return row ? { userId: row.userId, contactVersion: row.contactVersion } : null;
 }
 
-async function setLidUserId(jid: string, userId: number): Promise<void> {
-  await db.insert(botLidCacheTable).values({ jid, userId })
-    .onConflictDoUpdate({ target: botLidCacheTable.jid, set: { userId } });
+async function setLidUserId(jid: string, userId: number, contactVersion: number): Promise<void> {
+  await db.insert(botLidCacheTable).values({ jid, userId, contactVersion })
+    .onConflictDoUpdate({ target: botLidCacheTable.jid, set: { userId, contactVersion } });
 }
 
 // ── Pending approval helpers ──────────────────────────────────────────────────
@@ -155,17 +164,50 @@ async function setLidUserId(jid: string, userId: number): Promise<void> {
 async function getPendingApproval(ref: string): Promise<RelayData | null> {
   const [row] = await db.select().from(botPendingApprovalsTable).where(eq(botPendingApprovalsTable.refNumber, ref));
   if (!row) return null;
-  return { parentJid: row.parentJid, supportJid: row.supportJid, childName: row.childName, requestType: row.requestType as RelayData["requestType"], childId: row.childId, parentUserId: row.parentUserId, assignedSupportId: row.assignedSupportId };
+  return { parentJid: row.parentJid, supportJid: row.supportJid, childName: row.childName, requestType: row.requestType as RelayData["requestType"], childId: row.childId, parentUserId: row.parentUserId, assignedSupportId: row.assignedSupportId, parentContactVersion: row.parentContactVersion };
 }
 
 async function setPendingApproval(ref: string, data: RelayData): Promise<void> {
   await db.insert(botPendingApprovalsTable)
-    .values({ refNumber: ref, parentJid: data.parentJid, supportJid: data.supportJid, childName: data.childName, requestType: data.requestType, childId: data.childId, parentUserId: data.parentUserId, assignedSupportId: data.assignedSupportId })
-    .onConflictDoUpdate({ target: botPendingApprovalsTable.refNumber, set: { parentJid: data.parentJid, supportJid: data.supportJid } });
+    .values({ refNumber: ref, parentJid: data.parentJid, supportJid: data.supportJid, childName: data.childName, requestType: data.requestType, childId: data.childId, parentUserId: data.parentUserId, assignedSupportId: data.assignedSupportId, parentContactVersion: data.parentContactVersion })
+    .onConflictDoUpdate({ target: botPendingApprovalsTable.refNumber, set: { parentJid: data.parentJid, supportJid: data.supportJid, parentContactVersion: data.parentContactVersion } });
 }
 
 async function deletePendingApproval(ref: string): Promise<void> {
   await db.delete(botPendingApprovalsTable).where(eq(botPendingApprovalsTable.refNumber, ref));
+}
+
+function stepUpDigest(id: string, userId: number, contactVersion: number, action: string, reference: string, code: string): string {
+  return createHmac("sha256", STEP_UP_KEY)
+    .update(`${id}\0${userId}\0${contactVersion}\0${action}\0${reference}\0${code}`)
+    .digest("hex");
+}
+
+async function createStepUpProof(userId: number, contactVersion: number, reference: string): Promise<string> {
+  const id = randomBytes(16).toString("hex");
+  const code = randomBytes(5).toString("hex").toUpperCase();
+  await db.insert(botStepUpProofsTable).values({
+    id, userId, contactVersion, action: STEP_UP_ACTION, reference,
+    proofDigest: stepUpDigest(id, userId, contactVersion, STEP_UP_ACTION, reference, code),
+    expiresAt: new Date(Date.now() + STEP_UP_TTL_MS),
+  });
+  return code;
+}
+
+async function consumeStepUpProof(userId: number, contactVersion: number, reference: string, code: string): Promise<boolean> {
+  const [proof] = await db.select().from(botStepUpProofsTable).where(and(
+    eq(botStepUpProofsTable.userId, userId), eq(botStepUpProofsTable.contactVersion, contactVersion),
+    eq(botStepUpProofsTable.reference, reference), eq(botStepUpProofsTable.action, STEP_UP_ACTION),
+    sql`${botStepUpProofsTable.expiresAt} > NOW()`, sql`${botStepUpProofsTable.consumedAt} IS NULL`,
+  )).orderBy(desc(botStepUpProofsTable.createdAt)).limit(1);
+  if (!proof) return false;
+  const expected = Buffer.from(proof.proofDigest, "hex");
+  const actual = Buffer.from(stepUpDigest(proof.id, userId, contactVersion, STEP_UP_ACTION, reference, code), "hex");
+  if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) return false;
+  const [consumed] = await db.update(botStepUpProofsTable).set({ consumedAt: new Date() }).where(and(
+    eq(botStepUpProofsTable.id, proof.id), sql`${botStepUpProofsTable.consumedAt} IS NULL`,
+  )).returning();
+  return !!consumed;
 }
 
 // ── Photo-pending helpers ─────────────────────────────────────────────────────
@@ -196,11 +238,16 @@ function phoneVariants(raw: string): string[] {
   return [`0${core}`, `+234${core}`, `234${core}`, core];
 }
 
-function phoneToWaJid(phone: string): string {
+export function normalizeNigerianE164(phone: string): string | null {
   const digits = phone.replace(/\D/g, "");
-  const norm = digits.startsWith("0") ? "234" + digits.slice(1)
-    : digits.startsWith("+") ? digits.slice(1) : digits;
-  return norm + "@s.whatsapp.net";
+  const national = digits.startsWith("0") ? digits.slice(1) : digits.startsWith("234") ? digits.slice(3) : "";
+  return /^8\d{9}$|^7\d{9}$|^9\d{9}$/.test(national) ? `+234${national}` : null;
+}
+
+function phoneToWaJid(phone: string): string {
+  const canonical = normalizeNigerianE164(phone);
+  if (!canonical) throw new Error("Cannot create WhatsApp JID for an invalid Nigerian phone");
+  return `${canonical.slice(1)}@s.whatsapp.net`;
 }
 
 function isLidJid(jid: string) { return jid.endsWith("@lid"); }
@@ -209,7 +256,16 @@ function phoneFromWaJid(jid: string) { return jid.split("@")[0]!.split(":")[0]!;
 // ── DB data helpers ───────────────────────────────────────────────────────────
 
 async function findUsersByPhone(phone: string) {
-  return db.select().from(usersTable).where(inArray(usersTable.phone, phoneVariants(phone.trim())));
+  const canonical = normalizeNigerianE164(phone);
+  if (!canonical) return [];
+  return db.select().from(usersTable).where(and(
+    // Variants retain access during the one-time legacy data migration. New
+    // writes always use canonical E.164.
+    inArray(usersTable.phone, [...phoneVariants(phone.trim()), canonical]),
+    eq(usersTable.isActive, true),
+    eq(usersTable.status, "active"),
+    eq(usersTable.whatsappVerified, true),
+  ));
 }
 
 async function findUserById(id: number) {
@@ -217,8 +273,37 @@ async function findUserById(id: number) {
   return u ?? null;
 }
 
+function isActiveUser(user: Awaited<ReturnType<typeof findUserById>>): user is NonNullable<Awaited<ReturnType<typeof findUserById>>> {
+  return !!user && user.isActive && user.status === "active";
+}
+
+function userHasRole(user: NonNullable<Awaited<ReturnType<typeof findUserById>>>, role: UserRole): boolean {
+  if (user.role === role) return true;
+  try {
+    const secondaryRoles = user.secondaryRoles ? JSON.parse(user.secondaryRoles) : [];
+    return Array.isArray(secondaryRoles) && secondaryRoles.includes(role);
+  } catch {
+    return false;
+  }
+}
+
+async function senderMatchesActiveUser(jid: string, expectedUserId: number): Promise<boolean> {
+  const expected = await findUserById(expectedUserId);
+  if (!isActiveUser(expected) || expected.whatsappVerified === false) return false;
+  if (isLidJid(jid)) {
+    const cached = await getLidUserId(jid);
+    return cached?.userId === expectedUserId && cached.contactVersion === expected.contactVersion;
+  }
+  const matches = await findUsersByPhone(phoneFromWaJid(jid));
+  return matches.some(user => user.id === expectedUserId);
+}
+
 async function getActiveSupportUsers() {
-  return db.select().from(usersTable).where(and(eq(usersTable.role, "support"), eq(usersTable.isActive, true)));
+  return db.select().from(usersTable).where(and(
+    eq(usersTable.role, "support"),
+    eq(usersTable.isActive, true),
+    eq(usersTable.status, "active"),
+  ));
 }
 
 async function getParentChildren(userId: number) {
@@ -550,7 +635,13 @@ export async function handleInboundMessage(
   imageBuffer: Buffer | null,
   reply: (msg: string) => Promise<void>,
   replyWithImage: (buf: Buffer, caption: string) => Promise<void>,
+  providerEventId?: string,
 ): Promise<void> {
+  if (providerEventId) {
+    const claimed = await db.insert(botInboundEventsTable).values({ providerEventId })
+      .onConflictDoNothing().returning();
+    if (!claimed.length) return;
+  }
   const input = text.trim().toLowerCase();
 
   // ── Image from support — relay to parent ─────────────────────────────────
@@ -564,16 +655,16 @@ export async function handleInboundMessage(
   }
 
   // ── Global APPROVE / REJECT ──────────────────────────────────────────────
-  const approveMatch = input.match(/^approve\s+(sc-req-\d{4}-\d+)/i);
-  const rejectMatch  = input.match(/^reject\s+(sc-req-\d{4}-\d+)/i);
-  if (approveMatch) { await _handleApproval(fromJid, approveMatch[1]!.toUpperCase(), true,  reply); return; }
+  const approveMatch = input.match(/^approve\s+(sc-req-\d{4}-\d+)(?:\s+([a-f0-9]{10}))?\s*$/i);
+  const rejectMatch  = input.match(/^reject\s+(sc-req-\d{4}-\d+)\s*$/i);
+  if (approveMatch) { await _handleApproval(fromJid, approveMatch[1]!.toUpperCase(), true, reply, approveMatch[2]?.toUpperCase()); return; }
   if (rejectMatch)  { await _handleApproval(fromJid, rejectMatch[1]!.toUpperCase(),  false, reply); return; }
 
   // Also handle natural "yes" / "no" if parent has a pending approval in session
   const session0 = await getSession(fromJid);
   if (session0.data.pendingApprovalRef) {
     if (/^(yes|approve|ok|okay|confirm|proceed|yes please)$/i.test(input)) {
-      await _handleApproval(fromJid, session0.data.pendingApprovalRef, true, reply); return;
+      await reply(`For safety, use the one-time code sent with the photo: *APPROVE ${session0.data.pendingApprovalRef} CODE*.`); return;
     }
     if (/^(no|reject|cancel|stop|dont|don't)$/i.test(input)) {
       await _handleApproval(fromJid, session0.data.pendingApprovalRef, false, reply); return;
@@ -581,7 +672,7 @@ export async function handleInboundMessage(
   }
 
   // ── PHOTO <REF> from support ─────────────────────────────────────────────
-  const photoMatch = input.match(/^photo\s+(sc-req-\d{4}-\d+)/i);
+  const photoMatch = input.match(/^photo\s+(sc-req-\d{4}-\d+)\s*$/i);
   if (photoMatch) { await _handlePhotoIntent(fromJid, photoMatch[1]!.toUpperCase(), reply); return; }
 
   // ── Resolve userId from JID ──────────────────────────────────────────────
@@ -590,7 +681,8 @@ export async function handleInboundMessage(
   if (isLidJid(fromJid)) {
     const cached = await getLidUserId(fromJid);
     if (cached) {
-      resolvedUserId = cached;
+      const user = await findUserById(cached.userId);
+      if (isActiveUser(user) && user.whatsappVerified !== false && user.contactVersion === cached.contactVersion) resolvedUserId = cached.userId;
     } else {
       const session = await getSession(fromJid);
       if (session.step === "lid_verify_phone") {
@@ -599,7 +691,11 @@ export async function handleInboundMessage(
           await reply(`❌ I couldn't find that number.\n\nPlease check and try again.\n\n_Type your registered phone (e.g. 08012345678):_`);
           return;
         }
-        await setLidUserId(fromJid, matches[0]!.id);
+        // A LID is opaque and typing a number is not proof of possession.
+        // It may only bind an already WhatsApp-verified account.
+        if (matches.some(match => match.whatsappVerified === false)) {
+          await reply(`⛔ This WhatsApp contact has not been verified in the app.`); return;
+        }
         resolvedUserId = matches[0]!.id;
         if (matches.length > 1) {
           const s: Session = { step: "role_select", data: { candidates: matches.map(u => u.id).join(",") } };
@@ -608,6 +704,7 @@ export async function handleInboundMessage(
           await reply(`I found multiple accounts. Which one are you using today?\n\n${opts}`);
           return;
         }
+        await setLidUserId(fromJid, matches[0]!.id, matches[0]!.contactVersion);
         await resetSession(fromJid, matches[0]!.id);
         const user = await findUserById(matches[0]!.id);
         if (user) {
@@ -660,7 +757,16 @@ export async function handleInboundMessage(
 
   // ── Load session ─────────────────────────────────────────────────────────
   let session = await getSession(fromJid);
-  if (session.activeUserId) resolvedUserId = session.activeUserId;
+  if (session.activeUserId) {
+    const sessionUserIsCurrent = isLidJid(fromJid)
+      ? session.activeUserId === resolvedUserId
+      : (await findUsersByPhone(phoneFromWaJid(fromJid))).some(user => user.id === session.activeUserId);
+    if (sessionUserIsCurrent) {
+      resolvedUserId = session.activeUserId;
+    } else {
+      session = await resetSession(fromJid, resolvedUserId);
+    }
+  }
 
   // ── Role selection ────────────────────────────────────────────────────────
   if (session.step === "role_select") {
@@ -677,12 +783,40 @@ export async function handleInboundMessage(
       session.data.activeRole = chosenRole;
       await saveSession(fromJid, session);
     }
+    if (isLidJid(fromJid)) {
+      const selected = await findUserById(resolvedUserId);
+      if (!isActiveUser(selected) || selected.whatsappVerified === false) {
+        await resetSession(fromJid);
+        await reply(`⛔ This account is not active for WhatsApp.`);
+        return;
+      }
+      await setLidUserId(fromJid, selected.id, selected.contactVersion);
+    }
   }
 
   const user = await findUserById(resolvedUserId);
-  if (!user) { await reply(`⚠️ Something went wrong. Please try again.`); return; }
+  if (!isActiveUser(user) || user.whatsappVerified === false) {
+    await resetSession(fromJid);
+    await reply(`⛔ This account is not active. Please contact the church admin.`);
+    return;
+  }
+  if (session.data.contactVersion !== String(user.contactVersion)) {
+    // This check happens against the freshly loaded user, rather than treating
+    // session state as authoritative. Phone changes also delete sessions in
+    // the same transaction, so an old version cannot survive a write.
+    session.data.contactVersion = String(user.contactVersion);
+    session.activeUserId = user.id;
+  }
   // Use activeRole from session (set when user switches to a secondary role)
-  const role = (session.data.activeRole as UserRole | undefined) ?? (user.role as UserRole);
+  let secondaryRoles: string[] = [];
+  try {
+    const parsed = user.secondaryRoles ? JSON.parse(user.secondaryRoles) : [];
+    if (Array.isArray(parsed)) secondaryRoles = parsed.filter((value): value is string => typeof value === "string");
+  } catch { /* invalid secondary roles cannot authorize a session override */ }
+  const activeRole = session.data.activeRole;
+  const role = activeRole && [user.role, ...secondaryRoles].includes(activeRole)
+    ? activeRole as UserRole
+    : user.role as UserRole;
 
   // ── Idle-nudge reply — YES/NO (or anything) after "are you there?" ─────────
   if (session.step === "awaiting_nudge") {
@@ -1182,7 +1316,7 @@ async function _createSupportRequest(
   if (supportJid) {
     // Only store relay data for delegate pickup (photo approval flow)
     if (isDelegate) {
-      await setPendingApproval(ref, { parentJid, supportJid, childName, requestType, childId: child.id, parentUserId: parent.id, assignedSupportId: assigned.id });
+      await setPendingApproval(ref, { parentJid, supportJid, childName, requestType, childId: child.id, parentUserId: parent.id, assignedSupportId: assigned.id, parentContactVersion: parent.contactVersion });
     }
 
     const supportMsg = isDelegate
@@ -1206,6 +1340,15 @@ async function _handlePhotoIntent(fromJid: string, ref: string, reply: (msg: str
   const [req] = await db.select().from(supportRequestsTable).where(eq(supportRequestsTable.referenceNumber, ref));
   if (!req) { await reply(`❌ Request *${ref}* not found.`); return; }
   if (req.status !== "pending") { await reply(`⚠️ Request *${ref}* is already *${req.status}*.`); return; }
+  if (!req.assignedSupportId || !(await senderMatchesActiveUser(fromJid, req.assignedSupportId))) {
+    await reply(`⛔ You are not the active support officer assigned to request *${ref}*.`);
+    return;
+  }
+  const assignedSupport = await findUserById(req.assignedSupportId);
+  if (!isActiveUser(assignedSupport) || !userHasRole(assignedSupport, "support")) {
+    await reply(`⛔ You are not the active support officer assigned to request *${ref}*.`);
+    return;
+  }
 
   // Photo verification is only for delegate pickup — not for check-in or check-out
   if (req.type !== "delegate_pickup") {
@@ -1218,12 +1361,30 @@ async function _handlePhotoIntent(fromJid: string, ref: string, reply: (msg: str
   }
 
   const existing = await getPendingApproval(ref);
+  if (existing && (
+    existing.parentUserId !== req.parentUserId
+    || existing.childId !== req.childId
+    || existing.assignedSupportId !== req.assignedSupportId
+    || existing.supportJid !== fromJid
+  )) {
+    await reply(`⚠️ Request authorization data is no longer valid. Contact admin.`);
+    return;
+  }
   if (!existing) {
     const [child]  = await db.select().from(childrenTable).where(eq(childrenTable.id, req.childId));
     const [parent] = await db.select().from(usersTable).where(eq(usersTable.id, req.parentUserId));
-    if (!child || !parent) { await reply(`⚠️ Could not load request data. Contact admin.`); return; }
+    const [family] = child
+      ? await db.select().from(familiesTable).where(and(
+          eq(familiesTable.id, child.familyId),
+          or(eq(familiesTable.parent1Id, req.parentUserId), eq(familiesTable.parent2Id, req.parentUserId)),
+        ))
+      : [];
+    if (!child || !isActiveUser(parent ?? null) || !family) {
+      await reply(`⚠️ Could not authorize request data. Contact admin.`);
+      return;
+    }
     const parentJid = parent.phone ? phoneToWaJid(parent.phone) : "";
-    await setPendingApproval(ref, { parentJid, supportJid: fromJid, childName: `${child.firstName} ${child.lastName}`, requestType: req.type, childId: child.id, parentUserId: parent.id, assignedSupportId: req.assignedSupportId! });
+    await setPendingApproval(ref, { parentJid, supportJid: fromJid, childName: `${child.firstName} ${child.lastName}`, requestType: req.type, childId: child.id, parentUserId: parent.id, assignedSupportId: req.assignedSupportId!, parentContactVersion: parent.contactVersion });
   }
 
   await setPhotoPending(fromJid, ref);
@@ -1235,10 +1396,48 @@ async function _handlePhotoIntent(fromJid: string, ref: string, reply: (msg: str
 async function _handleSupportPhoto(supportJid: string, ref: string, imageBuffer: Buffer, reply: (msg: string) => Promise<void>) {
   const relay = await getPendingApproval(ref);
   if (!relay) { await reply(`⚠️ Couldn't find request *${ref}*. Type *PHOTO ${ref}* again.`); return; }
+  const [req] = await db.select().from(supportRequestsTable).where(eq(supportRequestsTable.referenceNumber, ref));
+  const assignedSupport = await findUserById(relay.assignedSupportId);
+  if (
+    !req
+    || req.status !== "pending"
+    || req.type !== "delegate_pickup"
+    || req.parentUserId !== relay.parentUserId
+    || req.childId !== relay.childId
+    || req.assignedSupportId !== relay.assignedSupportId
+    || relay.supportJid !== supportJid
+    || !(await senderMatchesActiveUser(supportJid, relay.assignedSupportId))
+    || !isActiveUser(assignedSupport)
+    || !userHasRole(assignedSupport, "support")
+  ) {
+    await reply(`⛔ This photo request is no longer authorized.`);
+    return;
+  }
+
+  const [child] = await db.select().from(childrenTable).where(eq(childrenTable.id, req.childId));
+  const [family] = child
+    ? await db.select().from(familiesTable).where(and(
+        eq(familiesTable.id, child.familyId),
+        or(eq(familiesTable.parent1Id, req.parentUserId), eq(familiesTable.parent2Id, req.parentUserId)),
+      ))
+    : [];
+  if (!child || !family) {
+    await reply(`⛔ This photo request is no longer authorized.`);
+    return;
+  }
 
   // Delegate pickup: relay photo to parent and wait for YES/NO approval
   if (relay.requestType === "delegate_pickup") {
-    await db.update(supportRequestsTable).set({ status: "photo_sent", updatedAt: new Date() }).where(eq(supportRequestsTable.referenceNumber, ref));
+    const [updated] = await db.update(supportRequestsTable).set({ status: "photo_sent", updatedAt: new Date() })
+      .where(and(
+        eq(supportRequestsTable.referenceNumber, ref),
+        eq(supportRequestsTable.status, "pending"),
+        eq(supportRequestsTable.assignedSupportId, relay.assignedSupportId),
+      )).returning();
+    if (!updated) {
+      await reply(`⚠️ Request *${ref}* has already been processed.`);
+      return;
+    }
     await reply(`✅ Photo received. Sending to the parent for identity approval...\nPlease wait — *do NOT release the child yet.*`);
 
     if (relay.parentJid) {
@@ -1246,10 +1445,11 @@ async function _handleSupportPhoto(supportJid: string, ref: string, imageBuffer:
       parentSession.data.pendingApprovalRef = ref;
       await saveSession(relay.parentJid, parentSession);
 
+      const proofCode = await createStepUpProof(relay.parentUserId, relay.parentContactVersion, ref);
       await sendWhatsAppImageToJid(relay.parentJid, imageBuffer,
         `📸 *Delegate Identity Verification*\n\n👦 Child: *${relay.childName}*\n🔖 Ref: *${ref}*\n\n` +
         `Please confirm this is the person you authorised to collect your child:\n\n` +
-        `✅ Reply *YES* to approve — delegate may collect\n❌ Reply *NO* to reject — delegate will be turned away`
+        `✅ To approve, reply *APPROVE ${ref} ${proofCode}* — delegate may collect\n❌ Reply *NO* to reject — delegate will be turned away\n\n_This one-time code expires in 5 minutes._`
       );
       logger.info({ ref, parentJid: relay.parentJid }, "Delegate photo relayed to parent for approval");
     }
@@ -1268,15 +1468,46 @@ async function _handleSupportPhoto(supportJid: string, ref: string, imageBuffer:
 
 // ── Approval handler ──────────────────────────────────────────────────────────
 
-async function _handleApproval(parentJid: string, ref: string, approved: boolean, reply: (msg: string) => Promise<void>) {
+async function _handleApproval(parentJid: string, ref: string, approved: boolean, reply: (msg: string) => Promise<void>, proofCode?: string) {
   const relay = await getPendingApproval(ref);
   const [req]  = await db.select().from(supportRequestsTable).where(eq(supportRequestsTable.referenceNumber, ref));
   if (!req) { await reply(`❌ Request *${ref}* not found.`); return; }
-  if (req.status !== "photo_sent" && req.status !== "pending") {
+  if (req.status !== "photo_sent") {
     await reply(`⚠️ Request *${ref}* has already been *${req.status}*.`); return;
   }
+  if (
+    !relay
+    || req.type !== "delegate_pickup"
+    || req.parentUserId !== relay.parentUserId
+    || req.childId !== relay.childId
+    || req.assignedSupportId !== relay.assignedSupportId
+    || !(await senderMatchesActiveUser(parentJid, req.parentUserId))
+  ) {
+    await reply(`⛔ You are not authorized to approve request *${ref}*.`);
+    return;
+  }
+  const parent = await findUserById(req.parentUserId);
+  if (!isActiveUser(parent) || parent.contactVersion !== relay.parentContactVersion) {
+    await reply(`⛔ Request *${ref}* is no longer authorized for this parent and child.`);
+    return;
+  }
+  if (approved && (!proofCode || !(await consumeStepUpProof(parent.id, parent.contactVersion, ref, proofCode)))) {
+    await reply(`⛔ That approval code is invalid, expired, or already used. Request a new delegate photo.`);
+    return;
+  }
+  const [child] = await db.select().from(childrenTable).where(eq(childrenTable.id, req.childId));
+  const [family] = child
+    ? await db.select().from(familiesTable).where(and(
+        eq(familiesTable.id, child.familyId),
+        or(eq(familiesTable.parent1Id, req.parentUserId), eq(familiesTable.parent2Id, req.parentUserId)),
+      ))
+    : [];
+  if (!child || !family) {
+    await reply(`⛔ Request *${ref}* is no longer authorized for this parent and child.`);
+    return;
+  }
 
-  const childName = relay?.childName ?? `Child #${req.childId}`;
+  const childName = relay.childName;
 
   // Clear pending approval ref from parent session
   const parentSession = await getSession(parentJid);
@@ -1290,22 +1521,35 @@ async function _handleApproval(parentJid: string, ref: string, approved: boolean
       .set({ status: "approved", updatedAt: new Date() })
       .where(and(
         eq(supportRequestsTable.referenceNumber, ref),
-        inArray(supportRequestsTable.status, ["photo_sent", "pending"]),
+        eq(supportRequestsTable.status, "photo_sent"),
+        eq(supportRequestsTable.parentUserId, relay.parentUserId),
+        eq(supportRequestsTable.childId, relay.childId),
+        eq(supportRequestsTable.assignedSupportId, relay.assignedSupportId),
       ))
       .returning();
     if (!claimed) {
       await reply(`⚠️ Request *${ref}* has already been processed.`);
       return;
     }
-    await _recordAttendance(claimed);
+    await _recordAttendance(claimed, relay);
     await reply(`✅ *Approved!*\n\nYou approved the ${typeLabel(req.type).toLowerCase()} for *${childName}*.\nThe support officer has been notified.\n\nType *0* for the main menu.`);
-    if (relay?.supportJid) {
+    if (relay.supportJid) {
       await sendWhatsAppToJid(relay.supportJid, `✅ *Parent Approved!*\n\n👦 *${childName}* — ${typeLabel(req.type)}\n🔖 Ref: *${ref}*\n\nPlease proceed. Attendance has been recorded automatically.`);
     }
   } else {
-    await db.update(supportRequestsTable).set({ status: "rejected", updatedAt: new Date() }).where(eq(supportRequestsTable.referenceNumber, ref));
+    const [rejected] = await db.update(supportRequestsTable).set({ status: "rejected", updatedAt: new Date() }).where(and(
+      eq(supportRequestsTable.referenceNumber, ref),
+      eq(supportRequestsTable.status, "photo_sent"),
+      eq(supportRequestsTable.parentUserId, relay.parentUserId),
+      eq(supportRequestsTable.childId, relay.childId),
+      eq(supportRequestsTable.assignedSupportId, relay.assignedSupportId),
+    )).returning();
+    if (!rejected) {
+      await reply(`⚠️ Request *${ref}* has already been processed.`);
+      return;
+    }
     await reply(`❌ *Rejected.*\n\nThe support officer has been notified not to proceed for *${childName}*.\n\nType *0* for the main menu.`);
-    if (relay?.supportJid) {
+    if (relay.supportJid) {
       await sendWhatsAppToJid(relay.supportJid, `❌ *Parent Rejected the Photo*\n\n👦 *${childName}* — ${typeLabel(req.type)}\n🔖 Ref: *${ref}*\n\n⚠️ *Do not proceed.*`);
     }
   }
@@ -1315,7 +1559,7 @@ async function _handleApproval(parentJid: string, ref: string, approved: boolean
 
 // ── Auto-record attendance ────────────────────────────────────────────────────
 
-async function _recordAttendance(req: typeof supportRequestsTable.$inferSelect) {
+async function _recordAttendance(req: typeof supportRequestsTable.$inferSelect, relay: RelayData) {
   try {
     const today = todayDate();
     const lockKey = Number(today.replace(/-/g, ""));
@@ -1325,7 +1569,29 @@ async function _recordAttendance(req: typeof supportRequestsTable.$inferSelect) 
       await tx.execute(sql`SELECT pg_advisory_xact_lock(${req.childId}, ${lockKey})`);
       const [currentRequest] = await tx.select().from(supportRequestsTable)
         .where(eq(supportRequestsTable.referenceNumber, req.referenceNumber));
-      if (currentRequest?.status !== "approved") return;
+      if (
+        currentRequest?.status !== "approved"
+        || currentRequest.type !== "delegate_pickup"
+        || currentRequest.parentUserId !== relay.parentUserId
+        || currentRequest.childId !== relay.childId
+        || currentRequest.assignedSupportId !== relay.assignedSupportId
+      ) return;
+      const [parent] = await tx.select().from(usersTable).where(eq(usersTable.id, currentRequest.parentUserId));
+      const [support] = await tx.select().from(usersTable).where(eq(usersTable.id, currentRequest.assignedSupportId!));
+      const [child] = await tx.select().from(childrenTable).where(eq(childrenTable.id, currentRequest.childId));
+      const [family] = child
+        ? await tx.select().from(familiesTable).where(and(
+            eq(familiesTable.id, child.familyId),
+            or(eq(familiesTable.parent1Id, currentRequest.parentUserId), eq(familiesTable.parent2Id, currentRequest.parentUserId)),
+          ))
+        : [];
+      if (
+        !isActiveUser(parent ?? null)
+        || !isActiveUser(support ?? null)
+        || !userHasRole(support, "support")
+        || !child
+        || !family
+      ) return;
 
       const [existing] = await tx.select().from(attendanceTable)
         .where(and(eq(attendanceTable.childId, req.childId), eq(attendanceTable.serviceDate, today)));

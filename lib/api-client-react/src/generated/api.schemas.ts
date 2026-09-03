@@ -23,6 +23,188 @@ export interface HealthStatus {
   status: string;
 }
 
+export interface CustodyAcceptanceInput {
+  /** @minimum 1 */
+  episodeId: number;
+  /**
+   * @minLength 1
+   * @maxLength 128
+   */
+  eventId?: string;
+}
+
+export type CustodyRequestInputRequestedServices =
+  (typeof CustodyRequestInputRequestedServices)[keyof typeof CustodyRequestInputRequestedServices];
+
+export const CustodyRequestInputRequestedServices = {
+  first: "first",
+  second: "second",
+  both: "both",
+} as const;
+
+export interface CustodyRequestInput {
+  /** @minimum 1 */
+  childId: number;
+  serviceDate: string;
+  requestedServices: CustodyRequestInputRequestedServices;
+  /**
+   * @minLength 1
+   * @maxLength 128
+   */
+  eventId: string;
+}
+
+export interface CustodyOverrideInput {
+  /**
+   * @minLength 1
+   * @maxLength 500
+   */
+  reason: string;
+}
+
+export type CustodyEpisodeRequestedServices =
+  (typeof CustodyEpisodeRequestedServices)[keyof typeof CustodyEpisodeRequestedServices];
+
+export const CustodyEpisodeRequestedServices = {
+  first: "first",
+  second: "second",
+  both: "both",
+} as const;
+
+export type CustodyEpisodeStatus =
+  (typeof CustodyEpisodeStatus)[keyof typeof CustodyEpisodeStatus];
+
+export const CustodyEpisodeStatus = {
+  requested: "requested",
+  accepted: "accepted",
+  picked_up: "picked_up",
+  cancelled: "cancelled",
+} as const;
+
+/**
+ * @nullable
+ */
+export type CustodyEpisodeCheckoutMode =
+  | (typeof CustodyEpisodeCheckoutMode)[keyof typeof CustodyEpisodeCheckoutMode]
+  | null;
+
+export const CustodyEpisodeCheckoutMode = {
+  normal: "normal",
+  admin_override: "admin_override",
+} as const;
+
+export interface CustodyEpisode {
+  id: number;
+  childId: number;
+  familyId: number;
+  serviceDate: string;
+  requestedServices: CustodyEpisodeRequestedServices;
+  requestedBy: number;
+  requestedAt: string;
+  /** @nullable */
+  custodianUserId?: number | null;
+  status: CustodyEpisodeStatus;
+  /** @nullable */
+  acceptedAt?: string | null;
+  /** @nullable */
+  pickedUpAt?: string | null;
+  /** @nullable */
+  pickedUpBy?: number | null;
+  /** @nullable */
+  overrideReason?: string | null;
+  /** @nullable */
+  overriddenBy?: number | null;
+  /** @nullable */
+  checkoutMode?: CustodyEpisodeCheckoutMode;
+}
+
+export type AttendanceStatus =
+  (typeof AttendanceStatus)[keyof typeof AttendanceStatus];
+
+export const AttendanceStatus = {
+  dropped_off: "dropped_off",
+  in_transit: "in_transit",
+  in_class: "in_class",
+  picked_up: "picked_up",
+} as const;
+
+export type ChildServicePreference =
+  | (typeof ChildServicePreference)[keyof typeof ChildServicePreference]
+  | null;
+
+export const ChildServicePreference = {
+  "7am": "7am",
+  "10:30am": "10:30am",
+  both: "both",
+} as const;
+
+export type ClassServiceSlot =
+  (typeof ClassServiceSlot)[keyof typeof ClassServiceSlot];
+
+export const ClassServiceSlot = {
+  "7am": "7am",
+  "10:30am": "10:30am",
+} as const;
+
+export interface Class {
+  id: number;
+  name: string;
+  ageMin: number;
+  ageMax: number;
+  capacity: number;
+  roomLocation: string;
+  serviceSlot: ClassServiceSlot;
+  description?: string | null;
+  enrollmentCount: number;
+  createdAt: string;
+}
+
+export interface Child {
+  id: number;
+  familyId: number;
+  firstName: string;
+  lastName: string;
+  dob: string;
+  age: number;
+  gender: string;
+  allergies?: string | null;
+  medicalNotes?: string | null;
+  photoUrl?: string | null;
+  faceDescriptorJson?: string | null;
+  servicePreference?: ChildServicePreference;
+  currentClassId?: number | null;
+  currentClass?: Class | null;
+  createdAt: string;
+}
+
+export interface Attendance {
+  id: number;
+  childId: number;
+  classId: number;
+  serviceDate: string;
+  serviceSlot: string;
+  checkInTime?: string | null;
+  escortTime?: string | null;
+  checkOutTime?: string | null;
+  checkedInBy?: number | null;
+  escortedBy?: number | null;
+  checkedOutBy?: number | null;
+  status: AttendanceStatus;
+  child?: Child | null;
+  class?: Class | null;
+}
+
+export interface CustodyEpisodeResult {
+  episode: CustodyEpisode;
+  attendance: Attendance[];
+  duplicate: boolean;
+}
+
+export interface CustodyRequestResult {
+  episode: CustodyEpisode;
+  duplicate: boolean;
+}
+
 export interface ErrorResponse {
   error: string;
   message: string;
@@ -128,55 +310,6 @@ export interface PaginatedUsers {
   limit: number;
 }
 
-export type ChildServicePreference =
-  | (typeof ChildServicePreference)[keyof typeof ChildServicePreference]
-  | null;
-
-export const ChildServicePreference = {
-  "7am": "7am",
-  "10:30am": "10:30am",
-  both: "both",
-} as const;
-
-export type ClassServiceSlot =
-  (typeof ClassServiceSlot)[keyof typeof ClassServiceSlot];
-
-export const ClassServiceSlot = {
-  "7am": "7am",
-  "10:30am": "10:30am",
-} as const;
-
-export interface Class {
-  id: number;
-  name: string;
-  ageMin: number;
-  ageMax: number;
-  capacity: number;
-  roomLocation: string;
-  serviceSlot: ClassServiceSlot;
-  description?: string | null;
-  enrollmentCount: number;
-  createdAt: string;
-}
-
-export interface Child {
-  id: number;
-  familyId: number;
-  firstName: string;
-  lastName: string;
-  dob: string;
-  age: number;
-  gender: string;
-  allergies?: string | null;
-  medicalNotes?: string | null;
-  photoUrl?: string | null;
-  faceDescriptorJson?: string | null;
-  servicePreference?: ChildServicePreference;
-  currentClassId?: number | null;
-  currentClass?: Class | null;
-  createdAt: string;
-}
-
 export interface Family {
   id: number;
   familyCode: string;
@@ -204,33 +337,6 @@ export interface PaginatedFamilies {
   total: number;
   page: number;
   limit: number;
-}
-
-export type AttendanceStatus =
-  (typeof AttendanceStatus)[keyof typeof AttendanceStatus];
-
-export const AttendanceStatus = {
-  dropped_off: "dropped_off",
-  in_transit: "in_transit",
-  in_class: "in_class",
-  picked_up: "picked_up",
-} as const;
-
-export interface Attendance {
-  id: number;
-  childId: number;
-  classId: number;
-  serviceDate: string;
-  serviceSlot: string;
-  checkInTime?: string | null;
-  escortTime?: string | null;
-  checkOutTime?: string | null;
-  checkedInBy?: number | null;
-  escortedBy?: number | null;
-  checkedOutBy?: number | null;
-  status: AttendanceStatus;
-  child?: Child | null;
-  class?: Class | null;
 }
 
 export interface ChildWithDetails {

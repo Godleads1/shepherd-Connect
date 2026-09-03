@@ -1,9 +1,11 @@
 import { pgTable, serial, integer, date, text, timestamp, pgEnum, uniqueIndex } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { childrenTable } from "./children";
 import { classesTable } from "./classes";
 import { usersTable } from "./users";
+import { custodyEpisodesTable } from "./custodyEpisodes";
 
 export const attendanceStatusEnum = pgEnum("attendance_status", [
   "dropped_off",
@@ -26,11 +28,17 @@ export const attendanceTable = pgTable("attendance", {
   escortedBy: integer("escorted_by").references(() => usersTable.id),
   confirmedByTeacherId: integer("confirmed_by_teacher_id").references(() => usersTable.id),
   checkedOutBy: integer("checked_out_by").references(() => usersTable.id),
+  custodyEpisodeId: integer("custody_episode_id").references(() => custodyEpisodesTable.id),
   status: attendanceStatusEnum("status").notNull().default("dropped_off"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (t) => [
-  // A child can only have one attendance record per service slot per day
-  uniqueIndex("uq_attendance_child_slot").on(t.childId, t.serviceDate, t.serviceSlot),
+  // Legacy rows retain the prior one-row-per-slot invariant. Custody-backed
+  // rows are per episode, allowing a pickup and later physical return to be
+  // recorded as a distinct custody and service-presence interval.
+  uniqueIndex("uq_attendance_legacy_child_slot").on(t.childId, t.serviceDate, t.serviceSlot)
+    .where(sql`${t.custodyEpisodeId} IS NULL`),
+  uniqueIndex("uq_attendance_child_slot_episode").on(t.childId, t.serviceDate, t.serviceSlot, t.custodyEpisodeId)
+    .where(sql`${t.custodyEpisodeId} IS NOT NULL`),
 ]);
 
 export const insertAttendanceSchema = createInsertSchema(attendanceTable).omit({

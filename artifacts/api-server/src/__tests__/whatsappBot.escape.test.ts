@@ -125,17 +125,17 @@ const FUTURE_DATE = new Date(Date.now() + 3_600_000);
 const parentUser = {
   id: 42, firstName: "Ada", lastName: "Parent",
   role: "parent", phone: "08012345678",
-  isActive: true, secondaryRoles: null,
+  isActive: true, status: "active", secondaryRoles: null,
 };
 
 const teacherUser = {
   id: 43, firstName: "Bob", lastName: "Teacher",
   role: "teacher", phone: "08087654321",
-  isActive: true, secondaryRoles: null,
+  isActive: true, status: "active", secondaryRoles: null,
 };
 
 /**
- * Builds the five-call DB select sequence the bot executes for a
+ * Builds the six-call DB select sequence the bot executes for a
  * non-LID JID with an active session already in place.
  *
  * Call order:
@@ -143,7 +143,8 @@ const teacherUser = {
  *  2. findUsersByPhone (line ~627)
  *  3. getSession  — role-select / activeUserId guard (line ~630)
  *  4. getSession  — main session load (line ~661)
- *  5. findUserById (line ~681)
+ *  5. revalidate session user against sender phone
+ *  6. findUserById (line ~681)
  */
 function queueSession(step: string, user: typeof parentUser, data: Record<string, string> = {}) {
   const row = { step, activeUserId: user.id, dataJson: JSON.stringify(data), expiresAt: FUTURE_DATE };
@@ -152,7 +153,8 @@ function queueSession(step: string, user: typeof parentUser, data: Record<string
     [user],      // 2 — findUsersByPhone
     [row],       // 3 — getSession (role guard)
     [row],       // 4 — getSession (main)
-    [user],      // 5 — findUserById
+    [user],      // 5 — session user still belongs to sender
+    [user],      // 6 — findUserById
   );
 }
 
@@ -267,5 +269,91 @@ describe("multi-step flows still work when a valid option is sent", () => {
     expect(
       msg.includes("Which child") || msg.includes("No children")
     ).toBe(true);
+  });
+});
+
+describe("privileged short references never authorize the sender", () => {
+  const reply = vi.fn().mockResolvedValue(undefined);
+  const replyWithImage = vi.fn().mockResolvedValue(undefined);
+  const ref = "SC-REQ-2026-12345";
+  const relay = {
+    refNumber: ref,
+    parentJid: PARENT_JID,
+    supportJid: TEACHER_JID,
+    childName: "Test Child",
+    requestType: "delegate_pickup",
+    childId: 10,
+    parentUserId: parentUser.id,
+    assignedSupportId: teacherUser.id,
+  };
+  const supportRequest = {
+    referenceNumber: ref,
+    type: "delegate_pickup",
+    childId: 10,
+    parentUserId: parentUser.id,
+    assignedSupportId: teacherUser.id,
+    status: "photo_sent",
+  };
+
+  beforeEach(() => {
+    resetAll();
+    reply.mockClear();
+    replyWithImage.mockClear();
+  });
+
+  it("rejects APPROVE from a phone that is not the request parent", async () => {
+    dbQueue.push(
+      [relay],
+      [supportRequest],
+      [parentUser],
+      [teacherUser],
+    );
+
+    await handleInboundMessage(TEACHER_JID, `APPROVE ${ref}`, null, reply, replyWithImage);
+
+    expect(reply).toHaveBeenCalledWith(expect.stringContaining("not authorized"));
+    expect(mockInsertValues).not.toHaveBeenCalled();
+  });
+
+  it("rejects PHOTO when the assigned support account is suspended", async () => {
+    dbQueue.push(
+      [],
+      [{ ...supportRequest, status: "pending" }],
+      [{ ...teacherUser, isActive: false, status: "suspended" }],
+    );
+
+    await handleInboundMessage(TEACHER_JID, `PHOTO ${ref}`, null, reply, replyWithImage);
+
+    expect(reply).toHaveBeenCalledWith(expect.stringContaining("not the active support officer"));
+    expect(mockInsertValues).not.toHaveBeenCalled();
+  });
+});
+
+describe("sender session revalidation", () => {
+  it("discards an activeUserId that no longer belongs to the sender phone", async () => {
+    resetAll();
+    const staleSession = {
+      step: "idle",
+      activeUserId: 999,
+      dataJson: JSON.stringify({ activeRole: "support" }),
+      expiresAt: FUTURE_DATE,
+    };
+    dbQueue.push(
+      [staleSession],
+      [parentUser],
+      [staleSession],
+      [staleSession],
+      [parentUser],
+      [parentUser],
+    );
+    const reply = vi.fn().mockResolvedValue(undefined);
+
+    await handleInboundMessage(PARENT_JID, "0", null, reply, vi.fn().mockResolvedValue(undefined));
+
+    expect(reply).toHaveBeenCalledWith(expect.stringContaining("Check attendance status"));
+    expect(mockInsertValues).toHaveBeenCalledWith(expect.objectContaining({
+      activeUserId: parentUser.id,
+      dataJson: "{}",
+    }));
   });
 });

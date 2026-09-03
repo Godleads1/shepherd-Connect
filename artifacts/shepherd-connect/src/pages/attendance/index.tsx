@@ -1,15 +1,16 @@
 import { useState } from "react";
-import { useListAttendance, useListClasses } from "@workspace/api-client-react";
+import { useListAttendance, useListClasses, useCompleteCustodyPickup, useOverrideCustodyPickup } from "@workspace/api-client-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { format } from "date-fns";
-import { Filter, X, Calendar, Download, CheckCircle2 } from "lucide-react";
+import { Filter, X, Calendar, Download, CheckCircle2, ShieldAlert } from "lucide-react";
 import { useAuth } from "@/contexts/auth";
 import { useToast } from "@/hooks/use-toast";
-import { apiGet, apiPost } from "@/lib/api-call";
+import { apiGet, apiPost, apiPut } from "@/lib/api-call";
 import { useQuery } from "@tanstack/react-query";
 
 const STATUS_OPTS = [
@@ -75,6 +76,59 @@ export default function Attendance() {
   });
   const staleRecords: any[] = Array.isArray(staleRaw) ? staleRaw : [];
   const [clearingStale, setClearingStale] = useState(false);
+
+  const completeCustodyMutation = useCompleteCustodyPickup();
+  const overrideCustodyMutation = useOverrideCustodyPickup();
+  const [overrideEpisodeId, setOverrideEpisodeId] = useState<number | null>(null);
+  const [overrideReason, setOverrideReason] = useState("");
+
+  const handleCheckout = async (record: any) => {
+    if (record.custodyEpisodeId) {
+      try {
+        await completeCustodyMutation.mutateAsync({ id: record.custodyEpisodeId });
+        toast({ title: "Checked out", description: "Custody handed over successfully." });
+        refetch();
+        refetchToday();
+      } catch (e: any) {
+        if (e?.message?.includes("Only the accepting support custodian")) {
+          if (isAdmin) {
+            setOverrideEpisodeId(record.custodyEpisodeId);
+          } else {
+            toast({ variant: "destructive", title: "Access Denied", description: "Only the custodian who accepted this child can check them out." });
+          }
+        } else {
+          toast({ variant: "destructive", title: "Checkout Failed", description: e.message });
+        }
+      }
+    } else {
+      // Legacy checkout
+      try {
+        await apiPut(`/attendance/${record.id}/checkout`, {});
+        toast({ title: "Checked out successfully" });
+        refetch();
+        refetchToday();
+      } catch (e: any) {
+        toast({ variant: "destructive", title: "Checkout Failed", description: e.message });
+      }
+    }
+  };
+
+  const submitOverride = async () => {
+    if (!overrideEpisodeId || !overrideReason.trim()) return;
+    try {
+      await overrideCustodyMutation.mutateAsync({
+        id: overrideEpisodeId,
+        data: { reason: overrideReason.trim() }
+      });
+      toast({ title: "Override Successful", description: "Child has been checked out." });
+      setOverrideEpisodeId(null);
+      setOverrideReason("");
+      refetch();
+      refetchToday();
+    } catch (e: any) {
+      toast({ variant: "destructive", title: "Override Failed", description: e.message });
+    }
+  };
 
   const handleClearStale = async () => {
     setClearingStale(true);
@@ -280,6 +334,7 @@ export default function Attendance() {
                 <TableHead className="font-semibold text-gray-700 text-xs">Check In</TableHead>
                 <TableHead className="font-semibold text-gray-700 text-xs">Check Out</TableHead>
                 <TableHead className="font-semibold text-gray-700 text-xs">Status</TableHead>
+                {!isParent && <TableHead className="font-semibold text-gray-700 text-xs text-right">Actions</TableHead>}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -325,6 +380,15 @@ export default function Attendance() {
                         {(r.status ?? "").replace(/_/g, " ")}
                       </span>
                     </TableCell>
+                    {!isParent && (
+                      <TableCell className="text-right">
+                        {r.status !== "picked_up" && (
+                          <Button size="sm" variant="outline" onClick={() => handleCheckout(r)}>
+                            Check Out
+                          </Button>
+                        )}
+                      </TableCell>
+                    )}
                   </TableRow>
                 ))
               )}
@@ -332,6 +396,33 @@ export default function Attendance() {
           </Table>
         </div>
       </div>
+
+      <Dialog open={!!overrideEpisodeId} onOpenChange={(o) => !o && setOverrideEpisodeId(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-600">
+              <ShieldAlert className="w-5 h-5" /> Admin Checkout Override
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-4">
+            <p className="text-sm text-gray-600 mb-4">
+              You are overriding a custodian checkout. Please provide a reason (e.g., "Parent picked up directly", "Duty manager verified").
+            </p>
+            <Input
+              value={overrideReason}
+              onChange={(e) => setOverrideReason(e.target.value)}
+              placeholder="Reason for override..."
+              autoFocus
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOverrideEpisodeId(null)}>Cancel</Button>
+            <Button variant="destructive" onClick={submitOverride} disabled={!overrideReason.trim() || overrideCustodyMutation.isPending}>
+              Override Checkout
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

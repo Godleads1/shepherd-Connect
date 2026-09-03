@@ -2,3 +2,4 @@
 - [Classroom display credentials](classroom-display-credentials.md) — shared TVs use revocable class-only credentials, never normal staff sessions.
 - [PDF/PPTX rendering on TVs](pdf-rendering-tv.md) — pdfjs v4 legacy + ?url worker; PPTX→PDF via headless LibreOffice (per-run profile, concurrency cap, guarded write).
 - [DB test notification cleanup](db-test-notification-cleanup.md) — synthetic active admins may receive cross-domain notifications; clean recipient outbox and projections before deleting fixtures.
+- [Phase 6 attendance and custody rulings](phase6-human-rulings.md) — preserve the approved authority split, custody ownership, QR, WhatsApp, and compatibility rules.

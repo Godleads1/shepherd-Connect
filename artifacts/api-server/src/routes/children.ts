@@ -165,8 +165,9 @@ router.get("/children/:id/qr-code", authMiddleware, async (req, res): Promise<vo
     const [child] = await db.select().from(childrenTable).where(eq(childrenTable.id, id));
     if (!child) { res.status(404).json({ error: "Not found", message: "Child not found" }); return; }
     const [family] = await db.select().from(familiesTable).where(eq(familiesTable.id, child.familyId));
-    const familyCode = family?.familyCode ?? `FAM-${child.familyId}`;
-    res.json({ qrCode: `QR:${child.familyId}:${child.id}`, familyCode, childId: child.id });
+    if (!family) { res.status(404).json({ error: "Not found", message: "Family not found" }); return; }
+    const familyCode = family.familyCode;
+    res.json({ qrCode: familyCode, familyCode, childId: child.id });
   } catch (err) {
     req.log.error({ err }, "Failed to get child QR code");
     res.status(500).json({ error: "Failed to get QR code" });

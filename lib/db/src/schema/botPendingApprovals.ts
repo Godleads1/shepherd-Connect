@@ -11,6 +11,7 @@ export const botPendingApprovalsTable = pgTable("bot_pending_approvals", {
   childId: integer("child_id").notNull().references(() => childrenTable.id),
   parentUserId: integer("parent_user_id").notNull().references(() => usersTable.id),
   assignedSupportId: integer("assigned_support_id").notNull().references(() => usersTable.id),
+  parentContactVersion: integer("parent_contact_version").notNull().default(1),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

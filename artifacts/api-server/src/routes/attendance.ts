@@ -40,6 +40,11 @@ const router = Router();
 
 const WAT_OFFSET_MS = 60 * 60 * 1000;
 
+export function familyCodeFromQr(qrCode: string): string | null {
+  const normalized = qrCode.trim().toUpperCase();
+  return /^FAM-[A-Z0-9]{6}$/.test(normalized) ? normalized : null;
+}
+
 export function watServiceDateAt(date: Date): string {
   return new Date(date.getTime() + WAT_OFFSET_MS).toISOString().slice(0, 10);
 }
@@ -539,17 +544,8 @@ router.post(
   const { qrCode, serviceDate, serviceSlot } = parsed.data;
   let family = null;
   let children: typeof childrenTable.$inferSelect[] = [];
-  const qrParts = qrCode.trim().split(":");
-  if (qrParts[0] === "QR" && qrParts.length >= 2) {
-    const familyId = parseInt(qrParts[1], 10);
-    if (!isNaN(familyId)) {
-      const [f] = await db.select().from(familiesTable).where(eq(familiesTable.id, familyId));
-      family = f ?? null;
-      if (family) children = await db.select().from(childrenTable).where(eq(childrenTable.familyId, familyId));
-    }
-  }
-  if (!family && qrCode.trim().toUpperCase().startsWith("FAM-")) {
-    const code = qrCode.trim().toUpperCase();
+  const code = familyCodeFromQr(qrCode);
+  if (code) {
     const [f] = await db.select().from(familiesTable).where(eq(familiesTable.familyCode, code));
     family = f ?? null;
     if (family) children = await db.select().from(childrenTable).where(eq(childrenTable.familyId, family.id));

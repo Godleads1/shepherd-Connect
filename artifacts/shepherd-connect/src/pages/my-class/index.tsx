@@ -513,10 +513,17 @@ export default function MyClass() {
               {inClass.map((a: any) => (
                 <div key={a.id}
                   className="bg-white rounded-2xl border border-green-100 overflow-hidden shadow-sm hover:shadow-md transition-shadow">
-                  <div className="px-4 py-2.5 flex items-center gap-2 text-sm font-semibold"
+                  <div className="px-4 py-2.5 flex items-center justify-between text-sm font-semibold"
                     style={{ background: "#dcfce7", color: "#16a34a" }}>
-                    <CheckCircle2 className="w-4 h-4" />
-                    Confirmed In Class
+                    <div className="flex items-center gap-2">
+                      <CheckCircle2 className="w-4 h-4" />
+                      Confirmed In Class
+                    </div>
+                    {a.custodyEpisodeId && (
+                      <div className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-full" style={{ background: "#c7d2fe", color: "#1d4ed8" }}>
+                        <ShieldCheck className="w-3.5 h-3.5" /> Fast-Track Custody
+                      </div>
+                    )}
                   </div>
                   <div className="p-4 flex items-center gap-4">
                     {/* Avatar */}
@@ -627,16 +634,16 @@ export default function MyClass() {
                     className={`bg-white rounded-2xl border shadow-sm p-4 flex items-center gap-4 ${
                       isToday ? "border-pink-300 bg-pink-50" : isThisWeek ? "border-amber-200" : "border-gray-100"
                     }`}>
-                    <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-2xl flex-shrink-0 ${
+                    <div className={`w-12 h-12 rounded-xl flex flex-col items-center justify-center flex-shrink-0 ${
                       isToday ? "bg-pink-100" : "bg-blue-50"
                     }`}>
-                      {isToday ? "🎂" : isThisWeek ? "🎁" : "🎈"}
+                      <Cake className={`w-5 h-5 ${isToday ? "text-pink-500" : isThisWeek ? "text-amber-500" : "text-gray-400"}`} />
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="font-bold text-gray-900">{child.firstName} {child.lastName}</p>
                       <p className="text-xs text-gray-500">{child.className || "No class"}</p>
                       <p className={`text-xs font-semibold mt-0.5 ${isToday ? "text-pink-600" : isThisWeek ? "text-amber-600" : "text-gray-500"}`}>
-                        {isToday ? "🎉 Happy Birthday Today!" : `Turning ${child.turningAge} in ${child.daysUntil} day${child.daysUntil === 1 ? "" : "s"}`}
+                        {isToday ? "Happy Birthday Today!" : `Turning ${child.turningAge} in ${child.daysUntil} day${child.daysUntil === 1 ? "" : "s"}`}
                       </p>
                     </div>
                     {isToday && (

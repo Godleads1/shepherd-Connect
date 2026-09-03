@@ -3,7 +3,7 @@ import { getTableConfig } from "drizzle-orm/pg-core";
 import { attendanceEventsTable, staffScansTable } from "@workspace/db";
 import { CheckInBody } from "@workspace/api-zod";
 import { attendanceEventValidationError, processedEventOutcome, watServiceDateAt } from "../routes/attendance";
-import { decideStaffScan } from "../routes/sundayAttendance";
+import { decideStaffScan, hashStaffQrToken } from "../routes/sundayAttendance";
 
 describe("attendance event guards", () => {
   const now = new Date("2026-08-23T12:00:00.000Z");
@@ -106,18 +106,28 @@ describe("attendance database conflict keys", () => {
   });
 });
 
-describe("Sunday staff scan debounce", () => {
-  const now = new Date("2026-08-23T10:00:30.000Z");
-
-  it("treats a checkpoint younger than 30 seconds as a duplicate check-in", () => {
+describe("Sunday staff attendance scans", () => {
+  it("does not combine or toggle first and second service attendance", () => {
     expect(decideStaffScan([
-      { service: "2nd", scanType: "checkpoint", scannedAt: new Date("2026-08-23T10:00:01.000Z") },
-    ], "2nd", now)).toBe("duplicate_checkpoint");
+      { service: "1st", scanType: "checkpoint" },
+    ], "2nd", "check_in")).toBe("checkpoint");
   });
 
-  it("allows clock-out once the checkpoint is at least 30 seconds old", () => {
+  it("idempotently recognizes an already recorded action", () => {
     expect(decideStaffScan([
-      { service: "2nd", scanType: "checkpoint", scannedAt: new Date("2026-08-23T10:00:00.000Z") },
-    ], "2nd", now)).toBe("clock_out");
+      { service: "2nd", scanType: "checkpoint" },
+    ], "2nd", "check_in")).toBe("already_done");
+  });
+
+  it("requires a service check-in before its explicit clock-out", () => {
+    expect(decideStaffScan([], "2nd", "clock_out")).toBe("checkpoint_required");
+    expect(decideStaffScan([
+      { service: "2nd", scanType: "checkpoint" },
+    ], "2nd", "clock_out")).toBe("clock_out");
+  });
+
+  it("hashes bearer tokens with the attendance-specific domain separator", () => {
+    expect(hashStaffQrToken("opaque-token")).not.toBe(hashStaffQrToken("other-token"));
+    expect(hashStaffQrToken("opaque-token")).toMatch(/^[a-f0-9]{64}$/);
   });
 });

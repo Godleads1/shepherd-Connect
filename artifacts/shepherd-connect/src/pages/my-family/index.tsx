@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
-import { useGetMyFamily, useCreateChild, useUpdateChild, useCreateFamily } from "@workspace/api-client-react";
-import { useQuery } from "@tanstack/react-query";
+import { useGetMyFamily, useCreateChild, useUpdateChild, useCreateFamily, useListMyCustodyRequests, useRequestCustodyEpisode, useCancelCustodyRequest } from "@workspace/api-client-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Skeleton } from "@/components/ui/skeleton";
 import { QueryError } from "@/components/QueryError";
 import { Badge } from "@/components/ui/badge";
@@ -235,7 +235,7 @@ function ChildCard({ child, onRefetch }: { child: any; onRefetch: () => void }) 
     try {
       await apiPost("/pickup-requests", { childId: child.id });
       setPickupSent(true);
-      toast({ title: `Signal sent! 🚶 The teacher has been notified to bring ${child.firstName}.` });
+      toast({ title: `Signal sent! The teacher has been notified to bring ${child.firstName}.` });
     } catch (e: any) {
       toast({ variant: "destructive", title: e.message || "Could not send pickup signal" });
     } finally {
@@ -285,7 +285,7 @@ function ChildCard({ child, onRefetch }: { child: any; onRefetch: () => void }) 
       {child.dob && isBirthdayToday(child.dob) && (
         <div className="mb-3 px-3 py-2 rounded-xl text-sm font-bold flex items-center gap-2 animate-pulse"
           style={{ background: "linear-gradient(135deg, #f59e0b22, #fbbf2422)", color: "#d97706", border: "1px solid #fbbf24" }}>
-          <Cake className="w-4 h-4" /> 🎉 Happy Birthday, {child.firstName}! Today is their special day!
+          <Cake className="w-4 h-4" /> Happy Birthday, {child.firstName}! Today is their special day!
         </div>
       )}
       {child.dob && !isBirthdayToday(child.dob) && isBirthdayThisMonth(child.dob) && (
@@ -415,7 +415,7 @@ function NoFamilySetup({ userId, onCreated }: { userId?: number; onCreated: () =
         <div className="text-center space-y-3">
           <div className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto text-4xl"
             style={{ background: "linear-gradient(135deg, #1e3a8a, #1d4ed8)" }}>
-            🏠
+            <Users className="w-8 h-8 text-white" />
           </div>
           <h2 className="text-2xl font-bold text-gray-900" style={{ fontFamily: "'Playfair Display', serif" }}>
             Set Up Your Family
@@ -451,144 +451,89 @@ function NoFamilySetup({ userId, onCreated }: { userId?: number; onCreated: () =
   );
 }
 
-/**
- * Pre-arrival signal: parent picks which children they're bringing and which
- * service(s), then taps "We're on our way". The check-in desk is notified, and
- * scanning the family QR on arrival checks the children straight in (in transit
- * to class) — no extra desk steps.
- */
-function OnOurWayCard({ children }: { children: any[] }) {
+import { watServiceDateAt } from "@/lib/wat-date";
+
+import { getListMyCustodyRequestsQueryKey } from "@workspace/api-client-react";
+
+function CustodyCard({ children }: { children: any[] }) {
   const { toast } = useToast();
-  const [sending, setSending] = useState(false);
-  const [expanded, setExpanded] = useState(false);
-  const [selected, setSelected] = useState<number[]>(() => children.map((c: any) => c.id));
-  // Keep the selection in sync when the family roster changes (child added/removed)
-  useEffect(() => {
-    const ids = new Set(children.map((c: any) => c.id));
-    setSelected(prev => {
-      const kept = prev.filter(id => ids.has(id));
-      const known = new Set(kept);
-      const added = children.map((c: any) => c.id).filter((id: number) => !prev.includes(id) && !known.has(id));
-      return [...kept, ...added];
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [children.map((c: any) => c.id).join(",")]);
-  const [slot, setSlot] = useState<"7am" | "10:30am" | "both">("both");
-  const { data, refetch } = useQuery({
-    queryKey: ["drop-off-intent-mine"],
-    queryFn: () => apiGet<{ intent: any }>("/drop-off-intents/mine"),
+  const { data: requests, refetch } = useListMyCustodyRequests({
+    query: { queryKey: getListMyCustodyRequestsQueryKey(), refetchInterval: 15000 }
   });
-  const intent = data?.intent;
-  const onTheWay = intent?.status === "on_the_way";
-  const arrived = intent?.status === "arrived";
+  const requestMutation = useRequestCustodyEpisode();
+  const cancelMutation = useCancelCustodyRequest();
 
-  const toggleChild = (id: number) =>
-    setSelected(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  const activeRequests = (requests || []).filter(r => r.status === "requested" || r.status === "accepted");
 
-  const send = async () => {
-    if (selected.length === 0) {
-      toast({ variant: "destructive", title: "Select at least one child" });
-      return;
-    }
-    setSending(true);
+  const handleRequest = async (childId: number, requestedServices: "first" | "second" | "both") => {
     try {
-      await apiPost("/drop-off-intents", { childIds: selected, serviceSlot: slot });
-      toast({ title: "On our way! 🚗", description: "Show your family QR when you arrive — the children will be checked straight in." });
-      setExpanded(false);
+      await requestMutation.mutateAsync({
+        data: {
+          childId,
+          serviceDate: watServiceDateAt(),
+          requestedServices,
+          eventId: crypto.randomUUID(),
+        }
+      });
+      toast({ title: "Request sent", description: "The support desk has been notified." });
       refetch();
     } catch (e: any) {
-      toast({ variant: "destructive", title: e.message || "Could not update" });
-    } finally {
-      setSending(false);
+      toast({ variant: "destructive", title: e.message || "Failed to send request" });
     }
   };
 
-  const cancel = async () => {
-    setSending(true);
+  const handleCancel = async (episodeId: number) => {
     try {
-      await apiDelete("/drop-off-intents");
-      toast({ title: "Cancelled", description: "The check-in desk has been updated." });
+      await cancelMutation.mutateAsync({ id: episodeId });
+      toast({ title: "Request cancelled" });
       refetch();
     } catch (e: any) {
-      toast({ variant: "destructive", title: e.message || "Could not update" });
-    } finally {
-      setSending(false);
+      toast({ variant: "destructive", title: e.message || "Failed to cancel request" });
     }
   };
-
-  const slotOptions: { value: "7am" | "10:30am" | "both"; label: string }[] = [
-    { value: "7am", label: "1st · 7 AM" },
-    { value: "10:30am", label: "2nd · 10:30 AM" },
-    { value: "both", label: "Both services" },
-  ];
 
   return (
-    <div className="rounded-2xl border p-4"
-      style={onTheWay ? { background: "#eef2ff", borderColor: "#c7d2fe" } : { background: "white", borderColor: "#e5e7eb" }}>
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <div>
-          <p className="text-sm font-bold text-gray-900">
-            {onTheWay ? "The check-in desk is expecting you 🚗" : arrived ? "Checked in today ✓" : "Heading to church?"}
-          </p>
-          <p className="text-xs text-gray-500 mt-0.5">
-            {onTheWay
-              ? `Bringing ${(intent?.childIds?.length ? children.filter((c: any) => intent.childIds.includes(c.id)) : children).map((c: any) => c.firstName).join(", ")} · ${intent?.serviceSlot === "both" ? "both services" : intent?.serviceSlot}. Show your family QR on arrival — they'll be checked straight in.`
-              : arrived
-                ? "Coming back for another service? You can signal the desk again."
-                : "Pick who you're bringing and tap before you leave — one QR scan checks them straight in."}
-          </p>
-        </div>
-        {onTheWay ? (
-          <Button onClick={cancel} disabled={sending} variant="outline" data-testid="btn-on-our-way">
-            {sending ? "…" : "Cancel"}
-          </Button>
-        ) : (
-          <Button onClick={() => setExpanded(e => !e)} disabled={sending}
-            className="bg-[#1e3a8a] hover:bg-[#1e40af] text-white" data-testid="btn-on-our-way">
-            We're on our way
-          </Button>
-        )}
+    <div className="rounded-2xl border p-4 bg-white" style={{ borderColor: "#e5e7eb" }}>
+      <div className="mb-4">
+        <p className="text-sm font-bold text-gray-900">Child Check-In Requests</p>
+        <p className="text-xs text-gray-500 mt-0.5">
+          Request check-in for today's services before you arrive.
+        </p>
       </div>
-
-      {!onTheWay && expanded && (
-        <div className="mt-4 space-y-3 border-t border-gray-100 pt-3">
-          <div>
-            <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">Who are you bringing?</p>
-            <div className="flex flex-wrap gap-2">
-              {children.map((c: any) => {
-                const on = selected.includes(c.id);
-                return (
-                  <button key={c.id} onClick={() => toggleChild(c.id)}
-                    className="px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all"
-                    style={on
-                      ? { background: "#1e3a8a", color: "white", borderColor: "#1e3a8a" }
-                      : { background: "white", color: "#64748b", borderColor: "#e2e8f0" }}>
-                    {on ? "✓ " : ""}{c.firstName}
-                  </button>
-                );
-              })}
+      <div className="space-y-3">
+        {children.map(c => {
+          const req = activeRequests.find(r => r.childId === c.id);
+          return (
+            <div key={c.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 rounded-xl border border-gray-100 bg-gray-50/50">
+              <div>
+                <p className="text-sm font-semibold text-gray-900">{c.firstName}</p>
+                {req && (
+                  <p className="text-xs font-medium mt-1">
+                    {req.status === "requested" ? (
+                      <span className="text-amber-600 bg-amber-100 px-2 py-0.5 rounded-full">Requested ({req.requestedServices})</span>
+                    ) : (
+                      <span className="text-green-600 bg-green-100 px-2 py-0.5 rounded-full">Accepted in class</span>
+                    )}
+                  </p>
+                )}
+              </div>
+              {!req ? (
+                <div className="flex gap-2">
+                  <Button size="sm" variant="outline" onClick={() => handleRequest(c.id, "first")} disabled={requestMutation.isPending}>1st</Button>
+                  <Button size="sm" variant="outline" onClick={() => handleRequest(c.id, "second")} disabled={requestMutation.isPending}>2nd</Button>
+                  <Button size="sm" className="bg-[#1e3a8a] text-white hover:bg-[#1e40af]" onClick={() => handleRequest(c.id, "both")} disabled={requestMutation.isPending}>Both</Button>
+                </div>
+              ) : (
+                req.status === "requested" && (
+                  <Button size="sm" variant="ghost" className="text-red-600 hover:text-red-700 hover:bg-red-50" onClick={() => handleCancel(req.id)} disabled={cancelMutation.isPending}>
+                    Cancel
+                  </Button>
+                )
+              )}
             </div>
-          </div>
-          <div>
-            <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">Which service?</p>
-            <div className="flex flex-wrap gap-2">
-              {slotOptions.map(o => (
-                <button key={o.value} onClick={() => setSlot(o.value)}
-                  className="px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all"
-                  style={slot === o.value
-                    ? { background: "#1e3a8a", color: "white", borderColor: "#1e3a8a" }
-                    : { background: "white", color: "#64748b", borderColor: "#e2e8f0" }}>
-                  {o.label}
-                </button>
-              ))}
-            </div>
-          </div>
-          <Button onClick={send} disabled={sending || selected.length === 0}
-            className="w-full bg-[#1e3a8a] hover:bg-[#1e40af] text-white" data-testid="btn-on-our-way-confirm">
-            {sending ? "Sending…" : `Notify the check-in desk (${selected.length} ${selected.length === 1 ? "child" : "children"})`}
-          </Button>
-        </div>
-      )}
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -680,7 +625,7 @@ export default function MyFamily() {
   return (
     <div className="max-w-2xl mx-auto space-y-6">
       <AnnouncementBanner />
-      {children.length > 0 && <OnOurWayCard children={children} />}
+      {children.length > 0 && <CustodyCard children={children} />}
       {/* Hero */}
       <div className="rounded-2xl p-6 text-white relative overflow-hidden"
         style={{ background: "linear-gradient(135deg, #172554 0%, #1e3a8a 60%, #1d4ed8 100%)" }}>
@@ -814,7 +759,7 @@ export default function MyFamily() {
       {children.some((c: any) => c.dob && isBirthdayThisMonth(c.dob)) && (
         <div className="rounded-2xl px-5 py-4 flex items-center gap-3"
           style={{ background: "linear-gradient(135deg, #78350f22, #f59e0b18)", border: "1px solid #fbbf24" }}>
-          <span className="text-3xl select-none">🎂</span>
+          <Cake className="w-8 h-8 text-amber-500 flex-shrink-0" />
           <div>
             <p className="font-bold text-amber-800 text-sm">Birthday{children.filter((c: any) => c.dob && isBirthdayThisMonth(c.dob)).length > 1 ? "s" : ""} this month!</p>
             <p className="text-xs text-amber-700">

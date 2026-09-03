@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and, isNull, sql } from "drizzle-orm";
 import {
   db,
   sundayQrCodesTable,
@@ -11,29 +11,41 @@ import {
 } from "@workspace/db";
 import { authMiddleware } from "../middlewares/auth";
 import QRCode from "qrcode";
-import crypto from "crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { logger } from "../lib/logger";
 import { sendNotification } from "../lib/notify";
 import { createNotificationDelivery } from "../services/notificationOutbox";
 
 const router = Router();
 
-export const STAFF_ROLES = ["teacher", "support", "admin", "super_admin"];
-export const STAFF_SCAN_DEBOUNCE_MS = 30_000;
+export const STAFF_ROLES = ["teacher", "support", "admin", "super_admin"] as const;
+export const STAFF_QR_PURPOSE = "staff_attendance";
+const SERVICE_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 export function decideStaffScan(
-  scans: Array<{ service: string | null; scanType: string; scannedAt: Date }>,
+  scans: Array<{ service: string | null; scanType: string }>,
   service: "1st" | "2nd",
-  now: Date,
-): "checkpoint" | "duplicate_checkpoint" | "clock_out" | "already_done" {
-  const checkpoint = scans.find(scan => scan.service === service && scan.scanType === "checkpoint");
-  const clockOut = scans.some(scan => scan.service === service && scan.scanType === "clock_out");
-  if (checkpoint && clockOut) return "already_done";
-  if (!checkpoint) return "checkpoint";
-  if (now.getTime() - checkpoint.scannedAt.getTime() < STAFF_SCAN_DEBOUNCE_MS) {
-    return "duplicate_checkpoint";
-  }
-  return "clock_out";
+  action: "check_in" | "clock_out",
+): "checkpoint" | "clock_out" | "already_done" | "checkpoint_required" {
+  const hasCheckpoint = scans.some(scan => scan.service === service && scan.scanType === "checkpoint");
+  const hasClockOut = scans.some(scan => scan.service === service && scan.scanType === "clock_out");
+  if (action === "check_in") return hasCheckpoint ? "already_done" : "checkpoint";
+  if (!hasCheckpoint) return "checkpoint_required";
+  return hasClockOut ? "already_done" : "clock_out";
+}
+
+export function hashStaffQrToken(token: string): string {
+  return createHash("sha256").update(`staff-attendance:${token}`).digest("hex");
+}
+
+function isServiceDate(value: unknown): value is string {
+  return typeof value === "string" && SERVICE_DATE_RE.test(value) &&
+    !Number.isNaN(Date.parse(`${value}T00:00:00.000Z`));
+}
+
+function hasOnlyKeys(value: unknown, keys: string[]): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value) &&
+    Object.keys(value).every(key => keys.includes(key));
 }
 
 const WAT_OFFSET_MS = 60 * 60 * 1000;
@@ -77,44 +89,46 @@ router.post("/sunday-attendance/qr/generate", authMiddleware, async (req, res): 
     return;
   }
 
-  const serviceDate: string =
-    (req.body.serviceDate as string) ?? todayWAT();
-  const force: boolean = req.body.force === true;
-
-  const [existing] = await db
-    .select()
-    .from(sundayQrCodesTable)
-    .where(eq(sundayQrCodesTable.serviceDate, serviceDate));
-
-  if (existing && !force) {
-    const qrPng = await generateQrPng(existing.token, serviceDate);
-    res.json({ token: existing.token, serviceDate, qrPng, existing: true });
+  if (!hasOnlyKeys(req.body, ["serviceDate", "force"])) {
+    res.status(400).json({ error: "Invalid QR generation request" });
     return;
   }
-
-  if (existing && force) {
-    const newToken = crypto.randomUUID();
-    const [qr] = await db
-      .update(sundayQrCodesTable)
-      .set({ token: newToken, createdById: req.user!.userId })
-      .where(eq(sundayQrCodesTable.serviceDate, serviceDate))
-      .returning();
-
-    const qrPng = await generateQrPng(qr.token, serviceDate);
-    logger.info({ serviceDate, token: qr.token }, "sunday-attendance: QR regenerated");
-    res.status(201).json({ token: qr.token, serviceDate, qrPng, existing: false });
+  const body = req.body as { serviceDate?: unknown; force?: unknown };
+  const serviceDate = body.serviceDate ?? todayWAT();
+  if (!isServiceDate(serviceDate) || (body.force !== undefined && typeof body.force !== "boolean")) {
+    res.status(400).json({ error: "serviceDate must be YYYY-MM-DD and force must be boolean" });
     return;
   }
-
-  const token = crypto.randomUUID();
-  const [qr] = await db
-    .insert(sundayQrCodesTable)
-    .values({ serviceDate, token, createdById: req.user!.userId })
-    .returning();
-
+  const force = body.force === true;
+  const token = randomBytes(32).toString("base64url");
+  const qr = await db.transaction(async tx => {
+    const lockKey = Number(serviceDate.replace(/-/g, ""));
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(917, ${lockKey})`);
+    const [existing] = await tx.select().from(sundayQrCodesTable)
+      .where(eq(sundayQrCodesTable.serviceDate, serviceDate));
+    if (existing && !force && existing.purpose === STAFF_QR_PURPOSE && !existing.revokedAt) {
+      return null;
+    }
+    if (existing) {
+      const [rotated] = await tx.update(sundayQrCodesTable)
+        .set({ tokenHash: hashStaffQrToken(token), purpose: STAFF_QR_PURPOSE, revokedAt: null, createdById: req.user!.userId })
+        .where(eq(sundayQrCodesTable.id, existing.id)).returning();
+      return rotated;
+    }
+    const [created] = await tx.insert(sundayQrCodesTable).values({
+      serviceDate, tokenHash: hashStaffQrToken(token), purpose: STAFF_QR_PURPOSE, createdById: req.user!.userId,
+    }).returning();
+    return created;
+  });
+  if (!qr) {
+    // Bearer values are deliberately unrecoverable after issuance. Rotate to
+    // issue a replacement rather than ever retaining a plaintext token.
+    res.status(409).json({ error: "An active QR already exists; rotate it to issue a replacement" });
+    return;
+  }
   const qrPng = await generateQrPng(token, serviceDate);
-  logger.info({ serviceDate, token }, "sunday-attendance: QR generated");
-  res.status(201).json({ token: qr.token, serviceDate, qrPng, existing: false });
+  logger.info({ serviceDate, rotated: force }, "sunday-attendance: QR issued");
+  res.status(201).json({ token, serviceDate, qrPng, existing: false });
 });
 
 // GET /sunday-attendance/qr?date= — admin sees QR for a date
@@ -126,6 +140,10 @@ router.get("/sunday-attendance/qr", authMiddleware, async (req, res): Promise<vo
   }
 
   const date = (req.query.date as string) ?? todayWAT();
+  if (!isServiceDate(date)) {
+    res.status(400).json({ error: "date must be YYYY-MM-DD" });
+    return;
+  }
   const [qr] = await db
     .select()
     .from(sundayQrCodesTable)
@@ -136,26 +154,61 @@ router.get("/sunday-attendance/qr", authMiddleware, async (req, res): Promise<vo
     return;
   }
 
-  const qrPng = await generateQrPng(qr.token, date);
-  res.json({ token: qr.token, serviceDate: date, qrPng });
+  // The bearer token is hashed and cannot be retrieved after issuance.
+  res.json({ serviceDate: date, active: qr.purpose === STAFF_QR_PURPOSE && !qr.revokedAt });
 });
 
-// POST /sunday-attendance/scan — staff scans QR code (toggles check-in → clock-out)
-router.post("/sunday-attendance/scan", authMiddleware, async (req, res): Promise<void> => {
-  if (!STAFF_ROLES.includes(req.user!.role)) {
+// POST /sunday-attendance/qr/revoke — super_admin / admin
+router.post("/sunday-attendance/qr/revoke", authMiddleware, async (req, res): Promise<void> => {
+  if (req.user!.role !== "super_admin" && req.user!.role !== "admin") {
     res.status(403).json({ error: "Forbidden" });
     return;
   }
-  const { token, date } = req.body as { token?: string; date?: string };
-  if (!token || !date) {
-    res.status(400).json({ error: "token and date are required" });
+  if (!hasOnlyKeys(req.body, ["serviceDate"]) || !isServiceDate(req.body.serviceDate)) {
+    res.status(400).json({ error: "serviceDate must be YYYY-MM-DD" });
+    return;
+  }
+  const [revoked] = await db.update(sundayQrCodesTable).set({ revokedAt: new Date() })
+    .where(and(eq(sundayQrCodesTable.serviceDate, req.body.serviceDate), eq(sundayQrCodesTable.purpose, STAFF_QR_PURPOSE), isNull(sundayQrCodesTable.revokedAt)))
+    .returning({ id: sundayQrCodesTable.id });
+  if (!revoked) {
+    res.status(404).json({ error: "No active QR code generated for this date" });
+    return;
+  }
+  logger.info({ serviceDate: req.body.serviceDate }, "sunday-attendance: QR revoked");
+  res.json({ ok: true, serviceDate: req.body.serviceDate });
+});
+
+// POST /sunday-attendance/scan — staff records one attendance row per service
+router.post("/sunday-attendance/scan", authMiddleware, async (req, res): Promise<void> => {
+  if (!STAFF_ROLES.includes(req.user!.role as typeof STAFF_ROLES[number])) {
+    res.status(403).json({ error: "Forbidden" });
+    return;
+  }
+  if (!hasOnlyKeys(req.body, ["token", "date", "action"])) {
+    res.status(400).json({ error: "Invalid scan request" });
+    return;
+  }
+  const { token, date, action } = req.body as { token?: unknown; date?: unknown; action?: unknown };
+  if (typeof token !== "string" || token.length < 32 || token.length > 128 || !isServiceDate(date) ||
+    (action !== "check_in" && action !== "clock_out")) {
+    res.status(400).json({ error: "token, date, and action (check_in or clock_out) are required" });
+    return;
+  }
+  if (date !== todayWAT()) {
+    res.status(400).json({ error: "QR code is valid only on its service date" });
     return;
   }
 
   const [qr] = await db
     .select()
     .from(sundayQrCodesTable)
-    .where(and(eq(sundayQrCodesTable.token, token), eq(sundayQrCodesTable.serviceDate, date)));
+    .where(and(
+      eq(sundayQrCodesTable.tokenHash, hashStaffQrToken(token)),
+      eq(sundayQrCodesTable.serviceDate, date),
+      eq(sundayQrCodesTable.purpose, STAFF_QR_PURPOSE),
+      isNull(sundayQrCodesTable.revokedAt),
+    ));
 
   if (!qr) {
     res.status(400).json({ error: "Invalid QR code or date mismatch" });
@@ -169,72 +222,85 @@ router.post("/sunday-attendance/scan", authMiddleware, async (req, res): Promise
 
   const scanLockKey = Number(date.replace(/-/g, "")) * 10 + (service === "1st" ? 1 : 2);
   const outcome = await db.transaction(async (tx) => {
-    // The lock covers the read/decision/write sequence. In particular, four
-    // simultaneous first scans must all see the same winning checkpoint rather
-    // than interpreting one another as sequential clock-out scans.
+    // The lock covers the read/decision/write sequence for the independently
+    // reportable service. Concurrent requests cannot turn one another into a
+    // second attendance transition.
     const lock = await tx.execute(sql`SELECT pg_try_advisory_xact_lock(${userId}, ${scanLockKey}) AS acquired`);
     if (!(lock.rows[0] as { acquired: boolean }).acquired) return "concurrent_duplicate" as const;
     const todayScans = await tx.select().from(staffScansTable)
       .where(and(eq(staffScansTable.serviceDate, date), eq(staffScansTable.userId, userId)));
-    const decision = decideStaffScan(todayScans, service, now);
-    if (decision === "already_done" || decision === "duplicate_checkpoint") return decision;
-    const scanType = decision;
+    const decision = decideStaffScan(todayScans, service, action);
+    if (decision === "checkpoint_required") return decision;
+    if (decision === "already_done") {
+      const existing = todayScans.find(scan => scan.service === service &&
+        scan.scanType === (action === "check_in" ? "checkpoint" : "clock_out"));
+      return { kind: decision, scannedAt: existing!.scannedAt } as const;
+    }
     const inserted = await tx.insert(staffScansTable).values({
-      serviceDate: date, userId, scannedAt: now, scanType, intervalLabel: null, service,
-    }).onConflictDoNothing().returning({ id: staffScansTable.id });
-    return inserted.length === 0 ? "already_done" as const : scanType;
+      serviceDate: date, userId, scanType: decision, intervalLabel: null, service,
+    }).onConflictDoNothing().returning({ id: staffScansTable.id, scannedAt: staffScansTable.scannedAt });
+    return inserted.length === 0 ? "concurrent_duplicate" as const : { kind: decision, scannedAt: inserted[0]!.scannedAt } as const;
   });
 
-  if (outcome === "already_done" || outcome === "concurrent_duplicate" || outcome === "duplicate_checkpoint") {
-    const duplicateCheckIn = outcome === "concurrent_duplicate" || outcome === "duplicate_checkpoint";
+  if (outcome === "checkpoint_required") {
+    res.status(409).json({
+      error: `Check-in is required before clocking out of the ${service} service`,
+      service,
+    });
+    return;
+  }
+  if (outcome === "concurrent_duplicate") {
     res.json({
       ok: true,
       duplicate: true,
-      action: duplicateCheckIn ? "checked_in" : "already_done",
-      message: duplicateCheckIn
-        ? `Check-in is already being recorded for the ${service} service`
-        : `You've already checked in and clocked out for the ${service} service`,
+      action: action === "check_in" ? "checked_in" : "clocked_out",
+      message: `${action === "check_in" ? "Check-in" : "Clock-out"} is already being recorded for the ${service} service`,
       service,
-      scannedAt: formatWAT(now),
     });
     return;
   }
 
-  if (outcome === "checkpoint") {
-    logger.info({ userId, date, service }, "sunday-attendance: check-in recorded");
-
+  if (outcome.kind === "already_done") {
     res.json({
       ok: true,
-      duplicate: false,
-      action: "checked_in",
-      message: `Checked in at ${formatWAT(now)} WAT`,
+      duplicate: true,
+      action: "already_done",
+      message: `${action === "check_in" ? "Check-in" : "Clock-out"} already recorded for the ${service} service`,
       service,
-      scannedAt: formatWAT(now),
+      scannedAt: formatWAT(outcome.scannedAt),
     });
     return;
   }
 
-  logger.info({ userId, date, service }, "sunday-attendance: clock-out recorded via scan");
-
+  logger.info({ userId, date, service, action }, "sunday-attendance: attendance recorded");
   res.json({
     ok: true,
     duplicate: false,
-    action: "clocked_out",
-    message: `Clocked out from ${service} service at ${formatWAT(now)} WAT`,
+    action: outcome.kind === "checkpoint" ? "checked_in" : "clocked_out",
+    message: `${outcome.kind === "checkpoint" ? "Checked in" : `Clocked out from ${service} service`} at ${formatWAT(outcome.scannedAt)} WAT`,
     service,
-    scannedAt: formatWAT(now),
+    scannedAt: formatWAT(outcome.scannedAt),
   });
 });
 
 // POST /sunday-attendance/emergency-out — staff leaves early due to emergency
 router.post("/sunday-attendance/emergency-out", authMiddleware, async (req, res): Promise<void> => {
-  if (!STAFF_ROLES.includes(req.user!.role)) {
+  if (!STAFF_ROLES.includes(req.user!.role as typeof STAFF_ROLES[number])) {
     res.status(403).json({ error: "Forbidden" });
     return;
   }
-  const { date, service, reason } = req.body as { date?: string; service?: string; reason?: string };
-  if (!date) {
-    res.status(400).json({ error: "date is required" });
+  if (!hasOnlyKeys(req.body, ["date", "service", "reason"])) {
+    res.status(400).json({ error: "Invalid emergency exit request" });
+    return;
+  }
+  const { date, service, reason } = req.body as { date?: unknown; service?: unknown; reason?: unknown };
+  if (!isServiceDate(date) || (service !== undefined && service !== "1st" && service !== "2nd") ||
+    (reason !== undefined && (typeof reason !== "string" || reason.length > 500))) {
+    res.status(400).json({ error: "date must be YYYY-MM-DD; service must be 1st or 2nd" });
+    return;
+  }
+  if (date !== todayWAT()) {
+    res.status(400).json({ error: "Emergency exit is valid only on its service date" });
     return;
   }
 
@@ -250,11 +316,10 @@ router.post("/sunday-attendance/emergency-out", authMiddleware, async (req, res)
     const rows = await tx.insert(staffScansTable).values({
       serviceDate: date,
       userId,
-      scannedAt: now,
       scanType: "emergency_out",
       intervalLabel: reason ?? null,
       service: derivedService,
-    }).onConflictDoNothing().returning({ id: staffScansTable.id });
+    }).onConflictDoNothing().returning({ id: staffScansTable.id, scannedAt: staffScansTable.scannedAt });
     if (rows.length === 0) return rows;
     // The emergency scan is the stable domain identity.  Resolve both the
     // recipients and content before commit so no committed exit can lose its
@@ -296,9 +361,9 @@ router.post("/sunday-attendance/emergency-out", authMiddleware, async (req, res)
   res.json({
     ok: true,
     duplicate: false,
-    message: `Emergency exit recorded at ${formatWAT(now)} WAT from ${derivedService} service`,
+    message: `Emergency exit recorded at ${formatWAT(inserted[0]!.scannedAt)} WAT from ${derivedService} service`,
     service: derivedService,
-    exitedAt: formatWAT(now),
+    exitedAt: formatWAT(inserted[0]!.scannedAt),
   });
 });
 
@@ -423,7 +488,7 @@ router.get("/sunday-attendance/summary", authMiddleware, async (req, res): Promi
 
   res.json({
     date,
-    hasQr: !!qr,
+    hasQr: !!qr && qr.purpose === STAFF_QR_PURPOSE && !qr.revokedAt,
     services: SERVICES,
     staff: staffRows,
     stats: {
@@ -437,7 +502,15 @@ router.get("/sunday-attendance/summary", authMiddleware, async (req, res): Promi
 
 // GET /sunday-attendance/my-scans?date= — staff see their own record
 router.get("/sunday-attendance/my-scans", authMiddleware, async (req, res): Promise<void> => {
+  if (!STAFF_ROLES.includes(req.user!.role as typeof STAFF_ROLES[number])) {
+    res.status(403).json({ error: "Forbidden" });
+    return;
+  }
   const date = (req.query.date as string) ?? todayWAT();
+  if (!isServiceDate(date)) {
+    res.status(400).json({ error: "date must be YYYY-MM-DD" });
+    return;
+  }
   const userId = req.user!.userId;
 
   const scans = await db

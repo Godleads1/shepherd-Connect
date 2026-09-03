@@ -40,6 +40,7 @@ vi.mock("../services/push", () => ({ pushToUsers: vi.fn(async () => undefined) }
 
 import app from "../app";
 import { generateToken } from "../middlewares/auth";
+import { hashStaffQrToken } from "../routes/sundayAttendance";
 
 const databaseDescribe = process.env.RUN_DATABASE_ATTENDANCE_TESTS === "true" ? describe : describe.skip;
 const prefix = `phase4-attendance-${Date.now()}`;
@@ -53,6 +54,7 @@ let childId = 0;
 let authorization = "";
 let staffAuthorization = "";
 const qrToken = `${prefix}-qr`;
+const familyCode = "FAM-PH4001";
 
 function auth(userId: number, email: string, role: "admin" | "support") {
   return `Bearer ${generateToken({
@@ -112,7 +114,7 @@ beforeAll(async () => {
   }
   const family = await db.execute(sql`
     INSERT INTO families (family_code, parent_1_id)
-    VALUES (${`${prefix}-family`}, ${adminId}) RETURNING id
+    VALUES (${familyCode}, ${adminId}) RETURNING id
   `);
   familyId = Number((family.rows[0] as { id: number }).id);
   const classroom = await db.execute(sql`
@@ -127,7 +129,7 @@ beforeAll(async () => {
   childId = Number((child.rows[0] as { id: number }).id);
   await db.execute(sql`
     INSERT INTO sunday_qr_codes (service_date, token, created_by_id)
-    VALUES (${serviceDate}, ${qrToken}, ${adminId})
+    VALUES (${serviceDate}, ${hashStaffQrToken(qrToken)}, ${adminId})
   `);
   authorization = auth(adminId, `${prefix}-admin@example.test`, "admin");
   staffAuthorization = auth(otherId, `${prefix}-support@example.test`, "support");
@@ -157,7 +159,7 @@ afterAll(async () => {
     sql`DELETE FROM drop_off_intents WHERE family_id = ${familyId}`,
     sql`DELETE FROM attendance WHERE child_id = ${childId}`,
     sql`DELETE FROM staff_scans WHERE user_id IN (${adminId}, ${otherId})`,
-    sql`DELETE FROM sunday_qr_codes WHERE token = ${qrToken}`,
+    sql`DELETE FROM sunday_qr_codes WHERE token = ${hashStaffQrToken(qrToken)}`,
     sql`DELETE FROM children WHERE id = ${childId}`,
     sql`DELETE FROM families WHERE id = ${familyId}`,
     sql`DELETE FROM classes WHERE id = ${classId}`,
@@ -219,7 +221,7 @@ databaseDescribe("attendance PostgreSQL concurrency integrity", () => {
     `);
     const reply = await request(app).post("/api/attendance/scan-qr")
       .set("Authorization", authorization)
-      .send({ qrCode: `QR:${familyId}`, serviceDate, serviceSlot: "7am" });
+      .send({ qrCode: familyCode, serviceDate, serviceSlot: "7am" });
     expect(reply.status).toBe(200);
     expect(reply.body.autoProcessed).toEqual([
       expect.objectContaining({ childId, slots: ["7am"] }),
@@ -324,25 +326,19 @@ databaseDescribe("attendance PostgreSQL concurrency integrity", () => {
   it("records one checkpoint for four simultaneous first staff scans", async () => {
     const replies = await Promise.all(Array.from({ length: 4 }, () =>
       request(app).post("/api/sunday-attendance/scan").set("Authorization", staffAuthorization)
-        .send({ token: qrToken, date: serviceDate }),
+        .send({ token: qrToken, date: serviceDate, action: "check_in" }),
     ));
     expect(replies.every(reply => reply.status === 200)).toBe(true);
     expect(await count("staff_scans", sql`user_id = ${otherId} AND scan_type = 'checkpoint'`)).toBe(1);
     expect(await count("staff_scans", sql`user_id = ${otherId} AND scan_type = 'clock_out'`)).toBe(0);
   });
 
-  it("records one clockout after sequential setup followed by four simultaneous scans", async () => {
+  it("records one explicit clockout after sequential setup followed by four concurrent requests", async () => {
     expect((await request(app).post("/api/sunday-attendance/scan").set("Authorization", staffAuthorization)
-      .send({ token: qrToken, date: serviceDate })).body.action).toBe("checked_in");
-    await db.execute(sql`
-      UPDATE staff_scans
-      SET scanned_at = now() - interval '31 seconds',
-          created_at = now() - interval '31 seconds'
-      WHERE user_id = ${otherId} AND service_date = ${serviceDate} AND scan_type = 'checkpoint'
-    `);
+      .send({ token: qrToken, date: serviceDate, action: "check_in" })).body.action).toBe("checked_in");
     const replies = await Promise.all(Array.from({ length: 4 }, () =>
       request(app).post("/api/sunday-attendance/scan").set("Authorization", staffAuthorization)
-        .send({ token: qrToken, date: serviceDate }),
+        .send({ token: qrToken, date: serviceDate, action: "clock_out" }),
     ));
     expect(replies.every(reply => reply.status === 200)).toBe(true);
     expect(await count("staff_scans", sql`user_id = ${otherId} AND scan_type = 'clock_out'`)).toBe(1);

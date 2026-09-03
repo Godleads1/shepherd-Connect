@@ -179,7 +179,7 @@ async function _connect(): Promise<void> {
 
       try {
         const { handleInboundMessage } = await import("./whatsappBot");
-        await handleInboundMessage(fromJid, text, imageBuffer, reply, replyWithImage);
+        await handleInboundMessage(fromJid, text, imageBuffer, reply, replyWithImage, msg.key.id ?? undefined);
       } catch (err) {
         logger.error({ from: fromJid, err: String(err) }, "WhatsApp bot error");
       }

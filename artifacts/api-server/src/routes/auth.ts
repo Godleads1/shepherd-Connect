@@ -62,9 +62,8 @@ const OTP_HMAC_KEY = createHmac("sha256", JWT_SECRET)
 
 function canonicalPhone(phone: string): string | null {
   const digits = phone.replace(/\D/g, "");
-  if (digits.length < 7 || digits.length > 15) return null;
-  if (digits.startsWith("0")) return `234${digits.slice(1)}`;
-  return digits;
+  const national = digits.startsWith("0") ? digits.slice(1) : digits.startsWith("234") ? digits.slice(3) : "";
+  return /^(?:7|8|9)\d{9}$/.test(national) ? `234${national}` : null;
 }
 
 function typedEmail(email: string): string {
@@ -244,7 +243,7 @@ router.post("/auth/register", async (req, res): Promise<void> => {
           AND expires_at > now()
           AND (contact = ${emailContact}
             OR (${phoneContact}::text IS NOT NULL AND contact = ${phoneContact}))
-        RETURNING pin_id
+        RETURNING pin_id, contact
       `);
       if (consumed.rowCount !== 1) {
         throw new RegistrationFailure(400, "Registration verification is invalid or expired.");
@@ -284,7 +283,11 @@ router.post("/auth/register", async (req, res): Promise<void> => {
         passwordHash,
         firstName,
         lastName,
-        phone,
+        phone: phone ? `+${canonicalPhone(phone)!}` : null,
+        // A WhatsApp identity is only trusted when the registration OTP was
+        // delivered to this exact normalized telephone contact.
+        whatsappVerified: !!phoneContact && consumed.rows[0]?.contact === phoneContact,
+        whatsappVerifiedAt: !!phoneContact && consumed.rows[0]?.contact === phoneContact ? new Date() : null,
         role: role as UserRole,
         status: requiresApproval ? "pending_approval" : "active",
         isActive: !requiresApproval,
