@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
-import { User, Phone, Briefcase, Bell, Save, CheckCircle, MessageSquare, Smartphone, ShieldCheck, ShieldOff, QrCode, Loader2, KeyRound, Mail, BellRing, EyeOff, HelpCircle, School } from "lucide-react";
+import { User, Phone, Briefcase, Bell, Save, CheckCircle, MessageSquare, Smartphone, ShieldCheck, ShieldOff, QrCode, Loader2, KeyRound, Mail, BellRing, EyeOff, HelpCircle, School, MessageCircle } from "lucide-react";
 import { usePushNotifications } from "@/hooks/usePushNotifications";
 import { QRCodeSVG } from "qrcode.react";
 import { PhotoUploader, SecurePhoto } from "@/components/PhotoUploader";
@@ -346,6 +346,8 @@ function HelpSection() {
   const { data: settings } = useGeneralSettings();
   const phone = settings?.supportPhone?.trim();
   if (!phone) return null;
+  const phoneDigits = phone.replace(/\D/g, "");
+  const whatsappPhone = phoneDigits.startsWith("0") ? `234${phoneDigits.slice(1)}` : phoneDigits;
 
   return (
     <div className="bg-white border rounded-2xl p-5">
@@ -353,18 +355,32 @@ function HelpSection() {
         <HelpCircle className="w-4 h-4 text-[#1e3a8a]" /> Help &amp; Support
       </h2>
       <p className="text-xs text-gray-500 mb-4">Need assistance? Reach out to our support team</p>
-      <a
-        href={`tel:${phone}`}
-        className="flex items-center gap-3 p-3 rounded-xl border bg-blue-50 border-blue-200 hover:bg-blue-100 transition-colors active:scale-[0.98] select-none"
-      >
-        <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-[#1e3a8a]">
-          <Phone className="w-4 h-4 text-white" />
-        </div>
-        <div>
-          <p className="text-sm font-medium text-gray-900">Call Support</p>
-          <p className="text-xs text-[#1e3a8a] font-semibold">{phone}</p>
-        </div>
-      </a>
+      <div className="space-y-3">
+        <a
+          href={`tel:${phone}`}
+          className="flex items-center gap-3 p-3 rounded-xl border bg-blue-50 border-blue-200 hover:bg-blue-100 transition-colors active:scale-[0.98] select-none"
+        >
+          <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-[#1e3a8a]">
+            <Phone className="w-4 h-4 text-white" />
+          </div>
+          <div>
+            <p className="text-sm font-medium text-gray-900">Call Support</p>
+            <p className="text-xs text-[#1e3a8a] font-semibold">{phone}</p>
+          </div>
+        </a>
+        <a
+          href={`https://wa.me/${whatsappPhone}`}
+          className="flex items-center gap-3 p-3 rounded-xl border bg-green-50 border-green-200 hover:bg-green-100 transition-colors active:scale-[0.98] select-none"
+        >
+          <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-green-600">
+            <MessageCircle className="w-4 h-4 text-white" />
+          </div>
+          <div>
+            <p className="text-sm font-medium text-gray-900">Chat on WhatsApp</p>
+            <p className="text-xs text-green-700 font-semibold">{phone}</p>
+          </div>
+        </a>
+      </div>
     </div>
   );
 }
