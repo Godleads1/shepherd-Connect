@@ -1,6 +1,6 @@
 import { Router } from "express";
-import { eq, and, isNull, ilike, or, sql } from "drizzle-orm";
-import { db, childrenTable, classesTable, attendanceTable, classAssignmentsTable, pickupDelegatesTable, childAppraisalsTable, classChangeRequestsTable, classWaitlistTable, emergenciesTable, familiesTable } from "@workspace/db";
+import { eq, and, isNull, ilike, or, sql, asc } from "drizzle-orm";
+import { db, childrenTable, classesTable, attendanceTable, classAssignmentsTable, pickupDelegatesTable, childAppraisalsTable, classChangeRequestsTable, classWaitlistTable, emergenciesTable, familiesTable, usersTable } from "@workspace/db";
 import { CreateChildBody, ListChildrenQueryParams } from "@workspace/api-zod";
 import { authMiddleware, requireRoles } from "../middlewares/auth";
 import { getParentFamilyIds, parentOwnsChild, parentOwnsFamily } from "../lib/parentScope";
@@ -72,6 +72,53 @@ router.get("/children", authMiddleware, async (req, res): Promise<void> => {
   } catch (err) {
     req.log.error({ err }, "Failed to list children");
     res.status(500).json({ error: "Failed to list children" });
+  }
+});
+
+router.get("/children/my-class-roster", authMiddleware, requireRoles("teacher"), async (req, res): Promise<void> => {
+  try {
+    const [teacher] = await db.select({
+      primaryClassId: usersTable.primaryClassId,
+    }).from(usersTable).where(eq(usersTable.id, req.user!.userId)).limit(1);
+
+    if (!teacher?.primaryClassId) {
+      res.json({ data: [], total: 0, class: null });
+      return;
+    }
+
+    const [assignedClass] = await db.select({
+      id: classesTable.id,
+      name: classesTable.name,
+    }).from(classesTable).where(eq(classesTable.id, teacher.primaryClassId)).limit(1);
+
+    if (!assignedClass) {
+      res.json({ data: [], total: 0, class: null });
+      return;
+    }
+
+    const children = await db.select({
+      id: childrenTable.id,
+      firstName: childrenTable.firstName,
+      lastName: childrenTable.lastName,
+      dob: childrenTable.dob,
+      photoUrl: childrenTable.photoUrl,
+    }).from(childrenTable)
+      .where(eq(childrenTable.currentClassId, teacher.primaryClassId))
+      .orderBy(asc(childrenTable.lastName), asc(childrenTable.firstName));
+
+    const data = children.map(child => ({
+      id: child.id,
+      firstName: child.firstName,
+      lastName: child.lastName,
+      age: calcAge(child.dob),
+      photoUrl: child.photoUrl,
+      class: assignedClass,
+    }));
+
+    res.json({ data, total: data.length, class: assignedClass });
+  } catch (err) {
+    req.log.error({ err }, "Failed to list teacher class roster");
+    res.status(500).json({ error: "Failed to list class roster" });
   }
 });
 

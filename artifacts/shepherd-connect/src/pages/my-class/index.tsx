@@ -12,6 +12,7 @@ import {
 import { apiGet, apiPost } from "@/lib/api-call";
 import { TeacherClockIn } from "@/components/TeacherClockIn";
 import { ClassTvMediaControl } from "@/components/ClassTvMediaControl";
+import { SecurePhoto } from "@/components/PhotoUploader";
 import { useAuth } from "@/contexts/auth";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
@@ -80,6 +81,19 @@ export default function MyClass() {
   const allocList: any[] = Array.isArray(myAllocations) ? (myAllocations as any[]) : [];
   const todayAlloc = allocList.find((a) => a.serviceDate === today);
   const hasAllocationToday = !!todayAlloc;
+  const primaryClassId: number | undefined = myTeacher?.primaryClass?.id ?? myTeacher?.user?.primaryClassId ?? undefined;
+
+  const {
+    data: assignedClassRosterData,
+    isLoading: isAssignedClassRosterLoading,
+    isError: isAssignedClassRosterError,
+    refetch: refetchAssignedClassRoster,
+  } = useQuery<{ data: any[]; total: number; class: { id: number; name: string } | null }>({
+    queryKey: ["assignedClassRoster", user?.id, primaryClassId],
+    queryFn: () => apiGet<{ data: any[]; total: number; class: { id: number; name: string } | null }>("/children/my-class-roster"),
+    enabled: !hasAllocationToday && primaryClassId !== undefined,
+  });
+  const assignedClassRoster = assignedClassRosterData?.data ?? [];
 
   // Only use today's allocation — teachers must not see data for classes they aren't assigned to today
   const myClassId: number | undefined = todayAlloc?.classId;
@@ -202,17 +216,75 @@ export default function MyClass() {
         )}
 
         {hasPrimaryClass && (
-          <div className="rounded-2xl p-5 border border-blue-100 bg-blue-50 flex items-center gap-4">
-            <div className="w-12 h-12 rounded-full flex items-center justify-center flex-shrink-0"
-              style={{ background: "linear-gradient(135deg, #172554, #1d4ed8)" }}>
-              <School className="w-6 h-6 text-white" />
+          <>
+            <div className="rounded-2xl p-5 border border-blue-100 bg-blue-50 flex items-center gap-4">
+              <div className="w-12 h-12 rounded-full flex items-center justify-center flex-shrink-0"
+                style={{ background: "linear-gradient(135deg, #172554, #1d4ed8)" }}>
+                <School className="w-6 h-6 text-white" />
+              </div>
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-widest text-blue-500 mb-0.5">Your Assigned Class</p>
+                <p className="text-xl font-bold text-blue-900">{myTeacher?.primaryClass?.name ?? "Class"}</p>
+                <p className="text-xs text-blue-600 mt-0.5">Permanent assignment — contact an admin to change</p>
+              </div>
             </div>
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-widest text-blue-500 mb-0.5">Your Assigned Class</p>
-              <p className="text-xl font-bold text-blue-900">{myTeacher?.primaryClass?.name ?? "Class"}</p>
-              <p className="text-xs text-blue-600 mt-0.5">Permanent assignment — contact an admin to change</p>
+
+            <div className="rounded-2xl border border-gray-200 bg-white p-5">
+              <div className="flex items-center justify-between gap-3 mb-4">
+                <div>
+                  <h2 className="font-bold text-gray-900 flex items-center gap-2">
+                    <Users className="w-5 h-5 text-blue-700" />
+                    Class Roster
+                  </h2>
+                  <p className="text-xs text-gray-500 mt-0.5">Read-only outside service days</p>
+                </div>
+                {!isAssignedClassRosterLoading && !isAssignedClassRosterError && (
+                  <Badge variant="secondary">{assignedClassRoster.length} enrolled</Badge>
+                )}
+              </div>
+
+              {isAssignedClassRosterError ? (
+                <QueryError message="Could not load your class roster." onRetry={() => refetchAssignedClassRoster()} />
+              ) : isAssignedClassRosterLoading ? (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {[1, 2, 3, 4].map(i => <Skeleton key={i} className="h-20 w-full rounded-xl" />)}
+                </div>
+              ) : assignedClassRoster.length === 0 ? (
+                <div className="text-center py-10 rounded-xl border border-dashed border-blue-100 bg-blue-50/50">
+                  <Users className="w-10 h-10 text-blue-200 mx-auto mb-2" />
+                  <p className="font-semibold text-gray-700">No children enrolled yet</p>
+                  <p className="text-sm text-gray-500 mt-1">Children will appear here once they are assigned to this class.</p>
+                </div>
+              ) : (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {assignedClassRoster.map((child: any) => (
+                    <div key={child.id} className="flex items-center gap-3 rounded-xl border border-gray-100 bg-gray-50 p-3">
+                      <div className="w-12 h-12 rounded-xl overflow-hidden flex items-center justify-center text-sm font-bold text-white flex-shrink-0"
+                        style={{ background: "linear-gradient(135deg, #1e3a8a, #3b82f6)" }}>
+                        {child.photoUrl ? (
+                          <SecurePhoto
+                            src={child.photoUrl}
+                            alt={`${child.firstName} ${child.lastName}`}
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          <>{child.firstName?.[0]}{child.lastName?.[0]}</>
+                        )}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="font-semibold text-gray-900 truncate">{child.firstName} {child.lastName}</p>
+                        <p className="text-xs text-gray-500">
+                          {typeof child.age === "number" ? `Age ${child.age}` : "Age not available"}
+                          {" · "}
+                          {child.class?.name ?? myTeacher?.primaryClass?.name ?? "Assigned class"}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
-          </div>
+          </>
         )}
 
         <div className="flex flex-col items-center justify-center py-16 bg-white rounded-2xl border border-dashed border-gray-200 text-center px-6">
