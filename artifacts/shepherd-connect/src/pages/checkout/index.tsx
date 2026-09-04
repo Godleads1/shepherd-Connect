@@ -1,6 +1,5 @@
-import { useState, useEffect, useCallback } from "react";
-import { useListAttendance, useCheckOut } from "@workspace/api-client-react";
-import { useMutation } from "@tanstack/react-query";
+import { useState, useEffect, useCallback, useMemo } from "react";
+import { useListAttendance, checkOut, getCheckoutOperation } from "@workspace/api-client-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -12,7 +11,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { apiPost, apiGet } from "@/lib/api-call";
 import { useAuth } from "@/contexts/auth";
 import LocationBanner from "@/components/LocationBanner";
-import { refreshAfterCommittedCheckout } from "./checkout-flow";
+import { type CheckoutOperationState } from "./checkout-operation";
+import { CheckoutRecoveryControls, useCheckoutOperation } from "./use-checkout-operation";
 
 const SERVICE_CLOCK_KEY = "shepherd_service_end_time";
 
@@ -157,12 +157,19 @@ function ServiceClock() {
   );
 }
 
-function PickupQueue({ activeRecords, onCheckout }: { activeRecords: any[]; onCheckout: () => Promise<void> }) {
+function PickupQueue({
+  activeRecords,
+  checkout,
+  checkoutBlocked,
+}: {
+  activeRecords: any[];
+  checkout: (id: number) => Promise<CheckoutOperationState>;
+  checkoutBlocked: boolean;
+}) {
   const [queue, setQueue] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [handingOver, setHandingOver] = useState<string | null>(null);
   const { toast } = useToast();
-  const checkoutMutation = useCheckOut();
 
   const fetchQueue = useCallback(async () => {
     setLoading(true);
@@ -192,21 +199,28 @@ function PickupQueue({ activeRecords, onCheckout }: { activeRecords: any[]; onCh
         return;
       }
 
-      const result = await checkoutMutation.mutateAsync({ id: rec.id, data: {} });
+      const state = await checkout(rec.id);
+      if (state.phase !== "applied" && state.phase !== "already_applied") {
+        toast({
+          variant: "destructive",
+          title: state.phase === "unknown"
+            ? "Checkout status is temporarily unknown"
+            : state.pending
+              ? "Checkout was not confirmed"
+              : "Handover failed",
+          description: state.pending ? "Use Check status or Retry with the same checkout operation." : undefined,
+        });
+        return;
+      }
+      const result = state.result;
+      if (!result) throw new Error("Checkout completed without an authoritative result");
       const resolvedIds = new Set(result.resolvedPickupRequestIds);
       setQueue(prev => prev.filter(q => q.id !== item.id && !resolvedIds.has(q.id)));
       toast({
-        title: result.alreadyApplied ? "Child was already checked out" : "Child handed over",
+        title: state.phase === "already_applied" ? "Child was already checked out" : "Child handed over",
         description: `${item.childName} is checked out and removed from the pickup queue`,
       });
 
-      const refresh = await refreshAfterCommittedCheckout(onCheckout);
-      if (refresh.status === "refresh_failed") {
-        toast({
-          title: "Handover saved — refresh needed",
-          description: "The child is checked out, but the latest attendance list could not be loaded. Use Refresh to reconcile the screen.",
-        });
-      }
     } catch (error: any) {
       toast({
         variant: "destructive",
@@ -270,7 +284,7 @@ function PickupQueue({ activeRecords, onCheckout }: { activeRecords: any[]; onCh
                     size="sm"
                     className="flex-shrink-0 gap-1.5 bg-green-600 hover:bg-green-700 text-white"
                     onClick={() => handleHandOver(item)}
-                    disabled={handingOver === item.id}>
+                    disabled={checkoutBlocked || handingOver === item.id}>
                     <LogOut className="w-3.5 h-3.5" />
                     {handingOver === item.id ? "…" : "Hand Over"}
                   </Button>
@@ -297,24 +311,47 @@ export default function Checkout() {
   const today = format(new Date(), "yyyy-MM-dd");
   const { data: attendanceList, refetch } = useListAttendance({ serviceDate: today });
 
-  const checkoutMutation = useCheckOut();
-
-  const refreshAttendance = async () => {
+  const { user } = useAuth();
+  const refreshAttendance = useCallback(async () => {
     const result = await refetch();
     if (result.error) throw result.error;
-  };
+  }, [refetch]);
+  const checkoutTransport = useMemo(() => ({
+    submit: (id: number, operationId: string) => checkOut(id, { operationId }),
+    reconcile: getCheckoutOperation,
+  }), []);
+  const refreshFailure = useCallback(() => {
+    toast({ title: "Checkout saved — refresh needed", description: "The child is checked out, but the attendance list could not be refreshed. Try Refresh before continuing." });
+  }, [toast]);
+  const {
+    state: checkoutState,
+    submit: runCheckout,
+    checkStatus: checkCheckoutStatus,
+    retry: retryCheckout,
+  } = useCheckoutOperation({
+    userId: user?.id,
+    transport: checkoutTransport,
+    onCommitted: refreshAttendance,
+    onRefreshFailure: refreshFailure,
+  });
 
   const handleCheckout = async (attendanceId: number) => {
     try {
-      const result = await checkoutMutation.mutateAsync({ id: attendanceId, data: {} });
-      toast({ title: result.alreadyApplied ? "Child was already checked out" : "Checked out successfully" });
-      const refresh = await refreshAfterCommittedCheckout(refreshAttendance);
-      if (refresh.status === "refresh_failed") {
-        toast({
-          title: "Checkout saved — refresh needed",
-          description: "The child is checked out, but the attendance list could not be refreshed. Try Refresh before continuing.",
-        });
+      const state = await runCheckout(attendanceId);
+      if (state.phase === "unknown") {
+        toast({ variant: "destructive", title: "Checkout status is temporarily unknown" });
+        return;
       }
+      if (state.pending) {
+        toast({
+          variant: "destructive",
+          title: "Checkout was not confirmed",
+          description: "Use Check status or Retry with the same checkout operation.",
+        });
+        return;
+      }
+      if (state.phase !== "applied" && state.phase !== "already_applied") throw state.error;
+      toast({ title: state.phase === "already_applied" ? "Child was already checked out" : "Checked out successfully" });
     } catch (error: any) {
       toast({ variant: "destructive", title: "Checkout failed", description: error?.message });
     }
@@ -342,16 +379,22 @@ export default function Checkout() {
 
   const handleOtpCheckout = async (attendanceId: number) => {
     try {
-      const result = await checkoutMutation.mutateAsync({ id: attendanceId, data: {} });
-      toast({ title: result.alreadyApplied ? "Child was already checked out" : "Child checked out via delegate OTP" });
-      setOtpInput(""); setOtpResult(null);
-      const refresh = await refreshAfterCommittedCheckout(refreshAttendance);
-      if (refresh.status === "refresh_failed") {
-        toast({
-          title: "Checkout saved — refresh needed",
-          description: "The child is checked out, but the attendance list could not be refreshed. Try Refresh before continuing.",
-        });
+      const state = await runCheckout(attendanceId);
+      if (state.phase === "unknown") {
+        toast({ variant: "destructive", title: "Checkout status is temporarily unknown" });
+        return;
       }
+      if (state.pending) {
+        toast({
+          variant: "destructive",
+          title: "Checkout was not confirmed",
+          description: "Use Check status or Retry with the same checkout operation.",
+        });
+        return;
+      }
+      if (state.phase !== "applied" && state.phase !== "already_applied") throw state.error;
+      toast({ title: state.phase === "already_applied" ? "Child was already checked out" : "Child checked out via delegate OTP" });
+      setOtpInput(""); setOtpResult(null);
     } catch (error: any) {
       toast({ variant: "destructive", title: "Checkout failed", description: error?.message });
     }
@@ -471,7 +514,7 @@ export default function Checkout() {
                     className="gap-2 flex-shrink-0"
                     style={{ background: "linear-gradient(135deg, #1e3a8a, #1d4ed8)" }}
                     onClick={() => handleCheckout(record.id)}
-                    disabled={checkoutMutation.isPending}
+                    disabled={checkoutState.phase === "submitting" || checkoutState.phase === "reconciling" || !!checkoutState.pending}
                     data-testid={`btn-checkout-${record.id}`}
                   >
                     <LogOut className="w-4 h-4" />
@@ -598,7 +641,7 @@ export default function Checkout() {
                               key={child.id}
                               className="w-full gap-2 bg-green-600 hover:bg-green-700 text-white"
                               onClick={() => handleOtpCheckout(rec.id)}
-                              disabled={checkoutMutation.isPending}
+                              disabled={checkoutState.phase === "submitting" || checkoutState.phase === "reconciling" || !!checkoutState.pending}
                             >
                               <LogOut className="w-4 h-4" /> Confirm Checkout for {child.firstName}
                             </Button>
@@ -629,9 +672,19 @@ export default function Checkout() {
 
         {/* ── Pickup Queue ── */}
         <TabsContent value="queue" className="mt-4">
-          <PickupQueue activeRecords={activeRecords} onCheckout={refreshAttendance} />
+          <PickupQueue
+            activeRecords={activeRecords}
+            checkout={runCheckout}
+            checkoutBlocked={checkoutState.phase === "submitting" || checkoutState.phase === "reconciling" || !!checkoutState.pending}
+          />
         </TabsContent>
       </Tabs>
+
+      <CheckoutRecoveryControls
+        state={checkoutState}
+        onCheckStatus={() => void checkCheckoutStatus()}
+        onRetry={() => void retryCheckout()}
+      />
     </div>
   );
 }

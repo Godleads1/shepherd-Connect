@@ -1,5 +1,5 @@
-import { useState, useCallback, useEffect, useRef } from "react";
-import { useScanQrCode, useCheckIn, useEscortToClass, useScanFace, useListAttendance, useListPendingCustodyEpisodes, useAcceptCustodyEpisode, getListPendingCustodyEpisodesQueryKey } from "@workspace/api-client-react";
+import { useState, useCallback, useEffect, useMemo, useRef } from "react";
+import { useScanQrCode, useCheckIn, useEscortToClass, useScanFace, useListAttendance, useListPendingCustodyEpisodes, useAcceptCustodyEpisode, getListPendingCustodyEpisodesQueryKey, checkOut, getCheckoutOperation } from "@workspace/api-client-react";
 import { Input } from "@/components/ui/input";
 import { AlertTriangle, CheckCircle, QrCode, Scan, Truck, ShieldCheck, Users, Camera, WifiOff, Upload, HandHelping, Music, Send, Printer } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
@@ -11,9 +11,10 @@ import { useAuth } from "@/contexts/auth";
 import FamilyAssist from "./FamilyAssist";
 import LocationBanner from "@/components/LocationBanner";
 import { useGeneralSettings } from "@/components/AnnouncementBanner";
-import { apiGet, apiPost, apiPut, apiDelete } from "@/lib/api-call";
+import { apiGet, apiPost, apiDelete } from "@/lib/api-call";
 import { useQuery } from "@tanstack/react-query";
 import { watServiceDateAt } from "@/lib/wat-date";
+import { CheckoutRecoveryControls, useCheckoutOperation } from "../checkout/use-checkout-operation";
 
 type Tab = "qr" | "face" | "assist";
 type SlotChoice = "7am" | "10:30am" | "both";
@@ -107,6 +108,28 @@ export default function CheckIn() {
   const { data: todayAttendance, refetch: refetchAttendance } = useListAttendance(
     serviceSlot === "both" ? { serviceDate: today } : { serviceDate: today, serviceSlot },
   );
+  const refreshCheckout = useCallback(async () => {
+    const result = await refetchAttendance();
+    if (result.error) throw result.error;
+  }, [refetchAttendance]);
+  const checkoutTransport = useMemo(() => ({
+    submit: (id: number, operationId: string) => checkOut(id, { operationId }),
+    reconcile: getCheckoutOperation,
+  }), []);
+  const checkoutRefreshFailure = useCallback(() => {
+    toast({ title: "Checkout saved — refresh needed", description: "The checkout was saved, but attendance could not be refreshed." });
+  }, [toast]);
+  const {
+    state: checkoutState,
+    submit: submitCheckout,
+    checkStatus: checkCheckoutStatus,
+    retry: retryCheckout,
+  } = useCheckoutOperation({
+    userId: user?.id,
+    transport: checkoutTransport,
+    onCommitted: refreshCheckout,
+    onRefreshFailure: checkoutRefreshFailure,
+  });
   const attendanceList: any[] = Array.isArray(todayAttendance) ? todayAttendance : [];
 
   // Hall session state — fetched once on mount and after bulk-escort clears it
@@ -212,9 +235,19 @@ export default function CheckIn() {
     if (!record) return;
     setCheckingOut(child.id);
     try {
-      await apiPut(`/attendance/${record.id}/checkout`, {});
+      const state = await submitCheckout(record.id);
+      if (!state || (state.phase !== "applied" && state.phase !== "already_applied")) {
+        if (state?.phase === "unknown") {
+          toast({ variant: "destructive", title: "Checkout status is temporarily unknown" });
+          return;
+        }
+        if (state?.pending) {
+          toast({ variant: "destructive", title: "Checkout was not confirmed", description: "Retry to reuse the same checkout operation." });
+          return;
+        }
+        throw state?.error || new Error("Checkout could not be completed");
+      }
       toast({ title: `${child.firstName} checked out`, description: "Parent and class teacher have been notified." });
-      refetchAttendance();
     } catch (e: any) {
       toast({ variant: "destructive", title: "Check out failed", description: e.message });
     } finally {
@@ -436,6 +469,12 @@ export default function CheckIn() {
       </div>
 
       <LocationBanner />
+
+      <CheckoutRecoveryControls
+        state={checkoutState}
+        onCheckStatus={() => void checkCheckoutStatus()}
+        onRetry={() => void retryCheckout()}
+      />
 
       {/* Pending Custody Requests */}
       {(pendingEpisodes && pendingEpisodes.length > 0) && (
@@ -766,7 +805,12 @@ export default function CheckIn() {
                             </div>
                             <button
                               onClick={() => handleCheckOut(child)}
-                              disabled={checkingOut === child.id}
+                              disabled={
+                                checkingOut === child.id
+                                || checkoutState.phase === "submitting"
+                                || checkoutState.phase === "reconciling"
+                                || !!checkoutState.pending
+                              }
                               data-testid={`button-checkout-${child.id}`}
                               className="flex-1 h-14 rounded-xl font-bold text-sm transition-all active:scale-95 disabled:opacity-60 flex items-center justify-center gap-1.5"
                               style={{ background: "#b45309", color: "white" }}>

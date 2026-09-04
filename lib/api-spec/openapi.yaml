@@ -1027,6 +1027,33 @@ paths:
               schema:
                 $ref: "#/components/schemas/CheckoutResult"
 
+  /attendance/{attendanceId}/checkout-operations/{operationId}:
+    get:
+      operationId: getCheckoutOperation
+      tags: [attendance]
+      summary: Reconcile a checkout operation whose original response was not received
+      parameters:
+        - name: attendanceId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: operationId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Original authoritative checkout result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CheckoutResult"
+        "404":
+          description: No matching checkout operation exists for this actor and attendance record
+
   /attendance/scan-qr:
     post:
       operationId: scanQrCode
@@ -3174,13 +3201,22 @@ components:
     CheckOutBody:
       type: object
       properties:
+        operationId:
+          type: string
+          format: uuid
+          description: Stable client-generated identity for one logical checkout attempt.
         notes:
           type: string
           nullable: true
+      required:
+        - operationId
 
     CheckoutResult:
       type: object
       properties:
+        operationId:
+          type: string
+          format: uuid
         outcome:
           type: string
           enum: [applied, already_applied]
@@ -3193,6 +3229,7 @@ components:
         alreadyApplied:
           type: boolean
       required:
+        - operationId
         - outcome
         - attendance
         - resolvedPickupRequestIds

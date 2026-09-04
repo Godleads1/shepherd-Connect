@@ -4178,6 +4178,117 @@ export const useCheckOut = <
 };
 
 /**
+ * @summary Reconcile a checkout operation whose original response was not received
+ */
+export const getGetCheckoutOperationUrl = (
+  attendanceId: number,
+  operationId: string,
+) => {
+  return `/api/attendance/${attendanceId}/checkout-operations/${operationId}`;
+};
+
+export const getCheckoutOperation = async (
+  attendanceId: number,
+  operationId: string,
+  options?: RequestInit,
+): Promise<CheckoutResult> => {
+  return customFetch<CheckoutResult>(
+    getGetCheckoutOperationUrl(attendanceId, operationId),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getGetCheckoutOperationQueryKey = (
+  attendanceId: number,
+  operationId: string,
+) => {
+  return [
+    `/api/attendance/${attendanceId}/checkout-operations/${operationId}`,
+  ] as const;
+};
+
+export const getGetCheckoutOperationQueryOptions = <
+  TData = Awaited<ReturnType<typeof getCheckoutOperation>>,
+  TError = ErrorType<void>,
+>(
+  attendanceId: number,
+  operationId: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getCheckoutOperation>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ??
+    getGetCheckoutOperationQueryKey(attendanceId, operationId);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getCheckoutOperation>>
+  > = ({ signal }) =>
+    getCheckoutOperation(attendanceId, operationId, {
+      signal,
+      ...requestOptions,
+    });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!(attendanceId && operationId),
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getCheckoutOperation>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetCheckoutOperationQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getCheckoutOperation>>
+>;
+export type GetCheckoutOperationQueryError = ErrorType<void>;
+
+/**
+ * @summary Reconcile a checkout operation whose original response was not received
+ */
+
+export function useGetCheckoutOperation<
+  TData = Awaited<ReturnType<typeof getCheckoutOperation>>,
+  TError = ErrorType<void>,
+>(
+  attendanceId: number,
+  operationId: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getCheckoutOperation>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetCheckoutOperationQueryOptions(
+    attendanceId,
+    operationId,
+    options,
+  );
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
  * @summary Scan QR code and get family/child info for check-in
  */
 export const getScanQrCodeUrl = () => {

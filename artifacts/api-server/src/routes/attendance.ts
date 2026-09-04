@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { eq, and, ne, lt, inArray, sql } from "drizzle-orm";
 import { db, attendanceTable, attendanceEventsTable, childrenTable, classesTable, familiesTable, usersTable, notificationsTable, teachersTable, teacherAllocationsTable, hallSessionsTable, dropOffIntentsTable } from "@workspace/db";
-import { CheckInBody, CheckOutBody, ListAttendanceQueryParams, ScanQrCodeBody } from "@workspace/api-zod";
+import { CheckInBody, CheckOutBody, CheckOutParams, GetCheckoutOperationParams, ListAttendanceQueryParams, ScanQrCodeBody } from "@workspace/api-zod";
 import { authMiddleware, requireRoles } from "../middlewares/auth";
 import { notifyChildArrivedInClass, notifyChildPickedUp, notifyTeachersChildPickedUp, sendNotification } from "../lib/notify";
 import { smsChildCheckedIn, smsChildCheckedOut, smsPreDismissal, emailChildCheckedIn, emailChildCheckedOut } from "../services/sms";
@@ -12,6 +12,15 @@ import { findActiveOtherSlot, stillCheckedInMessage } from "../lib/attendanceGua
 import { createAttendanceNotificationIntents } from "../lib/attendanceNotificationIntents";
 import { CustodyHandoverError, releasePhysicalCustody } from "../services/custodyHandover";
 import { resolvePickupRequestsForCheckout } from "../services/classroomDisplayAlerts";
+import {
+  checkoutOperationMatches,
+  findBoundCheckoutOperation,
+  findCheckoutOperation,
+  lockCheckoutOperation,
+  persistCheckoutOperation,
+  replayCheckoutOperation,
+  serializeCheckoutResult,
+} from "../services/checkoutOperations";
 
 async function getParentContacts(childId: number): Promise<{ phones: (string | null)[]; emails: (string | null)[]; parentIds: number[]; childName: string; className: string }> {
   const [child] = await db.select().from(childrenTable).where(eq(childrenTable.id, childId));
@@ -520,84 +529,176 @@ router.put("/attendance/:id/arrive", authMiddleware, requireRoles("super_admin",
   res.json(await formatAttendance(record));
 });
 
+class CheckoutOperationRouteError extends Error {
+  constructor(
+    public statusCode: number,
+    public errorTitle: string,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
 router.put("/attendance/:id/checkout", authMiddleware, requireRoles("super_admin", "admin", "support", "attendant"), async (req, res): Promise<void> => {
-  const id = parseInt(req.params.id as string, 10);
-  if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
+  const params = CheckOutParams.safeParse(req.params);
+  if (!params.success) { res.status(400).json({ error: "Bad request", message: params.error.message }); return; }
   const parsed = CheckOutBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: "Bad request", message: parsed.error.message }); return; }
-  // A custody-backed attendance row is a projection of the custody episode, not
-  // an independently closable record. Keep this legacy endpoint compatible for
-  // the accepting support custodian, but always make the episode transition the
-  // authoritative write. Admins must use the explicit reasoned override route.
-  const [existing] = await db.select().from(attendanceTable).where(eq(attendanceTable.id, id));
-  if (!existing) { res.status(404).json({ error: "Not found", message: "Attendance record not found" }); return; }
-  if (existing.custodyEpisodeId) {
-    if (req.user!.role !== "support") {
-      res.status(409).json({
-        error: "Custody checkout requires canonical release",
-        message: "Custody-backed attendance may only be released by its accepting support custodian. Admin overrides require POST /custody-episodes/:id/override-pickup with a reason.",
-      });
-      return;
-    }
-    try {
-      const checkout = await db.transaction(async tx => {
+  const { id } = params.data;
+  const { operationId } = parsed.data;
+  const actorUserId = req.user!.userId;
+
+  try {
+    const checkout = await db.transaction(async tx => {
+      // Operation identity serializes first so reconciliation cannot observe an
+      // in-flight checkout as absent. The existing child/date lock is acquired
+      // only after this lock.
+      await lockCheckoutOperation(tx, operationId);
+      const priorOperation = await findCheckoutOperation(tx, operationId);
+      if (priorOperation) {
+        if (!checkoutOperationMatches(priorOperation, { actorUserId, attendanceId: id })) {
+          throw new CheckoutOperationRouteError(
+            409,
+            "Checkout operation conflict",
+            "The checkout operation could not be applied",
+          );
+        }
+        return replayCheckoutOperation(priorOperation);
+      }
+
+      // A custody-backed attendance row is a projection of the custody episode,
+      // not an independently closable record. Preserve the canonical release
+      // and existing reasoned admin-override policy.
+      const [existing] = await tx.select().from(attendanceTable).where(eq(attendanceTable.id, id));
+      if (!existing) {
+        throw new CheckoutOperationRouteError(404, "Not found", "Attendance record not found");
+      }
+
+      let rawResult;
+      if (existing.custodyEpisodeId) {
+        if (req.user!.role !== "support") {
+          throw new CheckoutOperationRouteError(
+            409,
+            "Custody checkout requires canonical release",
+            "Custody-backed attendance may only be released by its accepting support custodian. Admin overrides require POST /custody-episodes/:id/override-pickup with a reason.",
+          );
+        }
         const outcome = await releasePhysicalCustody(tx, {
           episodeId: existing.custodyEpisodeId!,
-          actorUserId: req.user!.userId,
+          actorUserId,
         });
         const record = outcome.attendance.find((row: typeof attendanceTable.$inferSelect) => row.id === id)
           ?? (await tx.select().from(attendanceTable).where(eq(attendanceTable.id, id)))[0];
-        if (!record) return null;
-        return {
+        if (!record) {
+          throw new CheckoutOperationRouteError(404, "Not found", "Attendance record not found");
+        }
+        rawResult = {
+          operationId,
           outcome: outcome.duplicate ? "already_applied" as const : "applied" as const,
-          attendance: await formatAttendanceWith(tx, record),
+          attendance: record,
           resolvedPickupRequestIds: outcome.resolvedPickupRequests.map((request: { id: number }) => request.id),
           alreadyApplied: outcome.duplicate,
         };
-      });
-      if (!checkout) { res.status(404).json({ error: "Not found", message: "Attendance record not found" }); return; }
-      res.json(checkout);
-      return;
-    } catch (error) {
-      if (error instanceof CustodyHandoverError) {
-        res.status(error.statusCode).json({ error: "Custody handover rejected", message: error.message });
-        return;
+      } else {
+        const lockKey = Number(existing.serviceDate.replace(/-/g, ""));
+        await tx.execute(sql`SELECT pg_advisory_xact_lock(${existing.childId}, ${lockKey})`);
+        const result = await tx.update(attendanceTable).set({
+          status: "picked_up", checkOutTime: new Date(), checkedOutBy: actorUserId,
+        }).where(and(eq(attendanceTable.id, id), ne(attendanceTable.status, "picked_up"))).returning();
+        if (result[0]) await createAttendanceNotificationIntents(tx, result[0], "picked_up");
+        if (!result[0]) {
+          const [current] = await tx.select().from(attendanceTable).where(eq(attendanceTable.id, id));
+          if (!current) {
+            throw new CheckoutOperationRouteError(404, "Not found", "Attendance record not found");
+          }
+          rawResult = {
+            operationId,
+            outcome: "already_applied" as const,
+            attendance: current,
+            resolvedPickupRequestIds: [] as number[],
+            alreadyApplied: true,
+          };
+        } else {
+          const resolvedPickupRequests = await resolvePickupRequestsForCheckout(tx, {
+            childId: result[0].childId,
+            serviceDate: result[0].serviceDate,
+            actorUserId,
+            resolvedAt: result[0].checkOutTime!,
+          });
+          rawResult = {
+            operationId,
+            outcome: "applied" as const,
+            attendance: result[0],
+            resolvedPickupRequestIds: resolvedPickupRequests.map((request: { id: number }) => request.id),
+            alreadyApplied: false,
+          };
+        }
       }
-      throw error;
-    }
-  }
-  const checkout = await db.transaction(async tx => {
-    const lockKey = Number(existing.serviceDate.replace(/-/g, ""));
-    await tx.execute(sql`SELECT pg_advisory_xact_lock(${existing.childId}, ${lockKey})`);
-    const result = await tx.update(attendanceTable).set({
-      status: "picked_up", checkOutTime: new Date(), checkedOutBy: req.user!.userId,
-    }).where(and(eq(attendanceTable.id, id), ne(attendanceTable.status, "picked_up"))).returning();
-    if (result[0]) await createAttendanceNotificationIntents(tx, result[0], "picked_up");
-    if (!result[0]) {
-      const [current] = await tx.select().from(attendanceTable).where(eq(attendanceTable.id, id));
-      if (!current) return null;
-      return {
-        outcome: "already_applied" as const,
-        attendance: await formatAttendanceWith(tx, current),
-        resolvedPickupRequestIds: [] as number[],
-        alreadyApplied: true,
-      };
-    }
-    const resolvedPickupRequests = await resolvePickupRequestsForCheckout(tx, {
-      childId: result[0].childId,
-      serviceDate: result[0].serviceDate,
-      actorUserId: req.user!.userId,
-      resolvedAt: result[0].checkOutTime!,
+
+      const authoritativeResult = serializeCheckoutResult(rawResult);
+      await persistCheckoutOperation(tx, {
+        operationId,
+        actorUserId,
+        attendanceId: id,
+        custodyEpisodeId: existing.custodyEpisodeId,
+        result: authoritativeResult,
+      });
+      return authoritativeResult;
     });
-    return {
-      outcome: "applied" as const,
-      attendance: await formatAttendanceWith(tx, result[0]),
-      resolvedPickupRequestIds: resolvedPickupRequests.map((request: { id: number }) => request.id),
-      alreadyApplied: false,
-    };
-  });
-  if (!checkout) { res.status(404).json({ error: "Not found", message: "Attendance record not found" }); return; }
-  res.json(checkout);
+
+    req.log.info({
+      operationId,
+      actorUserId,
+      command: "attendance_checkout",
+      attendanceId: id,
+      resultType: checkout.outcome,
+    }, "Checkout operation completed");
+    res.json(checkout);
+  } catch (error) {
+    if (error instanceof CheckoutOperationRouteError) {
+      res.status(error.statusCode).json({ error: error.errorTitle, message: error.message });
+      return;
+    }
+    if (error instanceof CustodyHandoverError) {
+      res.status(error.statusCode).json({ error: "Custody handover rejected", message: error.message });
+      return;
+    }
+    throw error;
+  }
+});
+
+router.get(
+  "/attendance/:attendanceId/checkout-operations/:operationId",
+  authMiddleware,
+  requireRoles("super_admin", "admin", "support", "attendant"),
+  async (req, res): Promise<void> => {
+    const params = GetCheckoutOperationParams.safeParse(req.params);
+    if (!params.success) {
+      res.status(400).json({ error: "Bad request", message: params.error.message });
+      return;
+    }
+    const { attendanceId, operationId } = params.data;
+    const operation = await db.transaction(async tx => {
+      await lockCheckoutOperation(tx, operationId);
+      return findBoundCheckoutOperation(tx, {
+        operationId,
+        attendanceId,
+        actorUserId: req.user!.userId,
+      });
+    });
+    if (!operation) {
+      res.status(404).json({ error: "Not found", message: "Checkout operation not found" });
+      return;
+    }
+    const result = replayCheckoutOperation(operation);
+    req.log.info({
+      operationId,
+      actorUserId: req.user!.userId,
+      command: "attendance_checkout",
+      attendanceId,
+      resultType: result.outcome,
+    }, "Checkout operation reconciled");
+    res.json(result);
 });
 
 router.post(

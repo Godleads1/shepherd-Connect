@@ -1,0 +1,307 @@
+PHASE 2 IMPLEMENTATION — APPROVED WITH ROLLOUT GUARDRAILS
+
+I have reviewed your Phase 2 architecture proposal.
+
+APPROVED:
+Implement the checkout-specific operation identity and authoritative reconciliation architecture you proposed.
+
+IMPORTANT:
+This is now an implementation instruction.
+
+Do NOT expand the scope beyond Phase 2.
+
+Do NOT modify:
+- authorization policy
+- role permissions
+- session revocation
+- role switching
+- parent pickup ownership policy
+- parent custody behavior
+- custody cancellation
+- attendance check-in behavior
+- offline queue design
+- general SSE
+- WhatsApp
+- notification workers/provider delivery
+- TV media
+- duplicate-child data
+- unrelated API operations
+- production data
+
+==================================================
+ROLLOUT GUARDRAIL
+==================================================
+
+Before changing the API contract to require operationId:
+
+1. Inventory EVERY current caller of:
+   PUT /api/attendance/{id}/checkout
+
+2. Identify:
+   - Shepherd Connect callers
+   - tests
+   - generated clients
+   - server-side callers
+   - scripts/tools
+   - any legacy callers
+
+3. Update legitimate callers atomically with the new contract.
+
+4. Do NOT leave a caller silently generating a new UUID for every retry.
+
+5. If there is a legitimate caller that cannot yet supply operationId, stop and report it before making operationId universally required.
+
+For Shepherd Connect, operationId MUST be generated once per logical checkout and reused for retries/reconciliation.
+
+==================================================
+IMPLEMENT THE APPROVED DESIGN
+==================================================
+
+Implement the checkout-specific operation identity system described in your proposal:
+
+1. Add checkout_operations durable storage.
+
+2. Bind each operation to:
+   - operation ID
+   - actor
+   - command
+   - attendance
+   - optional custody episode
+   - original outcome
+   - authoritative result
+   - resolved pickup IDs
+   - timestamps
+
+3. Acquire operation-ID advisory lock BEFORE the existing child/service-date lock.
+
+4. On first request:
+   - validate
+   - authorize
+   - execute the existing Phase 1 authoritative checkout
+   - persist the completed operation result inside the transaction
+   - commit
+   - return authoritative result
+
+5. On retry with the SAME operationId:
+   - verify actor/command/resource binding
+   - do NOT execute checkout again
+   - do NOT create duplicate notification intents
+   - return the original authoritative result
+   - return original resolved pickup IDs
+   - return already_applied
+
+6. Handle operation-ID collisions safely:
+   - same ID + different resource/command/actor = generic conflict/not-found semantics
+   - never disclose another actor's operation
+
+7. Add the checkout-scoped reconciliation endpoint:
+
+GET /api/attendance/{attendanceId}/checkout-operations/{operationId}
+
+The endpoint MUST acquire the operation-ID lock before checking the operation record so that an in-flight transaction cannot incorrectly appear as "not found."
+
+8. Reconciliation MUST be actor-bound and must not become an operation enumeration mechanism.
+
+==================================================
+FRONTEND
+==================================================
+
+Implement the checkout operation state machine:
+
+idle
+submitting
+applied
+already_applied
+reconciling
+rejected
+unknown
+
+Apply the same operation helper to:
+
+- Pickup queue handover
+- Standard checkout
+- Delegate OTP checkout
+
+Generate the UUID once per logical checkout.
+
+Persist only minimal pending operation information as proposed:
+
+- operationId
+- attendanceId
+- creation timestamp
+
+Do not store child names, attendance snapshots, family data, OTPs, credentials, or tokens.
+
+Reuse the same operation ID for:
+
+- retry
+- reconciliation
+- recovery after rerender
+- recovery after page reload
+
+==================================================
+UNKNOWN NETWORK RESULT
+==================================================
+
+This is the most important behavioral requirement.
+
+If the checkout request fails because the client cannot determine whether the server committed:
+
+DO NOT display:
+
+"Checkout failed"
+
+Classify the result as UNKNOWN.
+
+Attempt authoritative reconciliation using the same operationId.
+
+If reconciliation confirms success:
+- show checkout success
+- remove pending operation
+- refresh attendance separately
+
+If reconciliation confirms operation was not committed:
+- show an appropriate unconfirmed/retry state
+- retain/reuse the operation identity
+
+If reconciliation itself fails:
+- show "Checkout status is temporarily unknown"
+- preserve the operation identity
+- allow "Check status" and "Retry"
+
+A network error is NOT equivalent to a business rejection.
+
+HTTP 4xx domain rejection may remain a definitive rejection, subject to the classification defined in the approved design.
+
+==================================================
+RESPONSE-LOSS TESTING
+==================================================
+
+This MUST be demonstrated, not merely unit-tested.
+
+Create a test where:
+
+1. Checkout transaction commits.
+2. First HTTP response is intentionally discarded/simulated as lost.
+3. Client believes the request failed/unknown.
+4. Client reconciles or retries with the SAME operationId.
+5. Server returns the original authoritative checkout result.
+6. No second attendance transition occurs.
+7. No duplicate notification intent occurs.
+8. Original checkout timestamp and actor remain unchanged.
+9. Resolved pickup IDs are recovered.
+
+This is the core reason Phase 2 exists.
+
+==================================================
+DATABASE SAFETY
+==================================================
+
+Do NOT deploy the migration to production.
+
+Create the migration/schema changes in the normal development workflow.
+
+Verify:
+- foreign keys
+- constraints
+- indexes
+- UUID uniqueness
+- result integrity
+- appropriate JSONB contents
+- no sensitive data stored unnecessarily
+
+Do not introduce an automatic cleanup/retention job yet.
+
+==================================================
+OBSERVABILITY
+==================================================
+
+Where existing structured logging supports it, associate:
+
+operationId
+requestId
+actor
+checkout command
+attendance ID
+result type
+
+Do not log sensitive response snapshots or child/family details.
+
+==================================================
+TESTS
+==================================================
+
+Implement the approved test plan, especially:
+
+SERVER:
+- first operation
+- same operation retry
+- different operation after checkout
+- response loss
+- concurrent same-operation requests
+- operation collision
+- different actor
+- unknown operation
+- malformed UUID
+- rollback
+- pickup resolution replay
+- custody checkout replay
+- existing pickup/checkout concurrency
+
+FRONTEND:
+- 4xx definitive rejection
+- network failure → reconciliation success
+- response parse failure → reconciliation
+- 5xx → reconciliation
+- reconciliation failure → unknown state
+- retry uses same UUID
+- refresh failure after success
+- page reload pending-operation recovery
+
+Also ensure the frontend reliability tests run through the standard validation command.
+
+==================================================
+VALIDATION
+==================================================
+
+After implementation:
+
+- run focused tests
+- run checkout concurrency tests
+- run custody tests
+- run pickup tests
+- run frontend reliability tests through standard command
+- run full development PostgreSQL/API suite
+- run API typecheck
+- run frontend typecheck
+- run API production build
+- run frontend production build
+
+Do NOT deploy to production.
+
+Do NOT make production schema/data changes.
+
+Restart only development API/Shepherd Connect workflows if necessary.
+
+Inspect logs and preview.
+
+==================================================
+FINAL REPORT
+==================================================
+
+At the end report:
+
+1. Files changed
+2. Database schema/migration created
+3. Checkout callers discovered
+4. How operationId lifecycle works
+5. How response-loss reconciliation works
+6. How duplicate operations are handled
+7. Authorization/collision protection
+8. Tests added
+9. Tests passed
+10. Build/typecheck results
+11. Any remaining risks
+12. Confirmation that production was NOT modified
+
+Do not proceed to Phase 3.

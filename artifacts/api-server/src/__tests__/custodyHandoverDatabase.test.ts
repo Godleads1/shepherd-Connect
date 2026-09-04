@@ -1,4 +1,5 @@
 import request from "supertest";
+import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
@@ -183,15 +184,30 @@ databaseDescribe("custody handover PostgreSQL integrity", () => {
     // The legacy endpoint cannot provide an override reason, so an admin is
     // directed to the explicit custody override endpoint instead.
     await request(app).put(`/api/attendance/${attendance.id}/checkout`).set("Authorization", token(adminId, "admin"))
-      .send({}).expect(409);
+      .send({ operationId: randomUUID() }).expect(409);
+    const operationId = randomUUID();
     const checkout = await request(app).put(`/api/attendance/${attendance.id}/checkout`).set("Authorization", token(supportId, "support"))
-      .send({}).expect(200);
+      .send({ operationId }).expect(200);
+    const replay = await request(app).put(`/api/attendance/${attendance.id}/checkout`).set("Authorization", token(supportId, "support"))
+      .send({ operationId }).expect(200);
 
     const episode = (await db.execute(sql`SELECT status,checkout_mode,picked_up_by FROM custody_episodes WHERE id=${episodeId}`)).rows[0] as any;
     expect(checkout.body).toMatchObject({
       outcome: "applied",
       alreadyApplied: false,
       attendance: { id: Number(attendance.id), status: "picked_up" },
+    });
+    expect(replay.body).toMatchObject({
+      operationId,
+      outcome: "already_applied",
+      alreadyApplied: true,
+      attendance: {
+        id: Number(attendance.id),
+        status: "picked_up",
+        checkOutTime: checkout.body.attendance.checkOutTime,
+        checkedOutBy: supportId,
+      },
+      resolvedPickupRequestIds: checkout.body.resolvedPickupRequestIds,
     });
     expect(episode.status).toBe("picked_up");
     expect(episode.checkout_mode).toBe("normal");

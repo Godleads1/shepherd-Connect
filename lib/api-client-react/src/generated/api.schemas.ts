@@ -632,6 +632,8 @@ export interface CheckInBody {
 }
 
 export interface CheckOutBody {
+  /** Stable client-generated identity for one logical checkout attempt. */
+  operationId: string;
   notes?: string | null;
 }
 
@@ -644,6 +646,7 @@ export const CheckoutResultOutcome = {
 } as const;
 
 export interface CheckoutResult {
+  operationId: string;
   outcome: CheckoutResultOutcome;
   attendance: Attendance;
   resolvedPickupRequestIds: number[];

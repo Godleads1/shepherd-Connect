@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useListAttendance, useListClasses, useCompleteCustodyPickup, useOverrideCustodyPickup } from "@workspace/api-client-react";
+import { useState, useCallback, useMemo } from "react";
+import { useListAttendance, useListClasses, useCompleteCustodyPickup, useOverrideCustodyPickup, checkOut, getCheckoutOperation } from "@workspace/api-client-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
@@ -10,8 +10,9 @@ import { format } from "date-fns";
 import { Filter, X, Calendar, Download, CheckCircle2, ShieldAlert } from "lucide-react";
 import { useAuth } from "@/contexts/auth";
 import { useToast } from "@/hooks/use-toast";
-import { apiGet, apiPost, apiPut } from "@/lib/api-call";
+import { apiGet, apiPost } from "@/lib/api-call";
 import { useQuery } from "@tanstack/react-query";
+import { CheckoutRecoveryControls, useCheckoutOperation } from "../checkout/use-checkout-operation";
 
 const STATUS_OPTS = [
   { value: "all", label: "All Statuses" },
@@ -39,7 +40,6 @@ export default function Attendance() {
   const isParent = user?.role === "parent";
   const { toast } = useToast();
   const [confirmingAll, setConfirmingAll] = useState(false);
-
   const [dateFrom,    setDateFrom]    = useState("");
   const [dateTo,      setDateTo]      = useState("");
   const [serviceSlot, setServiceSlot] = useState("all");
@@ -64,6 +64,29 @@ export default function Attendance() {
   const { data: todayRaw, refetch: refetchToday } = useListAttendance(
     isParent ? ({ serviceDate: "1970-01-01" } as any) : ({ serviceDate: today } as any),
   );
+  const refreshCheckout = useCallback(async () => {
+    const [attendance, todayAttendance] = await Promise.all([refetch(), refetchToday()]);
+    if (attendance.error) throw attendance.error;
+    if (todayAttendance.error) throw todayAttendance.error;
+  }, [refetch, refetchToday]);
+  const checkoutTransport = useMemo(() => ({
+    submit: (id: number, operationId: string) => checkOut(id, { operationId }),
+    reconcile: getCheckoutOperation,
+  }), []);
+  const checkoutRefreshFailure = useCallback(() => {
+    toast({ title: "Checkout saved — refresh needed", description: "The checkout was saved, but attendance could not be refreshed." });
+  }, [toast]);
+  const {
+    state: checkoutState,
+    submit: submitCheckout,
+    checkStatus: checkCheckoutStatus,
+    retry: retryCheckout,
+  } = useCheckoutOperation({
+    userId: user?.id,
+    transport: checkoutTransport,
+    onCommitted: refreshCheckout,
+    onRefreshFailure: checkoutRefreshFailure,
+  });
   const todayRecords: any[] = Array.isArray(todayRaw) ? todayRaw : ((todayRaw as any)?.data ?? []);
   const pendingToday = isParent ? [] : todayRecords.filter((r: any) => r.status === "in_transit" || r.status === "dropped_off");
 
@@ -103,10 +126,19 @@ export default function Attendance() {
     } else {
       // Legacy checkout
       try {
-        await apiPut(`/attendance/${record.id}/checkout`, {});
+        const state = await submitCheckout(record.id);
+        if (!state || (state.phase !== "applied" && state.phase !== "already_applied")) {
+          if (state?.phase === "unknown") {
+            toast({ variant: "destructive", title: "Checkout status is temporarily unknown" });
+            return;
+          }
+          if (state?.pending) {
+            toast({ variant: "destructive", title: "Checkout was not confirmed", description: "Retry to reuse the same checkout operation." });
+            return;
+          }
+          throw state?.error || new Error("Checkout could not be completed");
+        }
         toast({ title: "Checked out successfully" });
-        refetch();
-        refetchToday();
       } catch (e: any) {
         toast({ variant: "destructive", title: "Checkout Failed", description: e.message });
       }
@@ -271,6 +303,12 @@ export default function Attendance() {
         </div>
       )}
 
+      <CheckoutRecoveryControls
+        state={checkoutState}
+        onCheckStatus={() => void checkCheckoutStatus()}
+        onRetry={() => void retryCheckout()}
+      />
+
       {/* Filters */}
       <div className="bg-white rounded-2xl border p-4 space-y-3" style={{ boxShadow: "0 2px 8px rgba(30,58,138,.06)" }}>
         <div className="flex items-center justify-between">
@@ -383,7 +421,16 @@ export default function Attendance() {
                     {!isParent && (
                       <TableCell className="text-right">
                         {r.status !== "picked_up" && (
-                          <Button size="sm" variant="outline" onClick={() => handleCheckout(r)}>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleCheckout(r)}
+                            disabled={!r.custodyEpisodeId && (
+                              checkoutState.phase === "submitting"
+                              || checkoutState.phase === "reconciling"
+                              || !!checkoutState.pending
+                            )}
+                          >
                             Check Out
                           </Button>
                         )}
