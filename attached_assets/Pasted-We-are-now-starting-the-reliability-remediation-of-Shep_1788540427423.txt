@@ -1,0 +1,199 @@
+We are now starting the reliability remediation of Shepherd Connect.
+
+IMPORTANT:
+Do not make broad/unrelated changes.
+Do not redesign the application.
+Do not change authorization policies yet.
+Do not modify production data.
+Do not add speculative fixes.
+Work in a controlled Phase 1 only.
+
+We already completed a full read-only system audit. The audit identified a confirmed checkout false-failure caused by an operation-boundary mismatch:
+
+Support "Hand Over" performs the authoritative attendance checkout successfully. The backend then resolves the active pickup request in the same transaction. The frontend subsequently sends a separate DELETE request for that pickup request. Because the pickup request has already been resolved, that DELETE can return 404. The frontend's shared catch block then reports "Handover failed" even though the child was successfully checked out.
+
+This is NOT a rollback of the checkout transaction.
+
+The confirmed principle we need to establish is:
+
+AUTHORITATIVE BUSINESS MUTATION SUCCESS MUST NOT BE REPORTED AS FAILURE BECAUSE A SECONDARY CLEANUP, REFRESH, REALTIME, FORMATTING, OR DELIVERY STEP FAILED.
+
+PHASE 1 OBJECTIVES
+
+1. FIX SUPPORT CHECKOUT / HANDOVER
+
+Inspect and trace:
+
+- artifacts/shepherd-connect/src/pages/checkout/index.tsx
+- artifacts/api-server/src/routes/attendance.ts
+- artifacts/api-server/src/routes/pickupRequests.ts
+- artifacts/api-server/src/services/classroomDisplayAlerts.ts
+
+Trace the complete Hand Over flow from browser click -> frontend request -> attendance transaction -> pickup resolution -> response -> frontend state update -> any cleanup request -> refresh/realtime.
+
+Do not assume the audit is perfect. Verify the current code.
+
+Then implement the smallest safe correction.
+
+Preferred architecture:
+
+The checkout/handover operation should have ONE authoritative command.
+
+That command should:
+
+- validate the request
+- perform the authoritative attendance transition
+- resolve the associated pickup/custody state when appropriate
+- commit the transaction
+- return the authoritative result
+
+Do NOT require a second DELETE request from the frontend to make the checkout successful if the backend has already resolved the pickup request.
+
+If the DELETE is still legitimately required elsewhere, make it idempotent/semantically safe so that "already resolved" cannot be reported as a checkout failure.
+
+2. RETURN AN AUTHORITATIVE RESPONSE
+
+The checkout endpoint should return enough information for the frontend to understand the committed result.
+
+Use a response structure conceptually similar to:
+
+{
+  outcome: "applied" | "already_applied",
+  attendance: <authoritative attendance state>,
+  resolvedPickupRequestIds: [...],
+  alreadyApplied: true/false
+}
+
+Use the project's existing TypeScript/API conventions where possible.
+
+Do NOT blindly introduce this exact schema if an existing project convention is better. Inspect first.
+
+3. SEPARATE MUTATION FAILURE FROM REFRESH FAILURE
+
+In:
+
+- artifacts/shepherd-connect/src/pages/checkout/index.tsx
+- and any directly related checkout/request code
+
+separate these concepts:
+
+A. mutationError
+The authoritative server-side business operation failed.
+
+B. refreshError
+The business operation succeeded, but the subsequent UI refresh/revalidation failed.
+
+C. secondaryError
+A non-authoritative cleanup, realtime, notification, or delivery operation failed.
+
+The user must NOT see "Handover failed" when the authoritative checkout succeeded.
+
+If checkout succeeds but refresh fails, the UI should still communicate that the checkout succeeded and then attempt/recommend reconciliation.
+
+4. DO NOT AWAIT NON-AUTHORITATIVE WORK AS IF IT WERE THE BUSINESS TRANSACTION
+
+Inspect whether the checkout route performs additional reads, realtime work, notification work, formatting queries, or other work after the transaction that can turn an already-committed operation into an HTTP 500.
+
+Where appropriate:
+
+- authoritative DB mutation = required for success
+- audit/domain event/outbox intent = required if the architecture requires it
+- realtime delivery = best effort
+- browser refresh = separate
+- push/WhatsApp/provider delivery = separate
+- UI cleanup = separate
+
+Do not remove legitimate functionality. Just stop secondary work from redefining the authoritative business outcome.
+
+5. HANDLE RETRIES SAFELY
+
+If the same checkout request reaches the server again because of:
+
+- double click
+- network retry
+- response loss
+- frontend retry
+- page remount
+
+the server should not create an incorrect duplicate state.
+
+If the child is already checked out for the relevant operation, return an appropriate already-applied/idempotent result rather than treating the state as an unexplained failure.
+
+Do not build the universal idempotency system yet. That will be Phase 2.
+
+For Phase 1, make the checkout operation itself safe.
+
+6. DO NOT FIX OTHER FEATURES YET
+
+Do NOT yet refactor:
+
+- Parent pickup
+- Parent custody
+- Check-in
+- Offline queue
+- Authentication/session revocation
+- Role switching
+- Family/child authorization
+- General SSE
+- WhatsApp
+- Notification workers
+- TV media
+- duplicate child records
+
+Those are separate phases.
+
+However, if you identify the exact same shared helper causing the checkout problem, you may make a very small, clearly justified change to that helper ONLY if it is required for this Phase 1 fix.
+
+7. TEST BEFORE CLAIMING SUCCESS
+
+After implementation, run appropriate tests and/or create focused tests for:
+
+A. Normal checkout
+- child is checked out
+- response indicates success
+- UI says success
+
+B. Checkout where pickup request is already resolved by the transaction
+- checkout remains successful
+- no false "Handover failed"
+
+C. Double-click / duplicate checkout
+- no duplicate invalid state
+- second request produces deterministic already-applied behavior
+
+D. Response/refresh failure simulation
+- authoritative checkout success is not converted into mutation failure
+
+E. Secondary realtime/notification failure
+- authoritative checkout remains successful
+
+F. Existing checkout behavior
+- do not break normal attendance functionality
+
+Also inspect TypeScript/build/lint/test errors caused by the changes.
+
+8. IMPORTANT SAFETY RULE
+
+Before changing anything, first inspect the current implementation and explain:
+
+- exact current checkout sequence
+- exact line/file responsible for the false failure
+- what files you intend to modify
+- why each modification is necessary
+- what you will NOT modify
+
+Then implement Phase 1.
+
+Do not make changes outside the Phase 1 scope.
+
+At the end provide:
+
+1. Files changed
+2. Exact root cause confirmed
+3. What was changed
+4. API behavior before vs after
+5. Tests run and results
+6. Any remaining risks
+7. Any issues that should be handled in Phase 2
+
+Do not claim the entire application is fixed. This is Phase 1 only.
