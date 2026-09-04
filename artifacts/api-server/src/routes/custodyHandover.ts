@@ -31,7 +31,8 @@ router.delete("/custody-requests/:id", authMiddleware, requireRoles("parent"), a
   const id = Number(req.params.id);
   if (!Number.isInteger(id) || id < 1) { res.status(400).json({ error: "Bad request", message: "Invalid episode ID" }); return; }
   try {
-    res.json(await db.transaction(tx => cancelCustodyRequest(tx, { episodeId: id, parentUserId: req.user!.userId })));
+    const outcome = await db.transaction(tx => cancelCustodyRequest(tx, { episodeId: id, parentUserId: req.user!.userId }));
+    res.json(outcome);
   } catch (error) {
     if (error instanceof CustodyHandoverError) { res.status(error.statusCode).json({ error: "Custody request rejected", message: error.message }); return; }
     throw error;
@@ -71,7 +72,8 @@ router.post("/custody-episodes/:id/pickup", authMiddleware, requireRoles("suppor
   const id = Number(req.params.id);
   if (!Number.isInteger(id) || id < 1) { res.status(400).json({ error: "Bad request", message: "Invalid episode ID" }); return; }
   try {
-    res.json(await db.transaction(tx => releasePhysicalCustody(tx, { episodeId: id, actorUserId: req.user!.userId })));
+    const outcome = await db.transaction(tx => releasePhysicalCustody(tx, { episodeId: id, actorUserId: req.user!.userId }));
+    res.json(outcome);
   } catch (error) {
     if (error instanceof CustodyHandoverError) { res.status(error.statusCode).json({ error: "Custody handover rejected", message: error.message }); return; }
     throw error;
@@ -83,7 +85,8 @@ router.post("/custody-episodes/:id/override-pickup", authMiddleware, requireRole
   const parsed = OverrideCustodyPickupBody.safeParse(req.body);
   if (!Number.isInteger(id) || id < 1 || !parsed.success || !parsed.data.reason.trim()) { res.status(400).json({ error: "Bad request", message: parsed.success ? "A non-blank reason is required" : parsed.error.message }); return; }
   try {
-    res.json(await db.transaction(tx => releasePhysicalCustody(tx, { episodeId: id, actorUserId: req.user!.userId, overrideReason: parsed.data.reason.trim() })));
+    const outcome = await db.transaction(tx => releasePhysicalCustody(tx, { episodeId: id, actorUserId: req.user!.userId, overrideReason: parsed.data.reason.trim() }));
+    res.json(outcome);
   } catch (error) {
     if (error instanceof CustodyHandoverError) { res.status(error.statusCode).json({ error: "Custody handover rejected", message: error.message }); return; }
     throw error;

@@ -19,6 +19,19 @@ interface PickupRequest {
   requestedAt: string;
 }
 
+interface CheckInAlert {
+  id: string;
+  childId: number;
+  childName: string;
+  parentName: string;
+  classId: number;
+  className: string;
+  homeClassName?: string;
+  requestedServices: "first" | "second" | "both";
+  serviceDate: string;
+  requestedAt: string;
+}
+
 // ── Media source types ────────────────────────────────────────────────────────
 type MediaSource =
   | { kind: "youtube"; videoId: string }
@@ -505,6 +518,44 @@ function NotifBanner({ onRequest }: { onRequest: () => void }) {
   );
 }
 
+function ChildComingBanner({ alerts }: { alerts: CheckInAlert[] }) {
+  if (alerts.length === 0) return null;
+  const alert = alerts[0];
+  const services = alert.requestedServices === "both"
+    ? "7am & 10:30am services"
+    : alert.requestedServices === "first" ? "7am service" : "10:30am service";
+  return (
+    <div
+      className="absolute left-1/2 z-30 w-[min(760px,calc(100%-3rem))] rounded-2xl border-2 px-7 py-5 shadow-2xl"
+      style={{
+        top: 92,
+        transform: "translateX(-50%)",
+        background: "rgba(14,116,144,0.96)",
+        borderColor: "#67e8f9",
+        color: "white",
+      }}
+      data-testid="child-coming-banner"
+    >
+      <div className="flex items-center gap-5">
+        <span className="text-5xl" aria-hidden="true">👋</span>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-black uppercase tracking-[0.18em] text-cyan-200">Child coming / check-in</p>
+          <p className="mt-1 text-3xl font-extrabold">{alert.childName}</p>
+          <p className="mt-1 text-lg text-cyan-50">
+            Requested by {alert.parentName} for the {services}
+            {alert.homeClassName ? ` · ${alert.homeClassName} merged into ${alert.className}` : ""}
+          </p>
+        </div>
+        {alerts.length > 1 && (
+          <div className="rounded-full bg-cyan-200 px-4 py-2 text-lg font-black text-cyan-900">
+            +{alerts.length - 1}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Main component ───────────────────────────────────────────────────────────────
 const STORAGE_KEY = "classroom-display-yt-id";
 const DISPLAY_TOKEN_KEY = "classroom-display-token";
@@ -514,6 +565,7 @@ export default function ClassroomDisplay() {
   const classIdNum = Number(classId);
 
   const [queue, setQueue] = useState<PickupRequest[]>([]);
+  const [checkInAlerts, setCheckInAlerts] = useState<CheckInAlert[]>([]);
   const [className, setClassName] = useState<string>("");
   const [connected, setConnected] = useState(false);
   const [accessError, setAccessError] = useState<string | null>(null);
@@ -640,8 +692,19 @@ export default function ClassroomDisplay() {
               initialised.current = true;
             }
             setQueue(incomingQueue);
+            setCheckInAlerts((data.checkInAlerts as CheckInAlert[]) ?? []);
             if (data.className) setClassName(data.className);
             setServerMedia((data.media as ServerMedia) ?? null);
+          } else if (data.type === "refresh") {
+            const incomingQueue = (data.queue as PickupRequest[]) ?? [];
+            incomingQueue.forEach(request => {
+              if (!notifiedIds.current.has(request.id)) {
+                notifiedIds.current.add(request.id);
+                fireNotification(request);
+              }
+            });
+            setQueue(incomingQueue);
+            setCheckInAlerts((data.checkInAlerts as CheckInAlert[]) ?? []);
           } else if (data.type === "media") {
             setServerMedia((data.media as ServerMedia) ?? null);
           } else if (data.type === "media-page") {
@@ -664,6 +727,14 @@ export default function ClassroomDisplay() {
             }
             setQueue(incomingQueue);
             if (data.className) setClassName(data.className);
+          } else if (data.type === "checkin-requested") {
+            const alert = data.alert as CheckInAlert;
+            if (alert?.id) {
+              setCheckInAlerts(current => current.some(item => item.id === alert.id) ? current : [...current, alert]);
+            }
+          } else if (data.type === "checkin-accepted" || data.type === "checkin-cancelled") {
+            if (Array.isArray(data.alerts)) setCheckInAlerts(data.alerts as CheckInAlert[]);
+            else setCheckInAlerts(current => current.filter(alert => alert.id !== String(data.id)));
           }
         } catch {}
       };
@@ -803,6 +874,7 @@ export default function ClassroomDisplay() {
 
       {/* ── Notification permission banner ── */}
       {showNotifBanner && <NotifBanner onRequest={requestNotifPermission} />}
+      <ChildComingBanner alerts={checkInAlerts} />
 
       {/* ── Status dots above news bar ── */}
       <div className="absolute z-30 flex items-center gap-3" style={{ bottom: NEWS_BAR_H + 8, left: 16 }}>

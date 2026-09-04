@@ -11,6 +11,7 @@ import { resolveDropOffIntentIfFulfilled } from "../lib/dropOffIntentCompletion"
 import { findActiveOtherSlot, stillCheckedInMessage } from "../lib/attendanceGuards";
 import { createAttendanceNotificationIntents } from "../lib/attendanceNotificationIntents";
 import { CustodyHandoverError, releasePhysicalCustody } from "../services/custodyHandover";
+import { resolvePickupRequestsForCheckout } from "../services/classroomDisplayAlerts";
 
 async function getParentContacts(childId: number): Promise<{ phones: (string | null)[]; emails: (string | null)[]; parentIds: number[]; childName: string; className: string }> {
   const [child] = await db.select().from(childrenTable).where(eq(childrenTable.id, childId));
@@ -550,13 +551,21 @@ router.put("/attendance/:id/checkout", authMiddleware, requireRoles("super_admin
       throw error;
     }
   }
-  const [record] = await db.transaction(async tx => {
+  const checkout = await db.transaction(async tx => {
     const result = await tx.update(attendanceTable).set({
       status: "picked_up", checkOutTime: new Date(), checkedOutBy: req.user!.userId,
     }).where(and(eq(attendanceTable.id, id), ne(attendanceTable.status, "picked_up"))).returning();
     if (result[0]) await createAttendanceNotificationIntents(tx, result[0], "picked_up");
-    return result;
+    if (!result[0]) return { record: null, resolvedPickupRequests: [] };
+    const resolvedPickupRequests = await resolvePickupRequestsForCheckout(tx, {
+      childId: result[0].childId,
+      serviceDate: result[0].serviceDate,
+      actorUserId: req.user!.userId,
+      resolvedAt: result[0].checkOutTime!,
+    });
+    return { record: result[0], resolvedPickupRequests };
   });
+  const record = checkout.record;
   if (!record) {
     const [current] = await db.select().from(attendanceTable).where(eq(attendanceTable.id, id));
     if (!current) { res.status(404).json({ error: "Not found", message: "Attendance record not found" }); return; }

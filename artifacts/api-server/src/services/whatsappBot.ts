@@ -1896,7 +1896,7 @@ async function _handleApproval(parentJid: string, ref: string, approved: boolean
     // The proof, request decision, custody/attendance transition and its
     // notification intents share one transaction. A failed transition rolls
     // back proof consumption so the parent can safely retry the same approval.
-    let completed = false;
+    let completed: Array<{ id: number; classId: number; serviceDate: string }> | null = null;
     try {
       completed = await db.transaction(async tx => {
         if (!proofCode || !(await consumeStepUpProof(tx, parent.id, parent.contactVersion, ref, proofCode))) {
@@ -1912,8 +1912,8 @@ async function _handleApproval(parentJid: string, ref: string, approved: boolean
             eq(supportRequestsTable.assignedSupportId, relay.assignedSupportId),
           ))
           .returning();
-        if (!claimed) return false;
-        await _recordAttendance(tx, claimed, relay);
+        if (!claimed) return null;
+        const resolvedPickupRequests = await _recordAttendance(tx, claimed, relay);
         await createNotificationDelivery(tx, {
           logicalIdentity: `support-request:${ref}:approved:${relay.assignedSupportId}`,
           domainType: "support_request",
@@ -1929,7 +1929,7 @@ async function _handleApproval(parentJid: string, ref: string, approved: boolean
           templateKey: "support_request_approved",
         });
         await tx.delete(botPendingApprovalsTable).where(eq(botPendingApprovalsTable.refNumber, ref));
-        return true;
+        return resolvedPickupRequests;
       });
     } catch (err) {
       if (err instanceof CustodyHandoverError) {
@@ -2026,7 +2026,7 @@ async function _recordAttendance(tx: any, req: typeof supportRequestsTable.$infe
       if (custodyEpisodeIds.length !== 1) {
         throw new CustodyHandoverError(409, "Delegate release requires one accepted custody episode. Complete the normal custody handover first.");
       }
-      await releasePhysicalCustody(tx, {
+      const outcome = await releasePhysicalCustody(tx, {
         episodeId: custodyEpisodeIds[0]!,
         actorUserId: req.assignedSupportId!,
       });
@@ -2034,6 +2034,7 @@ async function _recordAttendance(tx: any, req: typeof supportRequestsTable.$infe
       await tx.update(supportRequestsTable).set({ status: "completed", updatedAt: new Date() })
         .where(and(eq(supportRequestsTable.referenceNumber, req.referenceNumber), eq(supportRequestsTable.status, "approved")));
     logger.info({ ref: req.referenceNumber, type: req.type }, "Attendance auto-recorded on approval");
+    return outcome.resolvedPickupRequests;
 }
 
 // ── Export proactive notification helper for use in attendance routes ─────────

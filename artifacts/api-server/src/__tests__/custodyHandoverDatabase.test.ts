@@ -10,6 +10,7 @@ const databaseDescribe = process.env.RUN_DATABASE_ATTENDANCE_TESTS === "true" ? 
 const prefix = `custody-${Date.now()}`;
 const serviceDate = new Date(Date.now() + 60 * 60 * 1000).toISOString().slice(0, 10);
 let parentId = 0; let otherParentId = 0; let supportId = 0; let otherSupportId = 0; let adminId = 0;
+let teacherUserId = 0; let teacherId = 0;
 let familyId = 0; let childId = 0; let otherFamilyId = 0; let otherChildId = 0; let firstClassId = 0; let secondClassId = 0;
 const token = (id: number, role: "parent" | "support" | "admin") => `Bearer ${generateToken({ userId: id, email: `${prefix}-${id}@test`, role, firstName: "Test", lastName: "User" })}`;
 const count = async (table: string, where: ReturnType<typeof sql>) => Number((await db.execute(sql`SELECT count(*)::int count FROM ${sql.identifier(table)} WHERE ${where}`)).rows[0].count);
@@ -18,30 +19,39 @@ beforeAll(async () => {
   const users = await db.execute(sql`INSERT INTO users (email,password_hash,first_name,last_name,role,status,is_active) VALUES
     (${`${prefix}-parent@test`},'x','Parent','One','parent','active',true), (${`${prefix}-other@test`},'x','Parent','Other','parent','active',true),
     (${`${prefix}-support@test`},'x','Support','One','support','active',true), (${`${prefix}-support2@test`},'x','Support','Two','support','active',true),
-    (${`${prefix}-admin@test`},'x','Admin','One','admin','active',true) RETURNING id,role`);
+    (${`${prefix}-admin@test`},'x','Admin','One','admin','active',true),
+    (${`${prefix}-teacher@test`},'x','Teacher','One','teacher','active',true) RETURNING id,role`);
   const rows = users.rows as Array<{ id: number; role: string }>;
   const parents = rows.filter(x => x.role === "parent");
   const supports = rows.filter(x => x.role === "support");
   parentId = Number(parents[0].id); otherParentId = Number(parents[1].id);
   supportId = Number(supports[0].id); otherSupportId = Number(supports[1].id);
   adminId = Number(rows.find(x => x.role === "admin")!.id);
+  teacherUserId = Number(rows.find(x => x.role === "teacher")!.id);
   familyId = Number((await db.execute(sql`INSERT INTO families (family_code,parent_1_id) VALUES (${`FAM-${prefix.slice(-6).toUpperCase()}`},${parentId}) RETURNING id`)).rows[0].id);
   otherFamilyId = Number((await db.execute(sql`INSERT INTO families (family_code,parent_1_id) VALUES (${`OTH-${prefix.slice(-6).toUpperCase()}`},${otherParentId}) RETURNING id`)).rows[0].id);
   firstClassId = Number((await db.execute(sql`INSERT INTO classes (name,age_min,age_max,capacity,room_location,service_slot) VALUES (${`${prefix}-first`},1,12,20,'A','7am') RETURNING id`)).rows[0].id);
   secondClassId = Number((await db.execute(sql`INSERT INTO classes (name,age_min,age_max,capacity,room_location,service_slot) VALUES (${`${prefix}-second`},1,12,20,'B','10:30am') RETURNING id`)).rows[0].id);
   childId = Number((await db.execute(sql`INSERT INTO children (family_id,first_name,last_name,dob,gender,current_class_id) VALUES (${familyId},'Child','One','2020-01-01','female',${firstClassId}) RETURNING id`)).rows[0].id);
   otherChildId = Number((await db.execute(sql`INSERT INTO children (family_id,first_name,last_name,dob,gender,current_class_id) VALUES (${otherFamilyId},'Other','Child','2020-01-01','female',${firstClassId}) RETURNING id`)).rows[0].id);
+  teacherId = Number((await db.execute(sql`INSERT INTO teachers (user_id) VALUES (${teacherUserId}) RETURNING id`)).rows[0].id);
 });
 beforeEach(async () => {
   await db.execute(sql`DELETE FROM notification_outbox WHERE domain_type = 'attendance' AND domain_identifier IN (SELECT id::text FROM attendance WHERE child_id=${childId})`);
   await db.execute(sql`DELETE FROM attendance WHERE child_id=${childId}`);
+  await db.execute(sql`DELETE FROM pickup_requests WHERE child_id=${childId}`);
   await db.execute(sql`DELETE FROM custody_episode_events WHERE episode_id IN (SELECT id FROM custody_episodes WHERE child_id=${childId})`);
   await db.execute(sql`DELETE FROM custody_episodes WHERE child_id=${childId}`);
   await db.execute(sql`DELETE FROM class_change_requests WHERE child_id IN (${childId},${otherChildId})`);
   await db.execute(sql`DELETE FROM parent_feedback WHERE parent_id IN (${parentId},${otherParentId})`);
 });
 afterAll(async () => { for (const q of [
-  sql`DELETE FROM notification_outbox WHERE recipient_user_id IN (${parentId},${otherParentId},${supportId},${otherSupportId},${adminId})`,
+  sql`DELETE FROM notification_outbox WHERE recipient_user_id IN (${parentId},${otherParentId},${supportId},${otherSupportId},${adminId},${teacherUserId})`,
+  sql`DELETE FROM notifications WHERE user_id IN (${parentId},${otherParentId},${supportId},${otherSupportId},${adminId},${teacherUserId})`,
+  sql`DELETE FROM teacher_allocations WHERE teacher_id=${teacherId}`,
+  sql`DELETE FROM teachers WHERE id=${teacherId}`,
+  sql`DELETE FROM class_merges WHERE source_class_id=${firstClassId} OR target_class_id IN (${firstClassId},${secondClassId})`,
+  sql`DELETE FROM pickup_requests WHERE child_id IN (${childId},${otherChildId})`,
   sql`DELETE FROM children WHERE id IN (${childId},${otherChildId})`, sql`DELETE FROM families WHERE id IN (${familyId},${otherFamilyId})`,
   sql`DELETE FROM classes WHERE id IN (${firstClassId},${secondClassId})`, sql`DELETE FROM users WHERE email LIKE ${`${prefix}%`}`,
 ] ) try { await db.execute(q); } catch {} });
@@ -57,6 +67,29 @@ databaseDescribe("custody handover PostgreSQL integrity", () => {
     const [first, replay] = await Promise.all([create("request-once"), create("request-once")]);
     expect([first.status, replay.status].sort()).toEqual([200, 201]);
     expect(await count("custody_episodes", sql`child_id=${childId}`)).toBe(1);
+  });
+
+  it("notifies a teacher allocated to both divergent merge hosts exactly once", async () => {
+    await db.execute(sql`INSERT INTO class_merges (source_class_id,target_class_id,service_date,service_slot,created_by) VALUES
+      (${firstClassId},${firstClassId},${serviceDate},'7am',${adminId}),
+      (${firstClassId},${secondClassId},${serviceDate},'10:30am',${adminId})`);
+    await db.execute(sql`INSERT INTO teacher_allocations (teacher_id,class_id,service_date,service_slot,status) VALUES
+      (${teacherId},${firstClassId},${serviceDate},'7am','confirmed'),
+      (${teacherId},${secondClassId},${serviceDate},'10:30am','confirmed')`);
+    const response = await create("dual-host-notification");
+    expect(response.status).toBe(201);
+    const episodeId = response.body.episode.id;
+    const outbox = await db.execute(sql`SELECT logical_dedup_key FROM notification_outbox
+      WHERE domain_type='custody_request' AND domain_identifier=${String(episodeId)} AND recipient_user_id=${teacherUserId}`);
+    expect(outbox.rows).toHaveLength(1);
+    expect(outbox.rows[0]).toMatchObject({
+      logical_dedup_key: `custody-request:${episodeId}:teacher:${teacherUserId}:whatsapp`,
+    });
+    const notifications = await db.execute(sql`SELECT count(*)::int count FROM notifications
+      WHERE user_id=${teacherUserId} AND metadata_json::jsonb->>'episodeId'=${String(episodeId)}`);
+    expect(Number(notifications.rows[0].count)).toBe(1);
+    await db.execute(sql`DELETE FROM teacher_allocations WHERE teacher_id=${teacherId} AND service_date=${serviceDate}`);
+    await db.execute(sql`DELETE FROM class_merges WHERE source_class_id=${firstClassId} AND service_date=${serviceDate}`);
   });
 
   it("scopes the parent request center and class-change writes to owned children", async () => {
@@ -90,7 +123,7 @@ databaseDescribe("custody handover PostgreSQL integrity", () => {
     expect(await count("notification_outbox", sql`domain_type='attendance' AND domain_identifier IN (SELECT id::text FROM attendance WHERE custody_episode_id=${episodeId})`)).toBe(0);
     const accept = (id: number, eventId: string) => request(app).post("/api/custody-episodes").set("Authorization", token(id, "support")).send({ episodeId, eventId });
     const replies = await Promise.all([accept(supportId, "support-one"), accept(otherSupportId, "support-two")]);
-    expect(replies.map(r => r.status).sort()).toEqual([200, 201]);
+    expect(replies.map(r => r.status).sort()).toEqual([201, 403]);
     const attendance = await db.execute(sql`SELECT a.class_id,a.status,a.custody_episode_id,a.service_slot,c.service_slot assigned_slot FROM attendance a JOIN classes c ON c.id=a.class_id WHERE a.child_id=${childId} ORDER BY a.service_slot`);
     expect(attendance.rows).toHaveLength(2);
     expect(attendance.rows.map((r: any) => r.status)).toEqual(["in_class", "in_class"]);
@@ -100,7 +133,11 @@ databaseDescribe("custody handover PostgreSQL integrity", () => {
     const episode = (await db.execute(sql`SELECT custodian_user_id FROM custody_episodes WHERE id=${episodeId}`)).rows[0] as any;
     expect([supportId, otherSupportId]).toContain(Number(episode.custodian_user_id));
     const wrongSupport = episode.custodian_user_id === supportId ? otherSupportId : supportId;
+    await db.execute(sql`INSERT INTO pickup_requests
+      (child_id,class_id,service_date,requested_by,child_name,parent_name,class_name,status)
+      VALUES (${childId},${firstClassId},${serviceDate},${parentId},'Child One','Parent One',${prefix},'requested')`);
     expect((await request(app).post(`/api/custody-episodes/${episodeId}/pickup`).set("Authorization", token(wrongSupport, "support"))).status).toBe(403);
+    expect(await count("pickup_requests", sql`child_id=${childId} AND status='requested'`)).toBe(1);
     const winner = Number(episode.custodian_user_id);
     await Promise.all([
       request(app).post(`/api/custody-episodes/${episodeId}/pickup`).set("Authorization", token(winner, "support")),
@@ -108,6 +145,7 @@ databaseDescribe("custody handover PostgreSQL integrity", () => {
     ]);
     const closed = (await db.execute(sql`SELECT status,custodian_user_id,checkout_mode,override_reason FROM custody_episodes WHERE id=${episodeId}`)).rows[0] as any;
     expect(closed.status).toBe("picked_up"); expect(Number(closed.custodian_user_id)).toBe(winner);
+    expect(await count("pickup_requests", sql`child_id=${childId} AND status='resolved'`)).toBe(1);
     expect(await count("notification_outbox", sql`domain_type='attendance' AND domain_identifier IN (SELECT id::text FROM attendance WHERE custody_episode_id=${episodeId})`)).toBe(12);
     const next = await request(app).post("/api/custody-requests").set("Authorization", token(parentId, "parent"))
       .send({ childId, serviceDate, requestedServices: "first", eventId: "return-after-pickup" });

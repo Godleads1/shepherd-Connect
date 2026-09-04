@@ -19,15 +19,19 @@ import {
 } from "../lib/childAccess";
 import { parentOwnsChild } from "../lib/parentScope";
 import { CreateParentPickupRequestBody, CreateParentPickupRequestResponse } from "@workspace/api-zod";
+import {
+  addClassroomDisplayClient,
+  broadcastToClass,
+  closeClassroomDisplayClients,
+  getPendingCheckInAlertsForClass,
+  ensureClassroomDisplayListener,
+  notifyClassRefresh,
+  removeClassroomDisplayClient,
+  type ClassroomDisplayClient,
+} from "../services/classroomDisplayAlerts";
 
 const router = Router();
 
-interface ClassroomClient {
-  res: any;
-  displayToken: string;
-}
-
-const classClients = new Map<number, Set<ClassroomClient>>();
 interface PickupRequest {
   id: string;
   childId: number;
@@ -138,10 +142,14 @@ export async function createParentPickupRequest(parentUserId: number, childId: n
       .where(eq(classesTable.id, merge.targetClassId));
     if (hostClass) routingClassName = hostClass.name;
   }
-  const inserted = await db.insert(pickupRequestsTable).values({
-    childId, classId: routingClassId, serviceDate: today, requestedBy: parentUserId,
-    childName, parentName, className: routingClassName, homeClassName: merge ? childClassName : null,
-  }).onConflictDoNothing().returning();
+  const inserted = await db.transaction(async tx => {
+    const rows = await tx.insert(pickupRequestsTable).values({
+      childId, classId: routingClassId, serviceDate: today, requestedBy: parentUserId,
+      childName, parentName, className: routingClassName, homeClassName: merge ? childClassName : null,
+    }).onConflictDoNothing().returning();
+    if (rows.length) await notifyClassRefresh(tx, [routingClassId]);
+    return rows;
+  });
   const duplicate = inserted.length === 0;
   const row = inserted[0] ?? (await db.select().from(pickupRequestsTable).where(and(
     eq(pickupRequestsTable.childId, childId), eq(pickupRequestsTable.serviceDate, today),
@@ -149,9 +157,7 @@ export async function createParentPickupRequest(parentUserId: number, childId: n
   )).limit(1))[0];
   if (!row) throw new ParentPickupRequestError(409, "Could not create or recover the pickup signal");
   const request = pickupRequestFromRow(row);
-  const queue = await getPickupRequestsForClass(routingClassId);
   if (!duplicate) {
-    await broadcastToClass(routingClassId, { type: "pickup", request: publicRequest(request), queue: publicQueue(queue) });
     const teacherUserIds = await getClassTeacherUserIds(routingClassId, today);
     const pickupMsg = merge
       ? `${parentName} is here to collect ${childName} (from ${childClassName}, merged with ${routingClassName}). Please prepare for handover.`
@@ -285,53 +291,6 @@ async function broadcastDisplayMedia(classId: number) {
   });
 }
 
-async function broadcastToClass(classId: number, data: any) {
-  const clients = classClients.get(classId);
-  if (!clients) return;
-  const payload = `data: ${JSON.stringify(data)}\n\n`;
-  await Promise.all([...clients].map(async (client) => {
-    try {
-      await db.transaction(async (tx) => {
-        await tx.execute(sql`select pg_advisory_xact_lock(68431, ${classId})`);
-        const [credential] = await tx
-          .select({ id: classroomDisplayTokensTable.id })
-          .from(classroomDisplayTokensTable)
-          .where(and(
-            eq(classroomDisplayTokensTable.tokenHash, hashDisplayToken(client.displayToken)),
-            eq(classroomDisplayTokensTable.classId, classId),
-            isNull(classroomDisplayTokensTable.revokedAt),
-            gt(classroomDisplayTokensTable.expiresAt, new Date()),
-          ))
-          .limit(1);
-        if (!credential) {
-          clients.delete(client);
-          client.res.write(`event: revoked\ndata: ${JSON.stringify({ reason: "Display credential expired or revoked" })}\n\n`);
-          client.res.end();
-          return;
-        }
-        client.res.write(payload);
-      });
-    } catch {
-      clients.delete(client);
-      try { client.res.end(); } catch {}
-    }
-  }));
-}
-
-function closeClassClients(classId: number, reason: string) {
-  const clients = classClients.get(classId);
-  if (!clients) return;
-  for (const client of clients) {
-    try {
-      client.res.write(`event: revoked\ndata: ${JSON.stringify({ reason })}\n\n`);
-      client.res.end();
-    } catch {
-      // The browser may already have closed the connection.
-    }
-  }
-  classClients.delete(classId);
-}
-
 router.get("/pickup-requests/stream/:classNumber", async (req, res): Promise<void> => {
   const classNumber = Number(req.params.classNumber);
   if (isNaN(classNumber)) { res.status(400).end(); return; }
@@ -350,7 +309,13 @@ router.get("/pickup-requests/stream/:classNumber", async (req, res): Promise<voi
     return;
   }
 
-  const client: ClassroomClient = { res, displayToken };
+  const client: ClassroomDisplayClient = { res, displayToken };
+  try {
+    await ensureClassroomDisplayListener();
+  } catch {
+    res.status(503).json({ error: "Unavailable", message: "Classroom display updates are temporarily unavailable" });
+    return;
+  }
   const initialMedia = await getClientDisplayMedia(cls.id);
   let registered = false;
   try {
@@ -367,19 +332,19 @@ router.get("/pickup-requests/stream/:classNumber", async (req, res): Promise<voi
         ))
         .limit(1);
       if (!credential) return false;
-      if (!classClients.has(cls.id)) classClients.set(cls.id, new Set());
-      classClients.get(cls.id)!.add(client);
+      addClassroomDisplayClient(cls.id, client);
       res.setHeader("Content-Type", "text/event-stream");
       res.setHeader("Cache-Control", "no-store");
       res.setHeader("Connection", "keep-alive");
       res.setHeader("X-Accel-Buffering", "no");
       res.flushHeaders();
       const queue = await getPickupRequestsForClass(cls.id);
-      res.write(`data: ${JSON.stringify({ type: "init", queue: publicQueue(queue), className: cls.name, media: initialMedia })}\n\n`);
+      const checkInAlerts = await getPendingCheckInAlertsForClass(cls.id);
+      res.write(`data: ${JSON.stringify({ type: "init", queue: publicQueue(queue), checkInAlerts, className: cls.name, media: initialMedia })}\n\n`);
       return true;
     });
   } catch {
-    classClients.get(cls.id)?.delete(client);
+    removeClassroomDisplayClient(cls.id, client);
     if (!res.headersSent) {
       res.status(503).json({ error: "Unavailable", message: "Could not verify display access" });
     } else {
@@ -398,7 +363,7 @@ router.get("/pickup-requests/stream/:classNumber", async (req, res): Promise<voi
       if (!(await validateDisplayToken(displayToken, cls.id))) {
         closed = true;
         clearInterval(ping);
-        classClients.get(cls.id)?.delete(client);
+        removeClassroomDisplayClient(cls.id, client);
         res.write(`event: revoked\ndata: ${JSON.stringify({ reason: "Display credential expired or revoked" })}\n\n`);
         res.end();
         return;
@@ -407,7 +372,7 @@ router.get("/pickup-requests/stream/:classNumber", async (req, res): Promise<voi
     } catch {
       closed = true;
       clearInterval(ping);
-      classClients.get(cls.id)?.delete(client);
+      removeClassroomDisplayClient(cls.id, client);
       res.end();
     }
   }, 25000);
@@ -416,7 +381,7 @@ router.get("/pickup-requests/stream/:classNumber", async (req, res): Promise<voi
     if (closed) return;
     closed = true;
     clearInterval(ping);
-    classClients.get(cls.id)?.delete(client);
+    removeClassroomDisplayClient(cls.id, client);
   });
 });
 
@@ -454,7 +419,7 @@ router.post("/pickup-requests/display-credentials", authMiddleware, async (req, 
       expiresAt,
     });
   });
-  closeClassClients(classId, "A new classroom display link was issued");
+  closeClassroomDisplayClients(classId, "A new classroom display link was issued");
 
   res.status(201).json({ token, classId, className: cls.name, expiresAt });
 });
@@ -478,7 +443,7 @@ router.delete("/pickup-requests/display-credentials/:classId", authMiddleware, a
         isNull(classroomDisplayTokensTable.revokedAt),
       ));
   });
-  closeClassClients(classId, "Classroom display access was revoked");
+  closeClassroomDisplayClients(classId, "Classroom display access was revoked");
   res.json({ success: true });
 });
 
@@ -871,14 +836,16 @@ router.delete("/pickup-requests/:id", authMiddleware, async (req, res): Promise<
   }
   const now = new Date();
   const status = req.user!.role === "parent" ? "cancelled" : "resolved";
-  const updated = await db.update(pickupRequestsTable).set(status === "cancelled"
-    ? { status, cancelledAt: now, cancelledBy: req.user!.userId, updatedAt: now }
-    : { status, resolvedAt: now, resolvedBy: req.user!.userId, updatedAt: now })
-    .where(and(eq(pickupRequestsTable.id, id), eq(pickupRequestsTable.status, "requested")))
-    .returning({ id: pickupRequestsTable.id });
+  const updated = await db.transaction(async tx => {
+    const rows = await tx.update(pickupRequestsTable).set(status === "cancelled"
+      ? { status, cancelledAt: now, cancelledBy: req.user!.userId, updatedAt: now }
+      : { status, resolvedAt: now, resolvedBy: req.user!.userId, updatedAt: now })
+      .where(and(eq(pickupRequestsTable.id, id), eq(pickupRequestsTable.status, "requested")))
+      .returning({ id: pickupRequestsTable.id });
+    if (rows.length) await notifyClassRefresh(tx, [request.classId]);
+    return rows;
+  });
   if (updated.length === 0) { res.status(404).json({ error: "Not found" }); return; }
-  const queue = await getPickupRequestsForClass(request.classId);
-  await broadcastToClass(request.classId, { type: "dismissed", id: String(id), queue: publicQueue(queue) });
   res.json({ success: true });
 });
 
