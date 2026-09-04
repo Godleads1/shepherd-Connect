@@ -25,9 +25,15 @@ import { sendWhatsAppToJid } from "./whatsapp";
 
 export type Intent =
   | "CHECK_STATUS"      // attendance / where is my child
+  | "CUSTODY_REQUEST"   // request a custody handover
+  | "CUSTODY_STATUS"    // view custody handover status
+  | "PICKUP_REQUEST"
+  | "PICKUP_STATUS"
   | "GET_OTP"           // delegate pickup codes
   | "MY_CHILDREN"       // list children and classes
   | "NOTIFICATIONS"     // recent notifications
+  | "NOTIFICATION_PREFS" // view or update notification channels
+  | "EMERGENCY_UPDATES"
   | "SUBMIT_CONCERN"    // concern / feedback / complaint
   | "SUPPORT_REQUEST"   // check-in / check-out help
   | "SUBSTITUTE_REQUEST" // teacher requests a substitute (can't make it)
@@ -56,9 +62,15 @@ Your job: understand what parents and teachers want, and either:
 
 Known intents (return as "intent" field):
   CHECK_STATUS         — wants to know if their child is checked in / where child is
+  CUSTODY_REQUEST      — parent wants to request a custody handover for a child
+  CUSTODY_STATUS       — parent wants to check a custody handover request
+  PICKUP_REQUEST       — parent wants to tell their child's classroom they are ready for pickup
+  PICKUP_STATUS        — parent wants to check a pickup signal
   GET_OTP              — wants delegate pickup OTP codes
   MY_CHILDREN          — wants to see their children and class info
   NOTIFICATIONS        — wants to see recent notifications
+  NOTIFICATION_PREFS   — wants to view or change notification channel preferences
+  EMERGENCY_UPDATES    — parent wants reviewed updates for their own family emergency
   SUBMIT_CONCERN       — wants to submit a concern, complaint, compliment, or feedback
   SUPPORT_REQUEST      — wants help with check-in, check-out, or delegate pickup
   SUBSTITUTE_REQUEST   — teacher can't make it, needs a substitute (illness, emergency, etc.)
@@ -131,6 +143,12 @@ export async function classifyIntent(
 
 const KEYWORD_MAP: Array<[RegExp, Intent]> = [
   [/\b(bye|goodbye|good.?night|good.?eve|see.?you|later|cya|take.?care|night|peace.?out|signing.?off|ttyl)\b/i, "FAREWELL"],
+  [/\b(custody|handover)\b.*\b(status|track|pending|accepted|done)\b|\b(status|track)\b.*\b(custody|handover)\b/i, "CUSTODY_STATUS"],
+  [/\b(request|start|create|need)\b.*\b(custody|handover)\b|\b(custody|handover)\b.*\b(request|start|create)\b/i, "CUSTODY_REQUEST"],
+  [/\b(pickup|collect)\b.*\b(status|track|pending|signal)\b|\b(status|track)\b.*\b(pickup|collect)\b/i, "PICKUP_STATUS"],
+  [/\b(pickup|collect)\b.*\b(request|ready|here|signal)\b|\b(request|signal)\b.*\b(pickup|collect)\b/i, "PICKUP_REQUEST"],
+  [/\b(emergency|urgent)\b.*\b(update|status|instruction)\b/i, "EMERGENCY_UPDATES"],
+  [/\b(notification|message|alert)\b.*\b(preference|setting|channel|whatsapp|sms|email)\b|\b(preference|setting)\b.*\b(notification|alert)\b/i, "NOTIFICATION_PREFS"],
   [/\b(status|where|check.?in|attend|present|class|son|daughter|child)\b/i, "CHECK_STATUS"],
   [/\b(otp|code|delegate|pickup|collect)\b/i, "GET_OTP"],
   [/\b(children|child|kids?|my.?kid|my.?child)\b/i, "MY_CHILDREN"],

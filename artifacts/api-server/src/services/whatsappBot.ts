@@ -30,13 +30,19 @@ import {
   botPhotoPendingTable,
   botStepUpProofsTable,
   botInboundEventsTable,
+  custodyEpisodesTable,
+  pickupRequestsTable,
+  emergencyUpdatesTable,
+  emergenciesTable,
 } from "@workspace/db/schema";
 import { eq, or, desc, and, inArray, lt, sql } from "drizzle-orm";
 import { createHmac, randomBytes, timingSafeEqual } from "crypto";
 import { logger } from "../lib/logger";
-import { CustodyHandoverError, releasePhysicalCustody } from "./custodyHandover";
+import { CustodyHandoverError, releasePhysicalCustody, requestCustodyEpisode } from "./custodyHandover";
 import { createNotificationDelivery } from "./notificationOutbox";
 import { ObjectStorageService } from "../lib/objectStorage";
+import { createParentPickupRequest, ParentPickupRequestError } from "../routes/pickupRequests";
+import { scopeFamilyEmergencyUpdates } from "../lib/familyEmergencyUpdates";
 import {
   classifyIntent,
   fuzzyClassify,
@@ -60,6 +66,10 @@ type Step =
   | "concern_enter_desc"
   | "request_select_type"
   | "request_select_child"
+  | "custody_select_child"
+  | "custody_select_service"
+  | "notification_pref_select"
+  | "pickup_select_child"
   | "teacher_sub_reason"
   | "awaiting_photo"
   | "awaiting_nudge";
@@ -336,6 +346,92 @@ async function getRecentNotifications(userId: number, limit = 5) {
     .orderBy(desc(notificationsTable.createdAt)).limit(limit);
 }
 
+type CommunicationPrefs = { inApp: boolean; whatsapp: boolean; sms: boolean; email: boolean };
+const DEFAULT_COMMUNICATION_PREFS: CommunicationPrefs = { inApp: true, whatsapp: false, sms: false, email: false };
+
+function parseCommunicationPrefs(raw: string | null | undefined): CommunicationPrefs {
+  try {
+    const value = raw ? JSON.parse(raw) as Record<string, unknown> : {};
+    return {
+      inApp: typeof value.inApp === "boolean" ? value.inApp : true,
+      whatsapp: typeof value.whatsapp === "boolean" ? value.whatsapp : false,
+      sms: typeof value.sms === "boolean" ? value.sms : false,
+      email: typeof value.email === "boolean" ? value.email : false,
+    };
+  } catch {
+    return { ...DEFAULT_COMMUNICATION_PREFS };
+  }
+}
+
+function notificationPreferencesText(prefs: CommunicationPrefs, prompt = false): string {
+  const state = (enabled: boolean) => enabled ? "✅ On" : "⬜ Off";
+  return (
+    `🔔 *Notification Preferences*\n\n` +
+    `*1* — In-app: ${state(prefs.inApp)}\n` +
+    `*2* — WhatsApp: ${state(prefs.whatsapp)}\n` +
+    `*3* — SMS: ${state(prefs.sms)}\n` +
+    `*4* — Email: ${state(prefs.email)}` +
+    (prompt ? `\n\nReply with *1–4* to toggle a channel.\n_Type *0* to finish._` : "")
+  );
+}
+
+async function getParentCustodyEpisodes(userId: number) {
+  const children = await getParentChildren(userId);
+  if (!children.length) return { children, episodes: [] };
+  const episodes = await db.select().from(custodyEpisodesTable)
+    .where(inArray(custodyEpisodesTable.childId, children.map(child => child.id)))
+    .orderBy(desc(custodyEpisodesTable.createdAt));
+  return { children, episodes };
+}
+
+async function getParentPickupRequests(userId: number) {
+  const children = await getParentChildren(userId);
+  if (!children.length) return { children, requests: [] };
+  const requests = await db.select().from(pickupRequestsTable)
+    .where(inArray(pickupRequestsTable.childId, children.map(child => child.id)))
+    .orderBy(desc(pickupRequestsTable.requestedAt));
+  return { children, requests };
+}
+
+async function getFamilyEmergencyUpdates(userId: number) {
+  const children = await getParentChildren(userId);
+  const childIds = children.map(child => child.id);
+  if (!childIds.length) return [];
+  const rows = await db.select({
+    id: emergencyUpdatesTable.id, emergencyId: emergencyUpdatesTable.emergencyId,
+    childId: childrenTable.id, childFirstName: childrenTable.firstName,
+    familyStatus: emergencyUpdatesTable.familyStatus, familyInstructions: emergencyUpdatesTable.familyInstructions,
+    publishedAt: emergencyUpdatesTable.publishedAt,
+  }).from(emergencyUpdatesTable)
+    .innerJoin(emergenciesTable, eq(emergenciesTable.id, emergencyUpdatesTable.emergencyId))
+    .innerJoin(childrenTable, eq(childrenTable.id, emergenciesTable.childId))
+    .where(and(inArray(childrenTable.id, childIds), sql`${emergencyUpdatesTable.publishedAt} IS NOT NULL`,
+      sql`${emergencyUpdatesTable.familyStatus} IS NOT NULL`, sql`${emergencyUpdatesTable.familyInstructions} IS NOT NULL`))
+    .orderBy(desc(emergencyUpdatesTable.publishedAt));
+  return scopeFamilyEmergencyUpdates(rows.map(row => ({
+    ...row, familyStatus: row.familyStatus!, familyInstructions: row.familyInstructions!, publishedAt: row.publishedAt!,
+  })), childIds);
+}
+
+function custodyStatusText(
+  children: Awaited<ReturnType<typeof getParentChildren>>,
+  episodes: Array<typeof custodyEpisodesTable.$inferSelect>,
+) {
+  if (!children.length) return `ℹ️ No children registered yet. Add them via the app.`;
+  if (!episodes.length) return `ℹ️ You have no custody handover requests yet.`;
+  const childNames = new Map(children.map(child => [child.id, `${child.firstName} ${child.lastName}`]));
+  const labels: Record<string, string> = {
+    requested: "🟡 Awaiting support",
+    accepted: "🟢 In support custody",
+    picked_up: "✅ Picked up",
+    cancelled: "⚪ Cancelled",
+  };
+  const lines = episodes.slice(0, 5).map(episode =>
+    `• *${childNames.get(episode.childId) ?? "Child"}* — ${labels[episode.status] ?? episode.status}\n  ${episode.serviceDate} · ${episode.requestedServices} service`,
+  );
+  return `🤝 *Custody Handover Status*\n\n${lines.join("\n\n")}`;
+}
+
 async function getTeacherRecord(userId: number) {
   const [t] = await db.select().from(teachersTable).where(eq(teachersTable.userId, userId));
   return t ?? null;
@@ -372,6 +468,11 @@ function generateRef(prefix = "SC-REQ"): string {
   return `${prefix}-${new Date().getFullYear()}-${Math.floor(10000 + Math.random() * 90000)}`;
 }
 function todayDate() { return new Date().toISOString().slice(0, 10); }
+function todayLagos() {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Africa/Lagos", year: "numeric", month: "2-digit", day: "2-digit",
+  }).format(new Date());
+}
 function todaySlot() { return new Date().getHours() < 9 ? "7am" : "10:30am"; }
 function typeLabel(t: string) {
   return t === "checkin" ? "Check-in" : t === "checkout" ? "Check-out" : "Delegate Pickup";
@@ -388,6 +489,11 @@ function lastActionShortcut(lastAction: string | undefined): string {
     GET_OTP: "🔑 _Last: pickup OTPs (type *2* to view again)_",
     MY_CHILDREN: "👶 _Last: my children (type *3* to view again)_",
     NOTIFICATIONS: "🔔 _Last: notifications (type *4* to view again)_",
+    CUSTODY_REQUEST: "🤝 _Last: custody request (type *7* to request again)_",
+    CUSTODY_STATUS: "📍 _Last: custody status (type *8* to view again)_",
+    NOTIFICATION_PREFS: "⚙️ _Last: notification preferences (type *9* to view again)_",
+    PICKUP_REQUEST: "🚗 _Last: pickup request (type *10* to request again)_",
+    PICKUP_STATUS: "🚗 _Last: pickup status (type *11* to view again)_",
     SUBMIT_CONCERN: "💬 _Last: concern/feedback (type *5* to submit another)_",
     SUPPORT_REQUEST: "🆘 _Last: support request (type *6* to request again)_",
   };
@@ -405,6 +511,12 @@ function parentMenuText(firstName: string, lastAction?: string) {
     `*4* — 🔔 Recent notifications\n` +
     `*5* — 💬 Submit a concern or feedback\n` +
     `*6* — 🆘 Request support (check-in / check-out)\n` +
+    `*7* — 🤝 Request custody handover\n` +
+    `*8* — 📍 Custody handover status\n` +
+    `*9* — ⚙️ Notification preferences\n` +
+    `*10* — 🚗 Request pickup\n` +
+    `*11* — 🚗 Pickup request status\n` +
+    `*12* — 🛟 Family emergency updates\n` +
     lastActionShortcut(lastAction) +
     `\n\nOr just *type what you need* — I'll understand! 💬`
   );
@@ -519,6 +631,55 @@ async function executeParentIntent(
     case "NOTIFICATIONS": {
       const n = await getRecentNotifications(userId);
       await reply(notificationsText(n));
+      return true;
+    }
+    case "CUSTODY_REQUEST": {
+      const children = await getParentChildren(userId);
+      if (!children.length) { await reply(`ℹ️ No children registered. Add them via the app first.`); return true; }
+      session.step = "custody_select_child";
+      session.data.childList = children.map(child => child.id).join(",");
+      await saveSession(fromJid, session);
+      await reply(`🤝 *Request Custody Handover*\n\n${children.map((child, index) => `*${index + 1}* — ${child.firstName} ${child.lastName}`).join("\n")}\n\n_Type *0* to cancel._`);
+      return true;
+    }
+    case "CUSTODY_STATUS": {
+      const { children, episodes } = await getParentCustodyEpisodes(userId);
+      await reply(custodyStatusText(children, episodes));
+      return true;
+    }
+    case "NOTIFICATION_PREFS": {
+      const [freshUser] = await db.select({ communicationPrefs: usersTable.communicationPrefs }).from(usersTable)
+        .where(eq(usersTable.id, userId));
+      session.step = "notification_pref_select";
+      await saveSession(fromJid, session);
+      await reply(notificationPreferencesText(parseCommunicationPrefs(freshUser?.communicationPrefs), true));
+      return true;
+    }
+    case "PICKUP_REQUEST": {
+      const children = await getParentChildren(userId);
+      if (!children.length) { await reply(`ℹ️ No children registered. Add them via the app first.`); return true; }
+      session.step = "pickup_select_child";
+      session.data.childList = children.map(child => child.id).join(",");
+      await saveSession(fromJid, session);
+      await reply(`🚗 *Request Pickup*\n\n${children.map((child, index) => `*${index + 1}* — ${child.firstName} ${child.lastName}`).join("\n")}\n\n_Type *0* to cancel._`);
+      return true;
+    }
+    case "PICKUP_STATUS": {
+      const { children, requests } = await getParentPickupRequests(userId);
+      if (!children.length) { await reply(`ℹ️ No children registered.`); return true; }
+      if (!requests.length) { await reply(`ℹ️ No pickup requests found for your children.`); return true; }
+      const names = new Map(children.map(child => [child.id, `${child.firstName} ${child.lastName}`]));
+      await reply(`🚗 *Pickup Request Status*\n\n${requests.slice(0, 5).map(request =>
+        `• *${names.get(request.childId) ?? "Child"}* — ${request.status === "requested" ? "🟡 Awaiting classroom" : request.status === "resolved" ? "✅ Resolved" : "⚪ Cancelled"}\n  ${request.serviceDate}`,
+      ).join("\n\n")}`);
+      return true;
+    }
+    case "EMERGENCY_UPDATES": {
+      const updates = await getFamilyEmergencyUpdates(userId);
+      if (!updates.length) { await reply(`ℹ️ There are no approved family emergency updates at this time.`); return true; }
+      await reply(`🛟 *Family Emergency Updates*\n\n${updates.slice(0, 3).map(update =>
+        `*${update.childFirstName}* — ${update.status}\n${update.instructions}`,
+      ).join("\n\n")}`);
       return true;
     }
     case "SUBMIT_CONCERN": {
@@ -841,7 +1002,7 @@ async function processInboundMessage(
     if (isExplicitYes) {
       const menuHint = role === "teacher"
         ? `*1* — Class roster  |  *2* — Attendance  |  *3* — Notifications  |  *4* — Concern  |  *5* — Substitute  |  *6* — Schedule`
-        : `*1* — Status  |  *2* — OTP  |  *3* — Children  |  *4* — Notifications  |  *5* — Concern  |  *6* — Support`;
+        : `*1* — Status  |  *2* — OTP  |  *3* — Children  |  *4* — Notifications  |  *5* — Concern  |  *6* — Support  |  *7* — Custody request  |  *8* — Custody status  |  *9* — Preferences`;
       await reply(
         `Welcome back, *${user.firstName}!* 🎉\n\n` +
         `What can I do for you? Here's a quick reminder of what I can help with:\n\n${menuHint}\n\n` +
@@ -856,6 +1017,7 @@ async function processInboundMessage(
   const MULTI_STEP_STEPS: Step[] = [
     "concern_select_type", "concern_enter_desc",
     "request_select_type", "request_select_child",
+    "custody_select_child", "custody_select_service", "notification_pref_select", "pickup_select_child",
     "teacher_sub_reason",
   ];
   if (input === "0" && MULTI_STEP_STEPS.includes(session.step)) {
@@ -863,6 +1025,134 @@ async function processInboundMessage(
     if (role === "teacher") { await reply(teacherMenuText(user.firstName, session.data.lastAction)); return; }
     if (role === "support" || role === "attendant") { await reply(supportMenuText(user.firstName)); return; }
     await reply(parentMenuText(user.firstName, session.data.lastAction)); return;
+  }
+
+  // ── Multi-step: parent custody handover ───────────────────────────────────
+  if (session.step === "custody_select_child") {
+    const childIds = (session.data.childList ?? "").split(",").map(Number).filter(Boolean);
+    const index = Number.parseInt(input, 10) - 1;
+    if (!Number.isInteger(index) || index < 0 || index >= childIds.length) {
+      await reply(`Please reply with a number between 1 and ${childIds.length}.\n\nType *0* to cancel.`);
+      return;
+    }
+    // Re-read the owned children instead of trusting IDs persisted in session.
+    const ownedChildren = await getParentChildren(user.id);
+    const child = ownedChildren.find(candidate => candidate.id === childIds[index]);
+    if (!child) {
+      await resetSession(fromJid, resolvedUserId);
+      await reply(`⛔ That child is no longer available on your family account.`);
+      return;
+    }
+    session.step = "custody_select_service";
+    session.data.custodyChildId = String(child.id);
+    session.data.custodyChildName = `${child.firstName} ${child.lastName}`;
+    await saveSession(fromJid, session);
+    await reply(`Which service is this handover for?\n\n*1* — First service (7:00 AM)\n*2* — Second service (10:30 AM)\n*3* — Both services\n\n_Type *0* to cancel._`);
+    return;
+  }
+
+  if (session.step === "custody_select_service") {
+    const services: Record<string, "first" | "second" | "both"> = { "1": "first", "2": "second", "3": "both" };
+    const requestedServices = services[input];
+    if (!requestedServices) {
+      await reply(`Please reply with *1*, *2*, or *3*.\n\nType *0* to cancel.`);
+      return;
+    }
+    const childId = Number(session.data.custodyChildId);
+    const ownedChildren = await getParentChildren(user.id);
+    if (!Number.isInteger(childId) || !ownedChildren.some(child => child.id === childId)) {
+      await resetSession(fromJid, resolvedUserId);
+      await reply(`⛔ That child is no longer available on your family account.`);
+      return;
+    }
+    try {
+      const outcome = await db.transaction(tx => requestCustodyEpisode(tx, {
+        childId,
+        serviceDate: todayLagos(),
+        requestedServices,
+        requestedBy: user.id,
+      }));
+      await resetSession(fromJid, resolvedUserId, "CUSTODY_REQUEST");
+      await reply(
+        `✅ *Custody handover requested*\n\n` +
+        `${session.data.custodyChildName ?? "Your child"} · ${requestedServices} service\n` +
+        `Status: *Awaiting support acceptance*\n\nType *8* to check status or *0* for the menu.`,
+      );
+      if (outcome.duplicate) logger.info({ userId: user.id, childId }, "Bot: duplicate custody request replayed");
+    } catch (error) {
+      if (error instanceof CustodyHandoverError) {
+        await reply(`ℹ️ ${error.message}\n\nType *8* to check custody status or *0* to cancel.`);
+        return;
+      }
+      throw error;
+    }
+    return;
+  }
+
+  // ── Multi-step: notification preferences ─────────────────────────────────
+  if (session.step === "notification_pref_select") {
+    const keys: Record<string, keyof CommunicationPrefs> = {
+      "1": "inApp", "2": "whatsapp", "3": "sms", "4": "email",
+    };
+    const key = keys[input];
+    if (!key) {
+      await reply(`Please reply with *1*, *2*, *3*, or *4*.\n\nType *0* to finish.`);
+      return;
+    }
+    const [freshUser] = await db.select({
+      communicationPrefs: usersTable.communicationPrefs,
+      contactVersion: usersTable.contactVersion,
+    }).from(usersTable).where(eq(usersTable.id, user.id));
+    if (!freshUser) {
+      await resetSession(fromJid);
+      await reply(`⛔ This account is no longer available.`);
+      return;
+    }
+    const prefs = parseCommunicationPrefs(freshUser.communicationPrefs);
+    prefs[key] = !prefs[key];
+    const [updated] = await db.update(usersTable)
+      .set({ communicationPrefs: JSON.stringify(prefs) })
+      .where(and(eq(usersTable.id, user.id), eq(usersTable.contactVersion, freshUser.contactVersion)))
+      .returning({ id: usersTable.id });
+    if (!updated) {
+      await reply(`Your profile changed while I was saving. Please try that option again.`);
+      return;
+    }
+    await reply(`✅ Preference updated.\n\n${notificationPreferencesText(prefs, true)}`);
+    return;
+  }
+
+  // ── Multi-step: durable parent pickup signal ──────────────────────────────
+  if (session.step === "pickup_select_child") {
+    const childIds = (session.data.childList ?? "").split(",").map(Number).filter(Boolean);
+    const index = Number.parseInt(input, 10) - 1;
+    if (!Number.isInteger(index) || index < 0 || index >= childIds.length) {
+      await reply(`Please reply with a number between 1 and ${childIds.length}.\n\nType *0* to cancel.`);
+      return;
+    }
+    // Session data is only a UI hint; ownership is checked again immediately
+    // before calling the durable pickup command.
+    const ownedChildren = await getParentChildren(user.id);
+    const child = ownedChildren.find(candidate => candidate.id === childIds[index]);
+    if (!child) {
+      await resetSession(fromJid, resolvedUserId);
+      await reply(`⛔ That child is no longer available on your family account.`);
+      return;
+    }
+    try {
+      const outcome = await createParentPickupRequest(user.id, child.id);
+      await resetSession(fromJid, resolvedUserId, "PICKUP_REQUEST");
+      await reply(outcome.duplicate
+        ? `ℹ️ A pickup signal for *${child.firstName} ${child.lastName}* is already active.\n\nType *11* for status or *0* for the menu.`
+        : `✅ *Pickup signal sent*\n\n${child.firstName} ${child.lastName}'s classroom has been notified.\n\nType *11* for status or *0* for the menu.`);
+    } catch (error) {
+      if (error instanceof ParentPickupRequestError) {
+        await reply(`ℹ️ ${error.message}\n\nType *0* to cancel.`);
+        return;
+      }
+      throw error;
+    }
+    return;
   }
 
   // ── Multi-step: concern ───────────────────────────────────────────────────
@@ -1053,7 +1343,20 @@ async function processInboundMessage(
   if (numberHandled !== null) {
     if (numberHandled) {
       // Save last action by number
-      const intentByNumber: Record<string, Intent> = { "1": role === "teacher" ? "MY_CHILDREN" : "CHECK_STATUS", "2": role === "teacher" ? "CHECK_STATUS" : "GET_OTP", "3": "NOTIFICATIONS", "4": role === "teacher" ? "SUBMIT_CONCERN" : "NOTIFICATIONS", "5": role === "teacher" ? "SUBSTITUTE_REQUEST" : "SUBMIT_CONCERN", "6": role === "teacher" ? "MY_SCHEDULE" : "SUPPORT_REQUEST" };
+      const intentByNumber: Record<string, Intent> = {
+        "1": role === "teacher" ? "MY_CHILDREN" : "CHECK_STATUS",
+        "2": role === "teacher" ? "CHECK_STATUS" : "GET_OTP",
+        "3": role === "teacher" ? "NOTIFICATIONS" : "MY_CHILDREN",
+        "4": role === "teacher" ? "SUBMIT_CONCERN" : "NOTIFICATIONS",
+        "5": role === "teacher" ? "SUBSTITUTE_REQUEST" : "SUBMIT_CONCERN",
+        "6": role === "teacher" ? "MY_SCHEDULE" : "SUPPORT_REQUEST",
+        "7": "CUSTODY_REQUEST",
+        "8": "CUSTODY_STATUS",
+        "9": "NOTIFICATION_PREFS",
+        "10": "PICKUP_REQUEST",
+        "11": "PICKUP_STATUS",
+        "12": "EMERGENCY_UPDATES",
+      };
       const la = intentByNumber[input];
       if (la) { session.data.lastAction = la; await saveSession(fromJid, session); }
     }
@@ -1127,7 +1430,7 @@ async function processInboundMessage(
   }
 
   // 3. Final fallback — brief "I didn't understand", not the full menu again
-  const menuHint = `*1* — Status  |  *2* — OTP  |  *3* — Children  |  *4* — Notifications  |  *5* — Concern  |  *6* — Support`;
+  const menuHint = `*1* — Status  |  *2* — OTP  |  *3* — Children  |  *4* — Notifications  |  *5* — Concern  |  *6* — Support  |  *7* — Custody request  |  *8* — Custody status  |  *9* — Preferences`;
 
   await reply(
     `🤔 I didn't quite understand that.\n\n` +
@@ -1200,6 +1503,8 @@ async function _handleNumberedCommand(
     return null;
   }
 
+  if (role !== "parent") return null;
+
   // Parent numbers
   if (input === "1") {
     const ch = await getParentChildren(userId);
@@ -1232,6 +1537,24 @@ async function _handleNumberedCommand(
     await saveSession(fromJid, session);
     await reply(`🆘 *Request Support*\n\n*1* — 🟢 Check-in (bring child in)\n*2* — 🔴 Check-out (pick up child)\n*3* — 👤 Delegate Pickup\n\n_Type *0* to cancel._`);
     return false;
+  }
+  if (input === "7") {
+    return executeParentIntent("CUSTODY_REQUEST", undefined, userId, firstName, fromJid, session, reply);
+  }
+  if (input === "8") {
+    return executeParentIntent("CUSTODY_STATUS", undefined, userId, firstName, fromJid, session, reply);
+  }
+  if (input === "9") {
+    return executeParentIntent("NOTIFICATION_PREFS", undefined, userId, firstName, fromJid, session, reply);
+  }
+  if (input === "10") {
+    return executeParentIntent("PICKUP_REQUEST", undefined, userId, firstName, fromJid, session, reply);
+  }
+  if (input === "11") {
+    return executeParentIntent("PICKUP_STATUS", undefined, userId, firstName, fromJid, session, reply);
+  }
+  if (input === "12") {
+    return executeParentIntent("EMERGENCY_UPDATES", undefined, userId, firstName, fromJid, session, reply);
   }
 
   return null; // not a recognised number

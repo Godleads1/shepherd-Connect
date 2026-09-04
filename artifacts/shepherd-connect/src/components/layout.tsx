@@ -294,7 +294,9 @@ export function Layout({ children }: { children: ReactNode }) {
     } else if (role === "parent") {
       items.push({ href: "/my-family",        label: t.nav.myFamily,   icon: Home });
       items.push({ href: "/my-children",      label: t.nav.myChildren, icon: Baby });
+      items.push({ href: "/requests",          label: "Requests",       icon: ListOrdered });
       items.push({ href: "/pickup-delegates", label: t.nav.delegates,  icon: UserCog });
+      items.push({ href: "/family-emergency-updates", label: "Emergency Updates", icon: AlertTriangle });
       items.push({ href: "/messages",         label: "Messages",       icon: MessageSquare, badge: msgUnreadCount });
       items.push({ href: "/feedback",         label: t.nav.feedback,   icon: Star });
       items.push({ href: "/safeguarding-info", label: "Safeguarding Info",  icon: ShieldCheck });
@@ -326,7 +328,7 @@ export function Layout({ children }: { children: ReactNode }) {
     if (role === "parent") return [
       { href: "/my-family",     label: t.nav.myFamily,      icon: Home },
       { href: "/my-children",   label: t.nav.myChildren,    icon: Users },
-      { href: "/messages",      label: "Messages",           icon: MessageSquare, badge: msgUnreadCount },
+      { href: "/requests",      label: "Requests",           icon: ListOrdered },
       { href: "/notifications", label: t.nav.notifications, icon: Bell, badge: unreadCount },
     ];
     if (role === "teacher") return [
@@ -416,11 +418,23 @@ export function Layout({ children }: { children: ReactNode }) {
   const UserChip = () => {
     const [open, setOpen] = useState(false);
     const [switching, setSwitching] = useState(false);
-    const allRoles: string[] = (user as any)?.allRoles ?? [role];
-    const roleLabels: Record<string, string> = { parent: "Parent", teacher: "Teacher", support: "Support", admin: "Admin", super_admin: "Super Admin" };
-    const roleIcons: Record<string, string> = { parent: "👨‍👩‍👧", teacher: "📚", support: "🎫", admin: "🛡️", super_admin: "⚡" };
+    type SwitchableRole = "parent" | "teacher" | "support" | "admin" | "super_admin";
+    const approvedRoles: readonly SwitchableRole[] = ["parent", "teacher", "support", "admin", "super_admin"];
+    const isSwitchableRole = (value: unknown): value is SwitchableRole =>
+      typeof value === "string" && approvedRoles.includes(value as SwitchableRole);
+    const roleState = user as typeof user & { allRoles?: unknown; secondaryRoles?: unknown };
+    const apiRoles = roleState?.allRoles;
+    const secondaryRoles = roleState?.secondaryRoles;
+    const allRoles: SwitchableRole[] = Array.isArray(apiRoles)
+      ? [...new Set(apiRoles.filter(isSwitchableRole))]
+      : [...new Set([
+          ...(isSwitchableRole(role) ? [role] : []),
+          ...(Array.isArray(secondaryRoles) ? secondaryRoles.filter(isSwitchableRole) : []),
+        ])];
+    const roleLabels: Record<SwitchableRole, string> = { parent: "Parent", teacher: "Teacher", support: "Support", admin: "Admin", super_admin: "Super Admin" };
+    const roleIcons: Record<SwitchableRole, string> = { parent: "👨‍👩‍👧", teacher: "📚", support: "🎫", admin: "🛡️", super_admin: "⚡" };
 
-    const handleSwitch = async (newRole: string) => {
+    const handleSwitch = async (newRole: SwitchableRole) => {
       if (newRole === role || switching) return;
       setSwitching(true);
       setOpen(false);
@@ -468,8 +482,8 @@ export function Layout({ children }: { children: ReactNode }) {
                 style={r === role ? { color: "rgba(255,255,255,0.9)", background: "rgba(255,255,255,0.12)" } : { color: "rgba(255,255,255,0.65)" }}
                 onMouseOver={e => { if (r !== role) (e.currentTarget as HTMLElement).style.background = "rgba(255,255,255,0.07)"; }}
                 onMouseOut={e => { if (r !== role) (e.currentTarget as HTMLElement).style.background = ""; }}>
-                <span>{roleIcons[r] ?? "👤"}</span>
-                <span className="flex-1">{roleLabels[r] ?? r}</span>
+                <span>{roleIcons[r]}</span>
+                <span className="flex-1">{roleLabels[r]}</span>
                 {r === role && <span className="text-[9px] bg-white/20 px-1.5 py-0.5 rounded-full">Active</span>}
                 {r !== role && switching && <div className="w-3 h-3 border border-white/30 border-t-white/80 rounded-full animate-spin" />}
               </button>

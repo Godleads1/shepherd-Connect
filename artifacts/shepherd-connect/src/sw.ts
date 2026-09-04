@@ -18,7 +18,13 @@ self.addEventListener("install", (e) => {
 });
 
 self.addEventListener("activate", (e) => {
-  e.waitUntil(self.clients.claim());
+  // Versions before this one stored authenticated API responses in api-cache.
+  // Remove those entries on every activation rather than trusting cache expiry.
+  e.waitUntil(
+    caches.keys().then((names) =>
+      Promise.all(names.filter((name) => name.startsWith("api-cache")).map((name) => caches.delete(name))),
+    ).then(() => self.clients.claim()),
+  );
 });
 
 registerRoute(
@@ -40,18 +46,21 @@ registerRoute(
   new NetworkOnly(),
 );
 
-// ── API — network-first, 4 s timeout ─────────────────────────────────────────
+// API responses may be personalized even where an endpoint appears public.
+// Never put /api data in Cache Storage.
 registerRoute(
-  ({ url }) => url.pathname.startsWith("/api/") && !url.pathname.startsWith("/api/storage/objects/"),
-  new NetworkFirst({
-    cacheName: "api-cache",
-    networkTimeoutSeconds: 4,
-    plugins: [
-      new CacheableResponsePlugin({ statuses: [0, 200] }),
-      new ExpirationPlugin({ maxEntries: 200, maxAgeSeconds: 60 * 60 * 24 }),
-    ],
-  } as NetworkFirstOptions),
+  ({ url }) => url.pathname.startsWith("/api/"),
+  new NetworkOnly(),
 );
+
+self.addEventListener("message", (event: ExtendableMessageEvent) => {
+  if (event.data?.type !== "PURGE_AUTHENTICATED_API_CACHE") return;
+  event.waitUntil(
+    caches.keys().then((names) =>
+      Promise.all(names.filter((name) => name.startsWith("api-cache")).map((name) => caches.delete(name))),
+    ),
+  );
+});
 
 // ── Static assets — cache-first ───────────────────────────────────────────────
 registerRoute(

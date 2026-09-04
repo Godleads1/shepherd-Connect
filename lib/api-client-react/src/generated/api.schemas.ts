@@ -5,6 +5,84 @@
  * Shepherd Connect - Children's Church Management Platform API
  * OpenAPI spec version: 0.1.0
  */
+export type ParentRequestType =
+  (typeof ParentRequestType)[keyof typeof ParentRequestType];
+
+export const ParentRequestType = {
+  custody: "custody",
+  pickup: "pickup",
+  delegate: "delegate",
+  class_change: "class_change",
+  concern: "concern",
+  feedback: "feedback",
+} as const;
+
+export interface ParentRequestChild {
+  id: number;
+  firstName: string;
+  lastName: string;
+  checkedIn: boolean;
+}
+
+export interface ParentRequestItem {
+  id: string;
+  sourceId: number | string;
+  requestType: ParentRequestType;
+  title: string;
+  /** @nullable */
+  childId: number | null;
+  /** @nullable */
+  childName: string | null;
+  status: string;
+  /** @nullable */
+  serviceDate: string | null;
+  createdAt: string;
+  deepLink: string;
+  /** @nullable */
+  summary: string | null;
+}
+
+export type ParentRequestCenterCounts = { [key: string]: number };
+
+export interface ParentRequestCenter {
+  items: ParentRequestItem[];
+  children: ParentRequestChild[];
+  counts: ParentRequestCenterCounts;
+  total: number;
+  refreshedAt: string;
+}
+
+export interface ParentPickupRequestInput {
+  /** @minimum 1 */
+  childId: number;
+}
+
+export interface ParentPickupRequest {
+  id: string;
+  childId: number;
+  childName: string;
+  parentName: string;
+  classId: number;
+  className: string;
+  homeClassName?: string;
+  requestedAt: string;
+}
+
+export type ParentPickupRequestResultStatus =
+  (typeof ParentPickupRequestResultStatus)[keyof typeof ParentPickupRequestResultStatus];
+
+export const ParentPickupRequestResultStatus = {
+  requested: "requested",
+} as const;
+
+export interface ParentPickupRequestResult {
+  success: boolean;
+  duplicate: boolean;
+  status: ParentPickupRequestResultStatus;
+  request: ParentPickupRequest;
+  message: string;
+}
+
 export interface UploadUrlRequest {
   /** @minLength 1 */
   name: string;
@@ -787,6 +865,60 @@ export interface CreateAppraisalBody {
   personalNoteToParent?: string | null;
 }
 
+export interface NotificationChannelPreferences {
+  inApp: boolean;
+  email: boolean;
+  sms: boolean;
+  whatsapp: boolean;
+}
+
+export interface NotificationPreferenceInput {
+  inApp: boolean;
+  email: boolean;
+  sms: boolean;
+  whatsapp: boolean;
+  /**
+   * Version returned by GET; prevents overwriting a concurrent update.
+   * @minimum 1
+   */
+  contactVersion: number;
+}
+
+export interface NotificationPreferences {
+  channels: NotificationChannelPreferences;
+  requiredNotificationsCannotBeDisabled: boolean;
+  contactVersion: number;
+}
+
+export interface FamilyEmergencyUpdateInput {
+  /**
+   * @minLength 1
+   * @maxLength 160
+   */
+  status: string;
+  /**
+   * @minLength 1
+   * @maxLength 1000
+   */
+  instructions: string;
+  /**
+   * Client-generated idempotency event identifier.
+   * @minLength 1
+   * @maxLength 128
+   */
+  eventId: string;
+}
+
+export interface FamilyEmergencyUpdate {
+  id: number;
+  emergencyId: number;
+  childId: number;
+  childFirstName: string;
+  status: string;
+  instructions: string;
+  publishedAt: string;
+}
+
 export type EmergencyType = (typeof EmergencyType)[keyof typeof EmergencyType];
 
 export const EmergencyType = {
@@ -1235,4 +1367,9 @@ export type ApproveClassChangeRequestBody = {
 
 export type RejectClassChangeRequestBody = {
   adminNotes?: string;
+};
+
+export type ListParentRequestsParams = {
+  type?: ParentRequestType;
+  status?: string;
 };

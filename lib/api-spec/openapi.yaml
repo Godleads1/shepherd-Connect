@@ -1511,6 +1511,80 @@ paths:
               schema:
                 $ref: "#/components/schemas/Emergency"
 
+  /emergencies/{id}/family-update:
+    post:
+      operationId: publishFamilyEmergencyUpdate
+      tags: [emergencies]
+      summary: Publish a reviewed family-visible emergency update
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FamilyEmergencyUpdateInput"
+      responses:
+        "201":
+          description: Published family update
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FamilyEmergencyUpdate"
+        "409":
+          description: Emergency is closed or resolved
+
+  /family/emergency-updates:
+    get:
+      operationId: listFamilyEmergencyUpdates
+      tags: [emergencies]
+      summary: List published emergency updates for the authenticated parent's children
+      responses:
+        "200":
+          description: Published family updates
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/FamilyEmergencyUpdate"
+
+  /notification-preferences:
+    get:
+      operationId: getNotificationPreferences
+      tags: [notifications]
+      summary: Get the authenticated parent's optional notification channels
+      responses:
+        "200":
+          description: Notification preferences
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationPreferences"
+    put:
+      operationId: updateNotificationPreferences
+      tags: [notifications]
+      summary: Update the authenticated parent's optional notification channels
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NotificationPreferenceInput"
+      responses:
+        "200":
+          description: Updated notification preferences
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationPreferences"
+        "409":
+          description: Preferences were changed by another request; refresh and retry.
+
   # AUDIT LOGS
   /audit-logs:
     get:
@@ -2060,6 +2134,77 @@ paths:
               schema:
                 $ref: "#/components/schemas/CustodyEpisodeResult"
 
+  /parent-requests:
+    get:
+      operationId: listParentRequests
+      tags: [parentRequests]
+      summary: List the authenticated parent's request center
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: type
+          in: query
+          schema:
+            $ref: "#/components/schemas/ParentRequestType"
+        - name: status
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Parent-scoped request summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ParentRequestCenter"
+  /parent-requests/{type}/{id}:
+    get:
+      operationId: getParentRequest
+      tags: [parentRequests]
+      summary: Get one request owned by the authenticated parent
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: type
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/ParentRequestType"
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Parent request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ParentRequestItem"
+        "404":
+          description: Request is not owned by this parent
+  /pickup-requests:
+    post:
+      operationId: createParentPickupRequest
+      tags: [parentRequests]
+      summary: Idempotently signal pickup for an active checked-in owned child
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ParentPickupRequestInput"
+      responses:
+        "200":
+          description: Pickup signal is active
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ParentPickupRequestResult"
+
 components:
   parameters:
     CustodyEpisodeId:
@@ -2069,6 +2214,115 @@ components:
       schema:
         type: integer
   schemas:
+    ParentRequestType:
+      type: string
+      enum: [custody, pickup, delegate, class_change, concern, feedback]
+    ParentRequestChild:
+      type: object
+      required: [id, firstName, lastName, checkedIn]
+      properties:
+        id:
+          type: integer
+        firstName:
+          type: string
+        lastName:
+          type: string
+        checkedIn:
+          type: boolean
+    ParentRequestItem:
+      type: object
+      required: [id, sourceId, requestType, title, childId, childName, status, serviceDate, createdAt, deepLink, summary]
+      properties:
+        id:
+          type: string
+        sourceId:
+          oneOf:
+            - type: integer
+            - type: string
+        requestType:
+          $ref: "#/components/schemas/ParentRequestType"
+        title:
+          type: string
+        childId:
+          type: [integer, "null"]
+        childName:
+          type: [string, "null"]
+        status:
+          type: string
+        serviceDate:
+          type: [string, "null"]
+          format: date
+        createdAt:
+          type: string
+          format: date-time
+        deepLink:
+          type: string
+        summary:
+          type: [string, "null"]
+    ParentRequestCenter:
+      type: object
+      required: [items, children, counts, total, refreshedAt]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ParentRequestItem"
+        children:
+          type: array
+          items:
+            $ref: "#/components/schemas/ParentRequestChild"
+        counts:
+          type: object
+          additionalProperties:
+            type: integer
+        total:
+          type: integer
+        refreshedAt:
+          type: string
+          format: date-time
+    ParentPickupRequestInput:
+      type: object
+      required: [childId]
+      properties:
+        childId:
+          type: integer
+          minimum: 1
+    ParentPickupRequest:
+      type: object
+      required: [id, childId, childName, parentName, classId, className, requestedAt]
+      properties:
+        id:
+          type: string
+        childId:
+          type: integer
+        childName:
+          type: string
+        parentName:
+          type: string
+        classId:
+          type: integer
+        className:
+          type: string
+        homeClassName:
+          type: string
+        requestedAt:
+          type: string
+          format: date-time
+    ParentPickupRequestResult:
+      type: object
+      required: [success, duplicate, status, request, message]
+      properties:
+        success:
+          type: boolean
+        duplicate:
+          type: boolean
+        status:
+          type: string
+          enum: [requested]
+        request:
+          $ref: "#/components/schemas/ParentPickupRequest"
+        message:
+          type: string
     UploadUrlRequest:
       type: object
       required: [name, size, contentType]
@@ -3289,6 +3543,89 @@ components:
         - socialInteraction
 
     # EMERGENCIES
+    NotificationChannelPreferences:
+      type: object
+      additionalProperties: false
+      properties:
+        inApp:
+          type: boolean
+        email:
+          type: boolean
+        sms:
+          type: boolean
+        whatsapp:
+          type: boolean
+      required: [inApp, email, sms, whatsapp]
+
+    NotificationPreferenceInput:
+      type: object
+      additionalProperties: false
+      properties:
+        inApp:
+          type: boolean
+        email:
+          type: boolean
+        sms:
+          type: boolean
+        whatsapp:
+          type: boolean
+        contactVersion:
+          type: integer
+          minimum: 1
+          description: Version returned by GET; prevents overwriting a concurrent update.
+      required: [inApp, email, sms, whatsapp, contactVersion]
+
+    NotificationPreferences:
+      type: object
+      properties:
+        channels:
+          $ref: "#/components/schemas/NotificationChannelPreferences"
+        requiredNotificationsCannotBeDisabled:
+          type: boolean
+        contactVersion:
+          type: integer
+      required: [channels, requiredNotificationsCannotBeDisabled, contactVersion]
+
+    FamilyEmergencyUpdateInput:
+      type: object
+      additionalProperties: false
+      properties:
+        status:
+          type: string
+          minLength: 1
+          maxLength: 160
+        instructions:
+          type: string
+          minLength: 1
+          maxLength: 1000
+        eventId:
+          type: string
+          minLength: 1
+          maxLength: 128
+          description: Client-generated idempotency event identifier.
+      required: [status, instructions, eventId]
+
+    FamilyEmergencyUpdate:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: integer
+        emergencyId:
+          type: integer
+        childId:
+          type: integer
+        childFirstName:
+          type: string
+        status:
+          type: string
+        instructions:
+          type: string
+        publishedAt:
+          type: string
+          format: date-time
+      required: [id, emergencyId, childId, childFirstName, status, instructions, publishedAt]
+
     Emergency:
       type: object
       properties:

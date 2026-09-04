@@ -309,7 +309,8 @@ router.put("/users/:id", authMiddleware, async (req, res): Promise<void> => {
   if (body["dob"] !== undefined) updates.dob = body["dob"] as string | null;
   if (body["gender"] !== undefined) updates.gender = body["gender"] as string | null;
   if (body["placeOfWork"] !== undefined) updates.placeOfWork = body["placeOfWork"] as string | null;
-  if (body["communicationPrefs"] !== undefined) updates.communicationPrefs = body["communicationPrefs"] as string | null;
+  // Communication preferences are versioned and validated only by the
+  // notification-preferences endpoint. Profile edits must not overwrite them.
   if (isSelf && body["hideContactFromAdmin"] !== undefined) updates.hideContactFromAdmin = Boolean(body["hideContactFromAdmin"]);
 
   const phoneChanged = updates.phone !== undefined && updates.phone !== existingUser.phone;

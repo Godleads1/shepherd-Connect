@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { useTriggerEmergency, useListEmergencies } from "@workspace/api-client-react";
+import { useTriggerEmergency, useListEmergencies, usePublishFamilyEmergencyUpdate } from "@workspace/api-client-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -14,6 +14,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { apiGet, apiPost, apiPut } from "@/lib/api-call";
 import { format } from "date-fns";
+import { useAuth } from "@/contexts/auth";
 
 type EmergencyUpdate = {
   id: number; emergencyId: number; userId: number; message: string;
@@ -208,7 +209,7 @@ function EscalationTreePanel({ currentLevel }: { currentLevel: string }) {
 
 // ─── incident thread ──────────────────────────────────────────────────────────
 
-function EmergencyThread({ emergency, onClose }: { emergency: Emergency; onClose: () => void }) {
+function EmergencyThread({ emergency, onClose, canPublishFamilyUpdate }: { emergency: Emergency; onClose: () => void; canPublishFamilyUpdate: boolean }) {
   const [msg, setMsg] = useState("");
   const [updateType, setUpdateType] = useState("update");
   const [showEscalate, setShowEscalate] = useState(false);
@@ -216,8 +217,11 @@ function EmergencyThread({ emergency, onClose }: { emergency: Emergency; onClose
   const [showAllClear, setShowAllClear] = useState(false);
   const [allClearNotes, setAllClearNotes] = useState("");
   const [showTree, setShowTree] = useState(false);
+  const [familyStatus, setFamilyStatus] = useState("");
+  const [familyInstructions, setFamilyInstructions] = useState("");
   const { toast } = useToast();
   const qc = useQueryClient();
+  const publishFamilyUpdate = usePublishFamilyEmergencyUpdate();
   const threadRef = useRef<HTMLDivElement>(null);
 
   const { data: thread } = useQuery({
@@ -414,6 +418,37 @@ function EmergencyThread({ emergency, onClose }: { emergency: Emergency; onClose
             disabled={!msg.trim() || postUpdate.isPending}
             className="px-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg disabled:opacity-40 transition-colors">
             <MessageSquare className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+      {canPublishFamilyUpdate && emergency.childId && (
+        <div className="p-3 border-t bg-blue-50 space-y-2">
+          <p className="text-xs font-bold text-blue-950">Publish reviewed family update</p>
+          <p className="text-xs text-blue-700">Only the sanitized status and instructions below become visible to this child's family.</p>
+          <Input value={familyStatus} onChange={event => setFamilyStatus(event.target.value)}
+            placeholder="Family-visible status" maxLength={160} data-testid="input-family-update-status" />
+          <Textarea value={familyInstructions} onChange={event => setFamilyInstructions(event.target.value)}
+            placeholder="Clear instructions for the family" maxLength={1000} data-testid="input-family-update-instructions" />
+          <button type="button"
+            disabled={!familyStatus.trim() || !familyInstructions.trim() || publishFamilyUpdate.isPending}
+            onClick={() => publishFamilyUpdate.mutate({
+              id: emergency.id,
+              data: {
+                eventId: crypto.randomUUID(),
+                status: familyStatus.trim(),
+                instructions: familyInstructions.trim(),
+              },
+            }, {
+              onSuccess: () => {
+                setFamilyStatus("");
+                setFamilyInstructions("");
+                toast({ title: "Family update published" });
+              },
+              onError: () => toast({ variant: "destructive", title: "Could not publish family update" }),
+            })}
+            className="w-full rounded-lg bg-blue-800 text-white py-2 text-sm font-bold disabled:opacity-50"
+            data-testid="button-publish-family-update">
+            {publishFamilyUpdate.isPending ? "Publishing…" : "Publish to this family"}
           </button>
         </div>
       )}
@@ -782,6 +817,7 @@ function TriggerDialog({
 // ─── main page ────────────────────────────────────────────────────────────────
 
 export default function Emergencies() {
+  const { user } = useAuth();
   const [triggerOpen, setTriggerOpen] = useState(false);
   const [triggerType, setTriggerType] = useState<string>("general");
   const [showDetailId, setShowDetailId] = useState<number | null>(null);
@@ -992,7 +1028,11 @@ export default function Emergencies() {
       <Dialog open={!!showDetailId} onOpenChange={() => setShowDetailId(null)}>
         <DialogContent className="sm:max-w-xl rounded-2xl p-0 overflow-hidden max-h-[90vh] flex flex-col">
           {detailData ? (
-            <EmergencyThread emergency={detailData} onClose={() => setShowDetailId(null)} />
+            <EmergencyThread
+              emergency={detailData}
+              onClose={() => setShowDetailId(null)}
+              canPublishFamilyUpdate={["support", "admin", "super_admin"].includes(user?.role ?? "")}
+            />
           ) : (
             <div className="p-10 text-center text-gray-400 flex flex-col items-center gap-2">
               <span className="h-6 w-6 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />

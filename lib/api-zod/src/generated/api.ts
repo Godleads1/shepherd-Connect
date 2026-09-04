@@ -3010,6 +3010,90 @@ export const UpdateEmergencyResponse = zod.object({
 });
 
 /**
+ * @summary Publish a reviewed family-visible emergency update
+ */
+export const PublishFamilyEmergencyUpdateParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const publishFamilyEmergencyUpdateBodyStatusMax = 160;
+
+export const publishFamilyEmergencyUpdateBodyInstructionsMax = 1000;
+
+export const publishFamilyEmergencyUpdateBodyEventIdMax = 128;
+
+export const PublishFamilyEmergencyUpdateBody = zod.object({
+  status: zod.string().min(1).max(publishFamilyEmergencyUpdateBodyStatusMax),
+  instructions: zod
+    .string()
+    .min(1)
+    .max(publishFamilyEmergencyUpdateBodyInstructionsMax),
+  eventId: zod
+    .string()
+    .min(1)
+    .max(publishFamilyEmergencyUpdateBodyEventIdMax)
+    .describe("Client-generated idempotency event identifier."),
+});
+
+/**
+ * @summary List published emergency updates for the authenticated parent's children
+ */
+export const ListFamilyEmergencyUpdatesResponseItem = zod.object({
+  id: zod.number(),
+  emergencyId: zod.number(),
+  childId: zod.number(),
+  childFirstName: zod.string(),
+  status: zod.string(),
+  instructions: zod.string(),
+  publishedAt: zod.string().datetime({}),
+});
+export const ListFamilyEmergencyUpdatesResponse = zod.array(
+  ListFamilyEmergencyUpdatesResponseItem,
+);
+
+/**
+ * @summary Get the authenticated parent's optional notification channels
+ */
+export const GetNotificationPreferencesResponse = zod.object({
+  channels: zod.object({
+    inApp: zod.boolean(),
+    email: zod.boolean(),
+    sms: zod.boolean(),
+    whatsapp: zod.boolean(),
+  }),
+  requiredNotificationsCannotBeDisabled: zod.boolean(),
+  contactVersion: zod.number(),
+});
+
+/**
+ * @summary Update the authenticated parent's optional notification channels
+ */
+
+export const UpdateNotificationPreferencesBody = zod.object({
+  inApp: zod.boolean(),
+  email: zod.boolean(),
+  sms: zod.boolean(),
+  whatsapp: zod.boolean(),
+  contactVersion: zod
+    .number()
+    .min(1)
+    .describe(
+      "Version returned by GET; prevents overwriting a concurrent update.",
+    ),
+});
+
+export const UpdateNotificationPreferencesResponse = zod.object({
+  channels: zod.object({
+    inApp: zod.boolean(),
+    email: zod.boolean(),
+    sms: zod.boolean(),
+    whatsapp: zod.boolean(),
+  }),
+  requiredNotificationsCannotBeDisabled: zod.boolean(),
+  contactVersion: zod.number(),
+});
+
+/**
  * @summary List audit logs
  */
 export const listAuditLogsQueryPageDefault = 1;
@@ -3883,4 +3967,118 @@ export const OverrideCustodyPickupResponse = zod.object({
     }),
   ),
   duplicate: zod.boolean(),
+});
+
+/**
+ * @summary List the authenticated parent's request center
+ */
+export const ListParentRequestsQueryParams = zod.object({
+  type: zod
+    .enum([
+      "custody",
+      "pickup",
+      "delegate",
+      "class_change",
+      "concern",
+      "feedback",
+    ])
+    .optional(),
+  status: zod.coerce.string().optional(),
+});
+
+export const ListParentRequestsResponse = zod.object({
+  items: zod.array(
+    zod.object({
+      id: zod.string(),
+      sourceId: zod.union([zod.number(), zod.string()]),
+      requestType: zod.enum([
+        "custody",
+        "pickup",
+        "delegate",
+        "class_change",
+        "concern",
+        "feedback",
+      ]),
+      title: zod.string(),
+      childId: zod.number().nullable(),
+      childName: zod.string().nullable(),
+      status: zod.string(),
+      serviceDate: zod.string().date().nullable(),
+      createdAt: zod.string().datetime({}),
+      deepLink: zod.string(),
+      summary: zod.string().nullable(),
+    }),
+  ),
+  children: zod.array(
+    zod.object({
+      id: zod.number(),
+      firstName: zod.string(),
+      lastName: zod.string(),
+      checkedIn: zod.boolean(),
+    }),
+  ),
+  counts: zod.record(zod.string(), zod.number()),
+  total: zod.number(),
+  refreshedAt: zod.string().datetime({}),
+});
+
+/**
+ * @summary Get one request owned by the authenticated parent
+ */
+export const GetParentRequestParams = zod.object({
+  type: zod.enum([
+    "custody",
+    "pickup",
+    "delegate",
+    "class_change",
+    "concern",
+    "feedback",
+  ]),
+  id: zod.coerce.string(),
+});
+
+export const GetParentRequestResponse = zod.object({
+  id: zod.string(),
+  sourceId: zod.union([zod.number(), zod.string()]),
+  requestType: zod.enum([
+    "custody",
+    "pickup",
+    "delegate",
+    "class_change",
+    "concern",
+    "feedback",
+  ]),
+  title: zod.string(),
+  childId: zod.number().nullable(),
+  childName: zod.string().nullable(),
+  status: zod.string(),
+  serviceDate: zod.string().date().nullable(),
+  createdAt: zod.string().datetime({}),
+  deepLink: zod.string(),
+  summary: zod.string().nullable(),
+});
+
+/**
+ * @summary Idempotently signal pickup for an active checked-in owned child
+ */
+
+export const CreateParentPickupRequestBody = zod.object({
+  childId: zod.number().min(1),
+});
+
+export const CreateParentPickupRequestResponse = zod.object({
+  success: zod.boolean(),
+  duplicate: zod.boolean(),
+  status: zod.enum(["requested"]),
+  request: zod.object({
+    id: zod.string(),
+    childId: zod.number(),
+    childName: zod.string(),
+    parentName: zod.string(),
+    classId: zod.number(),
+    className: zod.string(),
+    homeClassName: zod.string().optional(),
+    requestedAt: zod.string().datetime({}),
+  }),
+  message: zod.string(),
 });

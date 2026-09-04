@@ -1,0 +1,65 @@
+import request from "supertest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { db } from "@workspace/db";
+import { sql } from "drizzle-orm";
+import app from "../app";
+import { generateToken } from "../middlewares/auth";
+
+const databaseDescribe = process.env.RUN_DATABASE_ATTENDANCE_TESTS === "true" ? describe : describe.skip;
+const prefix = `pickup-db-${Date.now()}`;
+let parentId = 0; let otherParentId = 0; let familyId = 0; let otherFamilyId = 0;
+let childId = 0; let otherChildId = 0; let classId = 0;
+const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Lagos", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+const token = (id: number) => `Bearer ${generateToken({ userId: id, email: `${prefix}-${id}@test`, role: "parent", firstName: "Test", lastName: "Parent" })}`;
+
+beforeAll(async () => {
+  const users = await db.execute(sql`INSERT INTO users (email,password_hash,first_name,last_name,role,status,is_active) VALUES
+    (${`${prefix}-one@test`},'x','Parent','One','parent','active',true),
+    (${`${prefix}-two@test`},'x','Parent','Two','parent','active',true) RETURNING id`);
+  parentId = Number(users.rows[0].id); otherParentId = Number(users.rows[1].id);
+  familyId = Number((await db.execute(sql`INSERT INTO families (family_code,parent_1_id) VALUES (${`PK-${prefix.slice(-6)}`},${parentId}) RETURNING id`)).rows[0].id);
+  otherFamilyId = Number((await db.execute(sql`INSERT INTO families (family_code,parent_1_id) VALUES (${`PO-${prefix.slice(-6)}`},${otherParentId}) RETURNING id`)).rows[0].id);
+  classId = Number((await db.execute(sql`INSERT INTO classes (name,age_min,age_max,capacity,room_location,service_slot) VALUES (${prefix},1,12,30,'Room','7am') RETURNING id`)).rows[0].id);
+  childId = Number((await db.execute(sql`INSERT INTO children (family_id,first_name,last_name,dob,gender,current_class_id) VALUES (${familyId},'Owned','Child','2020-01-01','female',${classId}) RETURNING id`)).rows[0].id);
+  otherChildId = Number((await db.execute(sql`INSERT INTO children (family_id,first_name,last_name,dob,gender,current_class_id) VALUES (${otherFamilyId},'Other','Child','2020-01-01','female',${classId}) RETURNING id`)).rows[0].id);
+});
+
+beforeEach(async () => {
+  await db.execute(sql`DELETE FROM pickup_requests WHERE child_id IN (${childId},${otherChildId})`);
+  await db.execute(sql`DELETE FROM attendance WHERE child_id IN (${childId},${otherChildId})`);
+  await db.execute(sql`INSERT INTO attendance (child_id,class_id,service_date,service_slot,status) VALUES
+    (${childId},${classId},${today},'both','in_class')`);
+});
+
+afterAll(async () => {
+  for (const query of [
+    sql`DELETE FROM pickup_requests WHERE child_id IN (${childId},${otherChildId})`,
+    sql`DELETE FROM attendance WHERE child_id IN (${childId},${otherChildId})`,
+    sql`DELETE FROM custody_episodes WHERE child_id IN (${childId},${otherChildId})`,
+    sql`DELETE FROM children WHERE id IN (${childId},${otherChildId})`,
+    sql`DELETE FROM families WHERE id IN (${familyId},${otherFamilyId})`,
+    sql`DELETE FROM classes WHERE id=${classId}`,
+    sql`DELETE FROM users WHERE email LIKE ${`${prefix}%`}`,
+  ]) try { await db.execute(query); } catch {}
+});
+
+databaseDescribe("pickup request PostgreSQL persistence", () => {
+  it("has one durable active request under concurrent parent retries", async () => {
+    const create = () => request(app).post("/api/pickup-requests").set("Authorization", token(parentId)).send({ childId });
+    const replies = await Promise.all([create(), create(), create(), create()]);
+    expect(replies.every(reply => reply.status === 200)).toBe(true);
+    expect(replies.filter(reply => reply.body.duplicate).length).toBe(3);
+    const rows = await db.execute(sql`SELECT id,status,requested_by,service_date FROM pickup_requests WHERE child_id=${childId}`);
+    expect(rows.rows).toHaveLength(1);
+    expect(rows.rows[0]).toMatchObject({ status: "requested", requested_by: parentId, service_date: today });
+  });
+
+  it("does not expose a custody row whose family no longer owns its child", async () => {
+    await db.execute(sql`INSERT INTO custody_episodes (child_id,family_id,service_date,requested_services,requested_by,status)
+      VALUES (${otherChildId},${familyId},${today},'both',${parentId},'requested')`);
+    const center = await request(app).get("/api/parent-requests").set("Authorization", token(parentId)).expect(200);
+    expect(center.body.items.some((item: { requestType: string; childId: number }) =>
+      item.requestType === "custody" && item.childId === otherChildId,
+    )).toBe(false);
+  });
+});

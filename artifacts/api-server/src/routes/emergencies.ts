@@ -1,10 +1,19 @@
 import { Router } from "express";
-import { eq, and, like } from "drizzle-orm";
-import { db, emergenciesTable, emergencyUpdatesTable, childrenTable, usersTable, notificationsTable, attendanceTable } from "@workspace/db";
-import { TriggerEmergencyBody, UpdateEmergencyBody, ListEmergenciesQueryParams } from "@workspace/api-zod";
+import { eq, and, like, inArray, isNotNull, desc, sql } from "drizzle-orm";
+import { db, emergenciesTable, emergencyUpdatesTable, childrenTable, usersTable, notificationsTable, attendanceTable, familiesTable } from "@workspace/db";
+import {
+  TriggerEmergencyBody,
+  UpdateEmergencyBody,
+  ListEmergenciesQueryParams,
+  PublishFamilyEmergencyUpdateBody,
+  ListFamilyEmergencyUpdatesResponseItem,
+  ListFamilyEmergencyUpdatesResponse,
+} from "@workspace/api-zod";
 import { authMiddleware, requireRoles } from "../middlewares/auth";
 import { broadcastEmergency, sendNotification } from "../lib/notify";
 import { createNotificationDelivery } from "../services/notificationOutbox";
+import { getParentChildIds } from "../lib/parentScope";
+import { scopeFamilyEmergencyUpdates, toFamilyEmergencyUpdateDto } from "../lib/familyEmergencyUpdates";
 
 const router = Router();
 
@@ -36,6 +45,40 @@ async function formatUpdate(u: typeof emergencyUpdatesTable.$inferSelect) {
 // through notifications when a broadcast targets them — they must not be able
 // to read or modify the underlying incident records.
 const STAFF_ROLES = ["teacher", "support", "admin", "super_admin"] as const;
+
+router.get("/family/emergency-updates", authMiddleware, requireRoles("parent"), async (req, res): Promise<void> => {
+  const childIds = await getParentChildIds(req.user!.userId);
+  if (childIds.length === 0) {
+    res.json([]);
+    return;
+  }
+  const rows = await db.select({
+    id: emergencyUpdatesTable.id,
+    emergencyId: emergencyUpdatesTable.emergencyId,
+    childId: childrenTable.id,
+    childFirstName: childrenTable.firstName,
+    familyStatus: emergencyUpdatesTable.familyStatus,
+    familyInstructions: emergencyUpdatesTable.familyInstructions,
+    publishedAt: emergencyUpdatesTable.publishedAt,
+  })
+    .from(emergencyUpdatesTable)
+    .innerJoin(emergenciesTable, eq(emergenciesTable.id, emergencyUpdatesTable.emergencyId))
+    .innerJoin(childrenTable, eq(childrenTable.id, emergenciesTable.childId))
+    .innerJoin(familiesTable, eq(familiesTable.id, childrenTable.familyId))
+    .where(and(
+      inArray(childrenTable.id, childIds),
+      isNotNull(emergencyUpdatesTable.publishedAt),
+      isNotNull(emergencyUpdatesTable.familyStatus),
+      isNotNull(emergencyUpdatesTable.familyInstructions),
+    ))
+    .orderBy(desc(emergencyUpdatesTable.publishedAt));
+  res.json(ListFamilyEmergencyUpdatesResponse.parse(scopeFamilyEmergencyUpdates(rows.map(row => ({
+    ...row,
+    familyStatus: row.familyStatus!,
+    familyInstructions: row.familyInstructions!,
+    publishedAt: row.publishedAt!,
+  })), childIds)));
+});
 
 router.get("/emergencies", authMiddleware, requireRoles(...STAFF_ROLES), async (req, res): Promise<void> => {
   const params = ListEmergenciesQueryParams.safeParse(req.query);
@@ -182,6 +225,111 @@ router.post("/emergencies/:id/update", authMiddleware, requireRoles(...STAFF_ROL
     updateType: (updateType as "update" | "escalation" | "all_clear" | "note") || "update",
   }).returning();
   res.status(201).json(await formatUpdate(update));
+});
+
+router.post("/emergencies/:id/family-update", authMiddleware, requireRoles("support", "admin", "super_admin"), async (req, res): Promise<void> => {
+  const id = parseInt(req.params.id as string, 10);
+  if (isNaN(id)) {
+    res.status(400).json({ error: "Bad request", message: "Invalid ID" });
+    return;
+  }
+  const parsed = PublishFamilyEmergencyUpdateBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Bad request", message: parsed.error.message });
+    return;
+  }
+  const familyStatus = parsed.data.status.trim();
+  const familyInstructions = parsed.data.instructions.trim();
+  const eventId = parsed.data.eventId.trim();
+  if (!familyStatus || !familyInstructions || !eventId) {
+    res.status(400).json({ error: "Bad request", message: "Status, instructions, and eventId cannot be blank" });
+    return;
+  }
+  const result = await db.transaction(async tx => {
+    // This lock covers the row, idempotency lookup, notification projection,
+    // and outbox inserts as one retry-safe publication operation.
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`emergency:${id}:family-update:${eventId}`}))`);
+    const [emergency] = await tx.select({
+      id: emergenciesTable.id,
+      childId: emergenciesTable.childId,
+      status: emergenciesTable.status,
+    }).from(emergenciesTable).where(eq(emergenciesTable.id, id)).for("update");
+    if (!emergency) return { kind: "missing" as const };
+    if (emergency.status === "resolved") return { kind: "closed" as const };
+    if (emergency.childId == null) return { kind: "unlinked" as const };
+
+    const [child] = await tx.select({ id: childrenTable.id, firstName: childrenTable.firstName, familyId: childrenTable.familyId })
+      .from(childrenTable).where(eq(childrenTable.id, emergency.childId));
+    if (!child) return { kind: "missing-child" as const };
+    const [family] = await tx.select({ parent1Id: familiesTable.parent1Id, parent2Id: familiesTable.parent2Id })
+      .from(familiesTable).where(eq(familiesTable.id, child.familyId));
+    if (!family) return { kind: "missing-family" as const };
+
+    const [existing] = await tx.select({
+      id: emergencyUpdatesTable.id,
+      familyStatus: emergencyUpdatesTable.familyStatus,
+      familyInstructions: emergencyUpdatesTable.familyInstructions,
+      publishedAt: emergencyUpdatesTable.publishedAt,
+    }).from(emergencyUpdatesTable).where(and(
+      eq(emergencyUpdatesTable.emergencyId, id),
+      eq(emergencyUpdatesTable.eventId, eventId),
+    ));
+    if (existing?.familyStatus && existing.familyInstructions && existing.publishedAt) {
+      return { kind: "published" as const, replayed: true, update: existing, child };
+    }
+
+    const publishedAt = new Date();
+    const [update] = await tx.insert(emergencyUpdatesTable).values({
+      emergencyId: id, userId: req.user!.userId,
+      // Never place internal incident content in family-visible columns.
+      message: "Reviewed family update published", updateType: "update",
+      familyStatus, familyInstructions, publishedAt, publishedBy: req.user!.userId, eventId,
+    }).returning({ id: emergencyUpdatesTable.id, familyStatus: emergencyUpdatesTable.familyStatus,
+      familyInstructions: emergencyUpdatesTable.familyInstructions, publishedAt: emergencyUpdatesTable.publishedAt });
+
+    for (const parentId of new Set([family.parent1Id, family.parent2Id].filter((value): value is number => value != null))) {
+      await createNotificationDelivery(tx, {
+        logicalIdentity: `emergency:${id}:family-update:${eventId}:recipient:${parentId}`,
+        domainType: "emergency", domainIdentifier: `${id}:family-update:${eventId}`,
+        projection: {
+          userId: parentId, type: "emergency_family_update",
+          title: "Emergency update for your child",
+          message: `${familyStatus}\n\n${familyInstructions}`,
+          metadata: { emergencyId: id, childId: emergency.childId, eventId },
+        },
+        // Safety messages are required; the delivery worker intentionally
+        // sends this SMS even when all optional channels are disabled.
+        channels: ["sms"], templateKey: "emergency_family_update",
+        templateMetadata: { emergencyId: id, childId: emergency.childId },
+      });
+    }
+    return { kind: "published" as const, replayed: false, update, child };
+  });
+  if (result.kind === "missing") {
+    res.status(404).json({ error: "Not found", message: "Emergency not found" });
+    return;
+  }
+  if (result.kind === "closed") {
+    res.status(409).json({ error: "Conflict", message: "Cannot publish a family update for a closed or resolved emergency" });
+    return;
+  }
+  if (result.kind === "unlinked") {
+    res.status(400).json({ error: "Bad request", message: "A family update requires an emergency linked to one child" });
+    return;
+  }
+  if (result.kind === "missing-child" || result.kind === "missing-family") {
+    res.status(404).json({ error: "Not found", message: "Linked child or family not found" });
+    return;
+  }
+  res.status(result.replayed ? 200 : 201).json(ListFamilyEmergencyUpdatesResponseItem.parse(toFamilyEmergencyUpdateDto({
+    id: result.update.id,
+    emergencyId: id,
+    childId: result.child.id,
+    childFirstName: result.child.firstName,
+    familyStatus: result.update.familyStatus!,
+    familyInstructions: result.update.familyInstructions!,
+    publishedAt: result.update.publishedAt!,
+  })));
 });
 
 router.post("/emergencies/:id/all-clear", authMiddleware, requireRoles("super_admin", "admin"), async (req, res): Promise<void> => {

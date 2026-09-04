@@ -10,7 +10,7 @@ const databaseDescribe = process.env.RUN_DATABASE_ATTENDANCE_TESTS === "true" ? 
 const prefix = `custody-${Date.now()}`;
 const serviceDate = new Date(Date.now() + 60 * 60 * 1000).toISOString().slice(0, 10);
 let parentId = 0; let otherParentId = 0; let supportId = 0; let otherSupportId = 0; let adminId = 0;
-let familyId = 0; let childId = 0; let firstClassId = 0; let secondClassId = 0;
+let familyId = 0; let childId = 0; let otherFamilyId = 0; let otherChildId = 0; let firstClassId = 0; let secondClassId = 0;
 const token = (id: number, role: "parent" | "support" | "admin") => `Bearer ${generateToken({ userId: id, email: `${prefix}-${id}@test`, role, firstName: "Test", lastName: "User" })}`;
 const count = async (table: string, where: ReturnType<typeof sql>) => Number((await db.execute(sql`SELECT count(*)::int count FROM ${sql.identifier(table)} WHERE ${where}`)).rows[0].count);
 
@@ -26,19 +26,23 @@ beforeAll(async () => {
   supportId = Number(supports[0].id); otherSupportId = Number(supports[1].id);
   adminId = Number(rows.find(x => x.role === "admin")!.id);
   familyId = Number((await db.execute(sql`INSERT INTO families (family_code,parent_1_id) VALUES (${`FAM-${prefix.slice(-6).toUpperCase()}`},${parentId}) RETURNING id`)).rows[0].id);
+  otherFamilyId = Number((await db.execute(sql`INSERT INTO families (family_code,parent_1_id) VALUES (${`OTH-${prefix.slice(-6).toUpperCase()}`},${otherParentId}) RETURNING id`)).rows[0].id);
   firstClassId = Number((await db.execute(sql`INSERT INTO classes (name,age_min,age_max,capacity,room_location,service_slot) VALUES (${`${prefix}-first`},1,12,20,'A','7am') RETURNING id`)).rows[0].id);
   secondClassId = Number((await db.execute(sql`INSERT INTO classes (name,age_min,age_max,capacity,room_location,service_slot) VALUES (${`${prefix}-second`},1,12,20,'B','10:30am') RETURNING id`)).rows[0].id);
   childId = Number((await db.execute(sql`INSERT INTO children (family_id,first_name,last_name,dob,gender,current_class_id) VALUES (${familyId},'Child','One','2020-01-01','female',${firstClassId}) RETURNING id`)).rows[0].id);
+  otherChildId = Number((await db.execute(sql`INSERT INTO children (family_id,first_name,last_name,dob,gender,current_class_id) VALUES (${otherFamilyId},'Other','Child','2020-01-01','female',${firstClassId}) RETURNING id`)).rows[0].id);
 });
 beforeEach(async () => {
   await db.execute(sql`DELETE FROM notification_outbox WHERE domain_type = 'attendance' AND domain_identifier IN (SELECT id::text FROM attendance WHERE child_id=${childId})`);
   await db.execute(sql`DELETE FROM attendance WHERE child_id=${childId}`);
   await db.execute(sql`DELETE FROM custody_episode_events WHERE episode_id IN (SELECT id FROM custody_episodes WHERE child_id=${childId})`);
   await db.execute(sql`DELETE FROM custody_episodes WHERE child_id=${childId}`);
+  await db.execute(sql`DELETE FROM class_change_requests WHERE child_id IN (${childId},${otherChildId})`);
+  await db.execute(sql`DELETE FROM parent_feedback WHERE parent_id IN (${parentId},${otherParentId})`);
 });
 afterAll(async () => { for (const q of [
   sql`DELETE FROM notification_outbox WHERE recipient_user_id IN (${parentId},${otherParentId},${supportId},${otherSupportId},${adminId})`,
-  sql`DELETE FROM children WHERE id=${childId}`, sql`DELETE FROM families WHERE id=${familyId}`,
+  sql`DELETE FROM children WHERE id IN (${childId},${otherChildId})`, sql`DELETE FROM families WHERE id IN (${familyId},${otherFamilyId})`,
   sql`DELETE FROM classes WHERE id IN (${firstClassId},${secondClassId})`, sql`DELETE FROM users WHERE email LIKE ${`${prefix}%`}`,
 ] ) try { await db.execute(q); } catch {} });
 
@@ -53,6 +57,26 @@ databaseDescribe("custody handover PostgreSQL integrity", () => {
     const [first, replay] = await Promise.all([create("request-once"), create("request-once")]);
     expect([first.status, replay.status].sort()).toEqual([200, 201]);
     expect(await count("custody_episodes", sql`child_id=${childId}`)).toBe(1);
+  });
+
+  it("scopes the parent request center and class-change writes to owned children", async () => {
+    await request(app).post("/api/class-change-requests").set("Authorization", token(parentId, "parent"))
+      .send({ childId: otherChildId, requestedClassId: secondClassId }).expect(403);
+    await request(app).post("/api/class-change-requests").set("Authorization", token(parentId, "parent"))
+      .send({ childId, currentClassId: secondClassId, requestedClassId: secondClassId, reason: "Age review" }).expect(201);
+    await db.execute(sql`UPDATE class_change_requests SET admin_notes='staff-only note' WHERE child_id=${childId}`);
+    await db.execute(sql`INSERT INTO parent_feedback (parent_id,service_date,rating,class_experience,teacher_engagement,safety_rating,sentiment_note)
+      VALUES (${parentId},${serviceDate},5,5,5,5,'staff-only sentiment'),(${otherParentId},${serviceDate},1,1,1,1,'other-family sentiment')`);
+
+    const center = await request(app).get("/api/parent-requests").set("Authorization", token(parentId, "parent")).expect(200);
+    expect(center.body.children.map((child: { id: number }) => child.id)).toEqual([childId]);
+    expect(center.body.items.some((item: { requestType: string }) => item.requestType === "class_change")).toBe(true);
+    expect(JSON.stringify(center.body)).not.toContain("staff-only");
+    expect(JSON.stringify(center.body)).not.toContain("other-family");
+
+    const feedback = await request(app).get("/api/feedback").set("Authorization", token(parentId, "parent")).expect(200);
+    expect(feedback.body.total).toBe(1);
+    expect(feedback.body.data[0]).not.toHaveProperty("sentimentNote");
   });
 
   it("accepts both services once, immediately marks class attendance, and preserves custody through checkout races", async () => {

@@ -2,10 +2,11 @@ import { Router } from "express";
 import { eq, and, inArray } from "drizzle-orm";
 import { db, classChangeRequestsTable, childrenTable, classesTable, usersTable } from "@workspace/db";
 import { authMiddleware, requireRoles } from "../middlewares/auth";
+import { parentOwnsChild } from "../lib/parentScope";
 
 const router = Router();
 
-async function formatRequests(records: typeof classChangeRequestsTable.$inferSelect[]) {
+async function formatRequests(records: typeof classChangeRequestsTable.$inferSelect[], includeStaffNotes = true) {
   if (records.length === 0) return [];
 
   const childIds = [...new Set(records.map(r => r.childId))];
@@ -27,13 +28,16 @@ async function formatRequests(records: typeof classChangeRequestsTable.$inferSel
 
   return records.map(r => {
     const u = userMap.get(r.requestedBy);
-    return {
+    const formatted = {
       ...r,
       child: childMap.get(r.childId) ?? null,
       currentClass: r.currentClassId ? classMap.get(r.currentClassId) ?? null : null,
       requestedClass: classMap.get(r.requestedClassId) ?? null,
       requestedByUser: u ? { id: u.id, firstName: u.firstName, lastName: u.lastName, role: u.role } : null,
     };
+    if (includeStaffNotes) return formatted;
+    const { adminNotes: _adminNotes, reviewedBy: _reviewedBy, ...parentSafe } = formatted;
+    return parentSafe;
   });
 }
 
@@ -57,12 +61,12 @@ router.get("/class-change-requests", authMiddleware, async (req, res): Promise<v
       .orderBy(classChangeRequestsTable.createdAt);
   }
 
-  const formatted = await formatRequests(records);
+  const formatted = await formatRequests(records, role === "super_admin" || role === "admin");
   res.json({ data: formatted, total: formatted.length });
 });
 
 router.post("/class-change-requests", authMiddleware, async (req, res): Promise<void> => {
-  const { childId, requestedClassId, currentClassId, reason } = req.body as {
+  const { childId, requestedClassId, reason } = req.body as {
     childId: number;
     requestedClassId: number;
     currentClassId?: number;
@@ -71,6 +75,17 @@ router.post("/class-change-requests", authMiddleware, async (req, res): Promise<
 
   if (!childId || !requestedClassId) {
     res.status(400).json({ error: "Bad request", message: "childId and requestedClassId are required" });
+    return;
+  }
+
+  if (req.user!.role === "parent" && !(await parentOwnsChild(req.user!.userId, childId))) {
+    res.status(403).json({ error: "Forbidden", message: "You can only request a class change for your own child" });
+    return;
+  }
+  const [child] = await db.select({ currentClassId: childrenTable.currentClassId })
+    .from(childrenTable).where(eq(childrenTable.id, childId));
+  if (!child) {
+    res.status(404).json({ error: "Not found", message: "Child not found" });
     return;
   }
 
@@ -88,12 +103,12 @@ router.post("/class-change-requests", authMiddleware, async (req, res): Promise<
   const [record] = await db.insert(classChangeRequestsTable).values({
     childId,
     requestedClassId,
-    currentClassId: currentClassId || null,
+    currentClassId: child.currentClassId ?? null,
     reason: reason || null,
     requestedBy: req.user!.userId,
   }).returning();
 
-  const [formatted] = await formatRequests([record]);
+  const [formatted] = await formatRequests([record], req.user!.role === "super_admin" || req.user!.role === "admin");
   res.status(201).json(formatted);
 });
 
@@ -143,6 +158,13 @@ router.put("/class-change-requests/:id/reject", authMiddleware, requireRoles("su
 router.delete("/class-change-requests/:id", authMiddleware, async (req, res): Promise<void> => {
   const id = parseInt(req.params.id as string, 10);
   if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
+  const [existing] = await db.select().from(classChangeRequestsTable).where(eq(classChangeRequestsTable.id, id));
+  if (!existing) { res.status(404).json({ error: "Not found", message: "Request not found" }); return; }
+  const isAdmin = req.user!.role === "super_admin" || req.user!.role === "admin";
+  if (!isAdmin && (existing.requestedBy !== req.user!.userId || existing.status !== "pending")) {
+    res.status(403).json({ error: "Forbidden", message: "You can only cancel your own pending request" });
+    return;
+  }
   await db.delete(classChangeRequestsTable).where(eq(classChangeRequestsTable.id, id));
   res.json({ success: true, message: "Request cancelled" });
 });

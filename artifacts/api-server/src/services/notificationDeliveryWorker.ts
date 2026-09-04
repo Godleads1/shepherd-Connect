@@ -22,6 +22,17 @@ function preferenceEnabled(raw: string | null, channel: string): boolean {
   try { return Boolean(raw && (JSON.parse(raw) as Record<string, unknown>)[channel]); } catch { return false; }
 }
 
+export function isRequiredSafetyOrCustodyNotification(notificationType: string): boolean {
+  return [
+    "emergency_",
+    "missing_child",
+    "custody_",
+    "pickup_",
+    "delegate_",
+    "drop_off_",
+  ].some(prefix => notificationType.startsWith(prefix));
+}
+
 function escapeEmailHtml(value: string): string {
   return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
@@ -48,13 +59,13 @@ async function process(row: ClaimedNotification): Promise<void> {
   // WhatsApp has always been opt-in through communicationPrefs. Required SMS
   // and email consequences historically sent regardless of a null preference
   // document, so preserving them must not turn a missing JSON blob into opt-out.
-  const requiredWhatsApp = [
+  const requiredByExistingPolicy = isRequiredSafetyOrCustodyNotification(row.notificationType) || [
     "support_request_assigned",
     "delegate_photo_approval",
     "support_request_approved",
     "support_request_rejected",
   ].includes(row.notificationType);
-  if (row.channel === "whatsapp" && !requiredWhatsApp && !preferenceEnabled(delivery.communicationPrefs, row.channel)) {
+  if (!requiredByExistingPolicy && !preferenceEnabled(delivery.communicationPrefs, row.channel)) {
     await finalizeNotification(db, { ...row, outcome: "skipped", failureClassification: "preference_disabled" });
     return;
   }

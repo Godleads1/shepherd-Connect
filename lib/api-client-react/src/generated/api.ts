@@ -56,6 +56,8 @@ import type {
   ExportAttendanceParams,
   ExportEmergencyLogParams,
   Family,
+  FamilyEmergencyUpdate,
+  FamilyEmergencyUpdateInput,
   FamilyTree,
   Feedback,
   FeedbackAnalytics,
@@ -83,12 +85,15 @@ import type {
   ListFamiliesParams,
   ListFeedbackParams,
   ListNotificationsParams,
+  ListParentRequestsParams,
   ListPickupDelegatesParams,
   ListTeacherAllocationsParams,
   ListUsersParams,
   LiveClassView,
   LoginBody,
   Notification,
+  NotificationPreferenceInput,
+  NotificationPreferences,
   OtpVerifyResult,
   PaginatedAuditLogs,
   PaginatedChildren,
@@ -96,6 +101,11 @@ import type {
   PaginatedFeedback,
   PaginatedNotifications,
   PaginatedUsers,
+  ParentPickupRequestInput,
+  ParentPickupRequestResult,
+  ParentRequestCenter,
+  ParentRequestItem,
+  ParentRequestType,
   PickupDelegate,
   PreDismissalBody,
   QrCodeData,
@@ -6189,6 +6199,345 @@ export const useUpdateEmergency = <
 };
 
 /**
+ * @summary Publish a reviewed family-visible emergency update
+ */
+export const getPublishFamilyEmergencyUpdateUrl = (id: number) => {
+  return `/api/emergencies/${id}/family-update`;
+};
+
+export const publishFamilyEmergencyUpdate = async (
+  id: number,
+  familyEmergencyUpdateInput: FamilyEmergencyUpdateInput,
+  options?: RequestInit,
+): Promise<FamilyEmergencyUpdate> => {
+  return customFetch<FamilyEmergencyUpdate>(
+    getPublishFamilyEmergencyUpdateUrl(id),
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(familyEmergencyUpdateInput),
+    },
+  );
+};
+
+export const getPublishFamilyEmergencyUpdateMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof publishFamilyEmergencyUpdate>>,
+    TError,
+    { id: number; data: BodyType<FamilyEmergencyUpdateInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof publishFamilyEmergencyUpdate>>,
+  TError,
+  { id: number; data: BodyType<FamilyEmergencyUpdateInput> },
+  TContext
+> => {
+  const mutationKey = ["publishFamilyEmergencyUpdate"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof publishFamilyEmergencyUpdate>>,
+    { id: number; data: BodyType<FamilyEmergencyUpdateInput> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return publishFamilyEmergencyUpdate(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type PublishFamilyEmergencyUpdateMutationResult = NonNullable<
+  Awaited<ReturnType<typeof publishFamilyEmergencyUpdate>>
+>;
+export type PublishFamilyEmergencyUpdateMutationBody =
+  BodyType<FamilyEmergencyUpdateInput>;
+export type PublishFamilyEmergencyUpdateMutationError = ErrorType<void>;
+
+/**
+ * @summary Publish a reviewed family-visible emergency update
+ */
+export const usePublishFamilyEmergencyUpdate = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof publishFamilyEmergencyUpdate>>,
+    TError,
+    { id: number; data: BodyType<FamilyEmergencyUpdateInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof publishFamilyEmergencyUpdate>>,
+  TError,
+  { id: number; data: BodyType<FamilyEmergencyUpdateInput> },
+  TContext
+> => {
+  return useMutation(getPublishFamilyEmergencyUpdateMutationOptions(options));
+};
+
+/**
+ * @summary List published emergency updates for the authenticated parent's children
+ */
+export const getListFamilyEmergencyUpdatesUrl = () => {
+  return `/api/family/emergency-updates`;
+};
+
+export const listFamilyEmergencyUpdates = async (
+  options?: RequestInit,
+): Promise<FamilyEmergencyUpdate[]> => {
+  return customFetch<FamilyEmergencyUpdate[]>(
+    getListFamilyEmergencyUpdatesUrl(),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getListFamilyEmergencyUpdatesQueryKey = () => {
+  return [`/api/family/emergency-updates`] as const;
+};
+
+export const getListFamilyEmergencyUpdatesQueryOptions = <
+  TData = Awaited<ReturnType<typeof listFamilyEmergencyUpdates>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listFamilyEmergencyUpdates>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getListFamilyEmergencyUpdatesQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listFamilyEmergencyUpdates>>
+  > = ({ signal }) => listFamilyEmergencyUpdates({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listFamilyEmergencyUpdates>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListFamilyEmergencyUpdatesQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listFamilyEmergencyUpdates>>
+>;
+export type ListFamilyEmergencyUpdatesQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List published emergency updates for the authenticated parent's children
+ */
+
+export function useListFamilyEmergencyUpdates<
+  TData = Awaited<ReturnType<typeof listFamilyEmergencyUpdates>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listFamilyEmergencyUpdates>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListFamilyEmergencyUpdatesQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Get the authenticated parent's optional notification channels
+ */
+export const getGetNotificationPreferencesUrl = () => {
+  return `/api/notification-preferences`;
+};
+
+export const getNotificationPreferences = async (
+  options?: RequestInit,
+): Promise<NotificationPreferences> => {
+  return customFetch<NotificationPreferences>(
+    getGetNotificationPreferencesUrl(),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getGetNotificationPreferencesQueryKey = () => {
+  return [`/api/notification-preferences`] as const;
+};
+
+export const getGetNotificationPreferencesQueryOptions = <
+  TData = Awaited<ReturnType<typeof getNotificationPreferences>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getNotificationPreferences>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetNotificationPreferencesQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getNotificationPreferences>>
+  > = ({ signal }) => getNotificationPreferences({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getNotificationPreferences>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetNotificationPreferencesQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getNotificationPreferences>>
+>;
+export type GetNotificationPreferencesQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Get the authenticated parent's optional notification channels
+ */
+
+export function useGetNotificationPreferences<
+  TData = Awaited<ReturnType<typeof getNotificationPreferences>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getNotificationPreferences>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetNotificationPreferencesQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Update the authenticated parent's optional notification channels
+ */
+export const getUpdateNotificationPreferencesUrl = () => {
+  return `/api/notification-preferences`;
+};
+
+export const updateNotificationPreferences = async (
+  notificationPreferenceInput: NotificationPreferenceInput,
+  options?: RequestInit,
+): Promise<NotificationPreferences> => {
+  return customFetch<NotificationPreferences>(
+    getUpdateNotificationPreferencesUrl(),
+    {
+      ...options,
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(notificationPreferenceInput),
+    },
+  );
+};
+
+export const getUpdateNotificationPreferencesMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateNotificationPreferences>>,
+    TError,
+    { data: BodyType<NotificationPreferenceInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateNotificationPreferences>>,
+  TError,
+  { data: BodyType<NotificationPreferenceInput> },
+  TContext
+> => {
+  const mutationKey = ["updateNotificationPreferences"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateNotificationPreferences>>,
+    { data: BodyType<NotificationPreferenceInput> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return updateNotificationPreferences(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateNotificationPreferencesMutationResult = NonNullable<
+  Awaited<ReturnType<typeof updateNotificationPreferences>>
+>;
+export type UpdateNotificationPreferencesMutationBody =
+  BodyType<NotificationPreferenceInput>;
+export type UpdateNotificationPreferencesMutationError = ErrorType<void>;
+
+/**
+ * @summary Update the authenticated parent's optional notification channels
+ */
+export const useUpdateNotificationPreferences = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateNotificationPreferences>>,
+    TError,
+    { data: BodyType<NotificationPreferenceInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof updateNotificationPreferences>>,
+  TError,
+  { data: BodyType<NotificationPreferenceInput> },
+  TContext
+> => {
+  return useMutation(getUpdateNotificationPreferencesMutationOptions(options));
+};
+
+/**
  * @summary List audit logs
  */
 export const getListAuditLogsUrl = (params?: ListAuditLogsParams) => {
@@ -8340,4 +8689,285 @@ export const useOverrideCustodyPickup = <
   TContext
 > => {
   return useMutation(getOverrideCustodyPickupMutationOptions(options));
+};
+
+/**
+ * @summary List the authenticated parent's request center
+ */
+export const getListParentRequestsUrl = (params?: ListParentRequestsParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/parent-requests?${stringifiedParams}`
+    : `/api/parent-requests`;
+};
+
+export const listParentRequests = async (
+  params?: ListParentRequestsParams,
+  options?: RequestInit,
+): Promise<ParentRequestCenter> => {
+  return customFetch<ParentRequestCenter>(getListParentRequestsUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListParentRequestsQueryKey = (
+  params?: ListParentRequestsParams,
+) => {
+  return [`/api/parent-requests`, ...(params ? [params] : [])] as const;
+};
+
+export const getListParentRequestsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listParentRequests>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListParentRequestsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listParentRequests>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getListParentRequestsQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listParentRequests>>
+  > = ({ signal }) => listParentRequests(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listParentRequests>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListParentRequestsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listParentRequests>>
+>;
+export type ListParentRequestsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List the authenticated parent's request center
+ */
+
+export function useListParentRequests<
+  TData = Awaited<ReturnType<typeof listParentRequests>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListParentRequestsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listParentRequests>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListParentRequestsQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Get one request owned by the authenticated parent
+ */
+export const getGetParentRequestUrl = (type: ParentRequestType, id: string) => {
+  return `/api/parent-requests/${type}/${id}`;
+};
+
+export const getParentRequest = async (
+  type: ParentRequestType,
+  id: string,
+  options?: RequestInit,
+): Promise<ParentRequestItem> => {
+  return customFetch<ParentRequestItem>(getGetParentRequestUrl(type, id), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetParentRequestQueryKey = (
+  type: ParentRequestType,
+  id: string,
+) => {
+  return [`/api/parent-requests/${type}/${id}`] as const;
+};
+
+export const getGetParentRequestQueryOptions = <
+  TData = Awaited<ReturnType<typeof getParentRequest>>,
+  TError = ErrorType<void>,
+>(
+  type: ParentRequestType,
+  id: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getParentRequest>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetParentRequestQueryKey(type, id);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getParentRequest>>
+  > = ({ signal }) => getParentRequest(type, id, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!(type && id),
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getParentRequest>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetParentRequestQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getParentRequest>>
+>;
+export type GetParentRequestQueryError = ErrorType<void>;
+
+/**
+ * @summary Get one request owned by the authenticated parent
+ */
+
+export function useGetParentRequest<
+  TData = Awaited<ReturnType<typeof getParentRequest>>,
+  TError = ErrorType<void>,
+>(
+  type: ParentRequestType,
+  id: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getParentRequest>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetParentRequestQueryOptions(type, id, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Idempotently signal pickup for an active checked-in owned child
+ */
+export const getCreateParentPickupRequestUrl = () => {
+  return `/api/pickup-requests`;
+};
+
+export const createParentPickupRequest = async (
+  parentPickupRequestInput: ParentPickupRequestInput,
+  options?: RequestInit,
+): Promise<ParentPickupRequestResult> => {
+  return customFetch<ParentPickupRequestResult>(
+    getCreateParentPickupRequestUrl(),
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(parentPickupRequestInput),
+    },
+  );
+};
+
+export const getCreateParentPickupRequestMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createParentPickupRequest>>,
+    TError,
+    { data: BodyType<ParentPickupRequestInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof createParentPickupRequest>>,
+  TError,
+  { data: BodyType<ParentPickupRequestInput> },
+  TContext
+> => {
+  const mutationKey = ["createParentPickupRequest"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof createParentPickupRequest>>,
+    { data: BodyType<ParentPickupRequestInput> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return createParentPickupRequest(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CreateParentPickupRequestMutationResult = NonNullable<
+  Awaited<ReturnType<typeof createParentPickupRequest>>
+>;
+export type CreateParentPickupRequestMutationBody =
+  BodyType<ParentPickupRequestInput>;
+export type CreateParentPickupRequestMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Idempotently signal pickup for an active checked-in owned child
+ */
+export const useCreateParentPickupRequest = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createParentPickupRequest>>,
+    TError,
+    { data: BodyType<ParentPickupRequestInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof createParentPickupRequest>>,
+  TError,
+  { data: BodyType<ParentPickupRequestInput> },
+  TContext
+> => {
+  return useMutation(getCreateParentPickupRequestMutationOptions(options));
 };

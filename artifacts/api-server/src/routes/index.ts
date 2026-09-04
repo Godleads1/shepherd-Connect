@@ -41,6 +41,7 @@ import hallSessionsRouter from "./hallSessions";
 import eventsRouter from "./events";
 import teacherClockInsRouter from "./teacherClockIns";
 import custodyHandoverRouter from "./custodyHandover";
+import parentRequestsRouter from "./parentRequests";
 
 const router: IRouter = Router();
 
@@ -92,5 +93,6 @@ router.use(hallSessionsRouter);
 router.use(eventsRouter);
 router.use(teacherClockInsRouter);
 router.use(custodyHandoverRouter);
+router.use(parentRequestsRouter);
 
 export default router;

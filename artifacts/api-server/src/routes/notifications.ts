@@ -1,7 +1,12 @@
 import { Router } from "express";
 import { eq, and, sql, desc } from "drizzle-orm";
 import { db, notificationsTable, usersTable, churchSettingsTable, whatsappBroadcastsTable, notificationOutboxTable } from "@workspace/db";
-import { ListNotificationsQueryParams } from "@workspace/api-zod";
+import {
+  ListNotificationsQueryParams,
+  GetNotificationPreferencesResponse,
+  UpdateNotificationPreferencesBody,
+  UpdateNotificationPreferencesResponse,
+} from "@workspace/api-zod";
 import { authMiddleware, requireRoles } from "../middlewares/auth";
 import { pushToUsers, pushToRole } from "../services/push";
 import { pushEventToUsers } from "../lib/sse";
@@ -34,6 +39,74 @@ async function getPickupLocation(): Promise<{ pickupAddress: string; mapsLink: s
 }
 
 const router = Router();
+
+const DEFAULT_CHANNEL_PREFERENCES = {
+  inApp: true,
+  email: false,
+  sms: false,
+  whatsapp: false,
+};
+
+function parseChannelPreferences(raw: string | null) {
+  if (!raw) return { ...DEFAULT_CHANNEL_PREFERENCES };
+  try {
+    const parsed = JSON.parse(raw) as Partial<typeof DEFAULT_CHANNEL_PREFERENCES>;
+    return {
+      inApp: parsed.inApp === true,
+      email: parsed.email === true,
+      sms: parsed.sms === true,
+      whatsapp: parsed.whatsapp === true,
+    };
+  } catch {
+    return { ...DEFAULT_CHANNEL_PREFERENCES };
+  }
+}
+
+router.get("/notification-preferences", authMiddleware, requireRoles("parent"), async (req, res): Promise<void> => {
+  const [user] = await db.select({
+    communicationPrefs: usersTable.communicationPrefs,
+    contactVersion: usersTable.contactVersion,
+  })
+    .from(usersTable)
+    .where(eq(usersTable.id, req.user!.userId));
+  if (!user) {
+    res.status(404).json({ error: "Not found", message: "User not found" });
+    return;
+  }
+  res.json(GetNotificationPreferencesResponse.parse({
+    channels: parseChannelPreferences(user.communicationPrefs),
+    requiredNotificationsCannotBeDisabled: true,
+    contactVersion: user.contactVersion,
+  }));
+});
+
+router.put("/notification-preferences", authMiddleware, requireRoles("parent"), async (req, res): Promise<void> => {
+  const parsed = UpdateNotificationPreferencesBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Bad request", message: parsed.error.message });
+    return;
+  }
+  const { contactVersion, ...channels } = parsed.data;
+  const [updated] = await db.update(usersTable)
+    .set({
+      communicationPrefs: JSON.stringify(channels),
+      contactVersion: sql`${usersTable.contactVersion} + 1`,
+    })
+    .where(and(
+      eq(usersTable.id, req.user!.userId),
+      eq(usersTable.contactVersion, contactVersion),
+    ))
+    .returning({ contactVersion: usersTable.contactVersion });
+  if (!updated) {
+    res.status(409).json({ error: "Conflict", message: "Notification preferences were changed; refresh and retry" });
+    return;
+  }
+  res.json(UpdateNotificationPreferencesResponse.parse({
+    channels,
+    requiredNotificationsCannotBeDisabled: true,
+    contactVersion: updated.contactVersion,
+  }));
+});
 
 router.get("/notifications", authMiddleware, async (req, res): Promise<void> => {
   const params = ListNotificationsQueryParams.safeParse(req.query);

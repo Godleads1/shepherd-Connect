@@ -52,6 +52,8 @@ import MyIncidents from "@/pages/my-incidents/index";
 import SafeguardingCases from "@/pages/safeguarding-cases/index";
 import SundayAttendance from "@/pages/sunday-attendance/index";
 import ScanPage from "@/pages/scan/index";
+import RequestCenter from "@/pages/request-center/index";
+import FamilyEmergencyUpdates from "@/pages/family-emergency-updates";
 import { PWABanner } from "@/components/PWABanner";
 
 const queryClient = new QueryClient();
@@ -122,6 +124,16 @@ function Router() {
               <Route path="/safeguarding-cases" component={SafeguardingCases} />
               <Route path="/sunday-attendance" component={SundayAttendance} />
               <Route path="/scan" component={ScanPage} />
+              <Route path="/requests">
+                <ProtectedRoute allowedRoles={["parent"]}>
+                  <RequestCenter />
+                </ProtectedRoute>
+              </Route>
+              <Route path="/family-emergency-updates">
+                <ProtectedRoute allowedRoles={["parent"]}>
+                  <FamilyEmergencyUpdates />
+                </ProtectedRoute>
+              </Route>
 
               {/* Fallback inside Layout */}
               <Route component={NotFound} />

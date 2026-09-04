@@ -9,6 +9,7 @@ export * from "./attendance";
 export * from "./custodyEpisodes";
 export * from "./attendanceEvents";
 export * from "./pickupDelegates";
+export * from "./pickupRequests";
 export * from "./notifications";
 export * from "./notificationOutbox";
 export * from "./feedback";

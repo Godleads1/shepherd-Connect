@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useState, useRef, useCallback, Re
 import { useQueryClient } from "@tanstack/react-query";
 import { User, useGetCurrentUser } from "@workspace/api-client-react";
 import { clearQueue } from "@/lib/offline-queue";
+import { abortUserScopedRequests, purgeAuthenticatedApiCache } from "@/lib/api-call";
 
 const SESSION_TIMEOUT_MS = 30 * 60 * 1000;
 const WARNING_BEFORE_MS = 2 * 60 * 1000;
@@ -23,11 +24,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
   const [token, setToken] = useState<string | null>(() => localStorage.getItem("token"));
   const [user, setUser] = useState<User | null>(null);
+  const [authChecked, setAuthChecked] = useState(() => !localStorage.getItem("token"));
   const [sessionWarning, setSessionWarning] = useState(false);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const warningRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const { data: currentUser, isLoading } = useGetCurrentUser({
+  const { data: currentUser, isLoading: currentUserLoading, isError: currentUserError } = useGetCurrentUser({
     query: {
       enabled: !!token,
       retry: false,
@@ -36,19 +38,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   });
 
   useEffect(() => {
-    if (currentUser) setUser(currentUser);
-  }, [currentUser]);
+    if (!token) {
+      setAuthChecked(true);
+      return;
+    }
+    if (currentUser) {
+      setUser(currentUser);
+      setAuthChecked(true);
+      return;
+    }
+    if (currentUserError) {
+      localStorage.removeItem("token");
+      setToken(null);
+      setUser(null);
+      setAuthChecked(true);
+    }
+  }, [currentUser, currentUserError, token]);
 
   const logout = useCallback(() => {
     if (user) clearQueue(user.id);
+    abortUserScopedRequests();
+    void queryClient.cancelQueries();
+    queryClient.clear();
+    void purgeAuthenticatedApiCache();
     localStorage.removeItem("token");
     setToken(null);
     setUser(null);
+    setAuthChecked(true);
     setSessionWarning(false);
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
     if (warningRef.current) clearTimeout(warningRef.current);
-    // Clear all cached query data so the next user always sees their own fresh data
-    queryClient.clear();
   }, [queryClient, user]);
 
   const resetSessionTimer = useCallback(() => {
@@ -80,9 +99,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [token, resetSessionTimer]);
 
   const login = (newToken: string, newUser: User) => {
+    // Clear/cancel before installing a different identity or role.  The token
+    // is written first so all requests after this boundary use the new session.
+    abortUserScopedRequests();
+    void queryClient.cancelQueries();
+    queryClient.clear();
+    void purgeAuthenticatedApiCache();
     localStorage.setItem("token", newToken);
     setToken(newToken);
     setUser(newUser);
+    setAuthChecked(true);
     setSessionWarning(false);
   };
 
@@ -92,7 +118,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         user,
         token,
         isAuthenticated: !!token && !!user,
-        isLoading,
+        isLoading: !authChecked || currentUserLoading,
         sessionWarning,
         login,
         logout,

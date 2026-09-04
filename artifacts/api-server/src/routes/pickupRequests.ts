@@ -5,12 +5,12 @@ import { authMiddleware, requireRoles } from "../middlewares/auth";
 import { db } from "@workspace/db";
 import {
   attendanceTable, childrenTable, classesTable, usersTable,
-  classMergesTable, classroomDisplayTokensTable, classDisplayMediaTable,
+  classMergesTable, classroomDisplayTokensTable, classDisplayMediaTable, pickupRequestsTable,
 } from "@workspace/db/schema";
 import { ObjectStorageService } from "../lib/objectStorage";
 import { bindObjectToResource, registerPendingObject } from "../lib/privateObjectAccess";
 import { convertPptxToPdf, looksLikePowerPoint, PptxBusyError, PptxConversionError, MAX_PPTX_BYTES } from "../lib/pptxToPdf";
-import { eq, and, gt, isNull, sql } from "drizzle-orm";
+import { eq, and, gt, isNull, sql, inArray, type SQL } from "drizzle-orm";
 import { sendNotification, getClassTeacherUserIds } from "../lib/notify";
 import {
   canAccessClass,
@@ -18,6 +18,7 @@ import {
   canDismissPickupRequest,
 } from "../lib/childAccess";
 import { parentOwnsChild } from "../lib/parentScope";
+import { CreateParentPickupRequestBody, CreateParentPickupRequestResponse } from "@workspace/api-zod";
 
 const router = Router();
 
@@ -39,7 +40,47 @@ interface PickupRequest {
   requestedByUserId: number;
 }
 
-const pickupQueue = new Map<number, PickupRequest[]>();
+export class ParentPickupRequestError extends Error {
+  constructor(public statusCode: number, message: string) {
+    super(message);
+  }
+}
+
+function pickupRequestFromRow(row: typeof pickupRequestsTable.$inferSelect): PickupRequest {
+  return {
+    id: String(row.id),
+    childId: row.childId,
+    childName: row.childName,
+    parentName: row.parentName,
+    classId: row.classId,
+    className: row.className,
+    ...(row.homeClassName ? { homeClassName: row.homeClassName } : {}),
+    requestedAt: row.requestedAt.toISOString(),
+    requestedByUserId: row.requestedBy,
+  };
+}
+
+async function getActivePickupRequests(where: SQL | undefined): Promise<PickupRequest[]> {
+  const rows = await db.select().from(pickupRequestsTable)
+    .where(and(eq(pickupRequestsTable.status, "requested"), where))
+    .orderBy(pickupRequestsTable.requestedAt);
+  return rows.map(pickupRequestFromRow);
+}
+
+export async function getPickupRequestsForChildren(childIds: number[]): Promise<PickupRequest[]> {
+  if (childIds.length === 0) return [];
+  return getActivePickupRequests(and(
+    inArray(pickupRequestsTable.childId, childIds),
+    eq(pickupRequestsTable.serviceDate, todayWAT()),
+  ));
+}
+
+async function getPickupRequestsForClass(classId: number): Promise<PickupRequest[]> {
+  return getActivePickupRequests(and(
+    eq(pickupRequestsTable.classId, classId),
+    eq(pickupRequestsTable.serviceDate, todayWAT()),
+  ));
+}
 
 function todayWAT(): string {
   return new Intl.DateTimeFormat("en-CA", {
@@ -61,6 +102,65 @@ function publicRequest(request: PickupRequest) {
 
 function publicQueue(queue: PickupRequest[]) {
   return queue.map(publicRequest);
+}
+
+/** Shared durable pickup command for HTTP and verified bot callers. */
+export async function createParentPickupRequest(parentUserId: number, childId: number) {
+  if (!(await parentOwnsChild(parentUserId, childId))) {
+    throw new ParentPickupRequestError(403, "You can only request pickup for your own children");
+  }
+  const [child] = await db.select().from(childrenTable)
+    .leftJoin(classesTable, eq(childrenTable.currentClassId, classesTable.id))
+    .where(eq(childrenTable.id, childId));
+  if (!child) throw new ParentPickupRequestError(404, "Child not found");
+
+  const today = todayWAT();
+  const [activeAttendance] = await db.select().from(attendanceTable).where(and(
+    eq(attendanceTable.childId, childId), eq(attendanceTable.serviceDate, today),
+  )).orderBy(attendanceTable.checkInTime);
+  if (!activeAttendance || activeAttendance.status === "picked_up") {
+    throw new ParentPickupRequestError(400, "Child is not currently checked in");
+  }
+  const classId = child.children.currentClassId;
+  if (!classId) throw new ParentPickupRequestError(400, "Child has no assigned class");
+
+  const childName = `${child.children.firstName} ${child.children.lastName}`;
+  const childClassName = child.classes?.name ?? "Unknown Class";
+  const [parent] = await db.select({ firstName: usersTable.firstName, lastName: usersTable.lastName })
+    .from(usersTable).where(eq(usersTable.id, parentUserId));
+  const parentName = parent ? `${parent.firstName} ${parent.lastName}` : "A parent";
+  const [merge] = await db.select({ targetClassId: classMergesTable.targetClassId }).from(classMergesTable)
+    .where(and(eq(classMergesTable.sourceClassId, classId), eq(classMergesTable.serviceDate, today))).limit(1);
+  const routingClassId = merge?.targetClassId ?? classId;
+  let routingClassName = childClassName;
+  if (merge) {
+    const [hostClass] = await db.select({ name: classesTable.name }).from(classesTable)
+      .where(eq(classesTable.id, merge.targetClassId));
+    if (hostClass) routingClassName = hostClass.name;
+  }
+  const inserted = await db.insert(pickupRequestsTable).values({
+    childId, classId: routingClassId, serviceDate: today, requestedBy: parentUserId,
+    childName, parentName, className: routingClassName, homeClassName: merge ? childClassName : null,
+  }).onConflictDoNothing().returning();
+  const duplicate = inserted.length === 0;
+  const row = inserted[0] ?? (await db.select().from(pickupRequestsTable).where(and(
+    eq(pickupRequestsTable.childId, childId), eq(pickupRequestsTable.serviceDate, today),
+    eq(pickupRequestsTable.status, "requested"),
+  )).limit(1))[0];
+  if (!row) throw new ParentPickupRequestError(409, "Could not create or recover the pickup signal");
+  const request = pickupRequestFromRow(row);
+  const queue = await getPickupRequestsForClass(routingClassId);
+  if (!duplicate) {
+    await broadcastToClass(routingClassId, { type: "pickup", request: publicRequest(request), queue: publicQueue(queue) });
+    const teacherUserIds = await getClassTeacherUserIds(routingClassId, today);
+    const pickupMsg = merge
+      ? `${parentName} is here to collect ${childName} (from ${childClassName}, merged with ${routingClassName}). Please prepare for handover.`
+      : `${parentName} is here to collect ${childName} from ${childClassName}. Please prepare for handover.`;
+    await Promise.all(teacherUserIds.map(userId => sendNotification({
+      userId, type: "pickup_request", title: "Pickup Request", message: pickupMsg,
+    })));
+  }
+  return { duplicate, request: publicRequest(request), childName };
 }
 
 async function resolveClass(classNumber: number) {
@@ -274,7 +374,7 @@ router.get("/pickup-requests/stream/:classNumber", async (req, res): Promise<voi
       res.setHeader("Connection", "keep-alive");
       res.setHeader("X-Accel-Buffering", "no");
       res.flushHeaders();
-      const queue = pickupQueue.get(cls.id) ?? [];
+      const queue = await getPickupRequestsForClass(cls.id);
       res.write(`data: ${JSON.stringify({ type: "init", queue: publicQueue(queue), className: cls.name, media: initialMedia })}\n\n`);
       return true;
     });
@@ -716,158 +816,70 @@ router.get("/pickup-requests/display-file/:classId", async (req, res): Promise<v
 });
 
 router.get("/pickup-requests", authMiddleware, requireRoles("super_admin", "admin", "support"), async (req, res): Promise<void> => {
-  const all: any[] = [];
-  for (const queue of pickupQueue.values()) {
-    all.push(...publicQueue(queue));
-  }
+  const all = await getActivePickupRequests(eq(pickupRequestsTable.serviceDate, todayWAT()));
   all.sort((a, b) => new Date(a.requestedAt).getTime() - new Date(b.requestedAt).getTime());
   res.json({ queue: all });
 });
 
 router.post("/pickup-requests", authMiddleware, async (req, res): Promise<void> => {
-  const { childId } = req.body as { childId?: number };
-  if (!childId || typeof childId !== "number") {
-    res.status(400).json({ error: "Bad request", message: "childId is required" });
+  const parsed = CreateParentPickupRequestBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Bad request", message: parsed.error.message });
     return;
   }
-  const ownsChild = req.user!.role === "parent"
-    ? await parentOwnsChild(req.user!.userId, childId)
-    : false;
-  if (!canCreatePickupRequest(req.user!.role, ownsChild)) {
+  const { childId } = parsed.data;
+  if (req.user!.role !== "parent" || !canCreatePickupRequest(req.user!.role, true)) {
     res.status(403).json({ error: "Forbidden", message: "You can only request pickup for your own children" });
     return;
   }
-
-  const [child] = await db
-    .select()
-    .from(childrenTable)
-    .leftJoin(classesTable, eq(childrenTable.currentClassId, classesTable.id))
-    .where(eq(childrenTable.id, childId));
-
-  if (!child) {
-    res.status(404).json({ error: "Not found", message: "Child not found" });
-    return;
+  try {
+    const outcome = await createParentPickupRequest(req.user!.userId, childId);
+    if (!outcome.duplicate) req.log.info({ childId, parentUserId: req.user!.userId }, "Parent signalled pickup");
+    res.json(CreateParentPickupRequestResponse.parse({
+      success: true, duplicate: outcome.duplicate, status: "requested", request: outcome.request,
+      message: outcome.duplicate ? "Pickup signal is already active" : "Pickup signal sent to classroom",
+    }));
+  } catch (error) {
+    if (error instanceof ParentPickupRequestError) {
+      res.status(error.statusCode).json({ error: "Pickup request rejected", message: error.message });
+      return;
+    }
+    throw error;
   }
-
-  const today = todayWAT();
-  const [activeAttendance] = await db
-    .select()
-    .from(attendanceTable)
-    .where(and(
-      eq(attendanceTable.childId, childId),
-      eq(attendanceTable.serviceDate, today)
-    ))
-    .orderBy(attendanceTable.checkInTime);
-
-  if (!activeAttendance || activeAttendance.status === "picked_up") {
-    res.status(400).json({ error: "Bad request", message: "Child is not currently checked in" });
-    return;
-  }
-
-  const classId = child.children.currentClassId;
-  if (!classId) {
-    res.status(400).json({ error: "Bad request", message: "Child has no assigned class" });
-    return;
-  }
-
-  const childName = `${child.children.firstName} ${child.children.lastName}`;
-  const childClassName = child.classes?.name ?? "Unknown Class";
-
-  const [parent] = await db
-    .select({ firstName: usersTable.firstName, lastName: usersTable.lastName })
-    .from(usersTable)
-    .where(eq(usersTable.id, req.user!.userId));
-
-  const parentName = parent ? `${parent.firstName} ${parent.lastName}` : "A parent";
-
-  // Check if this class is merged into another class today — if so, route to the host class.
-  const [merge] = await db
-    .select({ targetClassId: classMergesTable.targetClassId })
-    .from(classMergesTable)
-    .where(and(
-      eq(classMergesTable.sourceClassId, classId),
-      eq(classMergesTable.serviceDate, today),
-    ))
-    .limit(1);
-
-  const routingClassId = merge?.targetClassId ?? classId;
-  let routingClassName = childClassName;
-  if (merge) {
-    const [hostClass] = await db
-      .select({ name: classesTable.name })
-      .from(classesTable)
-      .where(eq(classesTable.id, merge.targetClassId));
-    if (hostClass) routingClassName = hostClass.name;
-  }
-
-  const request = {
-    id: `${childId}-${Date.now()}`,
-    childId,
-    childName,
-    parentName,
-    classId: routingClassId,
-    className: routingClassName,
-    // Surface the child's home class when merged so the teacher knows where they're from
-    homeClassName: merge ? childClassName : undefined,
-    requestedAt: new Date().toISOString(),
-    requestedByUserId: req.user!.userId,
-  };
-
-  if (!pickupQueue.has(routingClassId)) pickupQueue.set(routingClassId, []);
-  const queue = pickupQueue.get(routingClassId)!;
-  const existingIdx = queue.findIndex(q => q.childId === childId);
-  if (existingIdx !== -1) queue.splice(existingIdx, 1);
-  queue.push(request);
-
-  await broadcastToClass(routingClassId, {
-    type: "pickup",
-    request: publicRequest(request),
-    queue: publicQueue(queue),
-  });
-
-  // Date-specific allocations with fallback (same rules as drop-off/transit
-  // notifications) so a teacher without a formal allocation today still hears it.
-  const teacherUserIds = await getClassTeacherUserIds(routingClassId, today);
-
-  const pickupMsg = merge
-    ? `${parentName} is here to collect ${childName} (from ${childClassName}, merged with ${routingClassName}). Please prepare for handover.`
-    : `${parentName} is here to collect ${childName} from ${childClassName}. Please prepare for handover.`;
-
-  await Promise.all(teacherUserIds.map(userId => sendNotification({
-    userId,
-    type: "pickup_request",
-    title: "Pickup Request",
-    message: pickupMsg,
-  })));
-
-  req.log.info({ childId, classId, parentName }, "Parent signalled pickup");
-  res.json({ success: true, message: "Pickup signal sent to classroom" });
 });
 
 router.delete("/pickup-requests/:id", authMiddleware, async (req, res): Promise<void> => {
-  const { id } = req.params;
-  for (const [classId, queue] of pickupQueue.entries()) {
-    const idx = queue.findIndex(q => q.id === id);
-    if (idx !== -1) {
-      const request = queue[idx];
-      const ownsChild = req.user!.role === "parent"
-        ? await parentOwnsChild(req.user!.userId, request.childId)
-        : false;
-      const hasClassAccess = req.user!.role === "teacher"
-        ? await canAccessClass(req.user!, classId, todayWAT())
-        : false;
-      const allowed = canDismissPickupRequest(req.user!.role, ownsChild, hasClassAccess);
-      if (!allowed) {
-        res.status(403).json({ error: "Forbidden", message: "You cannot dismiss this pickup request" });
-        return;
-      }
-      queue.splice(idx, 1);
-      await broadcastToClass(classId, { type: "dismissed", id, queue: publicQueue(queue) });
-      res.json({ success: true });
-      return;
-    }
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) {
+    res.status(404).json({ error: "Not found" });
+    return;
   }
-  res.status(404).json({ error: "Not found" });
+  const [request] = await db.select().from(pickupRequestsTable).where(and(
+    eq(pickupRequestsTable.id, id),
+    eq(pickupRequestsTable.status, "requested"),
+  )).limit(1);
+  if (!request) { res.status(404).json({ error: "Not found" }); return; }
+  const ownsChild = req.user!.role === "parent"
+    ? await parentOwnsChild(req.user!.userId, request.childId)
+    : false;
+  const hasClassAccess = req.user!.role === "teacher"
+    ? await canAccessClass(req.user!, request.classId, todayWAT())
+    : false;
+  if (!canDismissPickupRequest(req.user!.role, ownsChild, hasClassAccess)) {
+    res.status(403).json({ error: "Forbidden", message: "You cannot dismiss this pickup request" });
+    return;
+  }
+  const now = new Date();
+  const status = req.user!.role === "parent" ? "cancelled" : "resolved";
+  const updated = await db.update(pickupRequestsTable).set(status === "cancelled"
+    ? { status, cancelledAt: now, cancelledBy: req.user!.userId, updatedAt: now }
+    : { status, resolvedAt: now, resolvedBy: req.user!.userId, updatedAt: now })
+    .where(and(eq(pickupRequestsTable.id, id), eq(pickupRequestsTable.status, "requested")))
+    .returning({ id: pickupRequestsTable.id });
+  if (updated.length === 0) { res.status(404).json({ error: "Not found" }); return; }
+  const queue = await getPickupRequestsForClass(request.classId);
+  await broadcastToClass(request.classId, { type: "dismissed", id: String(id), queue: publicQueue(queue) });
+  res.json({ success: true });
 });
 
 router.get("/pickup-requests/:classId", authMiddleware, async (req, res): Promise<void> => {
@@ -877,7 +889,7 @@ router.get("/pickup-requests/:classId", authMiddleware, async (req, res): Promis
     res.status(403).json({ error: "Forbidden", message: "You are not assigned to this class" });
     return;
   }
-  res.json({ queue: publicQueue(pickupQueue.get(classId) ?? []) });
+  res.json({ queue: publicQueue(await getPickupRequestsForClass(classId)) });
 });
 
 export default router;

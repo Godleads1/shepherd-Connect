@@ -18,12 +18,23 @@ function serializeFeedback(f: typeof parentFeedbackTable.$inferSelect) {
   };
 }
 
+function serializeParentFeedback(f: typeof parentFeedbackTable.$inferSelect) {
+  const { sentimentScore: _sentimentScore, sentimentLabel: _sentimentLabel, sentimentNote: _sentimentNote, ...safe } = serializeFeedback(f);
+  return safe;
+}
+
 router.get("/feedback", authMiddleware, async (req, res): Promise<void> => {
   const params = ListFeedbackQueryParams.safeParse(req.query);
   if (!params.success) { res.status(400).json({ error: "Bad request", message: params.error.message }); return; }
   const { serviceDate, page = 1, limit = 20 } = params.data;
   const offset = (page - 1) * limit;
   const conditions = [];
+  const isAdmin = req.user!.role === "super_admin" || req.user!.role === "admin";
+  if (!isAdmin && req.user!.role !== "parent") {
+    res.status(403).json({ error: "Forbidden", message: "Feedback is only available to parents and administrators" });
+    return;
+  }
+  if (req.user!.role === "parent") conditions.push(eq(parentFeedbackTable.parentId, req.user!.userId));
   if (serviceDate) conditions.push(eq(parentFeedbackTable.serviceDate, serviceDate));
   const feedback = await db.select().from(parentFeedbackTable)
     .where(conditions.length ? and(...conditions) : undefined)
@@ -31,7 +42,7 @@ router.get("/feedback", authMiddleware, async (req, res): Promise<void> => {
     .limit(limit).offset(offset);
   const [{ count }] = await db.select({ count: sql<number>`count(*)` }).from(parentFeedbackTable)
     .where(conditions.length ? and(...conditions) : undefined);
-  res.json({ data: feedback.map(serializeFeedback), total: Number(count), page, limit });
+  res.json({ data: feedback.map(isAdmin ? serializeFeedback : serializeParentFeedback), total: Number(count), page, limit });
 });
 
 router.post("/feedback", authMiddleware, requireRoles("parent"), async (req, res): Promise<void> => {

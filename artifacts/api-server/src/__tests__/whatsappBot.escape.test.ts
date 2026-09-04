@@ -13,19 +13,22 @@ import { vi, describe, it, expect, beforeEach } from "vitest";
 // ── Hoisted mock state ────────────────────────────────────────────────────────
 // vi.hoisted runs before imports, so these refs are accessible in vi.mock factories.
 
-const { mockState, dbQueue, resetAll, mockInsertValues } = vi.hoisted(() => {
+const { mockState, dbQueue, resetAll, mockInsertValues, mockCreatePickupRequest } = vi.hoisted(() => {
   const state = { selectCallIdx: 0 };
   const queue: any[][] = [];
   const insertValues = vi.fn();
+  const createPickupRequest = vi.fn();
 
   return {
     mockState: state,
     dbQueue: queue,
     mockInsertValues: insertValues,
+    mockCreatePickupRequest: createPickupRequest,
     resetAll() {
       state.selectCallIdx = 0;
       queue.length = 0;
       insertValues.mockReset();
+      createPickupRequest.mockReset();
     },
   };
 });
@@ -112,6 +115,11 @@ vi.mock("../services/whatsapp", () => ({
   sendWhatsAppImageToJid: vi.fn().mockResolvedValue(undefined),
 }));
 
+vi.mock("../routes/pickupRequests", () => ({
+  ParentPickupRequestError: class ParentPickupRequestError extends Error {},
+  createParentPickupRequest: mockCreatePickupRequest,
+}));
+
 // ── Import under test ─────────────────────────────────────────────────────────
 
 import { handleInboundMessage } from "../services/whatsappBot";
@@ -180,6 +188,9 @@ describe("typing '0' during a multi-step flow always returns to the main menu", 
     // Parent menu landmarks
     expect(replies[0]).toContain("Check attendance status");
     expect(replies[0]).toContain("Get pickup delegate OTP");
+    expect(replies[0]).toContain("Request custody handover");
+    expect(replies[0]).toContain("Custody handover status");
+    expect(replies[0]).toContain("Notification preferences");
     // Session was reset
     expect(mockInsertValues).toHaveBeenCalled();
     const saved = mockInsertValues.mock.calls[0][0];
@@ -269,6 +280,43 @@ describe("multi-step flows still work when a valid option is sent", () => {
     expect(
       msg.includes("Which child") || msg.includes("No children")
     ).toBe(true);
+  });
+
+  it("custody_select_child: rejects a stale child instead of trusting session state", async () => {
+    queueSession("custody_select_child", parentUser, { childList: "999" });
+    dbQueue.push([]); // getParentChildren: parent no longer owns any family
+
+    await handleInboundMessage(PARENT_JID, "1", null, reply, replyWithImage);
+
+    expect(reply).toHaveBeenCalledWith(expect.stringContaining("no longer available"));
+    expect(mockInsertValues).toHaveBeenCalledWith(expect.objectContaining({
+      step: "idle",
+      activeUserId: parentUser.id,
+    }));
+  });
+
+  it("pickup_select_child: rejects a stale child instead of trusting session state", async () => {
+    queueSession("pickup_select_child", parentUser, { childList: "999" });
+    dbQueue.push([]); // parent no longer has a family/child matching session data
+
+    await handleInboundMessage(PARENT_JID, "1", null, reply, replyWithImage);
+
+    expect(reply).toHaveBeenCalledWith(expect.stringContaining("no longer available"));
+    expect(mockCreatePickupRequest).not.toHaveBeenCalled();
+  });
+
+  it("pickup_select_child: reports a durable duplicate without resending a signal", async () => {
+    queueSession("pickup_select_child", parentUser, { childList: "10" });
+    dbQueue.push(
+      [{ id: 7 }], // parent family lookup
+      [{ id: 10, firstName: "Tobi", lastName: "Child" }], // owned child lookup
+    );
+    mockCreatePickupRequest.mockResolvedValue({ duplicate: true, childName: "Tobi Child", request: { id: "1" } });
+
+    await handleInboundMessage(PARENT_JID, "1", null, reply, replyWithImage);
+
+    expect(mockCreatePickupRequest).toHaveBeenCalledWith(parentUser.id, 10);
+    expect(reply).toHaveBeenCalledWith(expect.stringContaining("already active"));
   });
 });
 

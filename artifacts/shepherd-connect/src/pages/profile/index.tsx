@@ -14,6 +14,11 @@ import { usePushNotifications } from "@/hooks/usePushNotifications";
 import { QRCodeSVG } from "qrcode.react";
 import { PhotoUploader, SecurePhoto } from "@/components/PhotoUploader";
 import { useGeneralSettings } from "@/components/AnnouncementBanner";
+import {
+  getGetNotificationPreferencesQueryKey,
+  useGetNotificationPreferences,
+  useUpdateNotificationPreferences,
+} from "@workspace/api-client-react";
 
 interface CommPrefs {
   inApp: boolean;
@@ -404,6 +409,13 @@ export default function Profile() {
   const [savingPrivacy, setSavingPrivacy] = useState(false);
   const [editing, setEditing] = useState(false);
   const [savingPref, setSavingPref] = useState<string | null>(null);
+  const preferenceQuery = useGetNotificationPreferences({
+    query: {
+      enabled: authUser?.role === "parent",
+      queryKey: getGetNotificationPreferencesQueryKey(),
+    },
+  });
+  const updatePreferences = useUpdateNotificationPreferences();
 
   useEffect(() => {
     if (profile) {
@@ -416,14 +428,15 @@ export default function Profile() {
         placeOfWork: profile.placeOfWork || "",
         photoUrl: profile.photoUrl || "",
       });
-      if (profile.communicationPrefs) {
-        try { setPrefs(JSON.parse(profile.communicationPrefs)); } catch {}
-      }
       if (typeof profile.hideContactFromAdmin === "boolean") {
         setHideContact(profile.hideContactFromAdmin);
       }
     }
   }, [profile]);
+
+  useEffect(() => {
+    if (preferenceQuery.data) setPrefs(preferenceQuery.data.channels);
+  }, [preferenceQuery.data]);
 
   const saveMutation = useMutation({
     mutationFn: (data: any) => apiPut(`/users/${authUser!.id}`, data),
@@ -436,7 +449,7 @@ export default function Profile() {
   });
 
   const handleSave = () => {
-    saveMutation.mutate({ ...form, communicationPrefs: JSON.stringify(prefs) });
+    saveMutation.mutate(form);
   };
 
   const togglePrivacy = async () => {
@@ -455,11 +468,18 @@ export default function Profile() {
   };
 
   const togglePref = async (key: keyof CommPrefs) => {
+    if (preferenceQuery.data?.contactVersion == null) {
+      toast({ variant: "destructive", title: "Preferences are still loading" });
+      return;
+    }
     const next = { ...prefs, [key]: !prefs[key] };
     setPrefs(next);
     setSavingPref(key);
     try {
-      await apiPut(`/users/${authUser!.id}`, { communicationPrefs: JSON.stringify(next) });
+      await updatePreferences.mutateAsync({
+        data: { ...next, contactVersion: preferenceQuery.data.contactVersion },
+      });
+      await preferenceQuery.refetch();
     } catch {
       setPrefs(prefs);
       toast({ variant: "destructive", title: "Failed to save preference" });
@@ -630,11 +650,14 @@ export default function Profile() {
       </div>
 
       {/* Communication Preferences */}
-      <div className="bg-white border rounded-2xl p-5">
+      {authUser?.role === "parent" && <div className="bg-white border rounded-2xl p-5">
         <h2 className="font-semibold text-gray-900 mb-4 flex items-center gap-2">
           <Bell className="w-4 h-4 text-[#1e3a8a]" /> Communication Preferences
         </h2>
-        <p className="text-xs text-gray-500 mb-4">Choose how you'd like to receive notifications from Shepherd Connect</p>
+        <p className="text-xs text-gray-500 mb-2">Choose how you'd like to receive optional notifications from Shepherd Connect.</p>
+        <p className="text-xs font-medium text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-2 mb-4" data-testid="text-required-notification-policy">
+          Required safety, emergency, pickup and custody notifications are always sent and cannot be disabled here.
+        </p>
         <div className="space-y-3">
           {([
             { key: "inApp",    label: "In-App Notifications", icon: Bell,          desc: "Alerts within the Shepherd Connect app",   live: true },
@@ -671,7 +694,7 @@ export default function Profile() {
             );
           })}
         </div>
-      </div>
+      </div>}
 
       {/* Privacy */}
       <div className="bg-white border rounded-2xl p-5">

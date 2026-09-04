@@ -15,6 +15,8 @@ Legacy escort/arrival paths remain temporary compatibility routes but are not pa
 
 Audit logs, including report-download events, are retained indefinitely until an authorized deletion. No time-based cleanup job or inferred numeric retention period should be added.
 
+Parents may receive only a separately authored, admin-approved emergency status and instructions for children they currently own. Internal staff reports, notes, evidence, reporter identity, and other families' data remain private.
+
 **Why:** These rulings resolve the human decisions from the Phase 6 architecture review while preserving the Phase 1–5 security and concurrency guarantees.
 
 **How to apply:** Treat these authority boundaries as invariants in attendance, custody, QR, WhatsApp, reporting, and legacy-route work. Stop for human review before weakening or replacing any of them.

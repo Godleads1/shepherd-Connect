@@ -20,7 +20,7 @@ import { pollNotificationOutbox } from "../services/notificationDeliveryWorker";
 
 const claimed = (overrides: Record<string, unknown> = {}) => ({
   id: "outbox-1", claimToken: "claim-1", attempts: 1, recipientUserId: 7,
-  channel: "whatsapp", payloadJson: JSON.stringify({ notificationId: 9 }), ...overrides,
+  channel: "whatsapp", notificationType: "weekly_news", payloadJson: JSON.stringify({ notificationId: 9 }), ...overrides,
 });
 const recipient = { phone: "08012345678", email: null, communicationPrefs: JSON.stringify({ whatsapp: true }), title: "Title", message: "Body" };
 
@@ -74,11 +74,28 @@ describe("notification delivery worker (no provider traffic)", () => {
   });
 
   it("preserves required SMS delivery when communication preferences are absent", async () => {
-    mocks.claim.mockResolvedValue([claimed({ channel: "sms" })]);
+    mocks.claim.mockResolvedValue([claimed({ channel: "sms", notificationType: "custody_handover_ready" })]);
     mocks.execute.mockResolvedValue({ rows: [{ ...recipient, communicationPrefs: null }] });
     await pollNotificationOutbox();
     expect(mocks.sms).toHaveBeenCalled();
     expect(mocks.finalize).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ outcome: "accepted" }));
+  });
+
+  it("preserves required safety delivery when an optional channel is disabled", async () => {
+    mocks.claim.mockResolvedValue([claimed({ channel: "whatsapp", notificationType: "emergency_alert" })]);
+    mocks.execute.mockResolvedValue({ rows: [{ ...recipient, communicationPrefs: JSON.stringify({ whatsapp: false }) }] });
+    await pollNotificationOutbox();
+    expect(mocks.send).toHaveBeenCalled();
+  });
+
+  it("delivers required family emergency SMS when every optional channel is disabled", async () => {
+    mocks.claim.mockResolvedValue([claimed({ channel: "sms", notificationType: "emergency_family_update" })]);
+    mocks.execute.mockResolvedValue({ rows: [{
+      ...recipient,
+      communicationPrefs: JSON.stringify({ inApp: false, email: false, sms: false, whatsapp: false }),
+    }] });
+    await pollNotificationOutbox();
+    expect(mocks.sms).toHaveBeenCalled();
   });
 
   it("routes email to its adapter without sending WhatsApp traffic", async () => {
