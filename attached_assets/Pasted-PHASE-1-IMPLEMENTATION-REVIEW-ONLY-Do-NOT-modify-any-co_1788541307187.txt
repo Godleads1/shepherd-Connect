@@ -1,0 +1,57 @@
+PHASE 1 — IMPLEMENTATION REVIEW ONLY
+
+Do NOT modify any code, schema, data, configuration, deployment, or tests.
+
+Review commit 6a89607 and verify that the implementation actually satisfies the Phase 1 reliability requirements.
+
+Specifically inspect the diff and current code for:
+
+1. Support checkout/handover
+- Confirm there is now one authoritative checkout command.
+- Confirm the frontend no longer performs contradictory checkout-then-DELETE behavior.
+- Confirm an already-resolved pickup request cannot turn a successful checkout into a failure.
+
+2. Outcome semantics
+- Confirm `applied` and `already_applied` are genuine server outcomes, not merely frontend labels.
+- Confirm authoritative attendance state is returned from the server.
+- Confirm resolved pickup request IDs are returned where applicable.
+
+3. Error separation
+- Confirm mutation failure is separated from refresh/revalidation failure.
+- Confirm refresh failure cannot display "checkout failed" after a successful mutation.
+- Confirm secondary realtime/notification work cannot redefine checkout success.
+
+4. Idempotency/concurrency
+- Confirm duplicate checkout requests cannot create duplicate attendance state or duplicate notifications.
+- Confirm the child/date locking actually protects checkout vs pickup creation races.
+- Identify any remaining race window.
+
+5. Transaction boundary
+- Verify exactly what happens before COMMIT and after COMMIT.
+- Confirm that any work after the authoritative transaction cannot incorrectly convert a committed checkout into HTTP failure.
+- Pay particular attention to response formatting and database reads.
+
+6. API contract
+- Verify the OpenAPI/generated client changes match the actual endpoint behavior.
+- Look for any frontend/backend schema mismatch.
+
+7. Tests
+- Inspect the actual tests added/changed.
+- Confirm they test failure semantics rather than only the happy path.
+- Identify important Phase 1 scenarios that are still untested.
+
+8. Scope control
+- Confirm excluded areas were genuinely not changed functionally:
+  Parent pickup/custody, check-in, offline queue, authentication/session revocation, role switching, authorization, general SSE, WhatsApp, TV media, duplicate-child cleanup.
+
+OUTPUT ONLY A REVIEW.
+
+Return:
+
+A. VERIFIED
+B. NOT VERIFIED
+C. REMAINING RISKS
+D. MISSING TESTS
+E. RECOMMENDATION FOR PHASE 2
+
+Do not make any changes.
