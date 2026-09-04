@@ -1,0 +1,603 @@
+PHASE 3 — SECONDARY WORK / COMMIT-OUTCOME RELIABILITY
+DIAGNOSTIC ONLY — DO NOT MODIFY CODE, DATABASE, CONFIG, OR PRODUCTION
+
+Context:
+
+Phase 1 established that authoritative business mutations must not be reported as failed because a secondary cleanup, refresh, notification, realtime, formatting, or delivery step failed.
+
+Phase 2 established durable checkout operation identity and reconciliation for checkout-related flows.
+
+Phase 2 is complete and approved.
+
+We are now beginning Phase 3.
+
+IMPORTANT:
+This is an INVESTIGATION ONLY.
+
+DO NOT:
+- modify application code
+- modify database schema
+- create migrations
+- modify production data
+- modify API contracts
+- change frontend behavior
+- refactor routes
+- install packages
+- deploy
+- restart production
+- start Phase 4
+- implement any proposed fix
+- modify checkout operation/reconciliation behavior
+
+You may inspect the entire repository, development database/schema, tests, API specification, frontend callers, background workers, notification/outbox code, realtime code, and relevant configuration.
+
+==================================================
+PHASE 3 OBJECTIVE
+==================================================
+
+Identify mutation endpoints where:
+
+1. an authoritative business state transition is successfully committed, BUT
+2. additional secondary work occurs before the HTTP response is returned, AND
+3. failure of that secondary work can cause the client to receive a failure even though the authoritative mutation already committed.
+
+The central question is:
+
+"Can anything after the authoritative business transition make a successfully committed mutation look like a failed mutation?"
+
+We are NOT assuming the answer is yes for every route.
+
+Find and prove the actual cases.
+
+==================================================
+ARCHITECTURAL PRINCIPLE
+==================================================
+
+Use this model:
+
+CLIENT COMMAND
+    ↓
+AUTHORIZATION / CAPABILITY CHECK
+    ↓
+VALIDATION
+    ↓
+DB TRANSACTION
+    ↓
+AUTHORITATIVE BUSINESS TRANSITION
+    ↓
+PERSIST REQUIRED OUTBOX / OPERATION RESULT
+    ↓
+COMMIT
+    ↓
+HTTP SUCCESS RESPONSE
+
+Secondary effects such as:
+
+- notification delivery
+- realtime broadcast
+- SSE
+- WebSocket
+- cache invalidation
+- polling refresh
+- analytics
+- external provider calls
+- media/TV synchronization
+- non-authoritative reads
+- formatting/enrichment queries
+- cleanup
+- audit side effects
+- external API calls
+
+must NOT be able to redefine the authoritative mutation outcome after commit.
+
+Some secondary work may legitimately happen before commit if it is genuinely part of the atomic business transaction. Do not classify something as a defect merely because it happens before response.
+
+==================================================
+SCOPE
+==================================================
+
+Inventory mutation endpoints across the application.
+
+There are approximately 269 API routes from the previous audit.
+
+Do NOT blindly modify or review only checkout.
+
+However:
+
+CHECKOUT IS OUT OF SCOPE FOR IMPLEMENTATION.
+
+Phase 2 has established the checkout operation/reconciliation architecture.
+
+You may inspect checkout only when necessary to compare architectural patterns or verify that Phase 3 findings do not regress it.
+
+Do not propose redesigning checkout unless you discover a concrete Phase 2 regression.
+
+Prioritize mutation routes involving:
+
+- attendance
+- pickup
+- custody
+- parent actions
+- staff actions
+- notifications
+- realtime
+- media/TV
+- classroom state
+- family/child state
+- registration
+- administrative mutations
+- background job triggering
+- external provider interactions
+
+==================================================
+STEP 1 — BUILD THE MUTATION INVENTORY
+==================================================
+
+Identify all meaningful mutation endpoints, including at minimum:
+
+POST
+PUT
+PATCH
+DELETE
+
+For each route determine:
+
+- HTTP method
+- path
+- router/file
+- service/function
+- authenticated roles/capabilities
+- authoritative entity being changed
+- transaction boundary
+- DB tables changed
+- commit point
+- response construction
+- secondary work performed before response
+- secondary work performed after response / asynchronously
+
+Do not assume that an endpoint is safe simply because it uses a DB transaction.
+
+==================================================
+STEP 2 — CLASSIFY EVERY SECONDARY ACTION
+==================================================
+
+For each mutation, classify post-transition work as one of:
+
+A. AUTHORITATIVE
+    Required for the business transition itself and correctly atomic.
+
+B. TRANSACTIONAL OUTBOX / DURABLE INTENT
+    Correctly persisted as part of the transaction and safe to process later.
+
+C. REQUIRED PRE-COMMIT VALIDATION
+    Must happen before commit because it determines whether the mutation is valid.
+
+D. NON-AUTHORITATIVE POST-COMMIT WORK
+    Should not redefine mutation success.
+
+E. UNKNOWN / NEEDS INVESTIGATION
+
+Pay particular attention to code shaped like:
+
+try {
+    await db.transaction(...)
+    await somethingElse()
+    return res.json(...)
+} catch {
+    return failure(...)
+}
+
+or:
+
+await db.transaction(...)
+await broadcast(...)
+await fetch(...)
+await refresh(...)
+res.json(...)
+
+or:
+
+const result = await mutate()
+const extra = await readSomething()
+return combinedResponse
+
+The exact code does not need to match these examples.
+
+==================================================
+STEP 3 — TRACE THE COMMIT BOUNDARY
+==================================================
+
+For every potentially risky mutation, explicitly answer:
+
+1. What exact database change represents the authoritative business outcome?
+
+2. When does that change become durable?
+
+3. Is the transaction definitely committed before secondary work executes?
+
+4. What happens if secondary work throws?
+
+5. What HTTP status/code does the client receive?
+
+6. What message does the frontend display?
+
+7. Does the frontend interpret that as:
+   - definitive rejection
+   - successful mutation
+   - unknown outcome
+   - refresh failure
+   - something else?
+
+8. Can the user safely retry?
+
+9. If they retry, can it duplicate or corrupt the authoritative state?
+
+==================================================
+STEP 4 — LOOK SPECIFICALLY FOR FALSE-FAILURE PATTERNS
+==================================================
+
+Search for these patterns:
+
+1. Mutation + DELETE cleanup
+2. Mutation + refetch inside same try/catch
+3. Mutation + realtime broadcast
+4. Mutation + notification delivery
+5. Mutation + external provider call
+6. Mutation + media/TV update
+7. Mutation + secondary DB read
+8. Mutation + response enrichment
+9. Mutation + cache invalidation
+10. Mutation + background-job invocation
+11. Mutation + audit operation
+12. Mutation + formatting/serialization query
+13. Mutation + multiple independent API calls
+14. Mutation + frontend cleanup
+15. Mutation + optimistic UI rollback
+16. Mutation + polling/SSE synchronization
+
+Also search for broad catch blocks where one error message covers multiple operations.
+
+==================================================
+STEP 5 — REALTIME / NOTIFICATION ANALYSIS
+==================================================
+
+Specifically inspect:
+
+- SSE
+- WebSocket if present
+- PostgreSQL NOTIFY
+- realtime publishers
+- classroom alerts
+- pickup notifications
+- notification outbox
+- notification workers
+- delivery providers
+- WhatsApp
+- push/email/SMS if present
+- TV/media broadcasting
+
+Determine whether the architecture is:
+
+authoritative mutation
+    ↓
+durable intent
+    ↓
+commit
+    ↓
+async delivery
+
+OR:
+
+authoritative mutation
+    ↓
+await delivery/broadcast
+    ↓
+HTTP response
+
+The second pattern is not automatically a bug, but if delivery failure can make the HTTP mutation fail after commit, flag it.
+
+Do NOT redesign notification/realtime architecture yet.
+
+Just document the exact cases.
+
+==================================================
+STEP 6 — FRONTEND ERROR SEMANTICS
+==================================================
+
+For every server-side false-failure candidate, trace the corresponding frontend.
+
+Determine:
+
+- mutation helper
+- generated API client
+- React Query mutation if applicable
+- catch handler
+- toast/banner/message
+- query invalidation
+- refetch
+- retry behavior
+- whether the UI distinguishes mutation failure from refresh failure
+
+Look specifically for:
+
+"Operation succeeded but refresh failed"
+
+being presented as:
+
+"Operation failed"
+
+Also identify cases where a user retry could issue a second mutation after the first one actually committed.
+
+==================================================
+STEP 7 — CHECK FOR COMMIT + RESPONSE-CONSTRUCTION RISKS
+==================================================
+
+Search for routes where the transaction commits and then the application performs additional reads before constructing the response.
+
+Example:
+
+await tx.commit()
+
+const enriched = await getSomethingElse()
+
+res.json({
+   authoritativeState,
+   enriched
+})
+
+If `getSomethingElse()` fails, determine whether the endpoint incorrectly returns an error despite the authoritative mutation already being committed.
+
+Flag these separately from notification/realtime problems.
+
+==================================================
+STEP 8 — CHECK BACKGROUND WORK
+==================================================
+
+Determine whether background work is:
+
+- durable
+- idempotent
+- retryable
+- transactionally enqueued
+- awaited by the request
+- capable of changing HTTP success/failure
+
+Do not redesign workers.
+
+Document only the current behavior and risk.
+
+==================================================
+STEP 9 — CHECK MULTI-STEP FRONTEND MUTATIONS
+==================================================
+
+Find frontend workflows that do something like:
+
+1. mutation A
+2. mutation B
+3. refresh
+4. notification
+5. cleanup
+
+inside one try/catch.
+
+For each:
+
+- identify which step is authoritative
+- identify which steps are secondary
+- identify whether failure in B/refresh/cleanup causes A to appear failed
+- determine whether A can already have committed
+
+Do not change them yet.
+
+==================================================
+STEP 10 — PRIORITIZE FINDINGS
+==================================================
+
+Assign severity:
+
+CRITICAL
+- committed authoritative state can reliably be reported as failed
+- retry can create duplicate/conflicting state
+- user action can become unsafe
+
+HIGH
+- committed mutation can be reported as failed
+- retry may be unsafe or ambiguous
+- important operational workflow affected
+
+MEDIUM
+- misleading failure is possible but retry is generally safe
+- secondary effect failure affects UX/consistency
+
+LOW
+- cosmetic/non-authoritative inconsistency
+- no durable business-state risk
+
+INFO
+- architecture is already correct
+- no action required
+
+==================================================
+REQUIRED OUTPUT
+==================================================
+
+Return a Phase 3 READ-ONLY ARCHITECTURE REPORT.
+
+Do NOT implement anything.
+
+Use this structure:
+
+# PHASE 3 DIAGNOSTIC REPORT
+
+## 1. Executive Summary
+
+State:
+
+- number of mutation routes inspected
+- number of candidate false-failure paths
+- number confirmed
+- number likely
+- number already architecturally safe
+- highest severity found
+
+## 2. Mutation Inventory
+
+Provide a table:
+
+| Route | Authoritative transition | Secondary work | Awaited before response? | Can secondary failure redefine success? | Severity |
+
+Do not hide routes simply because they are safe.
+
+Summarize safe route groups where appropriate.
+
+## 3. CONFIRMED FALSE-FAILURE PATHS
+
+For every confirmed issue:
+
+### Finding X
+- Severity:
+- Route:
+- Frontend:
+- Authoritative transition:
+- Commit point:
+- Secondary work:
+- Failure point:
+- HTTP response on failure:
+- Frontend interpretation:
+- Durable state after failure:
+- Retry consequence:
+- Why this is a false failure:
+- Recommended architectural correction:
+- Tests required:
+
+Include exact files/functions/route names.
+
+## 4. SUSPECTED / NEEDS VERIFICATION
+
+List anything that looks risky but cannot be proven from current code.
+
+Explain what evidence is missing.
+
+## 5. ALREADY SAFE PATTERNS
+
+Identify routes where the architecture is already correct, for example:
+
+transaction
+→ durable outbox
+→ commit
+→ response
+→ async delivery
+
+Do not recommend changes to these merely for consistency.
+
+## 6. REALTIME / NOTIFICATION FINDINGS
+
+Separate:
+
+- durable notification intent
+- worker delivery
+- SSE/realtime
+- broadcast
+- external provider
+
+Clearly identify what is authoritative and what is not.
+
+## 7. FRONTEND FINDINGS
+
+Identify multi-step flows where:
+
+- mutation and refresh share error handling
+- cleanup can create false failures
+- response data is discarded
+- retries can repeat committed operations
+- UI cannot distinguish mutation failure from refresh failure
+
+## 8. COMMIT / RESPONSE-CONSTRUCTION FINDINGS
+
+Explicitly list routes where:
+
+DB commit
+→ additional query/formatting/enrichment
+→ HTTP response
+
+could produce a false failure.
+
+## 9. CROSS-INSTANCE / REALTIME CONCERNS
+
+Document existing SSE/realtime limitations such as process-local behavior or missed cross-instance updates.
+
+Do not fix them.
+
+Keep them separate from false-failure findings.
+
+## 10. PHASE 3 PROPOSED IMPLEMENTATION SCOPE
+
+Based ONLY on confirmed findings, propose the smallest safe implementation scope.
+
+For each proposed change include:
+
+- route/file
+- current behavior
+- exact problem
+- proposed behavior
+- why it is safe
+- tests required
+- whether API contract changes
+- whether DB changes
+- whether frontend changes
+
+Explicitly exclude unrelated routes and systems.
+
+## 11. DO-NOT-TOUCH LIST
+
+Confirm that the diagnostic did not modify:
+
+- production
+- production database
+- checkout Phase 2 operation/reconciliation
+- authentication/session hardening
+- role switching
+- offline queue
+- duplicate child data
+- unrelated API routes
+- notification workers unless a confirmed Phase 3 false-failure requires them
+- SSE/realtime architecture unless a confirmed false-failure requires it
+
+## 12. VALIDATION
+
+Run only read-only/static/test inspection that does not mutate production.
+
+Report:
+
+- tests run
+- test results
+- typechecks if run
+- builds if run
+- git status
+- changed files
+
+Expected result for a genuinely diagnostic-only phase:
+
+NO INTENTIONAL CODE CHANGES.
+
+If anything was changed accidentally, STOP and report it explicitly.
+
+==================================================
+IMPORTANT SAFETY RULE
+==================================================
+
+Do NOT interpret this prompt as permission to implement the proposed fixes.
+
+The only deliverable in this phase is the diagnostic report.
+
+After the report, STOP.
+
+Do not begin implementation.
+
+Do not create migrations.
+
+Do not modify production.
+
+Do not deploy.
+
+Wait for explicit approval before Phase 3 implementation.
