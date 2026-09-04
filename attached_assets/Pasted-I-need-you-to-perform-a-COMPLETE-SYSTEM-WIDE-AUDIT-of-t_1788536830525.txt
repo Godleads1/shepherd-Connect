@@ -1,0 +1,852 @@
+I need you to perform a COMPLETE SYSTEM-WIDE AUDIT of the entire Shepherd Connect application.
+
+IMPORTANT:
+
+DO NOT START FIXING ANYTHING YET.
+
+DO NOT MODIFY CODE.
+
+DO NOT REFACTOR.
+
+DO NOT CHANGE DATABASE STRUCTURE.
+
+DO NOT CHANGE API CONTRACTS.
+
+DO NOT DEPLOY.
+
+DO NOT "IMPROVE" THINGS BASED ON ASSUMPTIONS.
+
+FIRST INVESTIGATE THE ENTIRE APPLICATION AND IDENTIFY THE ROOT CAUSES.
+
+I will approve the proposed solution AFTER I see the complete audit.
+
+==================================================
+THE PROBLEM
+==================================================
+
+We have observed situations where one part of the application reports that an operation failed, while another part of the application shows that the operation actually succeeded.
+
+Example:
+
+Support performs a child checkout.
+
+Support UI:
+"Checkout failed"
+
+Parent Dashboard:
+Child is actually checked out.
+
+This raises a much bigger concern:
+
+The problem may not be limited to checkout.
+
+There may be systemic problems involving:
+
+- API requests
+- API responses
+- duplicate requests
+- request collisions
+- race conditions
+- stale state
+- caching
+- incorrect request payloads
+- incorrect IDs
+- API timeouts
+- retries
+- asynchronous processing
+- database transactions
+- frontend state management
+- realtime synchronization
+- authentication
+- authorization
+- role switching
+- notifications
+- background jobs
+- webhook/event processing
+- multiple clients modifying the same record
+- inconsistent sources of truth
+
+I want you to investigate the ENTIRE APPLICATION.
+
+==================================================
+DO NOT ASSUME THE FRONTEND IS THE PROBLEM
+==================================================
+
+Trace the complete lifecycle of important operations:
+
+USER ACTION
+→ FRONTEND
+→ API REQUEST
+→ AUTHENTICATION
+→ AUTHORIZATION
+→ BACKEND
+→ BUSINESS LOGIC
+→ DATABASE
+→ EVENTS/QUEUES
+→ NOTIFICATIONS
+→ API RESPONSE
+→ FRONTEND STATE
+→ REALTIME UPDATE
+→ OTHER CLIENTS
+
+Determine exactly where state can become inconsistent.
+
+==================================================
+PART 1 — COMPLETE API INVENTORY
+==================================================
+
+Find EVERY API endpoint in the application.
+
+Create an inventory containing:
+
+- endpoint
+- HTTP method
+- frontend caller
+- backend handler
+- authentication requirement
+- authorization requirement
+- request body
+- query parameters
+- path parameters
+- response structure
+- success status code
+- failure status codes
+- database operations
+- side effects
+- retry behavior
+- timeout behavior
+- idempotency behavior
+
+Group APIs by feature.
+
+Examples:
+
+AUTHENTICATION
+PARENT
+CHILDREN
+ATTENDANCE
+CHECK-IN
+CHECK-OUT
+CUSTODY
+PICKUP
+DELEGATES
+QR
+TEACHER
+TV DISPLAY
+TV VIDEO
+DOCUMENTS
+NOTIFICATIONS
+ANNOUNCEMENTS
+MESSAGING
+CONCERNS
+PARENT REQUESTS
+EMERGENCIES
+WHATSAPP
+ADMIN
+ROLES
+PROFILE
+SETTINGS
+
+Do not assume these are the only categories.
+
+Find everything.
+
+==================================================
+PART 2 — FIND API REQUEST PROBLEMS
+==================================================
+
+Investigate whether any API can:
+
+- receive duplicate requests
+- receive requests out of order
+- receive stale requests
+- receive incomplete requests
+- receive malformed requests
+- receive incorrect IDs
+- receive incorrect role information
+- receive incorrect family information
+- receive incorrect child information
+- receive an expired token
+- receive an invalid session
+- receive an outdated state
+- receive conflicting updates
+- receive simultaneous requests for the same record
+
+Look for:
+
+- double clicks
+- multiple event handlers
+- duplicate useEffect calls
+- React Strict Mode issues
+- automatic retries
+- Axios retries
+- fetch retries
+- React Query retries
+- SWR retries
+- interceptors
+- polling
+- realtime listeners
+- WebSocket callbacks
+- background requests
+- navigation-triggered requests
+- component remounts
+- race conditions
+- request cancellation
+- AbortController usage
+- timeout handlers
+- Promise races
+- Promise.all concurrency
+- duplicate submissions
+- optimistic updates
+
+==================================================
+PART 3 — API JAMMING / REQUEST COLLISIONS
+==================================================
+
+Specifically investigate whether the application can have multiple API requests executing at the same time against the same resource.
+
+Examples:
+
+Request A:
+Update child attendance
+
+Request B:
+Update child attendance
+
+Request C:
+Refresh child attendance
+
+Request D:
+Realtime event updates child attendance
+
+Determine whether these can interfere with each other.
+
+Look for:
+
+- database locks
+- transaction conflicts
+- lost updates
+- last-write-wins problems
+- stale writes
+- race conditions
+- deadlocks
+- connection pool exhaustion
+- request queue buildup
+- event loop blocking
+- long-running queries
+- slow database queries
+- API timeouts
+- unhandled promises
+- hanging requests
+- unresolved promises
+- server resource exhaustion
+- excessive concurrent requests
+
+If "API jamming" is technically happening, identify exactly where and why.
+
+==================================================
+PART 4 — DATABASE SOURCE OF TRUTH
+==================================================
+
+For every major feature determine:
+
+WHAT IS THE AUTHORITATIVE SOURCE OF TRUTH?
+
+Do not assume the frontend state is authoritative.
+
+Identify:
+
+- database tables
+- records
+- status fields
+- relationships
+- transactions
+- constraints
+- unique constraints
+- indexes
+- foreign keys
+- timestamps
+- audit records
+
+Investigate whether multiple tables can represent the same state.
+
+For example:
+
+Child checkout might appear in:
+
+attendance
+pickup
+custody
+child status
+session
+notification
+support state
+parent state
+
+Determine whether these can disagree.
+
+==================================================
+PART 5 — FRONTEND STATE VS SERVER STATE
+==================================================
+
+Find every place where the application uses:
+
+- optimistic updates
+- local state
+- cached state
+- session state
+- localStorage
+- IndexedDB
+- React Query cache
+- SWR cache
+- Context state
+- Redux/Zustand/etc.
+- realtime state
+- polling
+
+Determine whether the UI can display:
+
+SUCCESS when the server failed
+
+or
+
+FAILURE when the server succeeded.
+
+This is extremely important.
+
+For every mutation determine:
+
+1. What does the frontend display immediately?
+2. When does it call the API?
+3. When does it consider the operation successful?
+4. What happens if the API times out?
+5. What happens if the request succeeds but the response is lost?
+6. What happens if the request is sent twice?
+7. What happens if the server processes the request but the frontend receives an error?
+8. How does the UI reconcile itself with the server afterward?
+
+==================================================
+PART 6 — REQUEST/RESPONSE INTEGRITY
+==================================================
+
+For every critical API verify:
+
+REQUEST
+→ SERVER RECEIVES EXACT REQUEST
+→ SERVER PROCESSES REQUEST
+→ DATABASE COMMITS
+→ SERVER RETURNS CORRECT RESPONSE
+→ FRONTEND INTERPRETS RESPONSE CORRECTLY
+
+Look specifically for situations like:
+
+HTTP 500 returned after database commit.
+
+HTTP timeout after successful database update.
+
+Database update succeeds but notification fails.
+
+Database update succeeds but response serialization fails.
+
+Database update succeeds but realtime event fails.
+
+Frontend interprets a successful response as an error.
+
+Frontend expects:
+
+{ success: true }
+
+but backend returns something different.
+
+Find all such mismatches.
+
+==================================================
+PART 7 — IDEMPOTENCY
+==================================================
+
+Investigate every important mutation.
+
+Examples:
+
+- checkout
+- check-in
+- pickup request
+- custody handover
+- delegate approval
+- child creation
+- parent creation
+- attendance update
+- message sending
+- emergency submission
+- concern submission
+- parent request
+- notification actions
+
+Determine whether duplicate requests can safely be processed.
+
+For operations that should be idempotent, determine whether they have:
+
+- request ID
+- transaction ID
+- idempotency key
+- unique operation ID
+- database uniqueness constraint
+
+If not, report it.
+
+DO NOT IMPLEMENT IT YET.
+
+==================================================
+PART 8 — RACE CONDITIONS
+==================================================
+
+Search the entire application for race conditions.
+
+Especially situations where:
+
+User A changes a record
+
+while
+
+User B changes the same record.
+
+Also:
+
+Support + Parent
+
+Support + Admin
+
+Parent + Parent
+
+Teacher + Admin
+
+Frontend + background process
+
+API + realtime event
+
+API + webhook
+
+API + scheduled job
+
+Determine whether the application has proper concurrency control.
+
+==================================================
+PART 9 — AUTHENTICATION AND ROLE STATE
+==================================================
+
+Audit:
+
+- login
+- logout
+- token refresh
+- session expiration
+- role switching
+- parent role
+- support role
+- teacher role
+- admin role
+- delegate role
+- WhatsApp authentication
+
+Determine whether an API request can accidentally use:
+
+- old token
+- old role
+- wrong family ID
+- wrong child ID
+- stale session
+- incorrect permissions
+
+==================================================
+PART 10 — REALTIME SYSTEM
+==================================================
+
+Audit all:
+
+- WebSockets
+- Socket.IO
+- Supabase realtime
+- Firebase listeners
+- polling
+- subscriptions
+- event handlers
+- notifications
+- push notifications
+
+Determine whether realtime updates can:
+
+- arrive twice
+- arrive late
+- arrive out of order
+- overwrite newer data
+- update stale state
+- trigger duplicate API calls
+- fail silently
+
+==================================================
+PART 11 — ERROR HANDLING
+==================================================
+
+Audit ALL error handling.
+
+Find places where errors are:
+
+- swallowed
+- incorrectly classified
+- converted to generic errors
+- displayed incorrectly
+- logged without context
+- returned with incorrect HTTP status
+- thrown after a database transaction succeeds
+- ignored by the frontend
+
+We need to distinguish:
+
+OPERATION FAILED
+
+from
+
+OPERATION SUCCEEDED BUT RESPONSE FAILED
+
+from
+
+OPERATION SUCCEEDED BUT UI FAILED TO REFRESH
+
+These must never be treated as the same thing.
+
+==================================================
+PART 12 — LOGGING AND OBSERVABILITY
+==================================================
+
+Determine whether we can currently trace one user operation across the entire system.
+
+For example:
+
+USER ACTION
+↓
+REQUEST ID
+↓
+API
+↓
+SERVICE
+↓
+DATABASE
+↓
+EVENT
+↓
+NOTIFICATION
+↓
+RESPONSE
+
+Determine whether there is a correlation/request ID.
+
+If not, report that as a major observability gap.
+
+Determine whether logs contain:
+
+- timestamp
+- request ID
+- user ID
+- role
+- family ID
+- child ID
+- endpoint
+- method
+- response status
+- duration
+- database transaction result
+- error
+- retry count
+
+DO NOT ADD LOGGING YET.
+
+Only report what exists and what is missing.
+
+==================================================
+PART 13 — DUPLICATE DATA
+==================================================
+
+Investigate the duplicate-looking child records observed on the Support checkout screen.
+
+Determine whether duplicates are caused by:
+
+- duplicate database records
+- duplicate attendance records
+- duplicate joins
+- incorrect SQL
+- frontend rendering
+- repeated API response
+- duplicate state
+- stale cache
+- multiple sessions
+- multiple pickup records
+
+Determine whether this is related to the checkout problem.
+
+==================================================
+PART 14 — ALL APPLICATION FEATURES
+==================================================
+
+Do NOT limit the audit to checkout.
+
+Audit the complete application architecture.
+
+Look for the same systemic problems across:
+
+PARENT DASHBOARD
+
+SUPPORT DASHBOARD
+
+ADMIN DASHBOARD
+
+TEACHER FEATURES
+
+ATTENDANCE
+
+CHECK-IN
+
+CHECK-OUT
+
+PICKUP
+
+CUSTODY
+
+DELEGATES
+
+QR CODE
+
+NOTIFICATIONS
+
+ANNOUNCEMENTS
+
+MESSAGING
+
+CONCERNS
+
+PARENT REQUESTS
+
+EMERGENCY / SAFEGUARDING
+
+WHATSAPP
+
+TV DISPLAY
+
+TV VIDEO
+
+DOCUMENT UPLOAD
+
+USER MANAGEMENT
+
+ROLE MANAGEMENT
+
+AUTHENTICATION
+
+PROFILE MANAGEMENT
+
+SETTINGS
+
+and every other feature discovered in the codebase.
+
+==================================================
+PART 15 — TEST THE FAILURE SCENARIOS
+==================================================
+
+Do not only read the code.
+
+Where safe and possible, reproduce the issues in a development/test environment.
+
+Test:
+
+1. Single request
+2. Double click
+3. Two simultaneous requests
+4. Slow network
+5. API timeout
+6. Request cancellation
+7. Response delayed
+8. Response lost
+9. API retry
+10. Page refresh during request
+11. Two devices changing the same record
+12. Parent and Support changing the same record
+13. Realtime update arriving during mutation
+14. Stale browser tab
+15. Expired session
+16. Wrong role
+17. Duplicate child records
+18. Database transaction failure
+19. Notification failure after successful transaction
+
+Do not modify production data.
+
+==================================================
+PART 16 — ARCHITECTURE REVIEW
+==================================================
+
+Determine whether the application currently has a clear architecture for:
+
+CLIENT
+API
+BUSINESS LOGIC
+DATABASE
+EVENTS
+NOTIFICATIONS
+REALTIME
+
+Identify areas where responsibilities are mixed together.
+
+For example:
+
+Frontend directly assuming database state.
+
+API performing a database update and notification in one fragile operation.
+
+Notification failure causing a successful business operation to appear failed.
+
+Realtime state being treated as authoritative instead of the database.
+
+==================================================
+PART 17 — REQUIRED FINAL REPORT
+==================================================
+
+After the investigation, DO NOT FIX ANYTHING.
+
+Produce a complete report.
+
+Use this structure:
+
+# SHEPHERD CONNECT SYSTEM AUDIT
+
+## 1. EXECUTIVE SUMMARY
+
+What is actually wrong?
+
+## 2. MOST LIKELY ROOT CAUSE
+
+Identify the highest-probability systemic cause.
+
+## 3. SECONDARY ROOT CAUSES
+
+List other important causes.
+
+## 4. API PROBLEMS
+
+List all API/request problems discovered.
+
+## 5. DATABASE PROBLEMS
+
+List database/state consistency problems.
+
+## 6. FRONTEND PROBLEMS
+
+List frontend state/request problems.
+
+## 7. REALTIME PROBLEMS
+
+List realtime synchronization problems.
+
+## 8. AUTHENTICATION / ROLE PROBLEMS
+
+List session/permission problems.
+
+## 9. CONCURRENCY / RACE CONDITIONS
+
+List every important race condition.
+
+## 10. DUPLICATE REQUESTS
+
+Show where duplicate requests can occur.
+
+## 11. DUPLICATE DATA
+
+Explain the duplicate child entries and whether they are related.
+
+## 12. ERROR HANDLING
+
+Identify misleading error states.
+
+## 13. OBSERVABILITY
+
+Explain whether we can reliably trace a request through the system.
+
+## 14. FEATURE-BY-FEATURE RISK
+
+Create a table:
+
+Feature | Risk | Root Cause | Severity | Evidence
+
+## 15. CRITICAL ISSUES
+
+Rank:
+
+CRITICAL
+HIGH
+MEDIUM
+LOW
+
+## 16. RECOMMENDED ARCHITECTURE
+
+Describe what the corrected architecture should look like.
+
+## 17. PROPOSED SOLUTION
+
+Give the complete solution.
+
+This should include:
+
+- API architecture
+- request handling
+- idempotency
+- transaction handling
+- concurrency control
+- database source of truth
+- frontend synchronization
+- realtime synchronization
+- error handling
+- retries
+- timeout handling
+- authentication
+- logging
+- request correlation
+- validation
+- state machines where appropriate
+
+## 18. EXACT FILES THAT WOULD NEED CHANGES
+
+List files and functions.
+
+## 19. EXACT DATABASE CHANGES THAT MAY BE REQUIRED
+
+Do not perform them.
+
+## 20. TEST PLAN
+
+Explain how we will prove the fix works.
+
+## 21. RISK OF FIX
+
+Explain what could break if the proposed changes are implemented.
+
+==================================================
+FINAL RULE
+==================================================
+
+DO NOT CHANGE ANYTHING.
+
+DO NOT IMPLEMENT THE SOLUTION.
+
+DO NOT DEPLOY.
+
+DO NOT MODIFY THE DATABASE.
+
+DO NOT REFACTOR.
+
+DO NOT "CLEAN UP" CODE.
+
+I want the investigation and proposed solution ONLY.
+
+At the end write:
+
+"FULL SYSTEM AUDIT COMPLETE — NO CODE OR DATABASE CHANGES MADE."
+
+Then WAIT FOR MY APPROVAL.
