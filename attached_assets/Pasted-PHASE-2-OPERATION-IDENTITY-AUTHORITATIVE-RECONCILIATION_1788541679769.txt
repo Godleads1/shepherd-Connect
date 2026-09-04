@@ -1,0 +1,442 @@
+PHASE 2 — OPERATION IDENTITY & AUTHORITATIVE RECONCILIATION
+
+IMPORTANT:
+Do NOT make changes until you have inspected the current architecture and produced the implementation plan.
+
+Do NOT modify authorization policy, role permissions, session revocation, duplicate-child data, general SSE, WhatsApp, TV media, or unrelated features in this phase.
+
+Do NOT modify production data.
+
+Phase 1 established the authoritative mutation pattern for Support checkout/handover.
+
+Phase 1 commit:
+6a89607
+
+Phase 2 now addresses the remaining reliability problem:
+
+A critical mutation can successfully commit in PostgreSQL, but the HTTP response can be lost because of timeout, connection reset, browser cancellation, proxy failure, or network interruption.
+
+In that situation:
+
+SERVER:
+checkout succeeded
+
+CLIENT:
+does not know whether checkout succeeded
+
+CURRENT RISK:
+client may display a definitive failure even though the business operation committed.
+
+We now need an authoritative operation identity and reconciliation mechanism.
+
+==================================================
+PHASE 2 OBJECTIVES
+==================================================
+
+OBJECTIVE 1 — DESIGN BEFORE IMPLEMENTATION
+
+First inspect the existing codebase for:
+
+- attendance mutations
+- custody mutations
+- pickup mutations
+- attendanceEvents/event IDs
+- notification outbox/event identities
+- audit events
+- existing UUID/event ID mechanisms
+- frontend mutation wrappers
+- api-call.ts
+- generated API clients
+- offline queue
+- database transaction helpers
+- existing idempotency-like mechanisms
+
+Determine what can be reused.
+
+Do NOT create a second competing identity system if an existing reliable mechanism can be extended.
+
+Before modifying code, report:
+
+1. Existing operation/event identity mechanisms
+2. Where they are stored
+3. Which mutations already have stable identities
+4. Which mutations generate a new UUID on every retry
+5. Where an operation result could safely be persisted
+6. Recommended minimal Phase 2 architecture
+7. Files/tables you intend to modify
+
+WAIT for approval before implementing.
+
+==================================================
+OBJECTIVE 2 — OPERATION ID
+==================================================
+
+Introduce a stable client-generated operation ID for critical mutations.
+
+The conceptual flow is:
+
+CLIENT
+  |
+  | operationId = stable UUID
+  v
+SERVER
+  |
+  | validate/authenticate
+  v
+TRANSACTION
+  |
+  | perform authoritative transition
+  | persist operation result
+  | persist required outbox/domain events
+  v
+COMMIT
+  |
+  v
+RESPONSE
+
+The same operationId MUST be reused if the client retries because the response was lost.
+
+Do NOT generate a new operation ID for every retry of the same logical user action.
+
+==================================================
+OBJECTIVE 3 — DURABLE OPERATION RESULT
+==================================================
+
+Design a durable server-side operation result mechanism.
+
+Potential fields:
+
+- operationId
+- actor/user ID
+- command type
+- resource type
+- resource ID
+- outcome
+- authoritative result/state
+- createdAt
+- completedAt
+
+Do not blindly use these exact fields.
+
+First inspect existing tables and determine whether an existing event/audit table can safely support this purpose.
+
+If a new table is necessary, propose the schema first.
+
+The operation result must allow the server to answer:
+
+"Has operation X already been applied, and what was its authoritative result?"
+
+==================================================
+OBJECTIVE 4 — DETERMINISTIC RETRY
+==================================================
+
+For a critical mutation:
+
+FIRST REQUEST:
+
+operationId = ABC
+
+server commits operation
+
+response is lost
+
+CLIENT:
+
+does not know whether operation committed
+
+RETRY:
+
+operationId = ABC
+
+SERVER:
+
+finds operation ABC
+
+returns the original authoritative result
+
+NOT:
+
+"operation failed"
+
+NOT:
+
+"duplicate request"
+
+NOT:
+
+performing the mutation again.
+
+The retry should be semantically equivalent to receiving the original successful response.
+
+==================================================
+OBJECTIVE 5 — START WITH CHECKOUT
+==================================================
+
+Use Support checkout as the reference implementation because Phase 1 already established the correct authoritative mutation boundary.
+
+Verify:
+
+A. Normal checkout
+
+operationId = A
+
+checkout commits
+
+response = applied
+
+B. Duplicate/retry after response loss
+
+operationId = A
+
+checkout already committed
+
+response = same authoritative checkout result
+
+outcome = already_applied
+
+C. No duplicate attendance state
+
+D. No duplicate notification intent
+
+E. Original checkout timestamp remains unchanged
+
+F. Original actor remains unchanged
+
+G. Resolved pickup IDs remain authoritative
+
+==================================================
+OBJECTIVE 6 — CLIENT RECONCILIATION
+
+The frontend must distinguish:
+
+1. MUTATION_REJECTED
+
+The server definitively rejected the command.
+
+2. MUTATION_APPLIED
+
+The server confirmed the mutation.
+
+3. MUTATION_ALREADY_APPLIED
+
+The server confirms the same operation was previously committed.
+
+4. MUTATION_UNKNOWN
+
+The client cannot determine whether the server committed because the response was lost.
+
+For MUTATION_UNKNOWN:
+
+DO NOT immediately show:
+
+"Checkout failed."
+
+Instead:
+
+1. Attempt authoritative reconciliation using the operation ID.
+2. If the server confirms the operation:
+   display success.
+3. If the server confirms it was not committed:
+   display an appropriate failure/retry state.
+4. If reconciliation itself fails:
+   clearly communicate that the result is temporarily unknown rather than falsely saying the operation failed.
+
+Use the project's existing UI patterns where possible.
+
+==================================================
+OBJECTIVE 7 — TIMEOUTS AND NETWORK FAILURES
+
+Inspect the current frontend API layer.
+
+Determine:
+
+- whether requests have application-level timeouts
+- how AbortController is used
+- how network failures are classified
+- how HTTP errors are classified
+- whether response parsing failures are distinguished
+- whether request cancellation is distinguishable from server rejection
+
+Do NOT introduce arbitrary timeout values.
+
+Recommend appropriate behavior first.
+
+A timeout must not automatically mean:
+
+"business operation failed."
+
+It means:
+
+"business result is unknown until reconciled."
+
+==================================================
+OBJECTIVE 8 — OFFLINE QUEUE
+
+DO NOT fully redesign the offline queue in Phase 2.
+
+However, inspect:
+
+artifacts/shepherd-connect/src/lib/offline-queue.ts
+
+Determine whether queued critical mutations already have stable operation IDs.
+
+If they do not, document the issue for the next phase.
+
+Do not modify the offline queue unless a minimal change is required for the operation-ID contract introduced here.
+
+==================================================
+OBJECTIVE 9 — OPERATION STATUS API
+
+Determine whether the existing API architecture needs an endpoint conceptually similar to:
+
+GET /api/operations/:operationId
+
+Do NOT automatically add this endpoint.
+
+First determine whether reconciliation can safely occur through the existing domain endpoint.
+
+Prefer existing authoritative domain queries where possible.
+
+If a generic operation endpoint is necessary, design it carefully so it does not leak sensitive information between users.
+
+==================================================
+OBJECTIVE 10 — TESTS
+
+Create focused tests for:
+
+1. First checkout
+   operationId A
+   -> applied
+
+2. Same checkout
+   operationId A
+   -> already_applied
+
+3. Different operationId after already checked out
+   -> deterministic domain result
+
+4. Response lost after commit
+   -> retry with same operationId
+   -> original result returned
+
+5. Network timeout after commit
+   -> reconciliation
+   -> authoritative success
+
+6. Network failure before commit
+   -> retry
+   -> operation can safely apply
+
+7. Duplicate requests arriving concurrently
+   -> exactly one authoritative transition
+
+8. No duplicate notification intent
+
+9. No changed original actor/timestamp
+
+10. Unknown operation ID
+
+11. Unauthorized user attempting to reconcile another user's operation
+
+12. Expired/invalid operation identity
+
+13. Malformed operation ID
+
+14. Operation ID collision with a different command/resource
+
+15. Database rollback
+   -> operation must not be reported as successfully committed
+
+==================================================
+OBJECTIVE 11 — OBSERVABILITY
+
+Every Phase 2 operation should be traceable.
+
+Where appropriate, connect:
+
+operationId
+    |
+request ID
+    |
+user/actor
+    |
+domain mutation
+    |
+audit/domain event
+    |
+notification outbox
+    |
+provider/realtime work
+
+Do not log sensitive information.
+
+Do not introduce excessive logging.
+
+The purpose is to answer:
+
+"What happened to operation ABC?"
+
+==================================================
+OBJECTIVE 12 — DO NOT OVERBUILD
+
+This is critical.
+
+Do NOT attempt to implement universal idempotency for every API route in this phase.
+
+Do NOT modify all 269 endpoints.
+
+Start with the critical mutation architecture and prove it with Support checkout.
+
+After checkout works correctly, identify the next highest-value mutation based on the audit.
+
+Likely candidates include:
+
+- Parent pickup
+- Parent custody request
+- Custody cancellation
+- Attendance/check-in
+- Offline check-in
+
+But do not modify those yet.
+
+==================================================
+PHASE 2 SUCCESS CRITERIA
+==================================================
+
+Phase 2 is successful when:
+
+1. A critical mutation has a stable operation ID.
+2. The operation result is durably recoverable.
+3. Retrying the same operation does not execute it twice.
+4. A lost HTTP response can be reconciled.
+5. The frontend does not falsely report definitive failure when the business result is unknown.
+6. The authoritative server state remains the source of truth.
+7. Secondary delivery/realtime failures do not redefine mutation success.
+8. Authorization prevents operation-result leakage.
+9. Existing Phase 1 behavior remains intact.
+10. Existing tests continue passing.
+
+==================================================
+STOP CONDITION
+==================================================
+
+FIRST RESPONSE:
+
+DO NOT IMPLEMENT.
+
+Return only:
+
+A. CURRENT ARCHITECTURE
+B. EXISTING OPERATION/IDEMPOTENCY MECHANISMS
+C. PROPOSED PHASE 2 DESIGN
+D. DATABASE CHANGES REQUIRED (IF ANY)
+E. API CHANGES REQUIRED
+F. FRONTEND CHANGES REQUIRED
+G. TEST PLAN
+H. RISKS
+I. FILES TO CHANGE
+J. WHAT WILL REMAIN UNTOUCHED
+
+Then STOP and wait for approval.
+
+Do not modify anything until explicitly approved.
