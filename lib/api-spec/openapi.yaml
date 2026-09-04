@@ -1021,11 +1021,11 @@ paths:
               $ref: "#/components/schemas/CheckOutBody"
       responses:
         "200":
-          description: Checked out
+          description: Authoritative checkout result
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Attendance"
+                $ref: "#/components/schemas/CheckoutResult"
 
   /attendance/scan-qr:
     post:
@@ -3177,6 +3177,26 @@ components:
         notes:
           type: string
           nullable: true
+
+    CheckoutResult:
+      type: object
+      properties:
+        outcome:
+          type: string
+          enum: [applied, already_applied]
+        attendance:
+          $ref: "#/components/schemas/Attendance"
+        resolvedPickupRequestIds:
+          type: array
+          items:
+            type: integer
+        alreadyApplied:
+          type: boolean
+      required:
+        - outcome
+        - attendance
+        - resolvedPickupRequestIds
+        - alreadyApplied
 
     ScanQrBody:
       type: object

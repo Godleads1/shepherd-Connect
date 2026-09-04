@@ -26,6 +26,7 @@ import type {
   BroadcastNotificationBody,
   CheckInBody,
   CheckOutBody,
+  CheckoutResult,
   Child,
   Class,
   ClassAssignment,
@@ -4100,8 +4101,8 @@ export const checkOut = async (
   id: number,
   checkOutBody: CheckOutBody,
   options?: RequestInit,
-): Promise<Attendance> => {
-  return customFetch<Attendance>(getCheckOutUrl(id), {
+): Promise<CheckoutResult> => {
+  return customFetch<CheckoutResult>(getCheckOutUrl(id), {
     ...options,
     method: "PUT",
     headers: { "Content-Type": "application/json", ...options?.headers },

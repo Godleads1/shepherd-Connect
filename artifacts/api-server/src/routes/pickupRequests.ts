@@ -119,12 +119,6 @@ export async function createParentPickupRequest(parentUserId: number, childId: n
   if (!child) throw new ParentPickupRequestError(404, "Child not found");
 
   const today = todayWAT();
-  const [activeAttendance] = await db.select().from(attendanceTable).where(and(
-    eq(attendanceTable.childId, childId), eq(attendanceTable.serviceDate, today),
-  )).orderBy(attendanceTable.checkInTime);
-  if (!activeAttendance || activeAttendance.status === "picked_up") {
-    throw new ParentPickupRequestError(400, "Child is not currently checked in");
-  }
   const classId = child.children.currentClassId;
   if (!classId) throw new ParentPickupRequestError(400, "Child has no assigned class");
 
@@ -143,6 +137,14 @@ export async function createParentPickupRequest(parentUserId: number, childId: n
     if (hostClass) routingClassName = hostClass.name;
   }
   const inserted = await db.transaction(async tx => {
+    const lockKey = Number(today.replace(/-/g, ""));
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(${childId}, ${lockKey})`);
+    const [activeAttendance] = await tx.select().from(attendanceTable).where(and(
+      eq(attendanceTable.childId, childId), eq(attendanceTable.serviceDate, today),
+    )).orderBy(attendanceTable.checkInTime);
+    if (!activeAttendance || activeAttendance.status === "picked_up") {
+      throw new ParentPickupRequestError(400, "Child is not currently checked in");
+    }
     const rows = await tx.insert(pickupRequestsTable).values({
       childId, classId: routingClassId, serviceDate: today, requestedBy: parentUserId,
       childName, parentName, className: routingClassName, homeClassName: merge ? childClassName : null,

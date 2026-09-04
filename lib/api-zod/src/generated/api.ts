@@ -1826,64 +1826,69 @@ export const CheckOutBody = zod.object({
 });
 
 export const CheckOutResponse = zod.object({
-  id: zod.number(),
-  childId: zod.number(),
-  classId: zod.number(),
-  serviceDate: zod.string().date(),
-  serviceSlot: zod.string(),
-  checkInTime: zod.string().datetime({}).nullish(),
-  escortTime: zod.string().datetime({}).nullish(),
-  checkOutTime: zod.string().datetime({}).nullish(),
-  checkedInBy: zod.number().nullish(),
-  escortedBy: zod.number().nullish(),
-  checkedOutBy: zod.number().nullish(),
-  status: zod.enum(["dropped_off", "in_transit", "in_class", "picked_up"]),
-  child: zod
-    .object({
-      id: zod.number(),
-      familyId: zod.number(),
-      firstName: zod.string(),
-      lastName: zod.string(),
-      dob: zod.string().date(),
-      age: zod.number(),
-      gender: zod.string(),
-      allergies: zod.string().nullish(),
-      medicalNotes: zod.string().nullish(),
-      photoUrl: zod.string().nullish(),
-      faceDescriptorJson: zod.string().nullish(),
-      servicePreference: zod.enum(["7am", "10:30am", "both"]).nullish(),
-      currentClassId: zod.number().nullish(),
-      currentClass: zod
-        .object({
-          id: zod.number(),
-          name: zod.string(),
-          ageMin: zod.number(),
-          ageMax: zod.number(),
-          capacity: zod.number(),
-          roomLocation: zod.string(),
-          serviceSlot: zod.enum(["7am", "10:30am"]),
-          description: zod.string().nullish(),
-          enrollmentCount: zod.number(),
-          createdAt: zod.string().datetime({}),
-        })
-        .nullish(),
-      createdAt: zod.string().datetime({}),
-    })
-    .nullish(),
-  class: zod
-    .object({
-      id: zod.number(),
-      name: zod.string(),
-      ageMin: zod.number(),
-      ageMax: zod.number(),
-      capacity: zod.number(),
-      roomLocation: zod.string(),
-      serviceSlot: zod.enum(["7am", "10:30am"]),
-      description: zod.string().nullish(),
-      enrollmentCount: zod.number(),
-      createdAt: zod.string().datetime({}),
-    })
-    .nullish(),
+  outcome: zod.enum(["applied", "already_applied"]),
+  attendance: zod.object({
+    id: zod.number(),
+    childId: zod.number(),
+    classId: zod.number(),
+    serviceDate: zod.string().date(),
+    serviceSlot: zod.string(),
+    checkInTime: zod.string().datetime({}).nullish(),
+    escortTime: zod.string().datetime({}).nullish(),
+    checkOutTime: zod.string().datetime({}).nullish(),
+    checkedInBy: zod.number().nullish(),
+    escortedBy: zod.number().nullish(),
+    checkedOutBy: zod.number().nullish(),
+    status: zod.enum(["dropped_off", "in_transit", "in_class", "picked_up"]),
+    child: zod
+      .object({
+        id: zod.number(),
+        familyId: zod.number(),
+        firstName: zod.string(),
+        lastName: zod.string(),
+        dob: zod.string().date(),
+        age: zod.number(),
+        gender: zod.string(),
+        allergies: zod.string().nullish(),
+        medicalNotes: zod.string().nullish(),
+        photoUrl: zod.string().nullish(),
+        faceDescriptorJson: zod.string().nullish(),
+        servicePreference: zod.enum(["7am", "10:30am", "both"]).nullish(),
+        currentClassId: zod.number().nullish(),
+        currentClass: zod
+          .object({
+            id: zod.number(),
+            name: zod.string(),
+            ageMin: zod.number(),
+            ageMax: zod.number(),
+            capacity: zod.number(),
+            roomLocation: zod.string(),
+            serviceSlot: zod.enum(["7am", "10:30am"]),
+            description: zod.string().nullish(),
+            enrollmentCount: zod.number(),
+            createdAt: zod.string().datetime({}),
+          })
+          .nullish(),
+        createdAt: zod.string().datetime({}),
+      })
+      .nullish(),
+    class: zod
+      .object({
+        id: zod.number(),
+        name: zod.string(),
+        ageMin: zod.number(),
+        ageMax: zod.number(),
+        capacity: zod.number(),
+        roomLocation: zod.string(),
+        serviceSlot: zod.enum(["7am", "10:30am"]),
+        description: zod.string().nullish(),
+        enrollmentCount: zod.number(),
+        createdAt: zod.string().datetime({}),
+      })
+      .nullish(),
+  }),
+  resolvedPickupRequestIds: zod.array(zod.number()),
+  alreadyApplied: zod.boolean(),
 });
 
 /**

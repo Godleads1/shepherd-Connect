@@ -9,9 +9,10 @@ import { Search, LogOut, CheckCircle, Clock, ShieldCheck, KeyRound, Bell, Timer,
 import { useToast } from "@/hooks/use-toast";
 import { format, differenceInMinutes, differenceInSeconds, formatDistanceToNow } from "date-fns";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { apiPost, apiGet, apiDelete } from "@/lib/api-call";
+import { apiPost, apiGet } from "@/lib/api-call";
 import { useAuth } from "@/contexts/auth";
 import LocationBanner from "@/components/LocationBanner";
+import { refreshAfterCommittedCheckout } from "./checkout-flow";
 
 const SERVICE_CLOCK_KEY = "shepherd_service_end_time";
 
@@ -156,7 +157,7 @@ function ServiceClock() {
   );
 }
 
-function PickupQueue({ activeRecords, onCheckout }: { activeRecords: any[]; onCheckout: () => void }) {
+function PickupQueue({ activeRecords, onCheckout }: { activeRecords: any[]; onCheckout: () => Promise<void> }) {
   const [queue, setQueue] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [handingOver, setHandingOver] = useState<string | null>(null);
@@ -182,15 +183,36 @@ function PickupQueue({ activeRecords, onCheckout }: { activeRecords: any[]; onCh
     const rec = activeRecords.find((r: any) => r.childId === item.childId);
     setHandingOver(item.id);
     try {
-      if (rec) {
-        await checkoutMutation.mutateAsync({ id: rec.id, data: {} });
+      if (!rec) {
+        toast({
+          variant: "destructive",
+          title: "Handover could not start",
+          description: "No active attendance record was found. Refresh the page before trying again.",
+        });
+        return;
       }
-      await apiDelete(`/pickup-requests/${item.id}`);
-      setQueue(prev => prev.filter(q => q.id !== item.id));
-      onCheckout();
-      toast({ title: "Child handed over", description: `${item.childName} checked out and removed from queue` });
-    } catch {
-      toast({ variant: "destructive", title: "Handover failed" });
+
+      const result = await checkoutMutation.mutateAsync({ id: rec.id, data: {} });
+      const resolvedIds = new Set(result.resolvedPickupRequestIds);
+      setQueue(prev => prev.filter(q => q.id !== item.id && !resolvedIds.has(q.id)));
+      toast({
+        title: result.alreadyApplied ? "Child was already checked out" : "Child handed over",
+        description: `${item.childName} is checked out and removed from the pickup queue`,
+      });
+
+      const refresh = await refreshAfterCommittedCheckout(onCheckout);
+      if (refresh.status === "refresh_failed") {
+        toast({
+          title: "Handover saved — refresh needed",
+          description: "The child is checked out, but the latest attendance list could not be loaded. Use Refresh to reconcile the screen.",
+        });
+      }
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Handover failed",
+        description: error?.message || "The checkout was not completed.",
+      });
     } finally {
       setHandingOver(null);
     }
@@ -277,13 +299,24 @@ export default function Checkout() {
 
   const checkoutMutation = useCheckOut();
 
+  const refreshAttendance = async () => {
+    const result = await refetch();
+    if (result.error) throw result.error;
+  };
+
   const handleCheckout = async (attendanceId: number) => {
     try {
-      await checkoutMutation.mutateAsync({ id: attendanceId, data: {} });
-      toast({ title: "Checked out successfully" });
-      refetch();
-    } catch {
-      toast({ variant: "destructive", title: "Checkout failed" });
+      const result = await checkoutMutation.mutateAsync({ id: attendanceId, data: {} });
+      toast({ title: result.alreadyApplied ? "Child was already checked out" : "Checked out successfully" });
+      const refresh = await refreshAfterCommittedCheckout(refreshAttendance);
+      if (refresh.status === "refresh_failed") {
+        toast({
+          title: "Checkout saved — refresh needed",
+          description: "The child is checked out, but the attendance list could not be refreshed. Try Refresh before continuing.",
+        });
+      }
+    } catch (error: any) {
+      toast({ variant: "destructive", title: "Checkout failed", description: error?.message });
     }
   };
 
@@ -309,12 +342,18 @@ export default function Checkout() {
 
   const handleOtpCheckout = async (attendanceId: number) => {
     try {
-      await checkoutMutation.mutateAsync({ id: attendanceId, data: {} });
-      toast({ title: "Child checked out via delegate OTP" });
+      const result = await checkoutMutation.mutateAsync({ id: attendanceId, data: {} });
+      toast({ title: result.alreadyApplied ? "Child was already checked out" : "Child checked out via delegate OTP" });
       setOtpInput(""); setOtpResult(null);
-      refetch();
-    } catch {
-      toast({ variant: "destructive", title: "Checkout failed" });
+      const refresh = await refreshAfterCommittedCheckout(refreshAttendance);
+      if (refresh.status === "refresh_failed") {
+        toast({
+          title: "Checkout saved — refresh needed",
+          description: "The child is checked out, but the attendance list could not be refreshed. Try Refresh before continuing.",
+        });
+      }
+    } catch (error: any) {
+      toast({ variant: "destructive", title: "Checkout failed", description: error?.message });
     }
   };
 
@@ -590,7 +629,7 @@ export default function Checkout() {
 
         {/* ── Pickup Queue ── */}
         <TabsContent value="queue" className="mt-4">
-          <PickupQueue activeRecords={activeRecords} onCheckout={refetch} />
+          <PickupQueue activeRecords={activeRecords} onCheckout={refreshAttendance} />
         </TabsContent>
       </Tabs>
     </div>

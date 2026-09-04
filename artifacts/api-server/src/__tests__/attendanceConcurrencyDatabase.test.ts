@@ -174,12 +174,17 @@ databaseDescribe("attendance PostgreSQL concurrency integrity", () => {
   it("makes sequential and four-way checkout one transition with one timestamp and actor", async () => {
     const id = await seedAttendance();
     const first = await request(app).put(`/api/attendance/${id}/checkout`).set("Authorization", authorization).send({});
-    const firstTime = first.body.checkOutTime;
+    const firstTime = first.body.attendance.checkOutTime;
     const retries = await Promise.all(Array.from({ length: 4 }, () =>
       request(app).put(`/api/attendance/${id}/checkout`).set("Authorization", authorization).send({}),
     ));
     expect([first, ...retries].every(reply => reply.status === 200)).toBe(true);
-    expect(retries.every(reply => reply.body.checkOutTime === firstTime && reply.body.checkedOutBy === adminId)).toBe(true);
+    expect(retries.every(reply =>
+      reply.body.outcome === "already_applied"
+      && reply.body.alreadyApplied === true
+      && reply.body.attendance.checkOutTime === firstTime
+      && reply.body.attendance.checkedOutBy === adminId
+    )).toBe(true);
     expect(await count("notification_outbox", sql`domain_type = 'attendance' AND domain_identifier = ${String(id)}`)).toBe(3);
   });
 

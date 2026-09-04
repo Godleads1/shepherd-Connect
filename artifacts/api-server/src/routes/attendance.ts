@@ -95,11 +95,17 @@ async function getTeacherAllocatedClassIds(userId: number): Promise<number[]> {
   return allocs.map(a => a.classId);
 }
 
-// Single-record formatter (for mutation responses — only 1 record, so no N+1)
-async function formatAttendance(a: typeof attendanceTable.$inferSelect) {
-  const [child] = await db.select().from(childrenTable).where(eq(childrenTable.id, a.childId));
-  const [cls] = await db.select().from(classesTable).where(eq(classesTable.id, a.classId));
+// Single-record formatter (for mutation responses — only 1 record, so no N+1).
+// Mutation handlers can pass their transaction so response construction either
+// succeeds before commit or rolls the authoritative transition back.
+async function formatAttendanceWith(executor: any, a: typeof attendanceTable.$inferSelect) {
+  const [child] = await executor.select().from(childrenTable).where(eq(childrenTable.id, a.childId));
+  const [cls] = await executor.select().from(classesTable).where(eq(classesTable.id, a.classId));
   return { ...a, child: child || null, class: cls || null };
+}
+
+async function formatAttendance(a: typeof attendanceTable.$inferSelect) {
+  return formatAttendanceWith(db, a);
 }
 
 // Batch formatter for lists — avoids N+1 queries
@@ -534,14 +540,23 @@ router.put("/attendance/:id/checkout", authMiddleware, requireRoles("super_admin
       return;
     }
     try {
-      const outcome = await db.transaction(tx => releasePhysicalCustody(tx, {
-        episodeId: existing.custodyEpisodeId!,
-        actorUserId: req.user!.userId,
-      }));
-      const record = outcome.attendance.find((row: typeof attendanceTable.$inferSelect) => row.id === id)
-        ?? (await db.select().from(attendanceTable).where(eq(attendanceTable.id, id)))[0];
-      if (!record) { res.status(404).json({ error: "Not found", message: "Attendance record not found" }); return; }
-      res.json(await formatAttendance(record));
+      const checkout = await db.transaction(async tx => {
+        const outcome = await releasePhysicalCustody(tx, {
+          episodeId: existing.custodyEpisodeId!,
+          actorUserId: req.user!.userId,
+        });
+        const record = outcome.attendance.find((row: typeof attendanceTable.$inferSelect) => row.id === id)
+          ?? (await tx.select().from(attendanceTable).where(eq(attendanceTable.id, id)))[0];
+        if (!record) return null;
+        return {
+          outcome: outcome.duplicate ? "already_applied" as const : "applied" as const,
+          attendance: await formatAttendanceWith(tx, record),
+          resolvedPickupRequestIds: outcome.resolvedPickupRequests.map((request: { id: number }) => request.id),
+          alreadyApplied: outcome.duplicate,
+        };
+      });
+      if (!checkout) { res.status(404).json({ error: "Not found", message: "Attendance record not found" }); return; }
+      res.json(checkout);
       return;
     } catch (error) {
       if (error instanceof CustodyHandoverError) {
@@ -552,28 +567,37 @@ router.put("/attendance/:id/checkout", authMiddleware, requireRoles("super_admin
     }
   }
   const checkout = await db.transaction(async tx => {
+    const lockKey = Number(existing.serviceDate.replace(/-/g, ""));
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(${existing.childId}, ${lockKey})`);
     const result = await tx.update(attendanceTable).set({
       status: "picked_up", checkOutTime: new Date(), checkedOutBy: req.user!.userId,
     }).where(and(eq(attendanceTable.id, id), ne(attendanceTable.status, "picked_up"))).returning();
     if (result[0]) await createAttendanceNotificationIntents(tx, result[0], "picked_up");
-    if (!result[0]) return { record: null, resolvedPickupRequests: [] };
+    if (!result[0]) {
+      const [current] = await tx.select().from(attendanceTable).where(eq(attendanceTable.id, id));
+      if (!current) return null;
+      return {
+        outcome: "already_applied" as const,
+        attendance: await formatAttendanceWith(tx, current),
+        resolvedPickupRequestIds: [] as number[],
+        alreadyApplied: true,
+      };
+    }
     const resolvedPickupRequests = await resolvePickupRequestsForCheckout(tx, {
       childId: result[0].childId,
       serviceDate: result[0].serviceDate,
       actorUserId: req.user!.userId,
       resolvedAt: result[0].checkOutTime!,
     });
-    return { record: result[0], resolvedPickupRequests };
+    return {
+      outcome: "applied" as const,
+      attendance: await formatAttendanceWith(tx, result[0]),
+      resolvedPickupRequestIds: resolvedPickupRequests.map((request: { id: number }) => request.id),
+      alreadyApplied: false,
+    };
   });
-  const record = checkout.record;
-  if (!record) {
-    const [current] = await db.select().from(attendanceTable).where(eq(attendanceTable.id, id));
-    if (!current) { res.status(404).json({ error: "Not found", message: "Attendance record not found" }); return; }
-    res.json(await formatAttendance(current));
-    return;
-  }
-
-  res.json(await formatAttendance(record));
+  if (!checkout) { res.status(404).json({ error: "Not found", message: "Attendance record not found" }); return; }
+  res.json(checkout);
 });
 
 router.post(

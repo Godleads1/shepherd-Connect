@@ -184,10 +184,15 @@ databaseDescribe("custody handover PostgreSQL integrity", () => {
     // directed to the explicit custody override endpoint instead.
     await request(app).put(`/api/attendance/${attendance.id}/checkout`).set("Authorization", token(adminId, "admin"))
       .send({}).expect(409);
-    await request(app).put(`/api/attendance/${attendance.id}/checkout`).set("Authorization", token(supportId, "support"))
+    const checkout = await request(app).put(`/api/attendance/${attendance.id}/checkout`).set("Authorization", token(supportId, "support"))
       .send({}).expect(200);
 
     const episode = (await db.execute(sql`SELECT status,checkout_mode,picked_up_by FROM custody_episodes WHERE id=${episodeId}`)).rows[0] as any;
+    expect(checkout.body).toMatchObject({
+      outcome: "applied",
+      alreadyApplied: false,
+      attendance: { id: Number(attendance.id), status: "picked_up" },
+    });
     expect(episode.status).toBe("picked_up");
     expect(episode.checkout_mode).toBe("normal");
     expect(Number(episode.picked_up_by)).toBe(supportId);

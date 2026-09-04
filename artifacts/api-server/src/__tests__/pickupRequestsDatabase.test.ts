@@ -7,16 +7,19 @@ import { generateToken } from "../middlewares/auth";
 
 const databaseDescribe = process.env.RUN_DATABASE_ATTENDANCE_TESTS === "true" ? describe : describe.skip;
 const prefix = `pickup-db-${Date.now()}`;
-let parentId = 0; let otherParentId = 0; let familyId = 0; let otherFamilyId = 0;
+let parentId = 0; let otherParentId = 0; let supportId = 0; let familyId = 0; let otherFamilyId = 0;
 let childId = 0; let otherChildId = 0; let classId = 0;
 const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Lagos", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
-const token = (id: number) => `Bearer ${generateToken({ userId: id, email: `${prefix}-${id}@test`, role: "parent", firstName: "Test", lastName: "Parent" })}`;
+const token = (id: number, role: "parent" | "support" = "parent") =>
+  `Bearer ${generateToken({ userId: id, email: `${prefix}-${id}@test`, role, firstName: "Test", lastName: role === "support" ? "Support" : "Parent" })}`;
 
 beforeAll(async () => {
   const users = await db.execute(sql`INSERT INTO users (email,password_hash,first_name,last_name,role,status,is_active) VALUES
     (${`${prefix}-one@test`},'x','Parent','One','parent','active',true),
-    (${`${prefix}-two@test`},'x','Parent','Two','parent','active',true) RETURNING id`);
+    (${`${prefix}-two@test`},'x','Parent','Two','parent','active',true),
+    (${`${prefix}-support@test`},'x','Test','Support','support','active',true) RETURNING id`);
   parentId = Number(users.rows[0].id); otherParentId = Number(users.rows[1].id);
+  supportId = Number(users.rows[2].id);
   familyId = Number((await db.execute(sql`INSERT INTO families (family_code,parent_1_id) VALUES (${`PK-${prefix.slice(-6)}`},${parentId}) RETURNING id`)).rows[0].id);
   otherFamilyId = Number((await db.execute(sql`INSERT INTO families (family_code,parent_1_id) VALUES (${`PO-${prefix.slice(-6)}`},${otherParentId}) RETURNING id`)).rows[0].id);
   classId = Number((await db.execute(sql`INSERT INTO classes (name,age_min,age_max,capacity,room_location,service_slot) VALUES (${prefix},1,12,30,'Room','7am') RETURNING id`)).rows[0].id);
@@ -52,6 +55,85 @@ databaseDescribe("pickup request PostgreSQL persistence", () => {
     const rows = await db.execute(sql`SELECT id,status,requested_by,service_date FROM pickup_requests WHERE child_id=${childId}`);
     expect(rows.rows).toHaveLength(1);
     expect(rows.rows[0]).toMatchObject({ status: "requested", requested_by: parentId, service_date: today });
+  });
+
+  it("returns the authoritative checkout result and resolves the pickup request", async () => {
+    const pickup = await request(app).post("/api/pickup-requests")
+      .set("Authorization", token(parentId))
+      .send({ childId })
+      .expect(200);
+    const attendance = (await db.execute(sql`
+      SELECT id FROM attendance WHERE child_id=${childId} AND service_date=${today}
+    `)).rows[0] as { id: number };
+
+    const checkout = await request(app).put(`/api/attendance/${attendance.id}/checkout`)
+      .set("Authorization", token(supportId, "support"))
+      .send({})
+      .expect(200);
+
+    expect(checkout.body).toMatchObject({
+      outcome: "applied",
+      alreadyApplied: false,
+      attendance: { id: Number(attendance.id), status: "picked_up" },
+      resolvedPickupRequestIds: [Number(pickup.body.request.id)],
+    });
+    const [resolved] = (await db.execute(sql`
+      SELECT status,resolved_by FROM pickup_requests WHERE id=${pickup.body.request.id}
+    `)).rows as Array<{ status: string; resolved_by: number }>;
+    expect(resolved).toMatchObject({ status: "resolved", resolved_by: supportId });
+  });
+
+  it("returns already_applied for a duplicate checkout without creating invalid state", async () => {
+    const attendance = (await db.execute(sql`
+      SELECT id FROM attendance WHERE child_id=${childId} AND service_date=${today}
+    `)).rows[0] as { id: number };
+    const checkout = () => request(app).put(`/api/attendance/${attendance.id}/checkout`)
+      .set("Authorization", token(supportId, "support"))
+      .send({});
+
+    const first = await checkout().expect(200);
+    const second = await checkout().expect(200);
+
+    expect(first.body).toMatchObject({ outcome: "applied", alreadyApplied: false });
+    expect(second.body).toMatchObject({
+      outcome: "already_applied",
+      alreadyApplied: true,
+      attendance: { id: Number(attendance.id), status: "picked_up" },
+      resolvedPickupRequestIds: [],
+    });
+    const rows = await db.execute(sql`SELECT id,status FROM attendance WHERE id=${attendance.id}`);
+    expect(rows.rows).toHaveLength(1);
+    expect(rows.rows[0]).toMatchObject({ status: "picked_up" });
+  });
+
+  it("never leaves an active pickup request when request creation races checkout", async () => {
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      await db.execute(sql`DELETE FROM pickup_requests WHERE child_id=${childId}`);
+      await db.execute(sql`DELETE FROM attendance WHERE child_id=${childId}`);
+      const attendance = (await db.execute(sql`
+        INSERT INTO attendance (child_id,class_id,service_date,service_slot,status)
+        VALUES (${childId},${classId},${today},'both','in_class')
+        RETURNING id
+      `)).rows[0] as { id: number };
+
+      const pickup = request(app).post("/api/pickup-requests")
+        .set("Authorization", token(parentId))
+        .send({ childId });
+      await new Promise(resolve => setTimeout(resolve, attempt + 1));
+      const checkout = request(app).put(`/api/attendance/${attendance.id}/checkout`)
+        .set("Authorization", token(supportId, "support"))
+        .send({});
+
+      const [pickupReply, checkoutReply] = await Promise.all([pickup, checkout]);
+      expect([200, 400]).toContain(pickupReply.status);
+      expect(checkoutReply.status).toBe(200);
+      expect(checkoutReply.body.attendance.status).toBe("picked_up");
+      const active = await db.execute(sql`
+        SELECT id FROM pickup_requests
+        WHERE child_id=${childId} AND service_date=${today} AND status='requested'
+      `);
+      expect(active.rows).toHaveLength(0);
+    }
   });
 
   it("does not expose a custody row whose family no longer owns its child", async () => {

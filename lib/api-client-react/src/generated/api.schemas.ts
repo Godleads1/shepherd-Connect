@@ -635,6 +635,21 @@ export interface CheckOutBody {
   notes?: string | null;
 }
 
+export type CheckoutResultOutcome =
+  (typeof CheckoutResultOutcome)[keyof typeof CheckoutResultOutcome];
+
+export const CheckoutResultOutcome = {
+  applied: "applied",
+  already_applied: "already_applied",
+} as const;
+
+export interface CheckoutResult {
+  outcome: CheckoutResultOutcome;
+  attendance: Attendance;
+  resolvedPickupRequestIds: number[];
+  alreadyApplied: boolean;
+}
+
 export interface ScanQrBody {
   qrCode: string;
   serviceDate: string;
