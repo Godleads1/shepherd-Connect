@@ -18,8 +18,8 @@ const CreateRecordBody = z.object({
 
 const UpdateRecordBody = CreateRecordBody.partial().omit({ teacherUserId: true });
 
-async function formatRecord(r: typeof safeguardingRecordsTable.$inferSelect) {
-  const [teacher] = await db.select().from(usersTable).where(eq(usersTable.id, r.teacherUserId));
+async function formatRecordWith(executor: any, r: typeof safeguardingRecordsTable.$inferSelect) {
+  const [teacher] = await executor.select().from(usersTable).where(eq(usersTable.id, r.teacherUserId));
   return {
     ...r,
     teacher: teacher ? { id: teacher.id, firstName: teacher.firstName, lastName: teacher.lastName, email: teacher.email } : null,
@@ -30,6 +30,10 @@ async function formatRecord(r: typeof safeguardingRecordsTable.$inferSelect) {
     })() : false,
     isExpired: r.expiryDate ? new Date(r.expiryDate) < new Date() : false,
   };
+}
+
+async function formatRecord(r: typeof safeguardingRecordsTable.$inferSelect) {
+  return formatRecordWith(db, r);
 }
 
 router.get("/safeguarding", authMiddleware, requireRoles("admin", "super_admin"), async (req, res): Promise<void> => {
@@ -62,17 +66,20 @@ router.get("/safeguarding/teacher/:teacherUserId", authMiddleware, async (req, r
 router.post("/safeguarding", authMiddleware, requireRoles("admin", "super_admin"), async (req, res): Promise<void> => {
   const parsed = CreateRecordBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: "Bad request", message: parsed.error.message }); return; }
-  const [record] = await db.insert(safeguardingRecordsTable).values({
-    teacherUserId: parsed.data.teacherUserId,
-    checkType: parsed.data.checkType,
-    referenceNumber: parsed.data.referenceNumber ?? null,
-    issuedDate: parsed.data.issuedDate ?? null,
-    expiryDate: parsed.data.expiryDate ?? null,
-    status: parsed.data.status,
-    notes: parsed.data.notes ?? null,
-    createdBy: req.user!.userId,
-  }).returning();
-  res.status(201).json(await formatRecord(record));
+  const record = await db.transaction(async tx => {
+    const [created] = await tx.insert(safeguardingRecordsTable).values({
+      teacherUserId: parsed.data.teacherUserId,
+      checkType: parsed.data.checkType,
+      referenceNumber: parsed.data.referenceNumber ?? null,
+      issuedDate: parsed.data.issuedDate ?? null,
+      expiryDate: parsed.data.expiryDate ?? null,
+      status: parsed.data.status,
+      notes: parsed.data.notes ?? null,
+      createdBy: req.user!.userId,
+    }).returning();
+    return formatRecordWith(tx, created);
+  });
+  res.status(201).json(record);
 });
 
 router.put("/safeguarding/:id", authMiddleware, requireRoles("admin", "super_admin"), async (req, res): Promise<void> => {
@@ -80,12 +87,15 @@ router.put("/safeguarding/:id", authMiddleware, requireRoles("admin", "super_adm
   if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
   const parsed = UpdateRecordBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: "Bad request", message: parsed.error.message }); return; }
-  const [record] = await db.update(safeguardingRecordsTable).set({
-    ...parsed.data,
-    updatedAt: new Date(),
-  }).where(eq(safeguardingRecordsTable.id, id)).returning();
+  const record = await db.transaction(async tx => {
+    const [updated] = await tx.update(safeguardingRecordsTable).set({
+      ...parsed.data,
+      updatedAt: new Date(),
+    }).where(eq(safeguardingRecordsTable.id, id)).returning();
+    return updated ? formatRecordWith(tx, updated) : null;
+  });
   if (!record) { res.status(404).json({ error: "Not found", message: "Record not found" }); return; }
-  res.json(await formatRecord(record));
+  res.json(record);
 });
 
 router.delete("/safeguarding/:id", authMiddleware, requireRoles("admin", "super_admin"), async (req, res): Promise<void> => {

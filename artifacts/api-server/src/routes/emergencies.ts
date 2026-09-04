@@ -17,13 +17,15 @@ import { scopeFamilyEmergencyUpdates, toFamilyEmergencyUpdateDto } from "../lib/
 
 const router = Router();
 
-async function formatEmergency(e: typeof emergenciesTable.$inferSelect) {
+type QueryExecutor = Pick<typeof db, "select">;
+
+async function formatEmergency(e: typeof emergenciesTable.$inferSelect, executor: QueryExecutor = db) {
   let child = null;
   if (e.childId) {
-    const [c] = await db.select().from(childrenTable).where(eq(childrenTable.id, e.childId));
+    const [c] = await executor.select().from(childrenTable).where(eq(childrenTable.id, e.childId));
     child = c || null;
   }
-  const [triggeredByUser] = await db.select().from(usersTable).where(eq(usersTable.id, e.triggeredBy));
+  const [triggeredByUser] = await executor.select().from(usersTable).where(eq(usersTable.id, e.triggeredBy));
   return {
     ...e,
     child,
@@ -33,8 +35,8 @@ async function formatEmergency(e: typeof emergenciesTable.$inferSelect) {
   };
 }
 
-async function formatUpdate(u: typeof emergencyUpdatesTable.$inferSelect) {
-  const [user] = await db.select().from(usersTable).where(eq(usersTable.id, u.userId));
+async function formatUpdate(u: typeof emergencyUpdatesTable.$inferSelect, executor: QueryExecutor = db) {
+  const [user] = await executor.select().from(usersTable).where(eq(usersTable.id, u.userId));
   return {
     ...u,
     user: user ? { id: user.id, firstName: user.firstName, lastName: user.lastName, role: user.role } : null,
@@ -90,7 +92,7 @@ router.get("/emergencies", authMiddleware, requireRoles(...STAFF_ROLES), async (
   const emergencies = await db.select().from(emergenciesTable)
     .where(conditions.length ? and(...conditions) : undefined)
     .orderBy(emergenciesTable.createdAt);
-  const formatted = await Promise.all(emergencies.map(formatEmergency));
+  const formatted = await Promise.all(emergencies.map(emergency => formatEmergency(emergency)));
   res.json(formatted);
 });
 
@@ -100,7 +102,10 @@ router.post("/emergencies", authMiddleware, requireRoles(...STAFF_ROLES), async 
   // Only admins/super_admins may alert parents. Emergencies reported by
   // teachers (or any other role) are routed to admins alone for review.
   const isAdmin = ["admin", "super_admin"].includes(req.user!.role);
-  const emergency = await db.transaction(async tx => {
+  // AUTHORITATIVE: emergency + audit update. REQUIRED TRANSACTIONAL OUTBOX/INTENT:
+  // broadcast intent. RESPONSE ENRICHMENT: child/triggering user, read before commit.
+  // A lost create response can still be retried into a duplicate; no idempotency key exists.
+  const formatted = await db.transaction(async tx => {
     const [created] = await tx.insert(emergenciesTable).values({
       ...parsed.data,
       triggeredBy: req.user!.userId,
@@ -122,10 +127,10 @@ router.post("/emergencies", authMiddleware, requireRoles(...STAFF_ROLES), async 
       childId: created.childId,
       adminsOnly: !isAdmin,
     });
-    return created;
+    return formatEmergency(created, tx);
   });
 
-  res.status(201).json(await formatEmergency(emergency));
+  res.status(201).json(formatted);
 });
 
 router.get("/emergencies/:id", authMiddleware, requireRoles(...STAFF_ROLES), async (req, res): Promise<void> => {
@@ -136,7 +141,7 @@ router.get("/emergencies/:id", authMiddleware, requireRoles(...STAFF_ROLES), asy
   const updates = await db.select().from(emergencyUpdatesTable)
     .where(eq(emergencyUpdatesTable.emergencyId, id))
     .orderBy(emergencyUpdatesTable.createdAt);
-  const formattedUpdates = await Promise.all(updates.map(formatUpdate));
+  const formattedUpdates = await Promise.all(updates.map(update => formatUpdate(update)));
   res.json({ ...(await formatEmergency(emergency)), updates: formattedUpdates });
 });
 
@@ -162,9 +167,14 @@ router.put("/emergencies/:id", authMiddleware, requireRoles("super_admin", "admi
   }
   if (parsed.data.level) updates.level = parsed.data.level as "L1" | "L2" | "L3" | "L4";
   if (parsed.data.resolutionNotes) updates.resolutionNotes = parsed.data.resolutionNotes;
-  const [emergency] = await db.update(emergenciesTable).set(updates).where(eq(emergenciesTable.id, id)).returning();
-  if (!emergency) { res.status(404).json({ error: "Not found", message: "Emergency not found" }); return; }
-  res.json(await formatEmergency(emergency));
+  // AUTHORITATIVE: emergency mutation. RESPONSE ENRICHMENT: child/triggering user;
+  // required response reads run in the same transaction so failure rolls back.
+  const formatted = await db.transaction(async tx => {
+    const [emergency] = await tx.update(emergenciesTable).set(updates).where(eq(emergenciesTable.id, id)).returning();
+    return emergency ? formatEmergency(emergency, tx) : null;
+  });
+  if (!formatted) { res.status(404).json({ error: "Not found", message: "Emergency not found" }); return; }
+  res.json(formatted);
 });
 
 router.put("/emergencies/:id/escalate", authMiddleware, requireRoles("super_admin", "admin"), async (req, res): Promise<void> => {
@@ -174,6 +184,8 @@ router.put("/emergencies/:id/escalate", authMiddleware, requireRoles("super_admi
   if (newLevel && !VALID_LEVELS.includes(newLevel as any)) {
     res.status(400).json({ error: "Bad request", message: `Invalid level. Must be one of: ${VALID_LEVELS.join(", ")}` }); return;
   }
+  // AUTHORITATIVE: lifecycle mutation + audit update. REQUIRED TRANSACTIONAL
+  // OUTBOX/INTENT: escalation broadcast. RESPONSE ENRICHMENT runs before commit.
   const outcome = await db.transaction(async tx => {
     // Serialize lifecycle generations. In particular, two retries requesting
     // the same level cannot each create a broadcast/audit generation.
@@ -182,7 +194,7 @@ router.put("/emergencies/:id/escalate", authMiddleware, requireRoles("super_admi
     if (!emergency) return null;
     const levelMap: Record<string, string> = { L1: "L2", L2: "L3", L3: "L4", L4: "L4" };
     const escalatedLevel = ((newLevel || levelMap[emergency.level]) as "L1" | "L2" | "L3" | "L4");
-    if (escalatedLevel === emergency.level) return emergency;
+    if (escalatedLevel === emergency.level) return formatEmergency(emergency, tx);
 
     const [updated] = await tx.update(emergenciesTable)
       .set({ level: escalatedLevel, status: "active" })
@@ -202,10 +214,10 @@ router.put("/emergencies/:id/escalate", authMiddleware, requireRoles("super_admi
       emergencyId: id,
       childId: emergency.childId,
     });
-    return updated;
+    return formatEmergency(updated, tx);
   });
   if (!outcome) { res.status(404).json({ error: "Not found", message: "Emergency not found" }); return; }
-  res.json(await formatEmergency(outcome));
+  res.json(outcome);
 });
 
 router.post("/emergencies/:id/update", authMiddleware, requireRoles(...STAFF_ROLES), async (req, res): Promise<void> => {
@@ -216,15 +228,21 @@ router.post("/emergencies/:id/update", authMiddleware, requireRoles(...STAFF_ROL
   if (updateType && !VALID_UPDATE_TYPES.includes(updateType as any)) {
     res.status(400).json({ error: "Bad request", message: `Invalid updateType. Must be one of: ${VALID_UPDATE_TYPES.join(", ")}` }); return;
   }
-  const [emergency] = await db.select().from(emergenciesTable).where(eq(emergenciesTable.id, id));
-  if (!emergency) { res.status(404).json({ error: "Not found", message: "Emergency not found" }); return; }
-  const [update] = await db.insert(emergencyUpdatesTable).values({
-    emergencyId: id,
-    userId: req.user!.userId,
-    message,
-    updateType: (updateType as "update" | "escalation" | "all_clear" | "note") || "update",
-  }).returning();
-  res.status(201).json(await formatUpdate(update));
+  // REQUIRED PRE-COMMIT VALIDATION: emergency existence. AUTHORITATIVE: update
+  // insertion. RESPONSE ENRICHMENT: author, read before the insert commits.
+  const formatted = await db.transaction(async tx => {
+    const [emergency] = await tx.select().from(emergenciesTable).where(eq(emergenciesTable.id, id));
+    if (!emergency) return null;
+    const [update] = await tx.insert(emergencyUpdatesTable).values({
+      emergencyId: id,
+      userId: req.user!.userId,
+      message,
+      updateType: (updateType as "update" | "escalation" | "all_clear" | "note") || "update",
+    }).returning();
+    return formatUpdate(update, tx);
+  });
+  if (!formatted) { res.status(404).json({ error: "Not found", message: "Emergency not found" }); return; }
+  res.status(201).json(formatted);
 });
 
 router.post("/emergencies/:id/family-update", authMiddleware, requireRoles("support", "admin", "super_admin"), async (req, res): Promise<void> => {
@@ -339,11 +357,13 @@ router.post("/emergencies/:id/all-clear", authMiddleware, requireRoles("super_ad
   const allClearMsg = notes
     ? `The emergency has been resolved. ${notes}`
     : "The emergency situation has been fully resolved. All children are safe. Normal operations resuming.";
+  // AUTHORITATIVE: resolution + audit update. REQUIRED TRANSACTIONAL OUTBOX/INTENT:
+  // all-clear deliveries. RESPONSE ENRICHMENT runs before commit.
   const emergency = await db.transaction(async tx => {
     const [current] = await tx.select().from(emergenciesTable)
       .where(eq(emergenciesTable.id, id)).for("update");
     if (!current) return null;
-    if (current.status === "resolved") return current;
+    if (current.status === "resolved") return formatEmergency(current, tx);
     const [resolved] = await tx.update(emergenciesTable).set({
       status: "resolved",
       resolvedAt: new Date(),
@@ -380,11 +400,11 @@ router.post("/emergencies/:id/all-clear", authMiddleware, requireRoles("super_ad
         templateMetadata: { emergencyId: id },
       });
     }
-    return resolved;
+    return formatEmergency(resolved, tx);
   });
   if (!emergency) { res.status(404).json({ error: "Not found", message: "Emergency not found" }); return; }
 
-  res.json(await formatEmergency(emergency));
+  res.json(emergency);
 });
 
 router.get("/emergencies/:id/updates", authMiddleware, requireRoles(...STAFF_ROLES), async (req, res): Promise<void> => {
@@ -393,7 +413,7 @@ router.get("/emergencies/:id/updates", authMiddleware, requireRoles(...STAFF_ROL
   const updates = await db.select().from(emergencyUpdatesTable)
     .where(eq(emergencyUpdatesTable.emergencyId, id))
     .orderBy(emergencyUpdatesTable.createdAt);
-  const formatted = await Promise.all(updates.map(formatUpdate));
+  const formatted = await Promise.all(updates.map(update => formatUpdate(update)));
   res.json(formatted);
 });
 

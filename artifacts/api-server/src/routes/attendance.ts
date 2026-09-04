@@ -202,10 +202,10 @@ router.post("/attendance", authMiddleware, requireRoles("super_admin", "admin", 
   const lockKey = Number(serviceDate.replace(/-/g, ""));
   type CheckInOutcome =
     | { kind: "blocked"; blockingSlot: string }
-    | { kind: "existing"; record: typeof attendanceTable.$inferSelect }
-    | { kind: "duplicate_event"; record: typeof attendanceTable.$inferSelect }
-    | { kind: "reset"; record: typeof attendanceTable.$inferSelect }
-    | { kind: "created"; record: typeof attendanceTable.$inferSelect };
+    | { kind: "existing"; record: Awaited<ReturnType<typeof formatAttendanceWith>> }
+    | { kind: "duplicate_event"; record: Awaited<ReturnType<typeof formatAttendanceWith>> }
+    | { kind: "reset"; record: Awaited<ReturnType<typeof formatAttendanceWith>> }
+    | { kind: "created"; record: Awaited<ReturnType<typeof formatAttendanceWith>> };
   let outcome: CheckInOutcome;
   try {
     outcome = await db.transaction(async (tx): Promise<CheckInOutcome> => {
@@ -240,7 +240,7 @@ router.post("/attendance", authMiddleware, requireRoles("super_admin", "admin", 
           if (!processed.attendanceId) throw new Error("Processed attendance event has no attendance record");
           const [prior] = await tx.select().from(attendanceTable).where(eq(attendanceTable.id, processed.attendanceId));
           if (!prior) throw new Error("Processed attendance event attendance record was not found");
-          return processedEventOutcome(prior);
+          return processedEventOutcome(await formatAttendanceWith(tx, prior));
         }
       }
       const dayRecords = await tx.select().from(attendanceTable)
@@ -271,7 +271,7 @@ router.post("/attendance", authMiddleware, requireRoles("super_admin", "admin", 
           if (!processed?.attendanceId) throw new Error("Processed attendance event has no attendance record");
           const [prior] = await tx.select().from(attendanceTable).where(eq(attendanceTable.id, processed.attendanceId));
           if (!prior) throw new Error("Processed attendance event attendance record was not found");
-          return processedEventOutcome(prior);
+          return processedEventOutcome(await formatAttendanceWith(tx, prior));
         }
         claimedEventId = claimed.id;
       }
@@ -285,7 +285,7 @@ router.post("/attendance", authMiddleware, requireRoles("super_admin", "admin", 
       if (existing) {
         if (existing.status !== "picked_up") {
           await finishEvent(existing);
-          return { kind: "existing", record: existing };
+            return { kind: "existing", record: await formatAttendanceWith(tx, existing) };
         }
         // Child was already picked up — reset for a new drop-off (e.g. second service,
         // or correcting a premature checkout). Treat this as a fresh check-in.
@@ -300,7 +300,7 @@ router.post("/attendance", authMiddleware, requireRoles("super_admin", "admin", 
         }).where(eq(attendanceTable.id, existing.id)).returning();
         await createAttendanceNotificationIntents(tx, reset, "checked_in_reset");
         await finishEvent(reset);
-        return { kind: "reset", record: reset };
+        return { kind: "reset", record: await formatAttendanceWith(tx, reset) };
       }
       const [inserted] = await tx.insert(attendanceTable).values({
         childId, classId, serviceDate, serviceSlot,
@@ -310,7 +310,7 @@ router.post("/attendance", authMiddleware, requireRoles("super_admin", "admin", 
       }).returning();
       await createAttendanceNotificationIntents(tx, inserted, "checked_in");
       await finishEvent(inserted);
-      return { kind: "created", record: inserted };
+      return { kind: "created", record: await formatAttendanceWith(tx, inserted) };
     });
   } catch (err: any) {
     if (err?.statusCode === 400) {
@@ -334,24 +334,29 @@ router.post("/attendance", authMiddleware, requireRoles("super_admin", "admin", 
   }
   if (outcome.kind === "reset") {
     const reset = outcome.record;
-    res.json(await formatAttendance(reset));
+    res.json(reset);
     return;
   }
   if (outcome.kind === "existing" || outcome.kind === "duplicate_event") {
     const existing = outcome.record;
-    res.json(await formatAttendance(existing));
+    res.json(existing);
     return;
   }
   const record = outcome.record;
 
   // Resolve the family's "on our way" signal — but only once every intended
   // child/slot in the selection is checked in (partial check-ins keep it open)
-  db.select().from(childrenTable).where(eq(childrenTable.id, childId)).then(async ([child]) => {
-    if (!child?.familyId) return;
-    await resolveDropOffIntentIfFulfilled(child.familyId, serviceDate);
-  }).catch(() => {});
+  void Promise.resolve()
+    .then(() => db.select().from(childrenTable).where(eq(childrenTable.id, childId)))
+    .then(async ([child]) => {
+      if (!child?.familyId) return;
+      await resolveDropOffIntentIfFulfilled(child.familyId, serviceDate);
+    })
+    .catch((err) => {
+      req.log.warn({ err, childId, serviceDate }, "check-in: could not resolve drop-off intent");
+    });
 
-  res.status(201).json(await formatAttendance(record));
+  res.status(201).json(record);
 });
 
 /**
@@ -393,16 +398,16 @@ router.post("/attendance/bulk-escort", authMiddleware, requireRoles("super_admin
 router.put("/attendance/:id/escort", authMiddleware, requireRoles("super_admin", "admin", "support", "attendant"), async (req, res): Promise<void> => {
   const id = parseInt(req.params.id as string, 10);
   if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
-  const [record] = await db.transaction(async tx => {
+  const record = await db.transaction(async tx => {
     const result = await tx.update(attendanceTable).set({
       status: "in_transit", escortTime: new Date(), escortedBy: req.user!.userId,
     }).where(and(eq(attendanceTable.id, id), eq(attendanceTable.status, "dropped_off"))).returning();
     if (result[0]) await createAttendanceNotificationIntents(tx, result[0], "in_transit");
-    return result;
+    return result[0] ? formatAttendanceWith(tx, result[0]) : null;
   });
   if (!record) { res.status(404).json({ error: "Not found", message: "Attendance record not found or not in dropped_off state" }); return; }
 
-  res.json(await formatAttendance(record));
+  res.json(record);
 });
 
 /**
@@ -509,14 +514,14 @@ router.put("/attendance/:id/arrive", authMiddleware, requireRoles("super_admin",
   }
 
   const now = new Date();
-  const [record] = await db.transaction(async tx => {
+  const record = await db.transaction(async tx => {
     const result = await tx.update(attendanceTable).set({
       status: "in_class", classArrivalTime: now, confirmedByTeacherId: req.user!.userId,
     }).where(and(
       eq(attendanceTable.id, id), inArray(attendanceTable.status, ["dropped_off", "in_transit"]),
     )).returning();
     if (result[0]) await createAttendanceNotificationIntents(tx, result[0], "arrived");
-    return result;
+    return result[0] ? formatAttendanceWith(tx, result[0]) : null;
   });
 
   if (!record) {
@@ -526,7 +531,7 @@ router.put("/attendance/:id/arrive", authMiddleware, requireRoles("super_admin",
     return;
   }
 
-  res.json(await formatAttendance(record));
+  res.json(record);
 });
 
 class CheckoutOperationRouteError extends Error {

@@ -11,7 +11,8 @@ import { ObjectStorageService } from "../lib/objectStorage";
 import { bindObjectToResource, registerPendingObject } from "../lib/privateObjectAccess";
 import { convertPptxToPdf, looksLikePowerPoint, PptxBusyError, PptxConversionError, MAX_PPTX_BYTES } from "../lib/pptxToPdf";
 import { eq, and, gt, isNull, sql, inArray, type SQL } from "drizzle-orm";
-import { sendNotification, getClassTeacherUserIds } from "../lib/notify";
+import { getClassTeacherUserIds } from "../lib/notify";
+import { createNotificationDelivery } from "../services/notificationOutbox";
 import {
   canAccessClass,
   canCreatePickupRequest,
@@ -31,6 +32,11 @@ import {
 } from "../services/classroomDisplayAlerts";
 
 const router = Router();
+
+export const pickupRequestRouteDependencies = {
+  createNotificationDelivery,
+  broadcastDisplayMedia: null as null | ((classId: number) => Promise<void>),
+};
 
 interface PickupRequest {
   id: string;
@@ -110,6 +116,10 @@ function publicQueue(queue: PickupRequest[]) {
 
 /** Shared durable pickup command for HTTP and verified bot callers. */
 export async function createParentPickupRequest(parentUserId: number, childId: number) {
+  // Classification: the pickup row is AUTHORITATIVE; ownership, attendance,
+  // child/class/parent and teacher-recipient reads are REQUIRED PRE-COMMIT
+  // VALIDATION; teacher notifications and class refresh are REQUIRED
+  // TRANSACTIONAL OUTBOX/INTENT; response shaping is RESPONSE ENRICHMENT.
   if (!(await parentOwnsChild(parentUserId, childId))) {
     throw new ParentPickupRequestError(403, "You can only request pickup for your own children");
   }
@@ -136,6 +146,9 @@ export async function createParentPickupRequest(parentUserId: number, childId: n
       .where(eq(classesTable.id, merge.targetClassId));
     if (hostClass) routingClassName = hostClass.name;
   }
+  const pickupMsg = merge
+    ? `${parentName} is here to collect ${childName} (from ${childClassName}, merged with ${routingClassName}). Please prepare for handover.`
+    : `${parentName} is here to collect ${childName} from ${childClassName}. Please prepare for handover.`;
   const inserted = await db.transaction(async tx => {
     const lockKey = Number(today.replace(/-/g, ""));
     await tx.execute(sql`SELECT pg_advisory_xact_lock(${childId}, ${lockKey})`);
@@ -149,7 +162,30 @@ export async function createParentPickupRequest(parentUserId: number, childId: n
       childId, classId: routingClassId, serviceDate: today, requestedBy: parentUserId,
       childName, parentName, className: routingClassName, homeClassName: merge ? childClassName : null,
     }).onConflictDoNothing().returning();
-    if (rows.length) await notifyClassRefresh(tx, [routingClassId]);
+    if (rows.length) {
+      // Required only for a newly inserted command. Keeping this inside the
+      // commit boundary rolls the pickup row back if recipient resolution
+      // fails, while response-loss retries can recover an existing row without
+      // depending on that read.
+      const teacherUserIds = await getClassTeacherUserIds(routingClassId, today);
+      await notifyClassRefresh(tx, [routingClassId]);
+      for (const userId of teacherUserIds) {
+        await pickupRequestRouteDependencies.createNotificationDelivery(tx, {
+          logicalIdentity: `pickup-request:${rows[0].id}:recipient:${userId}`,
+          domainType: "pickup_request",
+          domainIdentifier: String(rows[0].id),
+          projection: {
+            userId,
+            type: "pickup_request",
+            title: "Pickup Request",
+            message: pickupMsg,
+          },
+          channels: ["whatsapp"],
+          templateKey: "pickup_request",
+          templateMetadata: { pickupRequestId: rows[0].id, childId, classId: routingClassId },
+        });
+      }
+    }
     return rows;
   });
   const duplicate = inserted.length === 0;
@@ -159,15 +195,6 @@ export async function createParentPickupRequest(parentUserId: number, childId: n
   )).limit(1))[0];
   if (!row) throw new ParentPickupRequestError(409, "Could not create or recover the pickup signal");
   const request = pickupRequestFromRow(row);
-  if (!duplicate) {
-    const teacherUserIds = await getClassTeacherUserIds(routingClassId, today);
-    const pickupMsg = merge
-      ? `${parentName} is here to collect ${childName} (from ${childClassName}, merged with ${routingClassName}). Please prepare for handover.`
-      : `${parentName} is here to collect ${childName} from ${childClassName}. Please prepare for handover.`;
-    await Promise.all(teacherUserIds.map(userId => sendNotification({
-      userId, type: "pickup_request", title: "Pickup Request", message: pickupMsg,
-    })));
-  }
   return { duplicate, request: publicRequest(request), childName };
 }
 
@@ -291,6 +318,19 @@ async function broadcastDisplayMedia(classId: number) {
     type: "media",
     media: await getClientDisplayMedia(classId),
   });
+}
+
+export async function broadcastDisplayMediaAfterCommit(
+  classId: number,
+  log: { warn(context: unknown, message: string): unknown },
+  broadcast: (classId: number) => Promise<void> =
+    pickupRequestRouteDependencies.broadcastDisplayMedia ?? broadcastDisplayMedia,
+): Promise<void> {
+  try {
+    await broadcast(classId);
+  } catch (error) {
+    log.warn({ err: error, classId }, "Classroom display media broadcast failed after mutation committed");
+  }
 }
 
 router.get("/pickup-requests/stream/:classNumber", async (req, res): Promise<void> => {
@@ -483,6 +523,9 @@ router.get("/pickup-requests/display-media/:classId", authMiddleware, async (req
 });
 
 router.put("/pickup-requests/display-media/:classId", authMiddleware, async (req, res): Promise<void> => {
+  // Classification: the persisted media mutation is AUTHORITATIVE; validation,
+  // object verification/conversion and conflict guards are REQUIRED PRE-COMMIT
+  // VALIDATION; the SSE broadcast is an OPTIONAL SECONDARY EFFECT.
   const classId = Number(req.params.classId);
   if (!Number.isInteger(classId) || classId <= 0) {
     res.status(400).json({ error: "Bad request", message: "Invalid class ID" });
@@ -666,12 +709,14 @@ router.put("/pickup-requests/display-media/:classId", authMiddleware, async (req
       });
   }
 
-  await broadcastDisplayMedia(classId);
+  await broadcastDisplayMediaAfterCommit(classId, req.log);
   req.log.info({ classId, kind: values.kind }, "Classroom display media updated");
   res.json({ success: true });
 });
 
 router.delete("/pickup-requests/display-media/:classId", authMiddleware, async (req, res): Promise<void> => {
+  // Classification: deletion is AUTHORITATIVE and the SSE broadcast is an
+  // OPTIONAL SECONDARY EFFECT.
   const classId = Number(req.params.classId);
   if (!Number.isInteger(classId) || classId <= 0) {
     res.status(400).json({ error: "Bad request", message: "Invalid class ID" });
@@ -682,7 +727,7 @@ router.delete("/pickup-requests/display-media/:classId", authMiddleware, async (
     return;
   }
   await db.delete(classDisplayMediaTable).where(eq(classDisplayMediaTable.classId, classId));
-  await broadcastDisplayMedia(classId);
+  await broadcastDisplayMediaAfterCommit(classId, req.log);
   req.log.info({ classId }, "Classroom display media cleared");
   res.json({ success: true });
 });
@@ -789,6 +834,9 @@ router.get("/pickup-requests", authMiddleware, requireRoles("super_admin", "admi
 });
 
 router.post("/pickup-requests", authMiddleware, async (req, res): Promise<void> => {
+  // Classification is implemented by createParentPickupRequest above. A retry
+  // after response loss is recovered by the active-request uniqueness rule;
+  // no new client idempotency contract is invented here.
   const parsed = CreateParentPickupRequestBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "Bad request", message: parsed.error.message });

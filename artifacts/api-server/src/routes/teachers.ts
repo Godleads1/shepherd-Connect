@@ -32,11 +32,11 @@ function sanitizeUser(user: typeof usersTable.$inferSelect) {
   };
 }
 
-async function formatTeacher(t: typeof teachersTable.$inferSelect) {
-  const [user] = await db.select().from(usersTable).where(eq(usersTable.id, t.userId));
+async function formatTeacher(t: typeof teachersTable.$inferSelect, query: Pick<typeof db, "select"> = db) {
+  const [user] = await query.select().from(usersTable).where(eq(usersTable.id, t.userId));
   let primaryClass: { id: number; name: string } | null = null;
   if (user?.primaryClassId) {
-    const [cls] = await db.select().from(classesTable).where(eq(classesTable.id, user.primaryClassId));
+    const [cls] = await query.select().from(classesTable).where(eq(classesTable.id, user.primaryClassId));
     if (cls) primaryClass = { id: cls.id, name: cls.name };
   }
   return { ...t, user: user ? sanitizeUser(user) : null, primaryClass };
@@ -89,10 +89,13 @@ router.get("/teachers", authMiddleware, async (_req, res): Promise<void> => {
 });
 
 router.post("/teachers", authMiddleware, requireRoles("super_admin", "admin"), async (req, res): Promise<void> => {
+  // REQUIRED PRE-COMMIT VALIDATION: body and locked user existence.
+  // PARTIAL-MULTI-WRITE COMMAND: teacher creation plus authoritative user role activation.
+  // RESPONSE ENRICHMENT: user/class reads are required in that same transaction.
   try {
     const parsed = CreateTeacherBody.safeParse(req.body);
     if (!parsed.success) { res.status(400).json({ error: "Bad request", message: parsed.error.message }); return; }
-    const teacher = await db.transaction(async tx => {
+    const response = await db.transaction(async tx => {
       const user = await lockUserById(tx, parsed.data.userId);
       if (!user) throw new Error("Teacher user not found");
       const [created] = await tx.insert(teachersTable).values(parsed.data).returning();
@@ -107,9 +110,9 @@ router.post("/teachers", authMiddleware, requireRoles("super_admin", "admin"), a
           pendingRoles: JSON.stringify(canonicalPendingRoles(user.pendingRoles)),
         })
         .where(eq(usersTable.id, parsed.data.userId));
-      return created;
+      return formatTeacher(created, tx);
     });
-    res.status(201).json(await formatTeacher(teacher));
+    res.status(201).json(response);
   } catch (err) {
     req.log.error({ err }, "Failed to create teacher");
     res.status(500).json({ error: "Failed to create teacher" });
@@ -130,6 +133,8 @@ router.get("/teachers/:id", authMiddleware, async (req, res): Promise<void> => {
 });
 
 router.put("/teachers/:id", authMiddleware, requireRoles("super_admin", "admin"), async (req, res): Promise<void> => {
+  // REQUIRED PRE-COMMIT VALIDATION: id, body, teacher existence, and locked user existence.
+  // AUTHORITATIVE: user profile/role update. RESPONSE ENRICHMENT: user/class reads are required in the same transaction.
   try {
     const id = parseInt(req.params.id as string, 10);
     if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
@@ -152,10 +157,10 @@ router.put("/teachers/:id", authMiddleware, requireRoles("super_admin", "admin")
       };
       if (primaryClassId !== undefined) updates.primaryClassId = primaryClassId;
       await tx.update(usersTable).set(updates).where(eq(usersTable.id, teacher.userId));
-      return { kind: "updated" as const, teacher };
+      return { kind: "updated" as const, response: await formatTeacher(teacher, tx) };
     });
     if (result.kind === "notFound") { res.status(404).json({ error: "Not found", message: "Teacher not found" }); return; }
-    res.json(await formatTeacher(result.teacher));
+    res.json(result.response);
   } catch (err) {
     req.log.error({ err }, "Failed to update teacher");
     res.status(500).json({ error: "Failed to update teacher" });

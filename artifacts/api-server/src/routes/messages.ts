@@ -7,6 +7,7 @@ import { pushEvent } from "../lib/sse";
 import { z } from "zod";
 
 const router = Router();
+type QueryExecutor = Pick<typeof db, "select">;
 
 const SendMessageBody = z.object({
   recipientId: z.number(),
@@ -17,16 +18,16 @@ const SendMessageBody = z.object({
 
 type RawMessage = typeof messagesTable.$inferSelect;
 
-async function attachParticipants(messages: RawMessage[]) {
+async function attachParticipants(messages: RawMessage[], executor: QueryExecutor = db) {
   if (messages.length === 0) return [];
 
   const userIds = [...new Set(messages.flatMap(m => [m.senderId, m.recipientId]))];
   const childIds = [...new Set(messages.map(m => m.childId).filter((id): id is number => id != null))];
 
   const [users, children] = await Promise.all([
-    db.select().from(usersTable).where(inArray(usersTable.id, userIds)),
+    executor.select().from(usersTable).where(inArray(usersTable.id, userIds)),
     childIds.length > 0
-      ? db.select().from(childrenTable).where(inArray(childrenTable.id, childIds))
+      ? executor.select().from(childrenTable).where(inArray(childrenTable.id, childIds))
       : Promise.resolve([]),
   ]);
 
@@ -195,15 +196,22 @@ router.post("/messages", authMiddleware, async (req, res): Promise<void> => {
     return;
   }
 
-  const [message] = await db.insert(messagesTable).values({
-    senderId: req.user!.userId,
-    recipientId: parsed.data.recipientId,
-    childId: parsed.data.childId,
-    subject: parsed.data.subject,
-    body: parsed.data.body,
-    isRead: false,
-  }).returning();
-  const [formatted] = await attachParticipants([message]);
+  // REQUIRED PRE-COMMIT VALIDATION: contact and child scope. AUTHORITATIVE:
+  // message insert. RESPONSE ENRICHMENT: participants, read before commit.
+  // OPTIONAL SECONDARY EFFECTS: notification dispatch and SSE push.
+  // Response loss can still cause duplicate sends; no idempotency key is available.
+  const { message, formatted } = await db.transaction(async tx => {
+    const [message] = await tx.insert(messagesTable).values({
+      senderId: req.user!.userId,
+      recipientId: parsed.data.recipientId,
+      childId: parsed.data.childId,
+      subject: parsed.data.subject,
+      body: parsed.data.body,
+      isRead: false,
+    }).returning();
+    const [formatted] = await attachParticipants([message], tx);
+    return { message, formatted };
+  });
 
   // Fire-and-forget: notify recipient via their preferred external channel (WhatsApp/SMS)
   const senderName = formatted.sender
@@ -220,10 +228,16 @@ router.post("/messages", authMiddleware, async (req, res): Promise<void> => {
     title: subject,
     message: `${senderName} sent you a message: ${parsed.data.body.slice(0, 120)}${parsed.data.body.length > 120 ? "…" : ""}`,
     metadata: { messageId: message.id, senderId: req.user!.userId },
-  }).catch(() => {});
+  }).catch(error => {
+    req.log.warn({ err: error, messageId: message.id }, "Failed to dispatch optional new-message notification");
+  });
 
   // Push real-time SSE event so the recipient's app updates instantly
-  pushEvent(parsed.data.recipientId, "new_message", { senderId: req.user!.userId });
+  try {
+    pushEvent(parsed.data.recipientId, "new_message", { senderId: req.user!.userId });
+  } catch (error) {
+    req.log.warn({ err: error, messageId: message.id }, "Failed to push optional new-message SSE event");
+  }
 
   res.status(201).json(formatted);
 });
@@ -231,10 +245,16 @@ router.post("/messages", authMiddleware, async (req, res): Promise<void> => {
 router.put("/messages/:id/read", authMiddleware, async (req, res): Promise<void> => {
   const id = parseInt(req.params.id as string, 10);
   if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
-  const [message] = await db.update(messagesTable).set({ isRead: true })
-    .where(and(eq(messagesTable.id, id), eq(messagesTable.recipientId, req.user!.userId))).returning();
-  if (!message) { res.status(404).json({ error: "Not found" }); return; }
-  const [formatted] = await attachParticipants([message]);
+  // AUTHORITATIVE: read-state update. RESPONSE ENRICHMENT: participants, read
+  // before commit so formatter failure cannot follow a committed mutation.
+  const formatted = await db.transaction(async tx => {
+    const [message] = await tx.update(messagesTable).set({ isRead: true })
+      .where(and(eq(messagesTable.id, id), eq(messagesTable.recipientId, req.user!.userId))).returning();
+    if (!message) return null;
+    const [enriched] = await attachParticipants([message], tx);
+    return enriched;
+  });
+  if (!formatted) { res.status(404).json({ error: "Not found" }); return; }
   res.json(formatted);
 });
 

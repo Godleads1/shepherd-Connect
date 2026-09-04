@@ -1,0 +1,581 @@
+PHASE 3 IMPLEMENTATION — SECONDARY WORK / COMMIT-OUTCOME RELIABILITY
+
+The Phase 3 diagnostic investigation is approved.
+
+You are now authorized to IMPLEMENT Phase 3, but only within the narrowly defined scope below.
+
+Do not interpret this as permission for a general reliability refactor.
+
+==================================================
+PRIMARY OBJECTIVE
+==================================================
+
+Ensure that failure of NON-AUTHORITATIVE secondary work cannot make an already-committed authoritative mutation appear to have failed.
+
+The governing rule is:
+
+AUTHORITATIVE BUSINESS OUTCOME
+must be determined by the authoritative transaction/state transition.
+
+SECONDARY WORK
+must not redefine that outcome after commit.
+
+Do not apply checkout-style operation identity to every route.
+
+Do not create a universal idempotency framework.
+
+Do not redesign the application globally.
+
+==================================================
+MANDATORY PRE-IMPLEMENTATION STEP
+==================================================
+
+Before changing each route, create a route-level classification:
+
+1. AUTHORITATIVE
+2. REQUIRED PRE-COMMIT VALIDATION
+3. REQUIRED TRANSACTIONAL OUTBOX/INTENT
+4. OPTIONAL SECONDARY EFFECT
+5. RESPONSE ENRICHMENT
+6. PARTIAL-MULTI-WRITE COMMAND
+
+For every route you modify, document internally which category each operation belongs to.
+
+If classification is uncertain, STOP implementation for that route and report it.
+
+Do not guess.
+
+==================================================
+SCOPE A — POST-COMMIT RESPONSE ENRICHMENT
+==================================================
+
+Implement only the 32 confirmed formatter routes identified in the Phase 3 diagnostic.
+
+These include:
+
+ATTENDANCE
+- POST /attendance
+- PUT /attendance/:id/escort
+- PUT /attendance/:id/arrive
+
+SAFEGUARDING
+- POST /safeguarding
+- PUT /safeguarding/:id
+
+SUBSTITUTE REQUESTS
+- POST /substitute-requests
+- PUT /substitute-requests/:id/assign
+- PUT /substitute-requests/:id/status
+
+EMERGENCIES
+- POST /emergencies
+- PUT /emergencies/:id
+- PUT /emergencies/:id/escalate
+- POST /emergencies/:id/update
+- POST /emergencies/:id/all-clear
+
+APPRAISALS
+- POST /appraisals
+
+CLASSES
+- POST /classes
+- PUT /classes/:id
+
+TEACHER ALLOCATIONS
+- POST /teacher-allocations
+- PUT /teacher-allocations/:id
+- POST /teacher-allocations/:id/swap
+- POST /teacher-allocations/:id/mark-unavailable
+
+CHILDREN
+- POST /children
+- PUT /children/:id
+- PUT /children/:id/face-descriptor
+
+TEACHERS
+- POST /teachers
+- PUT /teachers/:id
+
+FAMILIES
+- POST /families
+- PUT /families/:id
+
+CLASS CHANGE REQUESTS
+- POST /class-change-requests
+- PUT /class-change-requests/:id/approve
+- PUT /class-change-requests/:id/reject
+
+MESSAGES
+- POST /messages
+- PUT /messages/:id/read
+
+For each route, choose the safest minimal solution:
+
+OPTION 1:
+Build the authoritative response directly from RETURNING/transaction data.
+
+OPTION 2:
+Move genuinely required response reads inside the transaction.
+
+OPTION 3:
+Make optional enrichment unable to convert an authoritative success into failure.
+
+Prefer Option 1 where practical.
+
+Do not unnecessarily change response schemas.
+
+Preserve existing API response shapes unless a change is unavoidable.
+
+Do not silently remove fields.
+
+If a response field cannot safely be populated after commit, determine whether it is:
+- authoritative and therefore belongs inside the transaction, or
+- presentation-only and can safely degrade.
+
+If neither can be established, STOP for that route and report it.
+
+==================================================
+CRITICAL CREATE-ROUTE REQUIREMENT
+==================================================
+
+For CREATE routes, explicitly consider response-loss/retry risk.
+
+Do NOT automatically add operation IDs.
+
+Instead determine:
+
+"If the database mutation commits but the HTTP response is lost, what happens if the user retries?"
+
+If duplicate creation is possible, report it as a separate remaining reliability risk.
+
+Do not solve that risk with an improvised idempotency mechanism during this phase.
+
+==================================================
+SCOPE B — NOTIFICATION INTENT
+==================================================
+
+Implement the 8 confirmed routes:
+
+- POST /pickup-requests
+- POST /pickup-delegates/:id/notify-parent
+- POST /teacher-allocations/assign-duty
+- POST /teacher-allocations/auto-schedule
+- POST /teacher-allocations/:id/swap
+- POST /teacher-allocations/:id/mark-unavailable
+- POST /pickup-delegates
+- POST /family-assist/delegate
+
+For EACH route independently classify the notification as:
+
+A. REQUIRED TO THE BUSINESS COMMAND
+
+OR
+
+B. OPTIONAL SECONDARY EFFECT
+
+Do not assume.
+
+### If REQUIRED:
+
+The notification intent/outbox write must participate in the authoritative transaction.
+
+Desired sequence:
+
+AUTHORITATIVE DOMAIN MUTATION
++
+REQUIRED NOTIFICATION INTENT
+↓
+SINGLE TRANSACTION
+↓
+COMMIT
+↓
+HTTP SUCCESS
+↓
+ASYNC PROVIDER DELIVERY
+
+If the required outbox write fails before commit:
+
+- authoritative mutation must not commit
+- HTTP failure is legitimate
+
+If it succeeds:
+
+- later provider delivery must not redefine HTTP success
+
+### If OPTIONAL:
+
+The authoritative mutation commits independently.
+
+Optional notification work must not redefine HTTP success.
+
+It may be:
+- best effort,
+- asynchronously queued,
+- logged,
+- retried by existing infrastructure.
+
+Do not introduce a new worker unless absolutely necessary.
+
+Reuse the existing notification/outbox architecture.
+
+==================================================
+IMPORTANT BATCH RULE
+==================================================
+
+The diagnostic identified separate partial-command risks in:
+
+- assign-duty
+- auto-schedule
+- family-assist guest creation
+- other multi-write commands
+
+Do NOT accidentally "fix" these merely by moving notification writes.
+
+For assign-duty and auto-schedule:
+
+Determine whether the domain operation is intended to be:
+
+ALL-OR-NOTHING
+
+or
+
+PARTIAL SUCCESS BY DESIGN.
+
+If this cannot be established from current application behavior/contracts, DO NOT change the batch transactionality in this Phase 3 implementation.
+
+Report it separately as a remaining risk.
+
+==================================================
+SCOPE C — CLASSROOM DISPLAY MEDIA
+==================================================
+
+Implement only:
+
+- PUT /pickup-requests/display-media/:classId
+- DELETE /pickup-requests/display-media/:classId
+
+Required behavior:
+
+The persisted media mutation is authoritative.
+
+The broadcast is secondary.
+
+Therefore:
+
+DB mutation
+↓
+COMMIT
+↓
+HTTP SUCCESS
+
+Broadcast must not redefine the HTTP result.
+
+The existing process-local broadcast can remain best-effort if that is the safest minimal change.
+
+Do not redesign SSE.
+
+Do not introduce durable realtime fanout in this phase.
+
+Do not redesign TV synchronization.
+
+A later TV refresh must still be able to read authoritative persisted state.
+
+==================================================
+DO NOT TOUCH
+==================================================
+
+Do NOT modify:
+
+- checkout operation/reconciliation
+- checkout operation table
+- checkout operation frontend state machine
+- authentication/session revocation
+- role switching
+- offline queue
+- duplicate child data
+- family deletion
+- child deletion
+- class-change multi-write architecture beyond the confirmed formatter issue
+- SSE architecture
+- WebSocket architecture
+- WhatsApp provider architecture
+- notification workers unless required to preserve existing architecture
+- unrelated routes
+- universal idempotency
+- production database
+- production data
+- production deployment
+
+The 7 adjacent partial-command risks from the diagnostic remain OUT OF SCOPE.
+
+Do not silently fold them into Phase 3.
+
+==================================================
+TESTING REQUIREMENTS
+==================================================
+
+This is mandatory.
+
+For EVERY modified route, test the relevant failure boundary.
+
+### Response enrichment
+
+Simulate:
+
+authoritative mutation succeeds
++
+post-commit enrichment fails
+
+Verify one of:
+
+A. authoritative mutation is rolled back because the read was moved inside the transaction
+
+OR
+
+B. HTTP still returns authoritative success without requiring the enrichment
+
+Never allow:
+
+COMMIT
+→ enrichment failure
+→ HTTP 500
+
+for an authoritative successful mutation.
+
+### Notification intent
+
+Test:
+
+1. authoritative mutation succeeds + required outbox succeeds
+   → HTTP success
+
+2. authoritative mutation + required outbox fails
+   → transaction rollback + legitimate failure
+
+3. authoritative mutation succeeds + optional notification fails
+   → HTTP success
+
+4. provider delivery failure after commit
+   → originating mutation remains successful
+
+### Display media
+
+Test:
+
+1. PUT mutation succeeds + broadcast succeeds
+   → HTTP success
+
+2. PUT mutation succeeds + broadcast fails
+   → HTTP success
+
+3. DELETE mutation succeeds + broadcast fails
+   → HTTP success
+
+4. persisted state remains correct
+
+5. later read/refresh still returns correct media state
+
+### Create-route retry safety
+
+For each modified CREATE route, explicitly inspect response-loss retry behavior.
+
+If a duplicate can occur:
+
+- do NOT invent a solution
+- document it as a remaining Phase 3/Phase 4 reliability risk
+
+==================================================
+TEST FAULT INJECTION
+==================================================
+
+Where practical, use test-only fault injection/mocks.
+
+Do not introduce production fault-injection behavior.
+
+The tests must demonstrate the actual failure boundary, not merely test helper functions in isolation.
+
+Prefer tests that prove:
+
+COMMIT OCCURRED
++
+SECONDARY FAILURE OCCURRED
++
+HTTP OUTCOME REMAINED CORRECT
+
+This is more valuable than merely testing that an exception was caught.
+
+==================================================
+API CONTRACT
+==================================================
+
+Avoid API changes.
+
+If an API response must change:
+
+STOP and report:
+
+- route
+- current contract
+- proposed change
+- why it is necessary
+
+Do not silently change generated clients/spec.
+
+If no contract change is needed, preserve the existing response schema.
+
+==================================================
+DATABASE
+==================================================
+
+No new tables should be required for Scope A, B, or C.
+
+Reuse existing transactions and notification/outbox infrastructure.
+
+Do not modify production schema/data.
+
+If a schema change unexpectedly appears necessary:
+
+STOP that part and report it before proceeding.
+
+==================================================
+VALIDATION
+==================================================
+
+After implementation run:
+
+1. Focused Phase 3 tests
+2. Relevant existing backend tests
+3. Relevant frontend tests
+4. Root pnpm test gate
+5. API typecheck
+6. Database typecheck
+7. Shepherd Connect typecheck
+8. API production build
+9. Shepherd Connect production build
+
+Do not skip tests because the change appears mechanical.
+
+Restart development workflows only if required.
+
+Verify preview behavior and browser console if practical.
+
+==================================================
+FINAL REPORT REQUIRED
+==================================================
+
+Return:
+
+# PHASE 3 IMPLEMENTATION REPORT
+
+## 1. Executive Summary
+
+- routes modified
+- routes intentionally left untouched
+- failure points fixed
+- remaining risks
+- highest remaining severity
+
+## 2. Route-by-Route Changes
+
+For every changed route:
+
+- route
+- authoritative transition
+- commit boundary
+- secondary work
+- old behavior
+- new behavior
+- why the new behavior is correct
+
+## 3. Response-Enrichment Changes
+
+List all formatter routes modified.
+
+State whether each was:
+
+- moved inside transaction
+- replaced with RETURNING/authoritative data
+- made optional/non-authoritative
+
+## 4. Notification Changes
+
+For each of the 8 routes:
+
+- REQUIRED or OPTIONAL
+- justification
+- transaction behavior
+- outbox behavior
+- provider behavior
+
+## 5. Display Broadcast Changes
+
+Explain PUT and DELETE behavior and prove broadcast failure cannot redefine HTTP success.
+
+## 6. Remaining Risks
+
+Explicitly report:
+
+- create response-loss duplicate risks
+- partial batch risks
+- realtime cross-instance limitations
+- any other risks discovered
+
+Do not hide unresolved risks.
+
+## 7. Tests
+
+Report exact counts/results.
+
+Include the fault-injection tests and what they prove.
+
+## 8. Typechecks / Builds
+
+Report each result.
+
+## 9. API Contract
+
+State whether the API contract changed.
+
+If yes, explain exactly why.
+
+## 10. Database
+
+State:
+
+- schema changed or not
+- migrations created or not
+- development data changed or not
+- production changed or not
+
+## 11. Files Changed
+
+List exact files.
+
+## 12. DO-NOT-TOUCH VERIFICATION
+
+Confirm Phase 2 checkout and all excluded areas remain unchanged.
+
+## 13. Git / Deployment
+
+Report:
+
+- git diff summary
+- unexpected files
+- production deployment status
+- production DB status
+
+==================================================
+FINAL STOP CONDITION
+==================================================
+
+After completing Phase 3 implementation and report:
+
+STOP.
+
+Do NOT begin Phase 4.
+
+Do NOT proactively fix the remaining risks.
+
+Do NOT make additional architectural changes.
+
+Wait for explicit approval for the next phase.

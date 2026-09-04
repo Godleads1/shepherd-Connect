@@ -20,14 +20,14 @@ function generateFamilyCode(): string {
   return "FAM-" + Math.random().toString(36).slice(2, 8).toUpperCase();
 }
 
-async function formatFamily(family: typeof familiesTable.$inferSelect) {
+export async function formatFamily(family: typeof familiesTable.$inferSelect, query: Pick<typeof db, "select"> = db) {
   const [parent1] = family.parent1Id
-    ? await db.select().from(usersTable).where(eq(usersTable.id, family.parent1Id))
+    ? await query.select().from(usersTable).where(eq(usersTable.id, family.parent1Id))
     : [null];
   const [parent2] = family.parent2Id
-    ? await db.select().from(usersTable).where(eq(usersTable.id, family.parent2Id))
+    ? await query.select().from(usersTable).where(eq(usersTable.id, family.parent2Id))
     : [null];
-  const children = await db
+  const children = await query
     .select()
     .from(childrenTable)
     .where(eq(childrenTable.familyId, family.id));
@@ -40,7 +40,7 @@ async function formatFamily(family: typeof familiesTable.$inferSelect) {
         (now < new Date(now.getFullYear(), dob.getMonth(), dob.getDate()) ? 1 : 0);
       let currentClass = null;
       if (child.currentClassId) {
-        const [cls] = await db.select().from(classesTable).where(eq(classesTable.id, child.currentClassId));
+        const [cls] = await query.select().from(classesTable).where(eq(classesTable.id, child.currentClassId));
         currentClass = cls || null;
       }
       return { ...child, age, currentClass };
@@ -73,7 +73,7 @@ router.get("/families", authMiddleware, async (req, res): Promise<void> => {
       const ownIds = await getParentFamilyIds(req.user!.userId);
       if (ownIds.length === 0) { res.json({ data: [], total: 0, page, limit }); return; }
       const own = await db.select().from(familiesTable).where(or(...ownIds.map(id => eq(familiesTable.id, id))));
-      const formattedOwn = await Promise.all(own.map(formatFamily));
+      const formattedOwn = await Promise.all(own.map(family => formatFamily(family)));
       res.json({ data: formattedOwn, total: formattedOwn.length, page, limit });
       return;
     }
@@ -96,7 +96,7 @@ router.get("/families", authMiddleware, async (req, res): Promise<void> => {
     } else {
       families = await db.select().from(familiesTable).limit(limit).offset(offset);
     }
-    const formatted = await Promise.all(families.map(formatFamily));
+    const formatted = await Promise.all(families.map(family => formatFamily(family)));
     res.json({ data: formatted, total: Number(count), page, limit });
   } catch (err) {
     req.log.error({ err }, "Failed to list families");
@@ -105,6 +105,8 @@ router.get("/families", authMiddleware, async (req, res): Promise<void> => {
 });
 
 router.post("/families", authMiddleware, async (req, res): Promise<void> => {
+  // REQUIRED PRE-COMMIT VALIDATION: body and parent self-access policy.
+  // AUTHORITATIVE: family insert. RESPONSE ENRICHMENT: parent/children/class reads are required in the insert transaction.
   try {
     const parsed = CreateFamilyBody.safeParse(req.body);
     if (!parsed.success) {
@@ -117,8 +119,10 @@ router.post("/families", authMiddleware, async (req, res): Promise<void> => {
       res.status(403).json({ error: "Forbidden", message: "You can only create your own family" }); return;
     }
     const familyCode = generateFamilyCode();
-    const [family] = await db.insert(familiesTable).values({ ...parsed.data, familyCode }).returning();
-    const formatted = await formatFamily(family);
+    const formatted = await db.transaction(async tx => {
+      const [family] = await tx.insert(familiesTable).values({ ...parsed.data, familyCode }).returning();
+      return formatFamily(family, tx);
+    });
     res.status(201).json(formatted);
   } catch (err) {
     req.log.error({ err }, "Failed to create family");
@@ -160,6 +164,8 @@ router.get("/families/:id", authMiddleware, async (req, res): Promise<void> => {
 });
 
 router.put("/families/:id", authMiddleware, async (req, res): Promise<void> => {
+  // REQUIRED PRE-COMMIT VALIDATION: id, ownership, body, and parent reassignment policy.
+  // AUTHORITATIVE: family update. RESPONSE ENRICHMENT: parent/children/class reads are required in the update transaction.
   try {
     const id = parseInt(req.params.id as string, 10);
     if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
@@ -173,9 +179,11 @@ router.put("/families/:id", authMiddleware, async (req, res): Promise<void> => {
       const { parent1Id: _p1, parent2Id: _p2, ...rest } = parsed.data as any;
       updateData = rest;
     }
-    const [family] = await db.update(familiesTable).set(updateData).where(eq(familiesTable.id, id)).returning();
-    if (!family) { res.status(404).json({ error: "Not found", message: "Family not found" }); return; }
-    const formatted = await formatFamily(family);
+    const formatted = await db.transaction(async tx => {
+      const [family] = await tx.update(familiesTable).set(updateData).where(eq(familiesTable.id, id)).returning();
+      return family ? formatFamily(family, tx) : null;
+    });
+    if (!formatted) { res.status(404).json({ error: "Not found", message: "Family not found" }); return; }
     res.json(formatted);
   } catch (err) {
     req.log.error({ err }, "Failed to update family");

@@ -23,13 +23,13 @@ function calcAge(dob: string): number {
     (now < new Date(now.getFullYear(), d.getMonth(), d.getDate()) ? 1 : 0);
 }
 
-async function formatChild(child: typeof childrenTable.$inferSelect) {
+async function formatChild(child: typeof childrenTable.$inferSelect, query: Pick<typeof db, "select"> = db) {
   const age = calcAge(child.dob);
   let currentClass = null;
   if (child.currentClassId) {
-    const [cls] = await db.select().from(classesTable).where(eq(classesTable.id, child.currentClassId));
+    const [cls] = await query.select().from(classesTable).where(eq(classesTable.id, child.currentClassId));
     if (cls) {
-      const [{ count }] = await db.select({ count: sql<number>`count(*)` }).from(childrenTable).where(eq(childrenTable.currentClassId, cls.id));
+      const [{ count }] = await query.select({ count: sql<number>`count(*)` }).from(childrenTable).where(eq(childrenTable.currentClassId, cls.id));
       currentClass = { ...cls, enrollmentCount: Number(count) };
     }
   }
@@ -67,7 +67,7 @@ router.get("/children", authMiddleware, async (req, res): Promise<void> => {
       .limit(limit).offset(offset);
     const [{ count }] = await db.select({ count: sql<number>`count(*)` }).from(childrenTable)
       .where(whereClause);
-    const formatted = await Promise.all(children.map(formatChild));
+    const formatted = await Promise.all(children.map(child => formatChild(child)));
     res.json({ data: formatted, total: Number(count), page, limit });
   } catch (err) {
     req.log.error({ err }, "Failed to list children");
@@ -123,6 +123,9 @@ router.get("/children/my-class-roster", authMiddleware, requireRoles("teacher"),
 });
 
 router.post("/children", authMiddleware, async (req, res): Promise<void> => {
+  // REQUIRED PRE-COMMIT VALIDATION: body, family access, object bind eligibility, and age-matched class.
+  // AUTHORITATIVE: child insert. PARTIAL-MULTI-WRITE COMMAND: the existing post-insert object binding/compensation.
+  // RESPONSE ENRICHMENT: class/count reads are required inside the insert transaction so they cannot fail after commit.
   try {
     const parsed = CreateChildBody.safeParse(req.body);
     if (!parsed.success) { res.status(400).json({ error: "Bad request", message: parsed.error.message }); return; }
@@ -138,13 +141,16 @@ router.post("/children", authMiddleware, async (req, res): Promise<void> => {
     const [matchedClass] = await db.select().from(classesTable)
       .where(and(eq(classesTable.ageMin, age), eq(classesTable.ageMax, age)));
     const dataWithClass = { ...parsed.data, currentClassId: matchedClass?.id ?? null };
-    const [child] = await db.insert(childrenTable).values(dataWithClass).returning();
+    const { child, response } = await db.transaction(async tx => {
+      const [inserted] = await tx.insert(childrenTable).values(dataWithClass).returning();
+      return { child: inserted, response: await formatChild(inserted, tx) };
+    });
     if (!(await bindObjectToResource(child.photoUrl, "child", child.id, req.user!))) {
       await db.delete(childrenTable).where(eq(childrenTable.id, child.id));
       res.status(403).json({ error: "Forbidden", message: "This uploaded photo cannot be attached to this child" });
       return;
     }
-    res.status(201).json(await formatChild(child));
+    res.status(201).json(response);
   } catch (err) {
     req.log.error({ err }, "Failed to create child");
     res.status(500).json({ error: "Failed to create child" });
@@ -166,6 +172,9 @@ router.get("/children/:id", authMiddleware, async (req, res): Promise<void> => {
 });
 
 router.put("/children/:id", authMiddleware, async (req, res): Promise<void> => {
+  // REQUIRED PRE-COMMIT VALIDATION: id, ownership, body, existence, bind eligibility, and age-matched class.
+  // AUTHORITATIVE: child update. PARTIAL-MULTI-WRITE COMMAND: the existing object binding/compensating photo restore.
+  // RESPONSE ENRICHMENT: class/count reads are required inside the update transaction so they cannot fail after commit.
   try {
     const id = parseInt(req.params.id as string, 10);
     if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
@@ -187,7 +196,12 @@ router.put("/children/:id", authMiddleware, async (req, res): Promise<void> => {
       .where(and(eq(classesTable.ageMin, age), eq(classesTable.ageMax, age)));
     const { currentClassId: _ignored, ...rest } = parsed.data as any;
     const updateData = { ...rest, currentClassId: matchedClass?.id ?? null };
-    const [child] = await db.update(childrenTable).set(updateData).where(eq(childrenTable.id, id)).returning();
+    const outcome = await db.transaction(async tx => {
+      const [updated] = await tx.update(childrenTable).set(updateData).where(eq(childrenTable.id, id)).returning();
+      if (!updated) return null;
+      return { child: updated, response: await formatChild(updated, tx) };
+    });
+    const child = outcome?.child;
     if (!child) { res.status(404).json({ error: "Not found", message: "Child not found" }); return; }
     if (
       child.photoUrl !== existingChild.photoUrl
@@ -197,7 +211,7 @@ router.put("/children/:id", authMiddleware, async (req, res): Promise<void> => {
       res.status(403).json({ error: "Forbidden", message: "This uploaded photo cannot be attached to this child" });
       return;
     }
-    res.json(await formatChild(child));
+    res.json(outcome.response);
   } catch (err) {
     req.log.error({ err }, "Failed to update child");
     res.status(500).json({ error: "Failed to update child" });
@@ -222,6 +236,8 @@ router.get("/children/:id/qr-code", authMiddleware, async (req, res): Promise<vo
 });
 
 router.put("/children/:id/face-descriptor", authMiddleware, async (req, res): Promise<void> => {
+  // REQUIRED PRE-COMMIT VALIDATION: id, ownership, consent, and descriptor shape.
+  // AUTHORITATIVE: descriptor update. RESPONSE ENRICHMENT: class/count reads are required in the same transaction.
   try {
     const id = parseInt(req.params.id as string, 10);
     if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
@@ -242,12 +258,15 @@ router.put("/children/:id/face-descriptor", authMiddleware, async (req, res): Pr
     } catch {
       res.status(400).json({ error: "Bad request", message: "Invalid descriptor JSON" }); return;
     }
-    const [child] = await db.update(childrenTable)
-      .set({ faceDescriptorJson: descriptorJson })
-      .where(eq(childrenTable.id, id))
-      .returning();
-    if (!child) { res.status(404).json({ error: "Not found", message: "Child not found" }); return; }
-    res.json(await formatChild(child));
+    const response = await db.transaction(async tx => {
+      const [child] = await tx.update(childrenTable)
+        .set({ faceDescriptorJson: descriptorJson })
+        .where(eq(childrenTable.id, id))
+        .returning();
+      return child ? formatChild(child, tx) : null;
+    });
+    if (!response) { res.status(404).json({ error: "Not found", message: "Child not found" }); return; }
+    res.json(response);
   } catch (err) {
     req.log.error({ err }, "Failed to update face descriptor");
     res.status(500).json({ error: "Failed to update face descriptor" });

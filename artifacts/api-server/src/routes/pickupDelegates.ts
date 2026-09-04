@@ -5,7 +5,8 @@ import { db, pickupDelegatesTable, childrenTable, familiesTable, usersTable, not
 import { CreatePickupDelegateBody, VerifyDelegateOtpBody, ListPickupDelegatesQueryParams } from "@workspace/api-zod";
 import { authMiddleware } from "../middlewares/auth";
 import { smsDelegateOtp } from "../services/sms";
-import { sendNotification, notifyTeachersDelegatePickup } from "../lib/notify";
+import { notifyTeachersDelegatePickup } from "../lib/notify";
+import { createNotificationDelivery } from "../services/notificationOutbox";
 import { getParentChildIds as getOwnedChildIds } from "../lib/parentScope";
 import { assertObjectCanBind, bindObjectToResource } from "../lib/privateObjectAccess";
 
@@ -28,8 +29,25 @@ const verifyOtpLimiter = rateLimit({
 
 const router = Router();
 
+export const pickupDelegateRouteDependencies = {
+  createNotificationDelivery,
+  smsDelegateOtp,
+};
+
 function generateOTP(): string {
   return Math.floor(100000 + Math.random() * 900000).toString();
+}
+
+export async function sendPickupDelegateOtpAfterCommit(
+  input: { phone: string | null | undefined; name: string; childNames: string; otp: string; delegateIds: number[] },
+  log: { warn(context: unknown, message: string): unknown },
+  sendOtp: typeof smsDelegateOtp = pickupDelegateRouteDependencies.smsDelegateOtp,
+): Promise<void> {
+  try {
+    await sendOtp(input.phone, input.name, input.childNames, input.otp, log as any);
+  } catch (error) {
+    log.warn({ err: error, delegateIds: input.delegateIds }, "Delegate OTP SMS failed after delegate creation committed");
+  }
 }
 
 /** Returns the set of childIds belonging to the authenticated parent (all owned families), or null if not a parent. */
@@ -65,6 +83,12 @@ router.get("/pickup-delegates", authMiddleware, async (req, res): Promise<void> 
 });
 
 router.post("/pickup-delegates", authMiddleware, createDelegateLimiter, async (req, res): Promise<void> => {
+  // Classification: delegate rows are AUTHORITATIVE; child/ownership/photo
+  // checks are REQUIRED PRE-COMMIT VALIDATION; photo binding retains the
+  // existing PARTIAL-MULTI-WRITE COMMAND semantics; OTP SMS is an OPTIONAL
+  // SECONDARY EFFECT; returned rows are authoritative RESPONSE ENRICHMENT.
+  // Response-loss duplicate risk remains because this create contract has no
+  // caller operation id; do not invent idempotency at this route.
   const parsed = CreatePickupDelegateBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: "Bad request", message: parsed.error.message }); return; }
 
@@ -120,7 +144,13 @@ router.post("/pickup-delegates", authMiddleware, createDelegateLimiter, async (r
 
   // One SMS listing every child covered by this OTP
   const childNames = children.map(c => `${c.firstName} ${c.lastName}`).join(", ") || "your child";
-  await smsDelegateOtp(delegateFields.phone, delegateFields.name, childNames, otp, req.log);
+  await sendPickupDelegateOtpAfterCommit({
+    phone: delegateFields.phone,
+    name: delegateFields.name,
+    childNames,
+    otp,
+    delegateIds: inserted.map(d => d.id),
+  }, req.log);
 
   // Return the first row with OTP (backwards compatible) plus all covered childIds
   res.status(201).json({ ...inserted[0], childIds: inserted.map(d => d.childId) });
@@ -209,6 +239,10 @@ async function getDelegateGroup(delegate: typeof pickupDelegatesTable.$inferSele
 }
 
 router.post("/pickup-delegates/:id/notify-parent", authMiddleware, async (req, res): Promise<void> => {
+  // Classification: the pending approval state and parent notification records
+  // are AUTHORITATIVE and REQUIRED TRANSACTIONAL OUTBOX/INTENT respectively;
+  // recipient/child/group reads are REQUIRED PRE-COMMIT VALIDATION; the teacher
+  // heads-up is an OPTIONAL SECONDARY EFFECT.
   const id = parseInt(req.params.id as string, 10);
   if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
 
@@ -232,20 +266,35 @@ router.post("/pickup-delegates/:id/notify-parent", authMiddleware, async (req, r
   }
   if (parentUserIds.length === 0) { res.status(404).json({ error: "Not found", message: "Parent not found for this child" }); return; }
 
-  await db.update(pickupDelegatesTable)
-    .set({ approvalStatus: "pending", approvalRequestedAt: new Date() })
-    .where(inArray(pickupDelegatesTable.id, group.map(g => g.id)));
-
-  await Promise.all(parentUserIds.map(parentUserId => sendNotification({
-    userId: parentUserId,
-    type: "delegate_approval_request",
-    title: `🔔 Approve Pickup: ${children.length > 1 ? `${children.length} children` : children[0].firstName}`,
-    message: `${delegate.name} is at the front desk to collect ${childNames}. Please approve or deny this pickup request.`,
-    metadata: { delegateId: id, childId: children[0].id, childIds: groupChildIds, delegateName: delegate.name, requiresApproval: true },
-  })));
+  const metadata = { delegateId: id, childId: children[0].id, childIds: groupChildIds, delegateName: delegate.name, requiresApproval: true };
+  const groupIdentity = Math.min(...group.map(g => g.id));
+  await db.transaction(async tx => {
+    await tx.update(pickupDelegatesTable)
+      .set({ approvalStatus: "pending", approvalRequestedAt: new Date() })
+      .where(inArray(pickupDelegatesTable.id, group.map(g => g.id)));
+    for (const parentUserId of parentUserIds) {
+      await pickupDelegateRouteDependencies.createNotificationDelivery(tx, {
+        logicalIdentity: `delegate-approval:${groupIdentity}:recipient:${parentUserId}`,
+        domainType: "pickup_delegate",
+        domainIdentifier: String(groupIdentity),
+        projection: {
+          userId: parentUserId,
+          type: "delegate_approval_request",
+          title: `🔔 Approve Pickup: ${children.length > 1 ? `${children.length} children` : children[0].firstName}`,
+          message: `${delegate.name} is at the front desk to collect ${childNames}. Please approve or deny this pickup request.`,
+          metadata,
+        },
+        channels: ["whatsapp"],
+        templateKey: "delegate_approval_request",
+        templateMetadata: metadata,
+      });
+    }
+  });
 
   // Also warn the class teacher(s) so they can prepare — but not release yet
-  notifyTeachersDelegatePickup(group.map(g => g.childId), delegate.name, "arrived").catch(() => {});
+  notifyTeachersDelegatePickup(group.map(g => g.childId), delegate.name, "arrived").catch(error => {
+    req.log.warn({ err: error, delegateId: id }, "Teacher delegate-arrival notification failed after approval request committed");
+  });
 
   res.json({ success: true, requiresApproval: true, message: `Parent notified. Waiting for their approval before releasing ${childNames}.` });
 });

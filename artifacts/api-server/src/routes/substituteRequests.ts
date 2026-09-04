@@ -17,16 +17,16 @@ const AssignSubBody = z.object({
   adminNotes: z.string().optional(),
 });
 
-async function formatReq(r: typeof substituteRequestsTable.$inferSelect) {
-  const [requesting] = await db.select().from(usersTable).where(eq(usersTable.id, r.requestingTeacherId));
+async function formatReqWith(executor: any, r: typeof substituteRequestsTable.$inferSelect) {
+  const [requesting] = await executor.select().from(usersTable).where(eq(usersTable.id, r.requestingTeacherId));
   let substitute = null;
   if (r.substituteTeacherId) {
-    const [s] = await db.select().from(usersTable).where(eq(usersTable.id, r.substituteTeacherId));
+    const [s] = await executor.select().from(usersTable).where(eq(usersTable.id, r.substituteTeacherId));
     substitute = s ? { id: s.id, firstName: s.firstName, lastName: s.lastName, email: s.email } : null;
   }
   let cls = null;
   if (r.classId) {
-    const [c] = await db.select().from(classesTable).where(eq(classesTable.id, r.classId));
+    const [c] = await executor.select().from(classesTable).where(eq(classesTable.id, r.classId));
     cls = c || null;
   }
   return {
@@ -35,6 +35,10 @@ async function formatReq(r: typeof substituteRequestsTable.$inferSelect) {
     substituteTeacher: substitute,
     class: cls,
   };
+}
+
+async function formatReq(r: typeof substituteRequestsTable.$inferSelect) {
+  return formatReqWith(db, r);
 }
 
 router.get("/substitute-requests", authMiddleware, async (req, res): Promise<void> => {
@@ -55,14 +59,17 @@ router.get("/substitute-requests", authMiddleware, async (req, res): Promise<voi
 router.post("/substitute-requests", authMiddleware, requireRoles("teacher", "admin", "super_admin"), async (req, res): Promise<void> => {
   const parsed = CreateSubReqBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: "Bad request", message: parsed.error.message }); return; }
-  const [record] = await db.insert(substituteRequestsTable).values({
-    requestingTeacherId: req.user!.userId,
-    serviceDate: parsed.data.serviceDate,
-    reason: parsed.data.reason,
-    classId: parsed.data.classId,
-    status: "pending",
-  }).returning();
-  res.status(201).json(await formatReq(record));
+  const record = await db.transaction(async tx => {
+    const [created] = await tx.insert(substituteRequestsTable).values({
+      requestingTeacherId: req.user!.userId,
+      serviceDate: parsed.data.serviceDate,
+      reason: parsed.data.reason,
+      classId: parsed.data.classId,
+      status: "pending",
+    }).returning();
+    return formatReqWith(tx, created);
+  });
+  res.status(201).json(record);
 });
 
 router.put("/substitute-requests/:id/assign", authMiddleware, requireRoles("admin", "super_admin"), async (req, res): Promise<void> => {
@@ -70,14 +77,17 @@ router.put("/substitute-requests/:id/assign", authMiddleware, requireRoles("admi
   if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
   const parsed = AssignSubBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: "Bad request", message: parsed.error.message }); return; }
-  const [record] = await db.update(substituteRequestsTable).set({
-    substituteTeacherId: parsed.data.substituteTeacherId,
-    adminNotes: parsed.data.adminNotes,
-    status: "assigned",
-    updatedAt: new Date(),
-  }).where(eq(substituteRequestsTable.id, id)).returning();
+  const record = await db.transaction(async tx => {
+    const [updated] = await tx.update(substituteRequestsTable).set({
+      substituteTeacherId: parsed.data.substituteTeacherId,
+      adminNotes: parsed.data.adminNotes,
+      status: "assigned",
+      updatedAt: new Date(),
+    }).where(eq(substituteRequestsTable.id, id)).returning();
+    return updated ? formatReqWith(tx, updated) : null;
+  });
   if (!record) { res.status(404).json({ error: "Not found", message: "Request not found" }); return; }
-  res.json(await formatReq(record));
+  res.json(record);
 });
 
 router.put("/substitute-requests/:id/status", authMiddleware, requireRoles("admin", "super_admin"), async (req, res): Promise<void> => {
@@ -86,13 +96,16 @@ router.put("/substitute-requests/:id/status", authMiddleware, requireRoles("admi
   const { status, adminNotes } = req.body as { status: string; adminNotes?: string };
   const validStatuses = ["pending", "assigned", "confirmed", "cancelled"];
   if (!validStatuses.includes(status)) { res.status(400).json({ error: "Bad request", message: "Invalid status" }); return; }
-  const [record] = await db.update(substituteRequestsTable).set({
-    status: status as "pending" | "assigned" | "confirmed" | "cancelled",
-    adminNotes,
-    updatedAt: new Date(),
-  }).where(eq(substituteRequestsTable.id, id)).returning();
+  const record = await db.transaction(async tx => {
+    const [updated] = await tx.update(substituteRequestsTable).set({
+      status: status as "pending" | "assigned" | "confirmed" | "cancelled",
+      adminNotes,
+      updatedAt: new Date(),
+    }).where(eq(substituteRequestsTable.id, id)).returning();
+    return updated ? formatReqWith(tx, updated) : null;
+  });
   if (!record) { res.status(404).json({ error: "Not found", message: "Request not found" }); return; }
-  res.json(await formatReq(record));
+  res.json(record);
 });
 
 router.delete("/substitute-requests/:id", authMiddleware, async (req, res): Promise<void> => {

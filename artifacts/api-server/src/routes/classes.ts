@@ -7,11 +7,13 @@ import { sendNotification } from "../lib/notify";
 
 const router = Router();
 
-async function formatClass(cls: typeof classesTable.$inferSelect) {
-  const [{ count }] = await db.select({ count: sql<number>`count(*)` }).from(childrenTable)
+type QueryExecutor = Pick<typeof db, "select">;
+
+async function formatClass(cls: typeof classesTable.$inferSelect, executor: QueryExecutor = db) {
+  const [{ count }] = await executor.select({ count: sql<number>`count(*)` }).from(childrenTable)
     .where(eq(childrenTable.currentClassId, cls.id));
   const enrollment = Number(count);
-  const [{ waitCount }] = await db.select({ waitCount: sql<number>`count(*)` }).from(classWaitlistTable)
+  const [{ waitCount }] = await executor.select({ waitCount: sql<number>`count(*)` }).from(classWaitlistTable)
     .where(and(eq(classWaitlistTable.classId, cls.id), eq(classWaitlistTable.status, "waiting")));
   return { ...cls, enrollmentCount: enrollment, waitlistCount: Number(waitCount), isAtCapacity: enrollment >= cls.capacity, utilizationPercent: cls.capacity > 0 ? Math.round((enrollment / cls.capacity) * 100) : 0 };
 }
@@ -23,7 +25,7 @@ router.get("/classes", async (req, res): Promise<void> => {
   const { serviceSlot } = params.data;
   let classes = await db.select().from(classesTable);
   if (serviceSlot) classes = classes.filter(c => c.serviceSlot === serviceSlot);
-  const formatted = await Promise.all(classes.map(formatClass));
+  const formatted = await Promise.all(classes.map(cls => formatClass(cls)));
   res.json(formatted);
 });
 
@@ -37,8 +39,14 @@ router.post("/classes", authMiddleware, requireRoles("super_admin", "admin"), as
   if (!parsed.success) { res.status(400).json({ error: "Bad request", message: parsed.error.message }); return; }
   const age = deriveAgeFromName(parsed.data.name);
   const data = age !== null ? { ...parsed.data, ageMin: age, ageMax: age } : parsed.data;
-  const [cls] = await db.insert(classesTable).values(data).returning();
-  res.status(201).json(await formatClass(cls));
+  // AUTHORITATIVE: class insert. RESPONSE ENRICHMENT: enrollment/waitlist
+  // counts, read before commit. Response loss can still cause a duplicate create;
+  // this API has no idempotency key, so none is invented here.
+  const formatted = await db.transaction(async tx => {
+    const [cls] = await tx.insert(classesTable).values(data).returning();
+    return formatClass(cls, tx);
+  });
+  res.status(201).json(formatted);
 });
 
 router.get("/classes/waitlist", authMiddleware, async (req, res): Promise<void> => {
@@ -71,9 +79,14 @@ router.put("/classes/:id", authMiddleware, requireRoles("super_admin", "admin"),
   if (!parsed.success) { res.status(400).json({ error: "Bad request", message: parsed.error.message }); return; }
   const age = deriveAgeFromName(parsed.data.name);
   const data = age !== null ? { ...parsed.data, ageMin: age, ageMax: age } : parsed.data;
-  const [cls] = await db.update(classesTable).set(data).where(eq(classesTable.id, id)).returning();
-  if (!cls) { res.status(404).json({ error: "Not found", message: "Class not found" }); return; }
-  res.json(await formatClass(cls));
+  // AUTHORITATIVE: class update. RESPONSE ENRICHMENT: enrollment/waitlist
+  // counts, read before commit so formatter failure rolls back.
+  const formatted = await db.transaction(async tx => {
+    const [cls] = await tx.update(classesTable).set(data).where(eq(classesTable.id, id)).returning();
+    return cls ? formatClass(cls, tx) : null;
+  });
+  if (!formatted) { res.status(404).json({ error: "Not found", message: "Class not found" }); return; }
+  res.json(formatted);
 });
 
 router.delete("/classes/:id", authMiddleware, requireRoles("super_admin", "admin"), async (req, res): Promise<void> => {

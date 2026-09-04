@@ -8,12 +8,28 @@ import { createAttendanceNotificationIntents } from "../lib/attendanceNotificati
 
 const router = Router();
 
+export const familyAssistRouteDependencies = {
+  smsDelegateOtp,
+};
+
 function generateOTP(): string {
   return Math.floor(100000 + Math.random() * 900000).toString();
 }
 
 function generateGuestCode(): string {
   return "G-" + Math.floor(1000 + Math.random() * 9000).toString();
+}
+
+export async function sendAssistedDelegateOtpAfterCommit(
+  input: { phone: string; name: string; childName: string; otp: string; delegateId: number },
+  log: { warn(context: unknown, message: string): unknown },
+  sendOtp: typeof smsDelegateOtp = familyAssistRouteDependencies.smsDelegateOtp,
+): Promise<void> {
+  try {
+    await sendOtp(input.phone, input.name, input.childName, input.otp, log as any);
+  } catch (error) {
+    log.warn({ err: error, delegateId: input.delegateId }, "Assisted delegate OTP SMS failed after delegate creation committed");
+  }
 }
 
 function todayString(): string {
@@ -66,6 +82,11 @@ router.get("/family-assist/search", authMiddleware, requireRoles("super_admin", 
 });
 
 router.post("/family-assist/delegate", authMiddleware, requireRoles("super_admin", "admin", "support"), async (req, res): Promise<void> => {
+  // Classification: the delegate row is AUTHORITATIVE; request/child checks
+  // are REQUIRED PRE-COMMIT VALIDATION; OTP SMS is an OPTIONAL SECONDARY
+  // EFFECT; the returned delegate (including its OTP) is authoritative RESPONSE
+  // ENRICHMENT. Response-loss duplicate risk remains because this create
+  // contract has no caller operation id; do not invent idempotency here.
   const { childId, delegateName, delegatePhone } = req.body as { childId?: number; delegateName?: string; delegatePhone?: string };
   if (!childId || !delegateName || !delegatePhone) {
     res.status(400).json({ error: "childId, delegateName and delegatePhone are required" });
@@ -88,7 +109,13 @@ router.post("/family-assist/delegate", authMiddleware, requireRoles("super_admin
     parentApproved: true,
   }).returning();
 
-  await smsDelegateOtp(delegatePhone, delegateName, childName, otp, req.log);
+  await sendAssistedDelegateOtpAfterCommit({
+    phone: delegatePhone,
+    name: delegateName,
+    childName,
+    otp,
+    delegateId: delegate.id,
+  }, req.log);
 
   res.status(201).json({ ...delegate, otpCode: otp });
 });

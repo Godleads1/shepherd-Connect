@@ -9,9 +9,13 @@ import { getParentChildIds } from "../lib/parentScope";
 
 const router = Router();
 
-async function formatAppraisal(a: typeof childAppraisalsTable.$inferSelect) {
-  const [child] = await db.select().from(childrenTable).where(eq(childrenTable.id, a.childId));
+async function formatAppraisalWith(executor: any, a: typeof childAppraisalsTable.$inferSelect) {
+  const [child] = await executor.select().from(childrenTable).where(eq(childrenTable.id, a.childId));
   return { ...a, child: child || null };
+}
+
+async function formatAppraisal(a: typeof childAppraisalsTable.$inferSelect) {
+  return formatAppraisalWith(db, a);
 }
 
 router.get("/appraisals", authMiddleware, async (req, res): Promise<void> => {
@@ -45,42 +49,50 @@ router.post("/appraisals", authMiddleware, requireRoles("teacher"), async (req, 
   if (!parsed.success) { res.status(400).json({ error: "Bad request", message: parsed.error.message }); return; }
   const [teacher] = await db.select().from(teachersTable).where(eq(teachersTable.userId, req.user!.userId));
   if (!teacher) { res.status(403).json({ error: "Forbidden", message: "Not a registered teacher" }); return; }
-  const [appraisal] = await db.insert(childAppraisalsTable).values({
-    ...parsed.data,
-    teacherId: teacher.id,
-  }).returning();
+  const appraisal = await db.transaction(async tx => {
+    const [created] = await tx.insert(childAppraisalsTable).values({
+      ...parsed.data,
+      teacherId: teacher.id,
+    }).returning();
+    return formatAppraisalWith(tx, created);
+  });
 
   // Send Shepherd's Report email to parents (fire-and-forget)
-  Promise.all([
-    db.select().from(childrenTable).where(eq(childrenTable.id, appraisal.childId)),
-    db.select().from(usersTable).where(eq(usersTable.id, req.user!.userId)),
-  ]).then(async ([[child], [teacherUser]]) => {
-    if (!child) return;
-    const [family] = await db.select().from(familiesTable).where(eq(familiesTable.id, child.familyId));
-    if (!family) return;
-    const parentIds = [family.parent1Id, family.parent2Id].filter(Boolean) as number[];
-    const parents = await Promise.all(
-      parentIds.map(id => db.select({ email: usersTable.email, firstName: usersTable.firstName }).from(usersTable).where(eq(usersTable.id, id)))
-    );
-    const parentRows = parents.flat();
-    const childName = `${child.firstName} ${child.lastName}`;
-    const teacherName = teacherUser ? `${teacherUser.firstName} ${teacherUser.lastName}` : "Your child's teacher";
-    const parentFirstName = parentRows[0]?.firstName ?? "Parent";
-    const emails = parentRows.map(p => p.email);
-    await emailShepherdsReport(
-      emails, parentFirstName, childName, teacherName,
-      appraisal.participationLevel, appraisal.scriptureEngagement, appraisal.socialInteraction,
-      appraisal.milestoneNote, appraisal.personalNoteToParent, appraisal.serviceDate, req.log,
-    );
-    await pushToUsers(parentIds, {
-      title: "📋 Shepherd's Report Ready",
-      body: `${teacherName} has submitted a report for ${childName}. Tap to view.`,
-      icon: "/pwa-192.png",
-      url: "/my-children",
-    }, req.log);
-  }).catch(() => {});
+  void Promise.resolve()
+    .then(() => Promise.all([
+      db.select().from(childrenTable).where(eq(childrenTable.id, appraisal.childId)),
+      db.select().from(usersTable).where(eq(usersTable.id, req.user!.userId)),
+    ]))
+    .then(async ([[child], [teacherUser]]) => {
+      if (!child) return;
+      const [family] = await db.select().from(familiesTable).where(eq(familiesTable.id, child.familyId));
+      if (!family) return;
+      const parentIds = [family.parent1Id, family.parent2Id].filter(Boolean) as number[];
+      const parents = await Promise.all(
+        parentIds.map(id => db.select({ email: usersTable.email, firstName: usersTable.firstName }).from(usersTable).where(eq(usersTable.id, id)))
+      );
+      const parentRows = parents.flat();
+      const childName = `${child.firstName} ${child.lastName}`;
+      const teacherName = teacherUser ? `${teacherUser.firstName} ${teacherUser.lastName}` : "Your child's teacher";
+      const parentFirstName = parentRows[0]?.firstName ?? "Parent";
+      const emails = parentRows.map(p => p.email);
+      await emailShepherdsReport(
+        emails, parentFirstName, childName, teacherName,
+        appraisal.participationLevel, appraisal.scriptureEngagement, appraisal.socialInteraction,
+        appraisal.milestoneNote, appraisal.personalNoteToParent, appraisal.serviceDate, req.log,
+      );
+      await pushToUsers(parentIds, {
+        title: "📋 Shepherd's Report Ready",
+        body: `${teacherName} has submitted a report for ${childName}. Tap to view.`,
+        icon: "/pwa-192.png",
+        url: "/my-children",
+      }, req.log);
+    })
+    .catch((err) => {
+      req.log.warn({ err, appraisalId: appraisal.id }, "appraisal: optional parent notifications failed");
+    });
 
-  res.status(201).json(await formatAppraisal(appraisal));
+  res.status(201).json(appraisal);
 });
 
 export default router;
