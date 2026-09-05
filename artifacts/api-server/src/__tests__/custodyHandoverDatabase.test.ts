@@ -58,8 +58,10 @@ afterAll(async () => { for (const q of [
 ] ) try { await db.execute(q); } catch {} });
 
 databaseDescribe("custody handover PostgreSQL integrity", () => {
-  const create = (eventId: string) => request(app).post("/api/custody-requests").set("Authorization", token(parentId, "parent"))
-    .send({ childId, serviceDate, requestedServices: "both", eventId });
+  const createFor = (requestedServices: "first" | "second" | "both", eventId: string) =>
+    request(app).post("/api/custody-requests").set("Authorization", token(parentId, "parent"))
+      .send({ childId, serviceDate, requestedServices, eventId });
+  const create = (eventId: string) => createFor("both", eventId);
 
   it("enforces parent ownership and idempotent per-child requests", async () => {
     const denied = await request(app).post("/api/custody-requests").set("Authorization", token(otherParentId, "parent"))
@@ -113,6 +115,42 @@ databaseDescribe("custody handover PostgreSQL integrity", () => {
     expect(feedback.body.data[0]).not.toHaveProperty("sentimentNote");
   });
 
+  it.each([
+    ["first", "7am", "First Service"],
+    ["second", "10:30am", "Second Service"],
+  ] as const)("preserves %s-service custody scope and names its authoritative checkout occurrence", async (requestedServices, serviceSlot, serviceName) => {
+    const requested = await createFor(requestedServices, `scope-${requestedServices}`);
+    expect(requested.status).toBe(201);
+    const episodeId = requested.body.episode.id;
+    await request(app).post("/api/custody-episodes").set("Authorization", token(supportId, "support"))
+      .send({ episodeId, eventId: `accept-${requestedServices}` }).expect(201);
+
+    const active = await db.execute(sql`
+      SELECT id,service_slot,status FROM attendance WHERE custody_episode_id=${episodeId}
+    `);
+    expect(active.rows).toEqual([
+      expect.objectContaining({ service_slot: serviceSlot, status: "in_class" }),
+    ]);
+
+    await request(app).post(`/api/custody-episodes/${episodeId}/pickup`)
+      .set("Authorization", token(supportId, "support"))
+      .expect(200);
+    expect(await count("attendance", sql`custody_episode_id=${episodeId} AND service_slot=${serviceSlot} AND status='picked_up'`)).toBe(1);
+    expect(await count("attendance", sql`custody_episode_id=${episodeId}`)).toBe(1);
+
+    const notifications = await db.execute(sql`
+      SELECT message,metadata_json FROM notifications
+      WHERE user_id=${parentId}
+        AND type='child_picked_up'
+        AND metadata_json::jsonb->>'attendanceId' IN (
+          SELECT id::text FROM attendance WHERE custody_episode_id=${episodeId}
+        )
+    `);
+    expect(notifications.rows).toHaveLength(1);
+    expect(String(notifications.rows[0].message)).toContain(`checked out from ${serviceName}`);
+    expect(JSON.parse(String((notifications.rows[0] as any).metadata_json))).toMatchObject({ serviceSlot });
+  });
+
   it("accepts both services once, immediately marks class attendance, and preserves custody through checkout races", async () => {
     const requested = await create("accept-both");
     const episodeId = requested.body.episode.id;
@@ -148,6 +186,22 @@ databaseDescribe("custody handover PostgreSQL integrity", () => {
     expect(closed.status).toBe("picked_up"); expect(Number(closed.custodian_user_id)).toBe(winner);
     expect(await count("pickup_requests", sql`child_id=${childId} AND status='resolved'`)).toBe(1);
     expect(await count("notification_outbox", sql`domain_type='attendance' AND domain_identifier IN (SELECT id::text FROM attendance WHERE custody_episode_id=${episodeId})`)).toBe(12);
+    const pickupMessages = (await db.execute(sql`
+      SELECT message,metadata_json FROM notifications
+      WHERE user_id=${parentId}
+        AND type='child_picked_up'
+        AND metadata_json::jsonb->>'attendanceId' IN (
+          SELECT id::text FROM attendance WHERE custody_episode_id=${episodeId}
+        )
+      ORDER BY metadata_json::jsonb->>'serviceSlot'
+    `)).rows as Array<{ message: string; metadata_json: string }>;
+    expect(pickupMessages).toHaveLength(2);
+    expect(pickupMessages.map(row => JSON.parse(row.metadata_json).serviceSlot).sort()).toEqual(["10:30am", "7am"]);
+    expect(pickupMessages.map(row => row.message)).toEqual(expect.arrayContaining([
+      expect.stringContaining("checked out from First Service"),
+      expect.stringContaining("checked out from Second Service"),
+    ]));
+    expect(pickupMessages.every(row => !row.message.includes("pickup request"))).toBe(true);
     const next = await request(app).post("/api/custody-requests").set("Authorization", token(parentId, "parent"))
       .send({ childId, serviceDate, requestedServices: "first", eventId: "return-after-pickup" });
     expect(next.status).toBe(201);

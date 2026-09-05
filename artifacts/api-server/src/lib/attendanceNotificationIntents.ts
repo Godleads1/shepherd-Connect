@@ -15,6 +15,11 @@ export async function createAttendanceNotificationIntents(
   const [family] = await tx.select().from(familiesTable).where(eq(familiesTable.id, child.familyId));
   const [cls] = await tx.select().from(classesTable).where(eq(classesTable.id, record.classId));
   const className = cls?.name ?? "class";
+  const serviceName = record.serviceSlot === "7am"
+    ? "First Service"
+    : record.serviceSlot === "10:30am"
+      ? "Second Service"
+      : `${record.serviceSlot} service`;
   const parents = [...new Set([family?.parent1Id, family?.parent2Id].filter((id): id is number => !!id))];
   let teachers: number[] = [];
   if (transition !== "arrived") {
@@ -32,13 +37,13 @@ export async function createAttendanceNotificationIntents(
     checked_in_reset: ["child_checked_in", "Drop-off Confirmed", `${child.firstName} has been safely dropped off for the ${record.serviceSlot} service. They will be escorted to ${className} shortly.`],
     in_transit: ["child_in_transit", "Child En Route to Class", `${child.firstName} is being escorted to ${className} right now.`],
     arrived: ["child_arrived_in_class", "Child Safely in Class", `${child.firstName} is now safely in ${className}. Have a blessed service!`],
-    picked_up: ["child_picked_up", "Child Picked Up", `${child.firstName} has been successfully checked out. Safe journey home!`],
+    picked_up: ["child_picked_up", "Child Picked Up", `${child.firstName} has been successfully checked out from ${serviceName}. Safe journey home!`],
   } as const;
   const teacherCopy = {
     checked_in: ["child_dropped_off", "Child Dropped Off", `${child.firstName} ${child.lastName} has just been dropped off for the ${record.serviceSlot} service and will be heading to ${className} shortly.`],
     checked_in_reset: ["child_dropped_off", "Child Dropped Off", `${child.firstName} ${child.lastName} has just been dropped off for the ${record.serviceSlot} service and will be heading to ${className} shortly.`],
     in_transit: ["child_in_transit", "Child En Route to Your Class", `${child.firstName} ${child.lastName} is being escorted to ${className} right now — expect them shortly.`],
-    picked_up: ["child_picked_up", "Child Checked Out", `${child.firstName} ${child.lastName} has been checked out and is no longer in your care.`],
+    picked_up: ["child_picked_up", "Child Checked Out", `${child.firstName} ${child.lastName} has been checked out from ${serviceName} and is no longer in your care.`],
   } as const;
   const recipients = transition === "arrived"
     ? parents.map(userId => ({ userId, copy: parentCopy[transition], channels: ["whatsapp", "sms", "email"] as const }))

@@ -73,6 +73,68 @@ databaseDescribe("pickup request PostgreSQL persistence", () => {
       SELECT count(*)::int AS count FROM pickup_requests
       WHERE child_id=${childId} AND service_date=${today} AND status='requested'
     `)).rows[0]).toMatchObject({ count: 1 });
+
+    const second = (await db.execute(sql`
+      SELECT id FROM attendance
+      WHERE child_id=${childId} AND service_date=${today} AND service_slot='10:30am'
+    `)).rows[0] as { id: number };
+    await request(app).put(`/api/attendance/${second.id}/checkout`)
+      .set("Authorization", token(supportId, "support"))
+      .send({ operationId: randomUUID() })
+      .expect(200);
+    const statuses = await db.execute(sql`
+      SELECT service_slot,status FROM attendance
+      WHERE child_id=${childId} AND service_date=${today}
+      ORDER BY service_slot
+    `);
+    expect(statuses.rows).toEqual([
+      expect.objectContaining({ service_slot: "10:30am", status: "picked_up" }),
+      expect.objectContaining({ service_slot: "7am", status: "picked_up" }),
+    ]);
+    const [notification] = (await db.execute(sql`
+      SELECT message FROM notifications
+      WHERE user_id=${parentId}
+        AND type='child_picked_up'
+        AND metadata_json::jsonb->>'attendanceId'=${String(second.id)}
+    `)).rows as Array<{ message: string }>;
+    expect(notification.message).toContain("checked out from Second Service");
+  });
+
+  it("accepts pickup when the second attendance is picked up and the first is active", async () => {
+    await db.execute(sql`DELETE FROM attendance WHERE child_id=${childId}`);
+    await db.execute(sql`
+      INSERT INTO attendance
+        (child_id,class_id,service_date,service_slot,status,check_in_time,check_out_time,checked_out_by)
+      VALUES
+        (${childId},${classId},${today},'10:30am','picked_up',now() - interval '2 hours',now() - interval '90 minutes',${supportId}),
+        (${childId},${classId},${today},'7am','in_class',now() - interval '1 hour',NULL,NULL)
+    `);
+
+    await request(app).post("/api/pickup-requests")
+      .set("Authorization", token(parentId))
+      .send({ childId })
+      .expect(200);
+    const first = (await db.execute(sql`
+      SELECT id FROM attendance
+      WHERE child_id=${childId} AND service_date=${today} AND service_slot='7am'
+    `)).rows[0] as { id: number };
+    const checkout = await request(app).put(`/api/attendance/${first.id}/checkout`)
+      .set("Authorization", token(supportId, "support"))
+      .send({ operationId: randomUUID() })
+      .expect(200);
+
+    expect(checkout.body.attendance).toMatchObject({
+      id: Number(first.id),
+      serviceSlot: "7am",
+      status: "picked_up",
+    });
+    const [notification] = (await db.execute(sql`
+      SELECT message FROM notifications
+      WHERE user_id=${parentId}
+        AND type='child_picked_up'
+        AND metadata_json::jsonb->>'attendanceId'=${String(first.id)}
+    `)).rows as Array<{ message: string }>;
+    expect(notification.message).toContain("checked out from First Service");
   });
 
   it("rejects pickup when both service occurrences are active and no pickup granularity rule exists", async () => {

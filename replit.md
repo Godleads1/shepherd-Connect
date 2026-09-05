@@ -108,6 +108,13 @@ The orval codegen had a duplicate export bug. Fix: in `lib/api-spec/orval.config
 
 ## Key Features Implemented
 
+### Attendance, Pickup, and Custody Identity
+- Attendance occurrence: child + service date + service slot (`7am` First Service or `10:30am` Second Service)
+- Pickup request: child + service date; the missing slot is intentional, not lost data
+- Custody episode: child + service date + `requestedServices` release scope (`first`, `second`, or `both`)
+- Checkout notifications name the authoritative attendance occurrence; a date-level pickup request never claims its own slot
+- If both attendance occurrences are active and a pickup command does not identify an occurrence, staff-assistance conflict handling applies rather than guessing
+
 ### Admin Approval Workflow
 - Admin/teacher self-signup → `status=pending_approval`, blocked from login until approved
 - Super admin sees "Pending Approval" tab on Users page with approve/reject buttons

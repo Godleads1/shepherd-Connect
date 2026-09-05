@@ -1,0 +1,195 @@
+SHEPHERD CONNECT — PICKUP/CUSTODY GRANULARITY DECISION + FOLLOW-UP #76
+
+CONTEXT
+
+Phase 5 is COMPLETE and D1–D5 were verified.
+
+The system models Sunday attendance as:
+
+Child + Service Date + Service Slot
+
+Current service slots:
+- First Service — 7am
+- Second Service — 10:30am
+
+Phase 5 diagnostic found an important product decision around pickup/custody granularity.
+
+CURRENT PRODUCTION EVIDENCE
+
+Production currently contains:
+- 23 child/date groups with both First and Second Service attendance
+- 2 child/date groups currently active across both service slots
+- 2 active pickup requests on dates containing multiple service slots
+- 9 custody episodes spanning both service slots
+- 0 picked-up custody rows retaining active attendance
+- 0 conflicting custody groups
+
+The existing custody model supports requestedServices including "both".
+
+DECISION
+
+For Shepherd Connect, preserve the current pickup/custody granularity:
+
+OPTION A — ONE PICKUP REQUEST PER CHILD + SERVICE DATE
+
+A pickup request identifies:
+
+Child + Service Date
+
+It does NOT independently identify a service slot.
+
+Service-slot-specific attendance remains authoritative for attendance/check-in/checkout.
+
+Custody determines what services are being released.
+
+Interpret "both" as one custody/release scope covering both service occurrences for that child/date.
+
+DO NOT redesign pickup requests into:
+
+Child + Service Date + Service Slot
+
+unless a future explicit product decision requires that behavior.
+
+OBJECTIVES
+
+1. Preserve the existing production-safe custody model.
+
+2. Preserve service-slot identity for attendance.
+
+3. Ensure the pickup workflow never guesses which attendance occurrence is being released.
+
+4. Make the distinction explicit in code and documentation:
+
+   ATTENDANCE:
+   Child + Service Date + Service Slot
+
+   PICKUP REQUEST:
+   Child + Service Date
+
+   CUSTODY:
+   Child + Service Date + requestedServices/release scope
+
+5. Resolve Phase 5 D6 notification ambiguity using this model.
+
+NOTIFICATION REQUIREMENT
+
+Update pickup/checkout notification wording so notifications clearly identify the relevant service context where available.
+
+Do not invent a new service-slot identity for pickup.
+
+Examples of acceptable semantics:
+
+- "Child X has been checked out from First Service."
+- "Child X has been checked out from Second Service."
+- For a custody/pickup action covering both:
+  "Child X has been released for both services."
+
+The exact wording may follow the existing notification style.
+
+The notification must never imply that a date-level pickup request itself belongs to a particular service slot.
+
+CRITICAL BEHAVIOR
+
+If a child has:
+
+First Service attendance = picked_up
+Second Service attendance = active
+
+then a pickup/check-out operation for the Second Service must still work.
+
+The previously completed First Service occurrence must never mask the active Second Service occurrence.
+
+If multiple attendance occurrences are simultaneously active and the command does not explicitly identify the intended service occurrence, do NOT guess.
+
+Return the existing deterministic staff-assistance/conflict response established in Phase 5.
+
+DO NOT CHANGE
+
+Do not:
+- add serviceSlot to pickup_request identity
+- change pickup_request uniqueness
+- redesign custody episodes
+- rewrite Phase 2 operation identity
+- redesign Task #75 realtime architecture
+- change the authoritative attendance identity
+- merge historical custody records
+- modify production data
+- introduce a new generic auth/session architecture
+- start another roadmap phase
+
+DOCUMENTATION
+
+Update the relevant project documentation so future developers understand:
+
+Service Date + Service Slot is the attendance occurrence identity.
+
+Pickup is currently date-level.
+
+Custody can specify one service or both services.
+
+A date-level pickup request is therefore intentional, not an accidental loss of service-slot data.
+
+TESTS
+
+Add/extend regression tests for at least:
+
+1. First Service picked up + Second Service active
+   → Second Service pickup/check-out succeeds.
+
+2. Second Service picked up + First Service active
+   → First Service pickup/check-out succeeds.
+
+3. Both services active + ambiguous pickup command
+   → deterministic conflict/staff-assistance response.
+
+4. Custody requestedServices = first
+   → only First Service is affected according to existing authoritative behavior.
+
+5. Custody requestedServices = second
+   → only Second Service is affected according to existing authoritative behavior.
+
+6. Custody requestedServices = both
+   → both-service semantics remain intact.
+
+7. Pickup notification identifies the service occurrence when the authoritative command is service-specific.
+
+8. Both-service custody/pickup notification does not incorrectly claim that the pickup request itself has a service slot.
+
+9. Existing Phase 1/2/3/4/5 regression suites remain green.
+
+10. Idempotent retry behavior remains unchanged.
+
+VALIDATION
+
+Run:
+- full dev PostgreSQL/API test suite
+- focused pickup/custody/attendance tests
+- frontend tests if notification/UI code changes
+- workspace typecheck
+- API build
+- frontend build
+- architecture/security review
+- git diff review
+- health check
+- preview/browser smoke test
+
+Do not make production schema/data changes.
+
+IMPORTANT
+
+This is a bounded follow-up to Phase 5.
+
+Do not expand scope into a new generalized architecture project.
+
+At the end report:
+
+PICKUP/CUSTODY GRANULARITY — DECISION IMPLEMENTED
+
+and summarize:
+- what was preserved
+- what D6 notification behavior was implemented
+- tests passed
+- files changed
+- confirmation that no production schema/data was changed
+
+If any test or acceptance criterion fails, stop and report the exact failure rather than claiming completion.
