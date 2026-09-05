@@ -1,0 +1,400 @@
+SHEPHERD CONNECT — RELEASE BLOCKER REMEDIATION
+
+IMPORTANT:
+This is a tightly bounded production-release remediation task.
+
+Fix ONLY the two confirmed RELEASE BLOCKERS from the Final Production Readiness Audit:
+
+RB-1 — Production database schema is incompatible with the current application.
+RB-2 — VAPID private key is committed in tracked configuration.
+
+DO NOT address H-1 through H-4, M-1 through M-5, L-1 through L-3,
+or the product/policy decisions in this task.
+
+Do not perform unrelated refactoring.
+
+==================================================
+RB-1 — PRODUCTION DATABASE SCHEMA PARITY
+==================================================
+
+Current production is missing these structures required by the current code:
+
+TABLES:
+- command_operations
+- checkout_operations
+
+COLUMNS:
+- users.session_version
+- users.reset_token_attempts
+- sse_tickets.session_version
+- otp_sessions.purpose
+- otp_sessions.channel
+
+The Final Production Readiness Audit confirmed these are absent from
+the production PostgreSQL catalog.
+
+The current development schema/code already expects these structures.
+
+OBJECTIVE
+
+Synchronize production schema with the current application schema safely.
+
+BEFORE CHANGING ANYTHING:
+
+1. Inspect the current Drizzle schema/migrations.
+2. Inspect the actual production PostgreSQL catalog.
+3. Produce an exact schema-diff list.
+4. Confirm that the required structures above are the intended current schema.
+5. Check whether any additional current-code-required production schema
+   differences exist.
+
+DO NOT blindly apply an entire development database snapshot.
+
+DO NOT overwrite existing production tables.
+
+DO NOT drop production data.
+
+DO NOT reset production.
+
+DO NOT modify existing production records except where a schema operation
+strictly requires a safe default/backfill and that requirement is explicitly
+documented before execution.
+
+SESSION VERSION
+
+For:
+
+users.session_version
+
+ensure existing users receive the correct safe default consistent with
+the application implementation.
+
+Do not invalidate all production users accidentally unless the schema
+implementation explicitly requires it and you report that consequence
+before doing it.
+
+RESET ATTEMPTS
+
+For:
+
+users.reset_token_attempts
+
+use the application's intended default.
+
+OTP FIELDS
+
+For:
+
+otp_sessions.purpose
+otp_sessions.channel
+
+ensure existing rows remain valid according to the application's current
+schema constraints/defaults.
+
+SSE SESSION VERSION
+
+For:
+
+sse_tickets.session_version
+
+ensure the column is compatible with existing ticket records and current
+SSE validation.
+
+OPERATION TABLES
+
+Create:
+
+command_operations
+checkout_operations
+
+using the CURRENT application schema as the source of truth.
+
+Do not invent alternative structures.
+
+Do not remove or rename fields merely to make migration easier.
+
+Preserve:
+- operation IDs
+- actor binding
+- target/payload fingerprints
+- status
+- result JSON/version
+- timestamps
+- expiry
+- replay semantics
+
+==================================================
+MIGRATION SAFETY
+==================================================
+
+Use the supported Replit/Publish production database migration mechanism.
+
+Do not use destructive reset/push behavior if it could alter or delete
+production data.
+
+Before applying:
+
+- inspect current schema
+- inspect migration history
+- verify migration order
+- verify production database connection
+- verify backups/recovery assumptions if available
+
+If the supported production migration path is unavailable or unsafe:
+
+STOP.
+
+Do NOT improvise.
+
+Report exactly what prevents safe migration.
+
+==================================================
+POST-MIGRATION VERIFICATION
+==================================================
+
+After the schema change, verify production catalog contains:
+
+command_operations
+checkout_operations
+users.session_version
+users.reset_token_attempts
+sse_tickets.session_version
+otp_sessions.purpose
+otp_sessions.channel
+
+Then perform SAFE production acceptance checks.
+
+At minimum verify:
+
+1. health endpoint
+2. login
+3. authenticated request
+4. /auth/me
+5. role/session consistency
+6. logout/revocation behavior
+7. password/session revocation path where safely testable
+8. checkout operation persistence/replay infrastructure
+9. one covered command-operation path
+10. SSE ticket/session-version compatibility
+
+Do NOT create fake production attendance, custody, family,
+or notification records merely for testing.
+
+Use existing records only where a read-only or safely reversible
+acceptance test is possible.
+
+If a mutation cannot safely be tested against production data,
+verify the schema and use development/integration tests for the
+mutation behavior.
+
+==================================================
+RB-2 — VAPID PRIVATE KEY EXPOSURE
+==================================================
+
+The audit confirmed that a structurally valid VAPID private key exists
+in tracked .replit configuration.
+
+Treat the existing key as COMPROMISED.
+
+OBJECTIVE
+
+1. Revoke/retire the exposed VAPID private key.
+
+2. Generate a new VAPID keypair using an appropriate supported mechanism.
+
+3. Store the replacement private key ONLY in secret/environment storage.
+
+4. Store the corresponding public key according to the application's
+existing configuration model.
+
+5. Update the application so production uses the new secret.
+
+6. Remove the private key from tracked configuration.
+
+7. Ensure .replit contains no private credential.
+
+8. Search tracked source/configuration for:
+   - VAPID_PRIVATE_KEY
+   - the old key
+   - other accidentally committed private push credentials
+
+9. Do NOT print either old or new private key anywhere in logs,
+responses, commit messages, or the final report.
+
+==================================================
+GIT HISTORY
+==================================================
+
+Because the audit confirmed the private key was committed, determine whether
+the repository history contains the exposed key.
+
+Do NOT rewrite Git history automatically.
+
+Do NOT force-push.
+
+Report whether the key exists in:
+
+- current HEAD
+- recent history
+- repository history
+
+If history rewriting/removal is required, report it separately as a
+security follow-up requiring explicit approval.
+
+The immediate objective is to make the exposed key unusable and ensure
+production uses a newly generated secret.
+
+==================================================
+PUSH FUNCTIONALITY
+==================================================
+
+After rotation:
+
+Verify:
+
+- server can initialize web push
+- VAPID configuration loads from secret storage
+- no private key is present in tracked files
+- browser push functionality is not broken by the rotation
+
+Do not send unsolicited notifications to real users.
+
+Use existing safe test infrastructure where available.
+
+==================================================
+REGRESSION PROTECTION
+==================================================
+
+Do NOT change:
+
+- Phase 1 behavior
+- Phase 2 operation semantics
+- Phase 3 notification architecture
+- Phase 4 authorization/session architecture
+- Phase 5 service-date/service-slot behavior
+- Pickup/Custody granularity
+- D6 notification semantics
+- Task #75 classroom realtime architecture
+
+The purpose is production parity/security remediation, not redesign.
+
+==================================================
+VALIDATION
+==================================================
+
+Run:
+
+- relevant database migration/schema validation
+- focused Phase 2 operation tests
+- focused Phase 4 session/auth tests
+- focused checkout tests
+- focused push/VAPID tests if available
+- full development PostgreSQL suite
+- frontend tests if affected
+- workspace typecheck
+- API build
+- frontend build
+- git diff --check
+
+Then verify production:
+
+- health endpoint
+- login
+- /auth/me
+- authenticated API request
+- logout/revocation behavior
+- production schema catalog
+- push configuration
+- no private VAPID key in tracked configuration
+
+==================================================
+STOP CONDITIONS
+==================================================
+
+STOP immediately if:
+
+- production migration would be destructive
+- migration order is unclear
+- existing production data could be lost
+- schema differs in an unexpected way
+- the production database cannot safely be migrated
+- VAPID secret rotation cannot be performed safely
+- deployment tooling would expose the secret
+- any unrelated production behavior would need to change
+
+Do not solve unexpected problems by improvising.
+
+==================================================
+FINAL REPORT
+==================================================
+
+Return:
+
+# RELEASE BLOCKER REMEDIATION REPORT
+
+## RB-1
+Status:
+- RESOLVED
+or
+- BLOCKED
+
+Production schema:
+- before
+- after
+
+Exact structures verified.
+
+Migration method used.
+
+Data impact:
+- NONE
+or exact documented impact.
+
+## RB-2
+Status:
+- RESOLVED
+or
+- BLOCKED
+
+VAPID:
+- old credential retired
+- new credential configured in secret storage
+- tracked private key removed
+- repository history status
+
+Never reveal any secret.
+
+## Validation
+
+Provide exact test/build counts.
+
+## Production Verification
+
+Report:
+- health
+- authentication
+- session/revocation
+- operation infrastructure
+- push configuration
+- schema parity
+
+## Remaining Release Blockers
+
+If none:
+
+NONE FOUND
+
+If any remain:
+list ONLY confirmed blockers.
+
+IMPORTANT:
+
+Do not claim RESOLVED unless the actual production state was verified.
+
+If both blockers are successfully resolved, finish with exactly:
+
+RELEASE BLOCKERS RESOLVED — READY FOR FINAL LAUNCH GATE
+
+If either remains:
+
+RELEASE BLOCKERS REMAIN — DO NOT LAUNCH
