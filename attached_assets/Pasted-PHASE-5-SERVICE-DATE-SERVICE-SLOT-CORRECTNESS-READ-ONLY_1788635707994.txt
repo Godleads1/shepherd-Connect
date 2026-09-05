@@ -1,0 +1,688 @@
+PHASE 5 — SERVICE DATE & SERVICE-SLOT CORRECTNESS
+READ-ONLY DIAGNOSTIC — DO NOT MODIFY CODE, DATABASE, SCHEMA, DATA, OR CONFIGURATION
+
+You are now working on Phase 5 of the Shepherd Connect reliability/security hardening program.
+
+IMPORTANT PRODUCT CONTEXT
+
+Shepherd Connect is NOT a conventional school-management system.
+
+Do NOT introduce or assume concepts such as:
+- school day
+- academic day
+- business date
+- school calendar day
+- class day
+
+The product currently operates around Sunday services.
+
+The correct domain concepts for this phase are:
+
+1. SERVICE DATE
+   The calendar date representing the Sunday/service occurrence.
+
+2. SERVICE SLOT
+   The specific service occurrence within that date.
+
+Current known service slots are:
+- First Service
+- Second Service
+
+A child may legitimately attend First Service and Second Service on the same Service Date.
+
+Therefore:
+
+"same child + same calendar date" MUST NOT automatically mean duplicate attendance.
+
+The Service Slot is part of the attendance identity/business meaning.
+
+KNOWN HISTORICAL EVIDENCE
+
+The previous system audit found:
+- 2 child-days with multiple active attendance rows for different service slots.
+- 0 exact duplicate attendance tuple groups.
+- 0 picked-up custody records retaining active attendance.
+- 0 conflicting custody groups.
+
+This means multiple attendance records for the same child/date may be legitimate when they belong to different service slots.
+
+Do not "fix" or merge those records merely because they share a calendar date.
+
+==================================================
+PHASE 5 OBJECTIVE
+==================================================
+
+Determine whether Shepherd Connect consistently and correctly handles:
+
+A. Service Date
+B. Service Slot
+C. Sunday/timezone boundaries
+D. First vs Second Service attendance
+E. Check-in/check-out
+F. Pickup/custody
+G. Notifications
+H. Reports/history
+I. Classroom displays
+J. Scheduled/background jobs
+K. Offline/retry/reconciliation
+L. Concurrent actions
+
+We need to determine whether the application has any REAL correctness defects around service date/slot semantics.
+
+This is an investigation only.
+
+==================================================
+1. INVENTORY THE DOMAIN MODEL
+==================================================
+
+Identify every database table, column, enum, constant, type, helper, API field, frontend state field, and route that represents or implicitly determines:
+
+- service date
+- service slot
+- attendance date
+- attendance service
+- first service
+- second service
+- Sunday
+- current day/date
+- timezone
+- check-in date/time
+- checkout date/time
+- pickup date/time
+- custody date/time
+- classroom/display date or service
+- report date
+- scheduled job date
+
+For each, report:
+
+FILE
+TABLE/COLUMN OR SYMBOL
+CURRENT MEANING
+SOURCE OF TRUTH
+HOW IT IS CALCULATED
+WHETHER SERVICE SLOT IS EXPLICIT OR IMPLIED
+RISK LEVEL
+
+Do NOT modify anything.
+
+==================================================
+2. DETERMINE THE AUTHORITATIVE SERVICE DATE
+==================================================
+
+Trace how the backend determines the date for an attendance/service operation.
+
+Answer:
+
+- Is service date explicitly supplied by the client?
+- Is it derived from server time?
+- Is it derived from database time?
+- Is it derived from UTC?
+- Is it derived from browser/local time?
+- Is there a configured timezone?
+- Is Sunday explicitly validated?
+- Can a request around midnight produce a different service date depending on server/browser timezone?
+- Can the client submit an arbitrary historical/future service date?
+- Are date values stored as DATE, timestamp, or both?
+- Are date comparisons performed consistently?
+
+Show concrete code paths.
+
+Do not assume the answer.
+
+==================================================
+3. DETERMINE THE AUTHORITATIVE SERVICE SLOT
+==================================================
+
+Trace exactly how First Service and Second Service are represented.
+
+Determine:
+
+- Is service slot a database field?
+- Is it an enum/string/ID?
+- Is it derived from time?
+- Is it selected by the user?
+- Is it inferred from classroom/service configuration?
+- Can the client submit arbitrary slot values?
+- Is slot validated server-side?
+- Is slot included in attendance uniqueness?
+- Is slot included in queries?
+- Is slot included in checkout/pickup resolution?
+- Is slot included in reports?
+- Is slot included in notifications?
+- Is slot included in classroom displays?
+
+Identify every place where slot information is lost, inferred, or reconstructed.
+
+==================================================
+4. ATTENDANCE IDENTITY
+==================================================
+
+This is critical.
+
+Determine the exact business identity of an attendance record.
+
+Answer whether the system currently treats attendance as something equivalent to:
+
+child + date
+
+or:
+
+child + service date + service slot
+
+or another combination.
+
+Inspect:
+
+- database constraints
+- unique indexes
+- transactions
+- locks
+- insert logic
+- check-in logic
+- checkout logic
+- queries
+- duplicate detection
+- reconciliation
+- offline queue
+- frontend cache keys
+
+Test conceptually and, where safe, through existing tests:
+
+Child A
+Service Date = Sunday X
+Service Slot = First Service
+
+AND
+
+Child A
+Service Date = Sunday X
+Service Slot = Second Service
+
+Determine whether both can legitimately coexist.
+
+Do NOT alter production data.
+
+==================================================
+5. CHECK-IN / CHECKOUT
+==================================================
+
+Trace:
+
+check-in
+→ attendance creation/update
+→ classroom association
+→ checkout
+→ pickup
+→ custody resolution
+→ notifications
+→ frontend reconciliation
+
+Determine whether the system can accidentally:
+
+- check out the wrong service attendance
+- pick up a child's First Service attendance while Second Service is active
+- resolve the wrong pickup request
+- resolve custody against the wrong attendance
+- use "latest attendance" when service slot is required
+- use child/date without slot when multiple service rows exist
+- show a false duplicate
+- mark one service as picked up because another service was checked out
+
+Pay particular attention to queries using:
+
+childId
+date
+today
+latest
+active attendance
+ORDER BY createdAt
+ORDER BY checkedInAt
+
+when serviceSlot should potentially participate.
+
+==================================================
+6. PICKUP / CUSTODY
+==================================================
+
+Determine how pickup requests and custody episodes relate to service date and service slot.
+
+Answer:
+
+- Can a child have pickup activity in both services on the same Sunday?
+- Does pickup resolution identify the correct attendance?
+- Does custody scope include service slot?
+- Does checkout select by service slot?
+- Could a second-service operation accidentally resolve a first-service record?
+- Are locks keyed sufficiently to distinguish legitimate service occurrences?
+- Are active-record queries deterministic when multiple service rows exist?
+
+Do not change behavior.
+
+==================================================
+7. NOTIFICATIONS
+==================================================
+
+Trace notification intent and delivery for:
+
+- check-in
+- checkout
+- pickup request
+- pickup approval
+- custody events
+- emergency/safeguarding events
+- service-specific classroom alerts
+
+Determine whether notification payloads contain enough context to identify:
+
+- child
+- service date
+- service slot
+- operation
+
+Identify cases where a notification could be generated for the correct child but ambiguous service.
+
+Do not modify notification behavior.
+
+==================================================
+8. REPORTS / HISTORY / ADMIN VIEWS
+==================================================
+
+Inspect all relevant reports and history views.
+
+Determine whether:
+
+- First and Second Service are distinguishable
+- same-child same-date records are incorrectly grouped
+- legitimate two-service attendance looks like duplication
+- date filters use the correct timezone
+- service-slot filters are consistent
+- totals count attendance rows vs unique children
+- daily summaries accidentally collapse service slots
+- historical records can be reconstructed accurately
+
+Flag any ambiguity.
+
+==================================================
+9. CLASSROOM DISPLAYS
+==================================================
+
+Review Task #75 changes in the context of service date/slot.
+
+Determine whether classroom displays are:
+
+- service-slot aware
+- class aware
+- date aware
+
+Check whether a display for First Service could display state belonging to Second Service on the same Sunday.
+
+Do NOT redesign Task #75 realtime architecture.
+
+Only identify date/slot correctness issues.
+
+==================================================
+10. SCHEDULED JOBS / BACKGROUND WORK
+==================================================
+
+Inventory jobs, schedulers, workers, cron tasks, notification jobs, cleanup jobs, reminders, and recurring processes that use:
+
+- current date
+- day of week
+- Sunday
+- midnight
+- UTC
+- local timezone
+
+Determine whether they use a consistent service-date interpretation.
+
+Pay special attention to:
+
+Saturday → Sunday
+Sunday → Monday
+UTC midnight vs Nigeria/local midnight
+late-night operations
+server timezone differences
+
+Do not change scheduler behavior.
+
+==================================================
+11. TIMEZONE ANALYSIS
+==================================================
+
+Identify the application's intended timezone.
+
+Determine whether the intended timezone is consistently applied across:
+
+- backend
+- frontend
+- PostgreSQL
+- API serialization
+- attendance
+- reports
+- notifications
+- scheduled jobs
+- classroom displays
+
+Identify every location where UTC/local conversion occurs.
+
+Specifically inspect operations around:
+
+23:xx Saturday
+00:xx Sunday
+23:xx Sunday
+00:xx Monday
+
+Determine whether any operation could cross a service-date boundary unexpectedly.
+
+==================================================
+12. OFFLINE / RETRY / RECONCILIATION
+==================================================
+
+Review Phase 2 operation IDs and offline queue behavior.
+
+Determine whether an offline operation created for:
+
+Sunday + First Service
+
+can safely retry later without accidentally being interpreted as:
+
+Sunday + Second Service
+
+or a different service date.
+
+Check:
+
+- operation payload
+- reconciliation endpoints
+- idempotency identity
+- frontend queue metadata
+- backend operation binding
+- cache keys
+
+Do not modify Phase 2 implementation.
+
+==================================================
+13. CONCURRENCY
+==================================================
+
+Review concurrent scenarios such as:
+
+- two check-ins for same child + same service
+- First Service checkout while Second Service check-in occurs
+- two staff members acting simultaneously
+- pickup request created while another service is active
+- response loss followed by retry
+- two browser tabs
+
+Determine whether locks and uniqueness constraints distinguish:
+
+same child + same service date + same service slot
+
+from:
+
+same child + same service date + different service slot.
+
+==================================================
+14. API CONTRACT REVIEW
+==================================================
+
+Inspect relevant API contracts and generated clients.
+
+Determine whether service date and service slot are:
+
+- required
+- optional
+- inferred
+- inconsistently named
+- inconsistently typed
+
+Look for variants such as:
+
+date
+serviceDate
+attendanceDate
+day
+service
+serviceSlot
+slot
+session
+sessionId
+
+Identify semantic duplication or ambiguity.
+
+Do not rename anything yet.
+
+==================================================
+15. FRONTEND REVIEW
+==================================================
+
+Inspect all relevant frontend flows.
+
+Determine whether UI state/cache/query keys distinguish:
+
+child + service date + service slot.
+
+Look for:
+
+- "today"
+- Date.now()
+- new Date()
+- local date formatting
+- UTC formatting
+- latest attendance
+- active attendance
+- selected service
+- selected slot
+- cached attendance
+- stale data after switching services
+
+Check whether switching First Service → Second Service can leave stale data visible.
+
+==================================================
+16. DATABASE INTEGRITY
+==================================================
+
+Read-only inspection only.
+
+Determine:
+
+- attendance indexes
+- uniqueness
+- foreign keys
+- service slot representation
+- nullability
+- historical rows
+- impossible combinations
+- orphaned service-slot references
+- duplicate records
+- multiple active attendance rows
+- custody/attendance mismatches
+
+If safe read-only aggregate queries are available, run them.
+
+Do NOT:
+
+- merge children
+- delete attendance
+- update attendance
+- alter schema
+- normalize production data
+- create indexes
+- run migrations
+
+==================================================
+17. CLASSIFY FINDINGS
+==================================================
+
+Classify every finding as exactly one of:
+
+CRITICAL
+HIGH
+MEDIUM
+LOW
+NO DEFECT
+PRODUCT DECISION REQUIRED
+
+Use these principles:
+
+HIGH means the system can assign, display, resolve, or report a real person's service activity to the wrong service occurrence or create materially incorrect authoritative state.
+
+MEDIUM means correctness is degraded but authoritative state remains recoverable.
+
+LOW means cosmetic/clarity/maintenance issue.
+
+PRODUCT DECISION REQUIRED means the technical behavior may be valid but the intended business rule is not established.
+
+Do not inflate severity.
+
+==================================================
+18. IMPORTANT PRODUCT QUESTIONS
+==================================================
+
+Explicitly answer whether the current code establishes rules for:
+
+1. Are First Service and Second Service separate attendance occurrences?
+2. Can the same child attend both on the same Sunday?
+3. Can the same child have separate pickup/check-out activity per service?
+4. Is service slot selected by staff/parent or determined by configuration/time?
+5. Can historical attendance be edited across service slots?
+6. Can attendance be created for a non-Sunday date?
+7. Can attendance be created for a future service date?
+8. What timezone defines the service date?
+9. What happens if a service crosses midnight?
+10. Is there a maximum duration/window for a service?
+11. Should reports show per-service totals, daily unique children, or both?
+
+If code does not establish these rules, mark them PRODUCT DECISION REQUIRED.
+
+Do not invent answers.
+
+==================================================
+19. REQUIRED DELIVERABLE
+==================================================
+
+Produce a Phase 5 diagnostic report containing:
+
+A. EXECUTIVE VERDICT
+
+One of:
+
+NO SERVICE-DATE/SLOT DEFECT FOUND
+
+or
+
+SERVICE-DATE/SLOT DEFECTS FOUND
+
+or
+
+PRODUCT RULES REQUIRED BEFORE SAFE IMPLEMENTATION
+
+B. SERVICE MODEL MAP
+
+Show:
+
+Service Date
+   ↓
+Service Slot
+   ├── First Service
+   └── Second Service
+
+and explain how the actual system maps onto this model.
+
+C. AUTHORITATIVE SOURCES
+
+List the current source of truth for:
+- service date
+- service slot
+- attendance
+- checkout
+- pickup
+- custody
+- reports
+- display state
+
+D. DEFECT TABLE
+
+For each defect:
+
+ID
+SEVERITY
+AREA
+FILE/ROUTE/TABLE
+CURRENT BEHAVIOR
+EXPECTED BEHAVIOR
+REPRODUCTION SCENARIO
+DATA IMPACT
+SECURITY IMPACT IF ANY
+RECOMMENDED FIX
+CONFIDENCE
+
+E. PRODUCT DECISIONS REQUIRED
+
+Only decisions that the code cannot safely establish.
+
+F. DATABASE EVIDENCE
+
+Include read-only counts/aggregates where relevant.
+
+G. TEST COVERAGE
+
+Identify existing tests that cover service date/slot behavior and missing tests.
+
+H. RECOMMENDED IMPLEMENTATION SCOPE
+
+If defects exist, recommend the SMALLEST SAFE Phase 5 implementation.
+
+Do not implement it.
+
+==================================================
+20. ABSOLUTE PHASE 5 RULES
+==================================================
+
+DO NOT:
+
+- modify source code
+- modify schema
+- run migrations
+- push schema
+- alter production data
+- merge duplicate children
+- merge attendance
+- delete attendance
+- introduce "school day"
+- introduce "business date"
+- redesign Task #75
+- redesign Phase 4 authentication
+- rewrite Phase 2 operation handling
+- make speculative architectural changes
+
+DO:
+
+- inspect
+- trace
+- query read-only data
+- reason from actual code
+- run existing read-only/tests where safe
+- identify concrete defects
+- preserve the distinction between service date and service slot
+- distinguish legitimate two-service attendance from duplicates
+- clearly separate confirmed defects from product decisions
+
+IMPORTANT:
+
+Do not fix anything during this task.
+
+Do not silently make "small improvements."
+
+Do not alter files merely to make tests pass.
+
+At the end, report exactly what you inspected, what you found, and whether Phase 5 implementation is actually justified.
+
+FINAL STATUS MUST BE ONE OF:
+
+PHASE 5 DIAGNOSTIC COMPLETE — NO DEFECT
+
+PHASE 5 DIAGNOSTIC COMPLETE — DEFECTS FOUND
+
+PHASE 5 DIAGNOSTIC COMPLETE — PRODUCT DECISIONS REQUIRED
