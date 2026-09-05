@@ -1,0 +1,509 @@
+TASK #75 — READ-ONLY DIAGNOSTIC
+CROSS-INSTANCE REALTIME / CLASSROOM DISPLAY RELIABILITY
+
+You are continuing the Shepherd Connect reliability hardening program.
+
+Completed:
+- Phase 1 — Outcome Semantics
+- Phase 2 — Operation Identity & Reconciliation
+- Phase 3 — Secondary-Work False Failures
+- Task #74 — Safety-Critical Command Idempotency
+
+DO NOT IMPLEMENT ANYTHING IN THIS TASK.
+
+This task is strictly READ-ONLY investigation and architecture analysis.
+
+Do not modify:
+- application code
+- database schema
+- migrations
+- API contracts
+- generated clients
+- frontend
+- tests
+- configuration
+- workflows
+- deployment
+- production data
+- production schema
+- environment variables
+
+Do not restart workflows unless absolutely necessary for observation.
+Do not create temporary tracked files.
+Do not begin Phase 4.
+Do not implement a fix for any finding.
+
+==================================================
+OBJECTIVE
+==================================================
+
+Investigate the remaining Task #75 reliability concern:
+
+CROSS-INSTANCE REALTIME / CLASSROOM DISPLAY RELIABILITY
+
+The previous audit found that classroom/display realtime currently relies on process-local SSE plus PostgreSQL LISTEN/NOTIFY.
+
+Known facts from the prior investigation:
+
+- API processes listen to PostgreSQL channel:
+  classroom_display_refresh
+- LISTEN/NOTIFY is ephemeral.
+- Notifications are not replayable.
+- Classroom/display persisted state remains authoritative.
+- A reconnecting client can recover state by reading the persisted API state.
+- The concern is therefore not that realtime is the source of truth.
+- The concern is whether a realtime event can be lost, delayed, duplicated, reordered, or incorrectly treated as authoritative across multiple API instances/processes.
+
+Determine the actual current architecture and whether this is a real production reliability problem, a UX degradation only, or both.
+
+==================================================
+1. MAP THE COMPLETE REALTIME PATH
+==================================================
+
+Trace the complete path for classroom/display refresh events.
+
+Start from every known writer and trace:
+
+domain mutation
+→ transaction
+→ commit
+→ PostgreSQL NOTIFY
+→ LISTEN
+→ API process
+→ SSE/event broadcaster
+→ connected browser/client
+→ client state update
+→ fallback/refetch/reconciliation
+
+Identify exact files/functions/routes involved.
+
+Do not rely on filenames alone.
+
+For each path provide:
+
+- source mutation
+- authoritative DB tables/rows
+- transaction boundary
+- when NOTIFY happens
+- whether NOTIFY is before or after commit
+- LISTEN implementation
+- process-local broadcaster
+- SSE endpoint
+- client event handler
+- client cache/state update
+- refetch/reconciliation behavior
+- failure handling
+
+==================================================
+2. MULTI-INSTANCE ANALYSIS
+==================================================
+
+Determine what happens when there are:
+
+A. one API process
+B. two API processes
+C. multiple API processes behind a load balancer/reverse proxy
+D. one browser connected to process A while the mutation is handled by process B
+E. multiple browsers connected to different API processes
+
+For each case determine:
+
+- Does the event reach every intended client?
+- Can a process miss the PostgreSQL notification?
+- Can a client connected to another process miss the event?
+- Does the receiving process rebroadcast it?
+- Is there any durable event/fanout layer?
+- What happens during process restart?
+- What happens during deployment/rolling restart?
+- What happens if LISTEN is disconnected temporarily?
+- What happens if an SSE connection is dropped?
+
+Do not assume that PostgreSQL NOTIFY provides durable delivery.
+
+==================================================
+3. EVENT ORDERING / DUPLICATION
+==================================================
+
+Determine whether realtime events have:
+
+- event IDs
+- monotonic versions
+- sequence numbers
+- timestamps used for ordering
+- database revision numbers
+- per-child versions
+- per-class versions
+- per-display versions
+
+Determine whether clients can receive:
+
+- duplicate events
+- stale events
+- events out of order
+- an older event after a newer state has already been fetched
+
+Determine whether the frontend protects against stale overwrites.
+
+Specifically inspect whether a realtime event can cause:
+
+newer state
+→ older state
+or
+fresh API state
+→ stale realtime payload
+or
+new realtime event
+→ older refetch result
+
+If such a race exists, document the exact path.
+
+==================================================
+4. AUTHORITATIVE STATE VS REALTIME SIGNAL
+==================================================
+
+For every classroom/display realtime event, classify it as:
+
+A. authoritative state
+B. invalidation signal
+C. derived snapshot
+D. notification-only event
+
+Determine whether the frontend treats it correctly.
+
+The preferred architecture is generally:
+
+DB state = authority
+
+Realtime = "something changed; refresh/reconcile"
+
+Do NOT recommend making SSE or NOTIFY authoritative unless the existing architecture clearly requires it.
+
+Identify any places where realtime currently contains enough state that the frontend may incorrectly trust it over persisted API state.
+
+==================================================
+5. LOST-EVENT RECOVERY
+==================================================
+
+Trace what happens when a client misses a realtime event.
+
+Test/read the code path for:
+
+- browser offline temporarily
+- SSE disconnect
+- API process restart
+- LISTEN reconnect
+- network interruption
+- browser tab suspension
+- load balancer connection reset
+
+Determine:
+
+- Is there automatic reconnect?
+- Is there exponential backoff?
+- Is the last event ID retained?
+- Can missed events be replayed?
+- Is there a periodic refresh?
+- Is there visibility/focus refresh?
+- Is there a query invalidation mechanism?
+- Is the client guaranteed to eventually converge to DB state?
+
+If there is no replay mechanism, determine whether reconciliation is sufficient.
+
+==================================================
+6. DISPLAY-SPECIFIC INVESTIGATION
+==================================================
+
+Pay special attention to classroom pickup/display functionality.
+
+Trace:
+
+- pickup request creation
+- pickup checkout/handover
+- pickup cancellation
+- display-media updates
+- display-media deletion
+- classroom display refresh
+- TV/display client behavior
+
+Determine whether the display can remain stale indefinitely after a missed event.
+
+Determine whether the display has:
+
+- polling
+- reconnect refresh
+- initial full fetch
+- periodic reconciliation
+- manual refresh
+- stale timeout
+- visibility recovery
+
+Also determine whether the recent Phase 3 changes correctly made display broadcast non-authoritative.
+
+==================================================
+7. PHASE 3 INTERACTION
+==================================================
+
+Verify the Task #75 boundary against Phase 3.
+
+Specifically verify:
+
+- display PUT/DELETE commits authoritative state before broadcast
+- broadcast failure does not change the committed HTTP outcome
+- realtime is not required for database correctness
+- persisted display state can be recovered by a later read
+- no Phase 3 route has accidentally reintroduced synchronous broadcast as authoritative
+
+Do not change anything.
+
+==================================================
+8. SECURITY / TENANCY
+==================================================
+
+Trace realtime authorization.
+
+Determine:
+
+- how a client establishes an SSE connection
+- how role is determined
+- how tenant/family/classroom scope is determined
+- whether classroom events can leak across classes
+- whether events can leak across schools/organizations if applicable
+- whether stale role/session state affects SSE authorization
+- whether reconnect revalidates authorization
+- whether a previously authorized client can continue receiving events after authorization changes
+
+Do not redesign auth in this task.
+
+Just document concrete findings and severity.
+
+==================================================
+9. FAILURE MATRIX
+==================================================
+
+Create a table with at least:
+
+Failure scenario | Current behavior | Data correctness | UI correctness | Recovery | Severity
+
+Include:
+
+- NOTIFY lost
+- LISTEN disconnected
+- API process restart
+- SSE disconnect
+- browser offline
+- load balancer routing to different API process
+- duplicate event
+- out-of-order event
+- stale refetch
+- broadcast failure
+- display client reconnect
+- rolling deployment
+
+Classify severity:
+
+SAFE
+LOW
+MEDIUM
+HIGH
+CRITICAL
+
+Do not inflate severity simply because something is theoretically possible.
+
+==================================================
+10. DETERMINE THE SMALLEST SAFE FIX
+==================================================
+
+Do NOT implement.
+
+Instead, determine which architecture is actually needed.
+
+Consider these possible strategies:
+
+A. Keep LISTEN/NOTIFY + SSE and add reconciliation/polling
+B. Add durable event/version cursor
+C. Add database-backed event log
+D. Add external pub/sub
+E. Make clients invalidate/refetch on realtime signal
+F. Add per-resource monotonic version
+G. Some combination
+
+Do not automatically recommend a new infrastructure component.
+
+Prefer the smallest change that provides:
+
+1. eventual convergence to authoritative DB state
+2. safe multi-instance behavior
+3. protection against stale event overwrites
+4. acceptable display freshness
+5. no duplicate domain mutations
+6. no dependency on realtime for transaction success
+
+Explain why the recommended solution is the smallest sufficient solution.
+
+==================================================
+11. CHECK FOR EXISTING BUILDING BLOCKS
+==================================================
+
+Before proposing anything new, inventory existing:
+
+- event IDs
+- operation IDs
+- database timestamps
+- updatedAt fields
+- version columns
+- event ledgers
+- notification outbox
+- Redis/pubsub if present
+- websocket infrastructure
+- SSE infrastructure
+- polling hooks
+- React Query invalidation
+- query cache mechanisms
+- reconnect handling
+- health/recovery mechanisms
+
+Determine whether existing infrastructure can solve this without adding a new subsystem.
+
+==================================================
+12. TEST DESIGN
+==================================================
+
+Design, but DO NOT IMPLEMENT, tests for:
+
+- two API processes
+- mutation handled by process A, SSE client on process B
+- LISTEN disconnect
+- process restart
+- SSE disconnect/reconnect
+- missed event followed by reconciliation
+- duplicate event
+- out-of-order event
+- stale refetch
+- rolling restart
+- display client recovery
+- unauthorized reconnect
+- cross-classroom event isolation
+
+For each test specify:
+
+- setup
+- action
+- expected authoritative DB state
+- expected client/display state
+- pass/fail criterion
+
+==================================================
+13. PRODUCTION SAFETY
+==================================================
+
+Confirm explicitly:
+
+- no production DB reads/writes were performed
+- no production schema changes
+- no deployment
+- no production configuration changes
+- no production events emitted
+- no test data created in production
+
+==================================================
+14. PHASE BOUNDARY CHECK
+==================================================
+
+Confirm that this investigation does NOT modify or redesign:
+
+- Phase 1 outcome semantics
+- Phase 2 checkout operation/reconciliation
+- Task #74 command_operations
+- authentication/session hardening
+- role switching
+- offline mutation queue
+- duplicate child cleanup
+- family/child deletion
+- notification worker redesign
+- WhatsApp
+- general universal idempotency
+- Phase 4
+
+==================================================
+FINAL REPORT FORMAT
+==================================================
+
+Return exactly these sections:
+
+1. EXECUTIVE VERDICT
+
+State whether Task #75 is:
+
+- NOT A REAL DEFECT
+- RESILIENCE GAP ONLY
+- REAL HIGH-SEVERITY DEFECT
+- REAL CRITICAL DEFECT
+
+2. CURRENT ARCHITECTURE
+
+Show the actual realtime flow.
+
+3. MULTI-INSTANCE FINDINGS
+
+Explain process A/process B behavior.
+
+4. EVENT ORDERING FINDINGS
+
+Explain duplicate/stale/out-of-order behavior.
+
+5. LOST-EVENT RECOVERY
+
+Explain whether clients eventually converge.
+
+6. DISPLAY RELIABILITY
+
+Explain whether classroom displays can remain stale.
+
+7. SECURITY FINDINGS
+
+Explain realtime authorization boundaries.
+
+8. FAILURE MATRIX
+
+Use the requested table.
+
+9. EXISTING BUILDING BLOCKS
+
+List what can be reused.
+
+10. SMALLEST SAFE FIX
+
+Recommend the minimum architecture.
+
+11. TEST PLAN
+
+Provide the exact tests needed.
+
+12. TASK #75 SCOPE
+
+Separate:
+
+IN SCOPE
+OUT OF SCOPE
+
+13. IMPLEMENTATION PLAN
+
+Give a staged implementation order, but DO NOT implement.
+
+14. SAFETY / INTEGRITY CONFIRMATION
+
+Confirm no code/schema/config/production changes.
+
+IMPORTANT:
+
+This is a diagnostic task only.
+
+Do not modify anything.
+
+Do not implement the proposed fix.
+
+Do not start Phase 4.
+
+Do not start another task.
+
+Stop after the diagnostic report.
