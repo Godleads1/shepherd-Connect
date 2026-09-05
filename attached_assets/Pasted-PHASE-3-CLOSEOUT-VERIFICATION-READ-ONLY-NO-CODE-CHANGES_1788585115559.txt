@@ -1,0 +1,233 @@
+PHASE 3 CLOSEOUT VERIFICATION
+READ-ONLY — NO CODE CHANGES
+
+Phase 3 implementation has been reviewed and is provisionally approved.
+
+Before Phase 3 is considered fully closed, perform one final READ-ONLY verification.
+
+Do not modify code, database, API contracts, tests, configuration, production, or deployment.
+
+Do not start Phase 4.
+
+Do not implement Task #74 or Task #75.
+
+==================================================
+PART A — VERIFY NOTIFICATION CLASSIFICATION
+==================================================
+
+Phase 3 changed these 8 routes:
+
+1. POST /pickup-requests
+2. POST /pickup-delegates/:id/notify-parent
+3. POST /teacher-allocations/assign-duty
+4. POST /teacher-allocations/auto-schedule
+5. POST /teacher-allocations/:id/swap
+6. POST /teacher-allocations/:id/mark-unavailable
+7. POST /pickup-delegates
+8. POST /family-assist/delegate
+
+For each route, verify the classification of notification work as:
+
+- REQUIRED TO THE BUSINESS COMMAND
+- OPTIONAL SECONDARY EFFECT
+
+Do not infer merely from function names.
+
+Use current code paths, API behavior, UI expectations, tests, and existing domain semantics.
+
+For each route report:
+
+| Route | Notification | Classification | Evidence | If notification intent fails, should domain mutation rollback? |
+
+If the classification is ambiguous, mark it AMBIGUOUS.
+
+Do not change the implementation.
+
+==================================================
+PART B — CREATE RESPONSE-LOSS DUPLICATION AUDIT
+==================================================
+
+We are NOT implementing idempotency.
+
+We only want an evidence-based inventory.
+
+Identify CREATE or command-style endpoints where:
+
+1. authoritative state can commit,
+2. HTTP response can be lost after commit,
+3. client may reasonably retry,
+4. retry could create duplicate/conflicting durable state.
+
+For each candidate determine whether existing protection already exists.
+
+Check:
+
+- database unique constraints
+- natural business keys
+- event IDs
+- stable caller IDs
+- domain idempotency
+- existing request identities
+- duplicate detection
+- frontend behavior
+- generated client behavior
+- server retry behavior
+- transaction semantics
+
+Do not treat "the frontend probably won't retry" as protection.
+
+==================================================
+PART C — CLASSIFY RESPONSE-LOSS RISK
+==================================================
+
+For every create/command candidate assign:
+
+SAFE
+- retry cannot duplicate/conflict due to existing authoritative protection.
+
+LOW
+- duplicate is technically possible but operational impact is minimal.
+
+MEDIUM
+- duplicate is possible and materially affects data/UX.
+
+HIGH
+- duplicate/conflicting state is likely and operationally significant.
+
+CRITICAL
+- duplicate retry can cause serious business/security/safety consequences.
+
+Include exact route and protection.
+
+==================================================
+PART D — SEPARATE NATURAL IDEMPOTENCY FROM MISSING IDEMPOTENCY
+==================================================
+
+Do not recommend universal idempotency.
+
+For each HIGH/CRITICAL candidate answer:
+
+"Can this route safely receive a client-generated operation ID without changing its business semantics?"
+
+If yes, say why.
+
+If no, explain why.
+
+Do not design the implementation yet.
+
+==================================================
+PART E — TASK #74 SCOPE
+==================================================
+
+Based only on verified evidence, propose the smallest possible scope for Task #74.
+
+Do NOT propose:
+
+- universal idempotency middleware
+- modification of all 269 routes
+- checkout redesign
+- schema-wide operation tables
+
+Instead identify the smallest group of genuinely dangerous operations that need durable command identity.
+
+For each proposed route:
+
+- current idempotency mechanism
+- failure mode
+- retry scenario
+- proposed identity boundary
+- whether response reconciliation is required
+- whether DB changes would be required
+
+Do not implement.
+
+==================================================
+PART F — TASK #75
+==================================================
+
+Briefly confirm the existing cross-instance realtime/display issue from Phase 3:
+
+- process-local SSE
+- ephemeral LISTEN/NOTIFY
+- persisted state recovery
+
+Do not investigate or implement Task #75 beyond confirming that Phase 3 did not accidentally change it.
+
+==================================================
+PART G — PHASE 3 INTEGRITY CHECK
+==================================================
+
+Verify:
+
+- checkout Phase 2 unchanged
+- checkout_operations unchanged
+- authentication unchanged
+- sessions unchanged
+- role switching unchanged
+- offline queue unchanged
+- duplicate-child architecture unchanged
+- family deletion unchanged
+- child deletion unchanged
+- SSE architecture unchanged
+- notification workers unchanged
+- production DB unchanged
+- production data unchanged
+- production deployment not performed
+
+==================================================
+REQUIRED OUTPUT
+==================================================
+
+# PHASE 3 CLOSEOUT VERIFICATION
+
+## 1. Notification Classification
+
+Table for all 8 routes.
+
+## 2. Response-Loss Create Inventory
+
+List all relevant CREATE/command routes.
+
+## 3. Risk Classification
+
+SAFE / LOW / MEDIUM / HIGH / CRITICAL.
+
+## 4. Existing Protection
+
+Exact uniqueness/idempotency protections.
+
+## 5. High/Critical Candidates
+
+Detailed evidence only.
+
+## 6. Task #74 Recommended Scope
+
+Smallest safe scope.
+
+No implementation.
+
+## 7. Task #75 Confirmation
+
+Only confirm known scope.
+
+## 8. Phase 3 Integrity
+
+Confirm excluded areas remained untouched.
+
+## 9. Git Status
+
+Confirm no additional code changes were made during this verification.
+
+FINAL RULE:
+
+This is READ-ONLY.
+
+Do not modify anything.
+
+Do not implement Task #74.
+
+Do not implement Task #75.
+
+Do not begin Phase 4.
+
+STOP after the report.
