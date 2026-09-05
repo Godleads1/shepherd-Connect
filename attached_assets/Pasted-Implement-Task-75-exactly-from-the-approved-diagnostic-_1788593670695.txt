@@ -1,0 +1,85 @@
+Implement Task #75 exactly from the approved diagnostic.
+
+Implement only:
+
+Transactional classroom invalidation for all classroom-visible mutations, including display-media PUT/DELETE/page.
+Treat realtime as an invalidation signal, never as authoritative state.
+Re-read authoritative pickup/display/media state before broadcasting.
+Reconcile connected classrooms when a PostgreSQL listener starts/reconnects.
+Add bounded display safety polling.
+Add visibility/focus reconciliation.
+Replace the current three-attempt terminal SSE retry with capped ongoing backoff.
+Add request-generation/abort protection so stale responses cannot overwrite newer state.
+Fix the initial-media registration race.
+Add the two-process, missed-event, ordering, restart, reconnect, and cross-class security tests described in the diagnostic.
+
+Do NOT introduce Redis, WebSockets, Kafka, a durable event ledger, or another infrastructure subsystem.
+
+Do NOT modify:
+
+Phase 1
+Phase 2 checkout/reconciliation
+Task #74 command_operations
+authentication/session
+role switching
+offline queue
+family/child deletion
+duplicate-child handling
+notification workers
+WhatsApp
+Phase 4
+
+Important safety requirements:
+
+PostgreSQL remains the sole source of truth.
+NOTIFY must occur transactionally with the relevant authoritative mutation.
+Realtime delivery must never determine whether the mutation succeeds.
+A missed notification must eventually converge through reconciliation/polling.
+Display-media events must no longer directly apply an arbitrary precomputed snapshot that can arrive out of order.
+Do not create a new UUID/idempotency mechanism.
+Do not change existing API contracts unless absolutely necessary; if a contract change appears necessary, STOP and report it before implementing.
+Preserve existing display credential authorization and class isolation.
+Do not make production schema/data/config changes.
+Do not deploy.
+
+Implementation order:
+
+Stage 1: Add characterization/regression tests first.
+
+Stage 2: Implement unified transactional class invalidation.
+
+Stage 3: Implement authoritative reconciliation and listener reconnect reconciliation.
+
+Stage 4: Implement TV convergence protections, polling, visibility recovery, and capped SSE backoff.
+
+Stage 5: Run the complete multi-instance/security/reliability test matrix.
+
+STOP CONDITIONS:
+
+Stop and report instead of improvising if:
+
+a durable event log appears necessary;
+a schema migration outside the approved scope appears necessary;
+API contracts must change;
+authorization semantics must change;
+Phase 2 or Task #74 must be modified;
+existing pickup transaction semantics must change;
+production access is required;
+you discover a correctness issue that cannot be safely fixed within this scope.
+
+At completion, provide:
+
+exact files changed;
+exact routes/functions changed;
+schema/migration changes, if any;
+tests added;
+two-process test evidence;
+missed-event recovery evidence;
+stale-response/order test evidence;
+SSE reconnect evidence;
+cross-class authorization evidence;
+full test/typecheck/build results;
+confirmation Phase 1, Phase 2, Task #74 and Phase 4 were untouched;
+confirmation production was not modified/deployed.
+
+Do not begin Phase 4 after completing Task #75. Stop after the Task #75 implementation report.

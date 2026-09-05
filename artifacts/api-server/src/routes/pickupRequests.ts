@@ -22,11 +22,12 @@ import { parentOwnsChild } from "../lib/parentScope";
 import { CreateParentPickupRequestBody, CreateParentPickupRequestResponse } from "@workspace/api-zod";
 import {
   addClassroomDisplayClient,
-  broadcastToClass,
+  activateClassroomDisplayClient,
   closeClassroomDisplayClients,
   getPendingCheckInAlertsForClass,
   ensureClassroomDisplayListener,
   notifyClassRefresh,
+  registerClassroomDisplayMediaReader,
   removeClassroomDisplayClient,
   type ClassroomDisplayClient,
 } from "../services/classroomDisplayAlerts";
@@ -35,6 +36,9 @@ const router = Router();
 
 export const pickupRequestRouteDependencies = {
   createNotificationDelivery,
+  // Retained as a no-op test seam for the pre-Task-75 commit-outcome
+  // characterization. Media delivery is now exclusively transactional
+  // invalidation and never invokes this optional broadcaster.
   broadcastDisplayMedia: null as null | ((classId: number) => Promise<void>),
 };
 
@@ -295,43 +299,20 @@ async function getClientDisplayMedia(classId: number): Promise<ClientDisplayMedi
         v,
       };
     }
-    try {
-      const url = await objectStorage.getObjectEntityDownloadURL(row.objectPath, 12 * 60 * 60);
-      return {
-        kind: "file",
-        url,
-        contentType,
-        name: row.fileName ?? "media",
-        page: null,
-        pageCount: null,
-      };
-    } catch {
-      // Signing can fail transiently; the TV simply keeps its idle screen.
-      return null;
-    }
+    const url = await objectStorage.getObjectEntityDownloadURL(row.objectPath, 12 * 60 * 60);
+    return {
+      kind: "file",
+      url,
+      contentType,
+      name: row.fileName ?? "media",
+      page: null,
+      pageCount: null,
+    };
   }
   return null;
 }
 
-async function broadcastDisplayMedia(classId: number) {
-  await broadcastToClass(classId, {
-    type: "media",
-    media: await getClientDisplayMedia(classId),
-  });
-}
-
-export async function broadcastDisplayMediaAfterCommit(
-  classId: number,
-  log: { warn(context: unknown, message: string): unknown },
-  broadcast: (classId: number) => Promise<void> =
-    pickupRequestRouteDependencies.broadcastDisplayMedia ?? broadcastDisplayMedia,
-): Promise<void> {
-  try {
-    await broadcast(classId);
-  } catch (error) {
-    log.warn({ err: error, classId }, "Classroom display media broadcast failed after mutation committed");
-  }
-}
+registerClassroomDisplayMediaReader(getClientDisplayMedia);
 
 router.get("/pickup-requests/stream/:classNumber", async (req, res): Promise<void> => {
   const classNumber = Number(req.params.classNumber);
@@ -351,14 +332,13 @@ router.get("/pickup-requests/stream/:classNumber", async (req, res): Promise<voi
     return;
   }
 
-  const client: ClassroomDisplayClient = { res, displayToken };
+  const client: ClassroomDisplayClient = { res, displayToken, ready: false };
   try {
     await ensureClassroomDisplayListener();
   } catch {
     res.status(503).json({ error: "Unavailable", message: "Classroom display updates are temporarily unavailable" });
     return;
   }
-  const initialMedia = await getClientDisplayMedia(cls.id);
   let registered = false;
   try {
     registered = await db.transaction(async (tx) => {
@@ -380,9 +360,16 @@ router.get("/pickup-requests/stream/:classNumber", async (req, res): Promise<voi
       res.setHeader("Connection", "keep-alive");
       res.setHeader("X-Accel-Buffering", "no");
       res.flushHeaders();
-      const queue = await getPickupRequestsForClass(cls.id);
-      const checkInAlerts = await getPendingCheckInAlertsForClass(cls.id);
+       // Register before reading every authoritative projection. A committed
+       // mutation from this point onward either appears in this snapshot or
+       // invalidates this now-registered client; there is no initial-media gap.
+       const [queue, checkInAlerts, initialMedia] = await Promise.all([
+         getPickupRequestsForClass(cls.id),
+         getPendingCheckInAlertsForClass(cls.id),
+         getClientDisplayMedia(cls.id),
+       ]);
       res.write(`data: ${JSON.stringify({ type: "init", queue: publicQueue(queue), checkInAlerts, className: cls.name, media: initialMedia })}\n\n`);
+      activateClassroomDisplayClient(cls.id, client);
       return true;
     });
   } catch {
@@ -525,7 +512,7 @@ router.get("/pickup-requests/display-media/:classId", authMiddleware, async (req
 router.put("/pickup-requests/display-media/:classId", authMiddleware, async (req, res): Promise<void> => {
   // Classification: the persisted media mutation is AUTHORITATIVE; validation,
   // object verification/conversion and conflict guards are REQUIRED PRE-COMMIT
-  // VALIDATION; the SSE broadcast is an OPTIONAL SECONDARY EFFECT.
+  // VALIDATION; the class-scoped invalidation is committed with the mutation.
   const classId = Number(req.params.classId);
   if (!Number.isInteger(classId) || classId <= 0) {
     res.status(400).json({ error: "Bad request", message: "Invalid class ID" });
@@ -671,27 +658,33 @@ router.put("/pickup-requests/display-media/:classId", authMiddleware, async (req
     // exactly what it was when the conversion started. Uploads always get
     // fresh object paths, so (kind, objectPath) identifies the row's content.
     let wrote = false;
-    if (conversionGuard.prev) {
-      const updated = await db
-        .update(classDisplayMediaTable)
-        .set({ ...values, updatedBy: req.user!.userId, updatedAt: new Date() })
-        .where(and(
-          eq(classDisplayMediaTable.classId, classId),
-          eq(classDisplayMediaTable.kind, conversionGuard.prev.kind),
-          conversionGuard.prev.objectPath
-            ? eq(classDisplayMediaTable.objectPath, conversionGuard.prev.objectPath)
-            : isNull(classDisplayMediaTable.objectPath),
-        ))
-        .returning({ id: classDisplayMediaTable.id });
-      wrote = updated.length > 0;
-    } else {
-      const inserted = await db
-        .insert(classDisplayMediaTable)
-        .values({ classId, ...values, updatedBy: req.user!.userId })
-        .onConflictDoNothing({ target: classDisplayMediaTable.classId })
-        .returning({ id: classDisplayMediaTable.id });
-      wrote = inserted.length > 0;
-    }
+    wrote = await db.transaction(async tx => {
+      await tx.execute(sql`select pg_advisory_xact_lock(68431, ${classId})`);
+      let changed = false;
+      if (conversionGuard.prev) {
+        const updated = await tx
+          .update(classDisplayMediaTable)
+          .set({ ...values, updatedBy: req.user!.userId, updatedAt: new Date() })
+          .where(and(
+            eq(classDisplayMediaTable.classId, classId),
+            eq(classDisplayMediaTable.kind, conversionGuard.prev.kind),
+            conversionGuard.prev.objectPath
+              ? eq(classDisplayMediaTable.objectPath, conversionGuard.prev.objectPath)
+              : isNull(classDisplayMediaTable.objectPath),
+          ))
+          .returning({ id: classDisplayMediaTable.id });
+        changed = updated.length > 0;
+      } else {
+        const inserted = await tx
+          .insert(classDisplayMediaTable)
+          .values({ classId, ...values, updatedBy: req.user!.userId })
+          .onConflictDoNothing({ target: classDisplayMediaTable.classId })
+          .returning({ id: classDisplayMediaTable.id });
+        changed = inserted.length > 0;
+      }
+      if (changed) await notifyClassRefresh(tx, [classId]);
+      return changed;
+    });
     if (!wrote) {
       res.status(409).json({
         error: "Conflict",
@@ -700,23 +693,26 @@ router.put("/pickup-requests/display-media/:classId", authMiddleware, async (req
       return;
     }
   } else {
-    await db
-      .insert(classDisplayMediaTable)
-      .values({ classId, ...values, updatedBy: req.user!.userId })
-      .onConflictDoUpdate({
-        target: classDisplayMediaTable.classId,
-        set: { ...values, updatedBy: req.user!.userId, updatedAt: new Date() },
-      });
+    await db.transaction(async tx => {
+      await tx.execute(sql`select pg_advisory_xact_lock(68431, ${classId})`);
+      await tx
+        .insert(classDisplayMediaTable)
+        .values({ classId, ...values, updatedBy: req.user!.userId })
+        .onConflictDoUpdate({
+          target: classDisplayMediaTable.classId,
+          set: { ...values, updatedBy: req.user!.userId, updatedAt: new Date() },
+        });
+      await notifyClassRefresh(tx, [classId]);
+    });
   }
 
-  await broadcastDisplayMediaAfterCommit(classId, req.log);
   req.log.info({ classId, kind: values.kind }, "Classroom display media updated");
   res.json({ success: true });
 });
 
 router.delete("/pickup-requests/display-media/:classId", authMiddleware, async (req, res): Promise<void> => {
-  // Classification: deletion is AUTHORITATIVE and the SSE broadcast is an
-  // OPTIONAL SECONDARY EFFECT.
+  // Classification: deletion is AUTHORITATIVE and its class-scoped
+  // invalidation is committed in the same transaction.
   const classId = Number(req.params.classId);
   if (!Number.isInteger(classId) || classId <= 0) {
     res.status(400).json({ error: "Bad request", message: "Invalid class ID" });
@@ -726,15 +722,20 @@ router.delete("/pickup-requests/display-media/:classId", authMiddleware, async (
     res.status(403).json({ error: "Forbidden", message: "You are not assigned to this class" });
     return;
   }
-  await db.delete(classDisplayMediaTable).where(eq(classDisplayMediaTable.classId, classId));
-  await broadcastDisplayMediaAfterCommit(classId, req.log);
+  await db.transaction(async tx => {
+    await tx.execute(sql`select pg_advisory_xact_lock(68431, ${classId})`);
+    const deleted = await tx.delete(classDisplayMediaTable)
+      .where(eq(classDisplayMediaTable.classId, classId))
+      .returning({ id: classDisplayMediaTable.id });
+    if (deleted.length) await notifyClassRefresh(tx, [classId]);
+  });
   req.log.info({ classId }, "Classroom display media cleared");
   res.json({ success: true });
 });
 
 // Phone "clicker" for PDF slides: pin a page on the TV, or return to auto-play
-// (page = null). Broadcast as a lightweight event so the TV doesn't re-fetch
-// the PDF on every page turn.
+// (page = null). The transaction emits only a class invalidation; the listener
+// rereads the authoritative media row before sending the new page.
 router.put("/pickup-requests/display-media/:classId/page", authMiddleware, async (req, res): Promise<void> => {
   const classId = Number(req.params.classId);
   if (!Number.isInteger(classId) || classId <= 0) {
@@ -767,20 +768,24 @@ router.put("/pickup-requests/display-media/:classId/page", authMiddleware, async
   // Conditional update: if the PDF was replaced between our read and this
   // write (uploads always get fresh object paths), don't pin a page on the
   // replacement — tell the phone to refresh instead.
-  const updated = await db
-    .update(classDisplayMediaTable)
-    .set({ pdfPage: page, updatedBy: req.user!.userId, updatedAt: new Date() })
-    .where(and(
-      eq(classDisplayMediaTable.classId, classId),
-      eq(classDisplayMediaTable.objectPath, row.objectPath!),
-      eq(classDisplayMediaTable.contentType, "application/pdf"),
-    ))
-    .returning({ id: classDisplayMediaTable.id });
+  const updated = await db.transaction(async tx => {
+    await tx.execute(sql`select pg_advisory_xact_lock(68431, ${classId})`);
+    const changed = await tx
+      .update(classDisplayMediaTable)
+      .set({ pdfPage: page, updatedBy: req.user!.userId, updatedAt: new Date() })
+      .where(and(
+        eq(classDisplayMediaTable.classId, classId),
+        eq(classDisplayMediaTable.objectPath, row.objectPath!),
+        eq(classDisplayMediaTable.contentType, "application/pdf"),
+      ))
+      .returning({ id: classDisplayMediaTable.id });
+    if (changed.length) await notifyClassRefresh(tx, [classId]);
+    return changed;
+  });
   if (updated.length === 0) {
     res.status(409).json({ error: "Conflict", message: "The TV's slides just changed — check the current slides and try again" });
     return;
   }
-  await broadcastToClass(classId, { type: "media-page", page, v: displayMediaVersion(row.objectPath!) });
   res.json({ success: true, page });
 });
 

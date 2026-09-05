@@ -12,10 +12,12 @@ import {
   usersTable,
 } from "@workspace/db";
 import { logger } from "../lib/logger";
+import { ClassroomDisplayListenerCoordinator } from "./classroomDisplayListenerCoordinator";
 
 export interface ClassroomDisplayClient {
   res: any;
   displayToken: string;
+  ready?: boolean;
 }
 
 export interface CheckInAlert {
@@ -32,8 +34,10 @@ export interface CheckInAlert {
 }
 
 const classClients = new Map<number, Set<ClassroomDisplayClient>>();
+let displayMediaReader: ((classId: number) => Promise<unknown>) | undefined;
 let listener: any;
 let listenerRetry: ReturnType<typeof setTimeout> | undefined;
+let listenerRetryAttempt = 0;
 let listenerStopping = false;
 let listenerStartPromise: Promise<void> | undefined;
 interface ClassRefreshState {
@@ -46,17 +50,52 @@ interface ClassRefreshState {
 }
 const classRefreshStates = new Map<number, ClassRefreshState>();
 const REFRESH_RETRY_MS = [250, 1000, 3000, 5000] as const;
+const LISTENER_RETRY_CAP_MS = 30_000;
+export const DISPLAY_SAFETY_POLL_MS = 60_000;
+let safetyPoll: ReturnType<typeof setInterval> | undefined;
 
-async function writeAuthoritativeRefresh(classId: number) {
+export function registerClassroomDisplayMediaReader(
+  reader: (classId: number) => Promise<unknown>,
+) {
+  displayMediaReader = reader;
+}
+
+function ensureSafetyPoll() {
+  if (safetyPoll) return;
+  safetyPoll = setInterval(() => {
+    for (const classId of classClients.keys()) requestClassRefresh(classId);
+  }, DISPLAY_SAFETY_POLL_MS);
+}
+
+function stopSafetyPollIfIdle() {
+  if (classClients.size || !safetyPoll) return;
+  clearInterval(safetyPoll);
+  safetyPoll = undefined;
+}
+
+function scheduleListenerReconnect() {
+  if (listenerStopping || listenerRetry) return;
+  const delay = Math.min(1_000 * (2 ** Math.min(listenerRetryAttempt, 5)), LISTENER_RETRY_CAP_MS);
+  listenerRetryAttempt += 1;
+  listenerRetry = setTimeout(() => {
+    listenerRetry = undefined;
+    void ensureClassroomDisplayListener().catch(error => {
+      logger.warn({ err: error, delay }, "classroom display listener reconnect failed");
+    });
+  }, delay);
+}
+
+export async function reconcileClassroomDisplayAuthoritativeState(classId: number) {
   const clients = classClients.get(classId);
   if (!clients?.size) return;
-  const [queue, checkInAlerts] = await Promise.all([
+  const [queue, checkInAlerts, media] = await Promise.all([
     db.select().from(pickupRequestsTable).where(and(
       eq(pickupRequestsTable.classId, classId),
       eq(pickupRequestsTable.status, "requested"),
       eq(pickupRequestsTable.serviceDate, todayWAT()),
     )).orderBy(pickupRequestsTable.requestedAt),
     getPendingCheckInAlertsForClass(classId),
+    displayMediaReader ? displayMediaReader(classId) : Promise.resolve(null),
   ]);
   await broadcastToClass(classId, {
     type: "refresh",
@@ -67,8 +106,18 @@ async function writeAuthoritativeRefresh(classId: number) {
       requestedAt: row.requestedAt.toISOString(),
     })),
     checkInAlerts,
+    media,
   });
 }
+
+// This coordinator owns the process-local PostgreSQL listener. Its callback
+// deliberately reuses the authoritative refresh path below rather than
+// forwarding notification payloads to displays.
+const displayListenerCoordinator = new ClassroomDisplayListenerCoordinator({
+  connect: () => pool.connect(),
+  reconcile: reconcileClassroomDisplayAuthoritativeState,
+  pollMs: DISPLAY_SAFETY_POLL_MS,
+});
 
 function clearClassRefreshState(classId: number) {
   const state = classRefreshStates.get(classId);
@@ -113,7 +162,7 @@ function runClassRefresh(classId: number, state: ClassRefreshState) {
   state.running = true;
   state.activeGeneration = state.latestGeneration;
   const attemptedGeneration = state.activeGeneration;
-  void writeAuthoritativeRefresh(classId).then(() => {
+  void reconcileClassroomDisplayAuthoritativeState(classId).then(() => {
     if (classRefreshStates.get(classId) !== state) return;
     state.running = false;
     state.deliveredGeneration = attemptedGeneration;
@@ -152,6 +201,8 @@ function runClassRefresh(classId: number, state: ClassRefreshState) {
 }
 
 export function ensureClassroomDisplayListener(): Promise<void> {
+  return displayListenerCoordinator.start();
+  /*
   if (listener) return Promise.resolve();
   if (listenerStopping) return Promise.reject(new Error("Classroom display listener is shutting down"));
   if (listenerStartPromise) return listenerStartPromise;
@@ -169,14 +220,7 @@ export function ensureClassroomDisplayListener(): Promise<void> {
       disconnected = true;
       if (listener === client) listener = undefined;
       try { client.release(); } catch {}
-      if (!listenerStopping && !listenerRetry) {
-        listenerRetry = setTimeout(() => {
-          listenerRetry = undefined;
-          void ensureClassroomDisplayListener().catch(error => {
-            logger.warn({ err: error }, "classroom display listener reconnect failed");
-          });
-        }, 1000);
-      }
+      scheduleListenerReconnect();
     };
     client.on("notification", (message: { channel: string; payload?: string }) => {
       if (message.channel !== "classroom_display_refresh") return;
@@ -186,15 +230,27 @@ export function ensureClassroomDisplayListener(): Promise<void> {
     client.on("error", reconnect);
     client.on("end", reconnect);
     listener = client;
-  })().finally(() => { listenerStartPromise = undefined; });
+    listenerRetryAttempt = 0;
+    // LISTEN/NOTIFY has no replay. A listener may have missed commits while
+    // starting or reconnecting, so every locally connected class is reconciled
+    // from PostgreSQL as soon as LISTEN is active again.
+    for (const classId of classClients.keys()) requestClassRefresh(classId);
+  })().catch(error => {
+    scheduleListenerReconnect();
+    throw error;
+  }).finally(() => { listenerStartPromise = undefined; });
   return listenerStartPromise;
+  */
 }
 
 const stopListener = () => {
+  displayListenerCoordinator.stop();
   listenerStopping = true;
   if (listenerRetry) clearTimeout(listenerRetry);
   listenerRetry = undefined;
   for (const classId of classRefreshStates.keys()) clearClassRefreshState(classId);
+  if (safetyPoll) clearInterval(safetyPoll);
+  safetyPoll = undefined;
   const active = listener;
   listener = undefined;
   try { active?.release(); } catch {}
@@ -205,22 +261,44 @@ process.once("SIGINT", stopListener);
 const hashDisplayToken = (token: string) =>
   createHash("sha256").update(token).digest("hex");
 
-export function addClassroomDisplayClient(classId: number, client: ClassroomDisplayClient) {
+export function addClassroomDisplayClient(
+  classId: number,
+  client: ClassroomDisplayClient,
+  manageListener = true,
+) {
   if (!classClients.has(classId)) classClients.set(classId, new Set());
   classClients.get(classId)!.add(client);
+  if (manageListener) displayListenerCoordinator.setConnected(classId, true);
+}
+
+export function activateClassroomDisplayClient(
+  classId: number,
+  client: ClassroomDisplayClient,
+  reconcile: (classId: number) => void = requestClassRefresh,
+) {
+  if (!classClients.get(classId)?.has(client)) return;
+  client.ready = true;
+  // Cover every mutation that committed while the initial snapshot was being
+  // assembled. Broadcasts skip an uninitialised client so init can never
+  // overwrite a newer refresh.
+  reconcile(classId);
 }
 
 export function removeClassroomDisplayClient(classId: number, client: ClassroomDisplayClient) {
   const clients = classClients.get(classId);
   clients?.delete(client);
-  if (!clients?.size) clearClassRefreshState(classId);
+  if (!clients?.size) {
+    classClients.delete(classId);
+    clearClassRefreshState(classId);
+    displayListenerCoordinator.setConnected(classId, false);
+  }
 }
 
 export async function broadcastToClass(classId: number, data: unknown) {
   const clients = classClients.get(classId);
   if (!clients) return;
   const payload = `data: ${JSON.stringify(data)}\n\n`;
-  await Promise.all([...clients].map(async (client) => {
+  await Promise.all([...clients].filter(client => client.ready !== false).map(async (client) => {
     try {
       await db.transaction(async (tx) => {
         await tx.execute(sql`select pg_advisory_xact_lock(68431, ${classId})`);
@@ -261,6 +339,7 @@ export function closeClassroomDisplayClients(classId: number, reason: string) {
   }
   classClients.delete(classId);
   clearClassRefreshState(classId);
+  displayListenerCoordinator.setConnected(classId, false);
 }
 
 function todayWAT(): string {

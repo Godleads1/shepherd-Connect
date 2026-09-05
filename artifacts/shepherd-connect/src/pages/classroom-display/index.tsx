@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useParams } from "wouter";
 import { apiPost } from "../../lib/api-call";
+import { handleClassroomDisplayMessage, LatestRequest, reconnectDelay } from "../../lib/classroom-display-reliability";
 
 const NAVY = "#1e3a8a";
 const GOLD = "#f59e0b";
@@ -571,6 +572,7 @@ export default function ClassroomDisplay() {
   const [accessError, setAccessError] = useState<string | null>(null);
   const [reconnecting, setReconnecting] = useState(false);
   const [reconnectError, setReconnectError] = useState<string | null>(null);
+  const [reconcileGeneration, setReconcileGeneration] = useState(0);
   const [displayToken, setDisplayToken] = useState<string>(() => {
     if (!Number.isFinite(classIdNum)) return "";
     const key = `${DISPLAY_TOKEN_KEY}-${classIdNum}`;
@@ -657,6 +659,26 @@ export default function ClassroomDisplay() {
     } catch {}
   }, []);
 
+  // Smart TVs and backgrounded tabs can suspend both EventSource callbacks and
+  // timers. Returning to the display always opens a fresh stream whose init is
+  // an authoritative PostgreSQL snapshot.
+  useEffect(() => {
+    let lastReconcile = 0;
+    const reconcile = () => {
+      if (document.visibilityState !== "visible") return;
+      const now = Date.now();
+      if (now - lastReconcile < 500) return;
+      lastReconcile = now;
+      setReconcileGeneration(value => value + 1);
+    };
+    document.addEventListener("visibilitychange", reconcile);
+    window.addEventListener("focus", reconcile);
+    return () => {
+      document.removeEventListener("visibilitychange", reconcile);
+      window.removeEventListener("focus", reconcile);
+    };
+  }, []);
+
   useEffect(() => {
     if (!classIdNum || !displayToken) {
       setAccessError("This classroom display link is missing or has expired. Open a new display link from Classes or My Class.");
@@ -671,95 +693,85 @@ export default function ClassroomDisplay() {
     // the stored token, or resurface the access-error overlay.
     let disposed = false;
     let es: EventSource | null = null;
+    const requests = new LatestRequest();
 
     function connect() {
       if (disposed) return;
-      es = new EventSource(url);
-      es.onopen = () => {
-        if (disposed) return;
+      const request = requests.begin();
+      const connection = new EventSource(url);
+      es = connection;
+      request.signal.addEventListener("abort", () => connection.close(), { once: true });
+      connection.onopen = () => {
+        if (disposed || !requests.isCurrent(request.generation)) return;
         failures = 0;
         setAccessError(null);
         setConnected(true);
       };
-      es.onmessage = (e) => {
-        if (disposed) return;
+      connection.onmessage = (e) => {
         try {
           const data = JSON.parse(e.data);
-          if (data.type === "init") {
-            const incomingQueue: PickupRequest[] = data.queue ?? [];
-            if (!initialised.current) {
-              incomingQueue.forEach(r => notifiedIds.current.add(r.id));
-              initialised.current = true;
-            }
-            setQueue(incomingQueue);
-            setCheckInAlerts((data.checkInAlerts as CheckInAlert[]) ?? []);
-            if (data.className) setClassName(data.className);
-            setServerMedia((data.media as ServerMedia) ?? null);
-          } else if (data.type === "refresh") {
-            const incomingQueue = (data.queue as PickupRequest[]) ?? [];
-            incomingQueue.forEach(request => {
-              if (!notifiedIds.current.has(request.id)) {
-                notifiedIds.current.add(request.id);
-                fireNotification(request);
+          handleClassroomDisplayMessage<typeof data>(data, request.generation, {
+            isCurrent: generation => !disposed && requests.isCurrent(generation),
+            applyInit: init => {
+              const incomingQueue: PickupRequest[] = init.queue ?? [];
+              if (!initialised.current) {
+                incomingQueue.forEach(r => notifiedIds.current.add(r.id));
+                initialised.current = true;
               }
-            });
-            setQueue(incomingQueue);
-            setCheckInAlerts((data.checkInAlerts as CheckInAlert[]) ?? []);
-          } else if (data.type === "media") {
-            setServerMedia((data.media as ServerMedia) ?? null);
-          } else if (data.type === "media-page") {
-            // Lightweight page-turn from a teacher's phone — don't reload the
-            // PDF. Ignore events for a file this TV is no longer showing.
-            setServerMedia((prev) =>
-              prev && prev.kind === "file" && (!data.v || !prev.v || prev.v === data.v)
-                ? { ...prev, page: data.page ?? null }
-                : prev,
-            );
-          } else if (data.type === "pickup" || data.type === "dismissed") {
-            const incomingQueue: PickupRequest[] = data.queue ?? [];
-            if (data.type === "pickup") {
-              incomingQueue.forEach(r => {
-                if (!notifiedIds.current.has(r.id)) {
-                  notifiedIds.current.add(r.id);
-                  fireNotification(r);
+              setQueue(incomingQueue);
+              setCheckInAlerts((init.checkInAlerts as CheckInAlert[]) ?? []);
+              if (init.className) setClassName(init.className);
+              setServerMedia((init.media as ServerMedia) ?? null);
+            },
+            applyRefresh: refresh => {
+              const incomingQueue = (refresh.queue as PickupRequest[]) ?? [];
+              incomingQueue.forEach(item => {
+                if (!notifiedIds.current.has(item.id)) {
+                  notifiedIds.current.add(item.id);
+                  fireNotification(item);
                 }
               });
-            }
-            setQueue(incomingQueue);
-            if (data.className) setClassName(data.className);
-          } else if (data.type === "checkin-requested") {
-            const alert = data.alert as CheckInAlert;
-            if (alert?.id) {
-              setCheckInAlerts(current => current.some(item => item.id === alert.id) ? current : [...current, alert]);
-            }
-          } else if (data.type === "checkin-accepted" || data.type === "checkin-cancelled") {
-            if (Array.isArray(data.alerts)) setCheckInAlerts(data.alerts as CheckInAlert[]);
-            else setCheckInAlerts(current => current.filter(alert => alert.id !== String(data.id)));
-          }
+              setQueue(incomingQueue);
+              setCheckInAlerts((refresh.checkInAlerts as CheckInAlert[]) ?? []);
+              setServerMedia((refresh.media as ServerMedia) ?? null);
+            },
+            reconcile: () => setReconcileGeneration(value => value + 1),
+          });
         } catch {}
       };
-      es.onerror = () => {
-        if (disposed) return;
+      connection.onerror = () => {
+        if (disposed || !requests.isCurrent(request.generation)) return;
         setConnected(false);
-        es?.close();
+        connection.close();
         failures += 1;
-        if (failures >= 3) {
-          sessionStorage.removeItem(`${DISPLAY_TOKEN_KEY}-${classIdNum}`);
-          setAccessError("This classroom display link is invalid, expired, or revoked. Open a new display link from Classes or My Class.");
-          return;
-        }
-        retryTimeout = setTimeout(connect, 4000);
+        retryTimeout = setTimeout(connect, reconnectDelay(failures - 1));
       };
+      connection.addEventListener("revoked", (event) => {
+        if (disposed || !requests.isCurrent(request.generation)) return;
+        disposed = true;
+        requests.dispose();
+        connection.close();
+        clearTimeout(retryTimeout);
+        setConnected(false);
+        sessionStorage.removeItem(`${DISPLAY_TOKEN_KEY}-${classIdNum}`);
+        let reason = "This classroom display link is invalid, expired, or revoked.";
+        try {
+          const parsed = JSON.parse((event as MessageEvent).data);
+          if (typeof parsed.reason === "string") reason = parsed.reason;
+        } catch {}
+        setAccessError(`${reason} Open a new display link from Classes or My Class.`);
+      });
     }
 
     connect();
     return () => {
       disposed = true;
+      requests.dispose();
       es?.close();
       clearTimeout(retryTimeout);
       setConnected(false);
     };
-  }, [classIdNum, displayToken, fireNotification]);
+  }, [classIdNum, displayToken, fireNotification, reconcileGeneration]);
 
   const today = new Date().toLocaleDateString([], { weekday: "long", month: "long", day: "numeric", year: "numeric" });
 
