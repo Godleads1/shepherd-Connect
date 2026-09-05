@@ -1,0 +1,918 @@
+PHASE 4 — AUTHENTICATION & SESSION HARDENING
+READ-ONLY DIAGNOSTIC / NO IMPLEMENTATION
+
+You are continuing the Shepherd Connect reliability and security hardening program.
+
+COMPLETED:
+- Phase 1 — Outcome Semantics
+- Phase 2 — Operation Identity & Reconciliation
+- Phase 3 — Secondary-Work False Failures
+- Task #74 — Safety-Critical Command Idempotency
+- Task #75 — Cross-Instance Classroom Display Reliability
+
+THIS TASK IS DIAGNOSTIC ONLY.
+
+DO NOT IMPLEMENT ANYTHING.
+
+Do not modify:
+- application code
+- database schema
+- migrations
+- API contracts
+- generated clients
+- frontend
+- tests
+- configuration
+- workflows
+- deployment
+- production data
+- production schema
+- production configuration
+
+Do not restart workflows unless absolutely necessary for read-only observation.
+Do not create temporary tracked files.
+Do not start Task #76 or any other task.
+Do not implement any proposed fix.
+
+==================================================
+OBJECTIVE
+==================================================
+
+Perform a complete READ-ONLY security and reliability diagnostic of:
+
+PHASE 4 — AUTHENTICATION & SESSION HARDENING
+
+The previous system audit identified several potentially serious authentication/session issues:
+
+1. Selected role can be lost or disagree with `/auth/me`.
+2. JWTs are not revoked on logout.
+3. Password changes may not terminate existing sessions.
+4. Some family/child APIs may have broader staff authorization scopes than intended.
+5. MFA/security-setting changes may lack adequate step-up authentication.
+6. WhatsApp OTP authentication path may be inconsistent.
+7. The general `/api/events` SSE stream may remain alive for part of its permitted lifetime after logout or role changes.
+
+These were identified before Tasks #74 and #75.
+
+Your first responsibility is to determine:
+
+- Which findings are still true.
+- Which were already fixed incidentally.
+- Which are false positives.
+- Which are architectural limitations rather than vulnerabilities.
+- Which are HIGH/CRITICAL.
+- Which require product/policy decisions.
+- Which are the smallest safe fixes.
+
+DO NOT ASSUME THE OLD AUDIT IS STILL CORRECT.
+
+Trace the CURRENT code.
+
+==================================================
+1. AUTHENTICATION ARCHITECTURE MAP
+==================================================
+
+Map the complete authentication lifecycle.
+
+Trace:
+
+registration
+→ login
+→ password authentication
+→ OTP authentication
+→ WhatsApp OTP if applicable
+→ token/session creation
+→ token storage
+→ `/auth/me`
+→ role selection
+→ role switching
+→ authenticated API request
+→ logout
+→ password change
+→ password reset
+→ MFA/security-setting changes
+→ token/session expiration
+→ token/session revocation
+
+Identify exact files/functions/routes.
+
+For every mechanism identify:
+
+- credential source
+- authentication method
+- token/session type
+- token claims
+- expiration
+- refresh mechanism
+- revocation mechanism
+- server-side session state
+- client-side persistence
+- authorization evaluation
+- role evaluation
+- failure behavior
+
+Do not modify anything.
+
+==================================================
+2. TOKEN / SESSION INVENTORY
+==================================================
+
+Inventory every authentication/session mechanism.
+
+Look for:
+
+- JWT access tokens
+- refresh tokens
+- opaque sessions
+- session tables
+- session versions
+- token hashes
+- cookies
+- localStorage
+- sessionStorage
+- in-memory auth
+- OTP sessions
+- SSE tickets
+- display credentials
+- password-reset tokens
+- MFA challenge tokens
+
+For each provide:
+
+Mechanism | Issuer | Storage | Lifetime | Revocation | Scope | Security risk
+
+Determine whether multiple authentication mechanisms can disagree about:
+
+- user identity
+- active/inactive state
+- selected role
+- permissions
+- organization/class/family scope
+
+==================================================
+3. LOGOUT REVOCATION
+==================================================
+
+Trace logout from frontend to backend.
+
+Determine exactly what happens when a user logs out.
+
+Answer:
+
+- Is the JWT invalidated?
+- Is there a server-side session destroyed?
+- Is a token denylist/version checked?
+- Can an already-issued JWT still call protected APIs?
+- For how long?
+- Does logout invalidate refresh tokens?
+- Does logout terminate SSE?
+- Does logout clear browser state?
+- Can another tab continue authenticated activity?
+- Can an offline queued mutation replay after logout?
+- What happens if logout occurs while a mutation is in flight?
+
+Distinguish:
+
+A. UI logout
+B. server authentication invalidation
+C. authorization invalidation
+D. realtime/SSE termination
+
+Do not assume they are equivalent.
+
+==================================================
+4. PASSWORD CHANGE / RESET
+==================================================
+
+Trace:
+
+- password change
+- forgot-password flow
+- password reset
+- admin-initiated password reset if present
+
+Determine:
+
+- whether existing tokens remain valid
+- whether refresh sessions remain valid
+- whether all sessions are revoked
+- whether only the current session is revoked
+- whether password reset changes any authentication version
+- whether old browser tabs remain authenticated
+- whether existing SSE streams remain active
+
+Determine whether this behavior is intentional or an accidental security gap.
+
+==================================================
+5. ROLE SELECTION
+==================================================
+
+This is a critical area from the earlier audit.
+
+Trace:
+
+login
+→ authenticated identity
+→ available roles
+→ selected role
+→ token/session
+→ `/auth/me`
+→ frontend auth state
+→ API authorization middleware
+→ role switch
+→ SSE
+
+Determine whether the following can disagree:
+
+- role stored in token
+- role stored server-side
+- selected role in frontend
+- `/auth/me`
+- API middleware
+- route authorization
+- SSE authorization
+
+Test conceptually at minimum:
+
+User has roles:
+A and B
+
+Then:
+
+1. Login selecting A.
+2. `/auth/me`.
+3. Switch to B.
+4. `/auth/me`.
+5. Open protected API using current token.
+6. Open SSE.
+7. Refresh browser.
+8. Open another browser tab.
+9. Log out.
+10. Return to first tab.
+
+Determine exact expected/current behavior.
+
+Pay special attention to whether `/auth/me` derives the role from:
+
+- token claims
+- server-side selected-role state
+- user primary role
+- session
+- request context
+
+Do not implement a fix.
+
+==================================================
+6. ROLE SWITCHING RACES
+==================================================
+
+Investigate concurrent role operations.
+
+Look for:
+
+- two tabs switching roles
+- rapid role switching
+- role switch during API request
+- role switch during SSE connection
+- role switch while a mutation is pending
+- role switch during token refresh
+- role switch during page reload
+- stale role stored in sessionStorage/localStorage
+- old token continuing after switch
+
+Determine whether stale authorization can cause:
+
+- privilege elevation
+- privilege confusion
+- wrong UI
+- wrong API scope
+- data leakage
+- rejected requests
+- mutation performed under unintended role
+
+Classify each finding.
+
+==================================================
+7. AUTHORIZATION BOUNDARIES
+==================================================
+
+Review the most sensitive family/child APIs.
+
+Do not review all 269 routes equally.
+
+Prioritize:
+
+- family data
+- child data
+- attendance
+- custody
+- pickup
+- pickup delegates
+- medical/safeguarding
+- messages
+- photos
+- biometric/face data
+- family-assist
+- staff management
+- role management
+- account settings
+
+For each high-risk route determine:
+
+1. Authentication requirement.
+2. Required role.
+3. Tenant/school boundary.
+4. Family boundary.
+5. Child boundary.
+6. Class boundary.
+7. Ownership/relationship check.
+8. Staff access justification.
+9. Whether IDs can be enumerated.
+10. Whether a user can access another family's data by changing an ID.
+
+Pay particular attention to generic endpoints such as:
+
+GET /api/families/:id
+GET /api/children/:id
+
+and related update/delete/photo/medical endpoints.
+
+Determine whether staff access is:
+
+- intentionally broad
+- school-scoped
+- class-scoped
+- family-scoped
+- role-scoped
+- accidentally unrestricted
+
+Do not redesign authorization.
+
+==================================================
+8. MFA / STEP-UP AUTHENTICATION
+==================================================
+
+Inventory all security-sensitive account changes.
+
+Look for:
+
+- password changes
+- MFA enable
+- MFA disable
+- phone changes
+- email changes
+- role changes
+- security setting changes
+- session management
+- trusted-device changes
+- OTP changes
+
+Determine whether these actions require:
+
+- current password
+- recent authentication
+- OTP
+- MFA challenge
+- existing session only
+- no additional verification
+
+Distinguish:
+
+ordinary authenticated action
+
+from
+
+security-sensitive account-control action.
+
+Identify concrete bypass paths.
+
+Do not implement.
+
+==================================================
+9. OTP / WHATSAPP AUTHENTICATION
+==================================================
+
+Trace every OTP pathway.
+
+Inventory:
+
+- SMS OTP
+- WhatsApp OTP
+- email OTP
+- login OTP
+- registration OTP
+- password reset OTP
+- delegate OTP
+- other OTP uses
+
+For each identify:
+
+- generation
+- storage
+- hashing
+- expiry
+- attempt limits
+- resend limits
+- replay protection
+- purpose binding
+- identity binding
+- delivery provider
+- verification endpoint
+
+Specifically investigate the previously reported WhatsApp mismatch.
+
+Determine whether:
+
+- WhatsApp sends one purpose
+- verification expects another purpose
+- routes use different identifiers
+- provider callbacks are mismatched
+- fallback behavior creates bypasses
+- an OTP can be reused for another purpose
+
+Do not expose actual OTP values.
+
+Do not modify anything.
+
+==================================================
+10. AUTHENTICATION ERROR SEMANTICS
+==================================================
+
+Inspect how the frontend reacts to authentication failures.
+
+Determine whether:
+
+- transient network errors clear the auth token
+- 401 clears auth state
+- 403 clears auth state
+- 5xx clears auth state
+- malformed responses clear auth state
+- timeout clears auth state
+- browser offline clears auth state
+
+The earlier audit suggested that auth bootstrap may remove the token on transient network/server errors.
+
+Verify whether that is still true.
+
+Distinguish:
+
+INVALID CREDENTIAL
+
+from:
+
+UNKNOWN AUTHENTICATION STATE
+
+from:
+
+NETWORK FAILURE
+
+Do not implement.
+
+==================================================
+11. SSE / REALTIME AUTH LIFETIME
+==================================================
+
+Task #75 intentionally did not redesign general user SSE.
+
+Inspect:
+
+GET /api/events
+
+Determine:
+
+- ticket creation
+- ticket lifetime
+- user identity binding
+- role binding
+- authorization
+- expiration
+- logout handling
+- password-change handling
+- role-change handling
+- session revocation handling
+- reconnect behavior
+
+Determine whether a stream can remain open after:
+
+- logout
+- role change
+- account suspension
+- password reset
+- permission removal
+
+Measure the maximum possible stale authorization window.
+
+Do not confuse classroom display SSE with general user SSE.
+
+Task #75 classroom display behavior must remain unchanged.
+
+==================================================
+12. MULTI-TAB / MULTI-DEVICE
+==================================================
+
+Trace authentication behavior across:
+
+- two browser tabs
+- two browsers
+- desktop + mobile
+- browser refresh
+- stale tab
+- browser restored from sleep
+
+Determine whether logout/session changes propagate.
+
+Determine whether a security-sensitive action on one device invalidates another.
+
+Do not recommend global session invalidation unless justified.
+
+==================================================
+13. OFFLINE AUTHENTICATED MUTATIONS
+==================================================
+
+Do not redesign the offline queue.
+
+Only investigate its authentication implications.
+
+Determine:
+
+- whether queued mutations survive logout
+- whether they replay after login
+- whether they retain old role
+- whether they retain old token
+- whether operation identity remains valid
+- whether a mutation can execute after authorization changed
+
+Classify concrete security risks.
+
+==================================================
+14. SESSION FIXATION / TOKEN THEFT
+==================================================
+
+Review whether:
+
+- login rotates authentication credentials
+- role switching rotates credentials where necessary
+- password reset rotates credentials
+- logout invalidates credentials
+- refresh tokens rotate
+- tokens are stored securely
+- sensitive tokens appear in logs
+- tokens appear in URLs
+- tokens are unnecessarily persisted
+- session identifiers are predictable
+
+Do not recommend theoretical improvements without identifying concrete current behavior.
+
+==================================================
+15. PRIVILEGE ESCALATION ANALYSIS
+==================================================
+
+Construct concrete attack scenarios.
+
+Examples:
+
+A. Parent changes child ID in URL.
+B. Staff changes family ID in URL.
+C. Staff changes child ID in request body.
+D. User switches role while retaining old token.
+E. Logged-out JWT is reused.
+F. Password-reset victim's old session remains active.
+G. MFA-disabled account continues with old session.
+H. SSE remains open after privilege removal.
+I. Another tab retains old authorization.
+J. Offline mutation executes under stale authorization.
+
+For each:
+
+Attack possible? | Current protection | Evidence | Severity
+
+Only report scenarios supported by code.
+
+==================================================
+16. FAILURE / SECURITY MATRIX
+==================================================
+
+Create a table:
+
+Area | Current behavior | Security/correctness impact | Exploitability | Severity | Recommended direction
+
+Include at minimum:
+
+- logout
+- password change
+- password reset
+- role selection
+- role switching
+- `/auth/me`
+- family authorization
+- child authorization
+- MFA changes
+- WhatsApp OTP
+- OTP replay
+- auth bootstrap
+- SSE logout
+- SSE role change
+- multi-tab logout
+- offline replay
+- token/session fixation
+
+Severity:
+
+SAFE
+LOW
+MEDIUM
+HIGH
+CRITICAL
+
+Do not inflate severity.
+
+==================================================
+17. DETERMINE WHAT IS ACTUALLY BROKEN
+==================================================
+
+For every historical Phase 4 finding classify:
+
+1. CONFIRMED
+2. FIXED ALREADY
+3. FALSE POSITIVE
+4. ACCEPTABLE PRODUCT BEHAVIOR
+5. NEEDS PRODUCT DECISION
+6. NEEDS SECURITY DECISION
+
+Provide exact evidence.
+
+Do not assume an old audit statement is still true.
+
+==================================================
+18. SMALLEST SAFE PHASE 4 SCOPE
+==================================================
+
+Do not implement.
+
+Determine the smallest set of changes required to materially improve authentication/session security.
+
+Do NOT propose a complete authentication rewrite.
+
+Consider whether the work should be divided into:
+
+Phase 4A — Session revocation
+Phase 4B — Role/session consistency
+Phase 4C — Authorization boundary hardening
+Phase 4D — Step-up authentication
+Phase 4E — OTP/WhatsApp correction
+Phase 4F — SSE session termination
+
+Recommend the safest implementation order.
+
+Explicitly identify dependencies between them.
+
+==================================================
+19. DATABASE / SCHEMA ANALYSIS
+==================================================
+
+Determine whether the recommended Phase 4 changes actually require schema changes.
+
+Inspect whether existing tables can support:
+
+- session version
+- session records
+- token revocation
+- role selection state
+- authentication event records
+- MFA state
+
+Do not modify schema.
+
+If a schema change is needed, specify the minimum fields/tables required.
+
+Do not propose migrations yet.
+
+==================================================
+20. TEST PLAN
+==================================================
+
+Design tests, but DO NOT IMPLEMENT THEM.
+
+At minimum:
+
+### Session tests
+- login
+- logout
+- reuse old token
+- password change
+- password reset
+- multi-tab logout
+- multi-device logout
+
+### Role tests
+- login role selection
+- `/auth/me`
+- role switch
+- stale token
+- simultaneous role switch
+- reload
+- second tab
+- SSE role change
+
+### Authorization tests
+- parent → own child
+- parent → another child
+- staff → authorized family
+- staff → unauthorized family
+- staff → unauthorized child
+- cross-class access
+- cross-organization access if applicable
+
+### MFA tests
+- enable
+- disable
+- password change
+- phone/email change
+- step-up bypass attempts
+
+### OTP tests
+- correct purpose
+- wrong purpose
+- expired
+- reused
+- wrong identity
+- wrong channel
+- resend
+- rate limit
+
+### SSE tests
+- logout
+- role switch
+- account suspension
+- permission removal
+- expiry
+- reconnect
+
+### Offline tests
+- logout while queued
+- role change while queued
+- authorization removal while queued
+- replay after reauthentication
+
+For every test define:
+
+Setup
+→ Action
+→ Expected authentication state
+→ Expected authorization state
+→ Expected response
+→ Pass/fail condition
+
+==================================================
+21. SECURITY OBSERVABILITY
+==================================================
+
+Inventory current logging for:
+
+- login
+- logout
+- failed login
+- password change
+- password reset
+- role change
+- MFA changes
+- session revocation
+- OTP verification
+- authorization failures
+
+Determine whether logs contain:
+
+- request ID
+- operation ID where applicable
+- user ID
+- role
+- IP
+- user agent
+- authentication event
+- sensitive tokens/OTP values
+
+Do not log sensitive credentials while testing.
+
+Identify gaps only.
+
+==================================================
+22. PRODUCTION SAFETY
+==================================================
+
+Explicitly confirm:
+
+- no production DB writes
+- no production schema changes
+- no production configuration changes
+- no production deployment
+- no credentials accessed
+- no real OTPs generated
+- no real users modified
+- no real sessions revoked
+
+Use only development/test environments for any necessary observation.
+
+==================================================
+23. PHASE BOUNDARY CHECK
+==================================================
+
+Confirm that this diagnostic does NOT modify:
+
+- Phase 1
+- Phase 2 checkout/reconciliation
+- Phase 3
+- Task #74 command_operations
+- Task #75 classroom display reliability
+- family/child deletion
+- duplicate-child cleanup
+- notification workers
+- WhatsApp implementation
+- offline queue implementation
+- general realtime architecture
+
+Task #75 classroom-display authentication must remain unchanged.
+
+==================================================
+24. FINAL REPORT
+==================================================
+
+Return exactly these sections:
+
+1. EXECUTIVE VERDICT
+
+Choose:
+
+- NO MATERIAL PHASE 4 DEFECT
+- RESILIENCE/SECURITY GAPS ONLY
+- REAL HIGH-SEVERITY SECURITY DEFECT
+- REAL CRITICAL SECURITY DEFECT
+
+2. CURRENT AUTH ARCHITECTURE
+
+3. TOKEN / SESSION INVENTORY
+
+4. LOGOUT REVOCATION
+
+5. PASSWORD CHANGE / RESET
+
+6. ROLE CONSISTENCY
+
+7. ROLE SWITCHING
+
+8. AUTHORIZATION BOUNDARIES
+
+9. MFA / STEP-UP
+
+10. OTP / WHATSAPP
+
+11. AUTH ERROR SEMANTICS
+
+12. SSE SESSION LIFETIME
+
+13. MULTI-TAB / MULTI-DEVICE
+
+14. OFFLINE AUTH IMPLICATIONS
+
+15. PRIVILEGE ESCALATION ANALYSIS
+
+16. SECURITY / FAILURE MATRIX
+
+17. HISTORICAL FINDING CLASSIFICATION
+
+18. SMALLEST SAFE PHASE 4 SCOPE
+
+19. DATABASE / SCHEMA REQUIREMENTS
+
+20. TEST PLAN
+
+21. SECURITY OBSERVABILITY
+
+22. IMPLEMENTATION ORDER
+
+23. IN SCOPE
+
+24. OUT OF SCOPE
+
+25. PRODUCTION / INTEGRITY CONFIRMATION
+
+IMPORTANT:
+
+This is READ-ONLY.
+
+Do not implement any fixes.
+
+Do not modify code.
+
+Do not modify schema.
+
+Do not modify tests.
+
+Do not modify configuration.
+
+Do not deploy.
+
+Do not start Phase 4 implementation.
+
+Do not start another task.
+
+STOP after the diagnostic report.
