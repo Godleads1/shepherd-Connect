@@ -1,0 +1,408 @@
+# TASK #74 — SAFETY-CRITICAL COMMAND IDEMPOTENCY
+
+## READ-ONLY DESIGN / IMPLEMENTATION PLAN ONLY
+
+We have completed and closed Phase 3.
+
+Do NOT implement anything in this task.
+
+Do NOT modify:
+
+* source code
+* database schema
+* migrations
+* tests
+* OpenAPI
+* generated clients
+* configuration
+* workflows
+* deployment
+* production
+* Phase 2 checkout implementation
+* Phase 3 implementation
+
+This task is strictly to produce a precise implementation design for the first safety-critical response-loss/idempotency tranche.
+
+## OBJECTIVE
+
+Design the smallest safe solution for these five commands:
+
+1. POST /api/emergencies
+2. POST /api/emergencies/:id/update
+3. POST /api/family-assist/delegate
+4. POST /api/pickup-delegates
+5. POST /api/safeguarding
+
+The problem being solved is:
+
+CLIENT → SERVER → DATABASE COMMIT → RESPONSE LOST → CLIENT DOES NOT KNOW OUTCOME → USER RETRIES
+
+A retry must not accidentally create a second emergency, delegate authorization, safeguarding incident, or other duplicate durable effect.
+
+Do NOT generalize this into universal idempotency middleware unless the investigation proves that is necessary.
+
+## STEP 1 — TRACE EACH COMMAND COMPLETELY
+
+For each of the five routes, trace:
+
+* frontend caller(s)
+* API client
+* request payload
+* authentication/authorization
+* route handler
+* service/helper functions
+* database transaction boundary
+* all database writes
+* audit/event writes
+* notification/outbox writes
+* generated IDs
+* response construction
+* post-commit work
+* retry behavior
+* existing event IDs or operation IDs
+* existing uniqueness constraints
+* existing natural business identifiers
+
+Show the exact files/functions involved.
+
+## STEP 2 — DEFINE THE LOGICAL OPERATION
+
+For each route answer:
+
+1. What exactly constitutes ONE logical user action?
+2. When should a new operation ID be generated?
+3. What constitutes a retry?
+4. What constitutes a genuinely new action?
+5. What fields must the operation identity bind to?
+6. Can the same payload legitimately be submitted twice as two different operations?
+
+Do NOT use payload equality as the identity of the operation.
+
+The operation ID must represent the caller's logical submission, not an individual HTTP attempt.
+
+## STEP 3 — CHOOSE THE SMALLEST IDENTITY MECHANISM
+
+For each route determine whether the safest mechanism is:
+
+A. Existing event identity can be extended safely
+
+B. Existing table can receive a route-specific operation/event identifier
+
+C. A small route-specific operation table is required
+
+D. A shared operation table is justified
+
+E. A natural database uniqueness rule is sufficient
+
+Do not choose a shared/global abstraction merely because it is technically convenient.
+
+Explain why the chosen mechanism is the smallest safe design.
+
+## STEP 4 — DEFINE ATOMICITY
+
+For every route document the required transaction boundary.
+
+The operation identity claim and authoritative domain mutation must be protected against concurrent duplicate requests.
+
+Explicitly investigate the race:
+
+Request A:
+
+* receives operation ID
+* starts transaction
+
+Request B:
+
+* receives the SAME operation ID
+* arrives before A finishes
+
+Determine exactly what happens.
+
+The design must never allow both requests to execute the same logical command independently.
+
+Do not use an unsafe:
+
+SELECT → if absent → INSERT
+
+pattern without an atomic uniqueness/claim mechanism.
+
+## STEP 5 — REQUEST BINDING
+
+For every operation identity define:
+
+* authenticated actor
+* route/command
+* target resource where applicable
+* normalized request payload fingerprint if appropriate
+* operation status
+* authoritative result
+* response data required for replay
+* created/completed timestamps
+
+Determine what happens if the same operation ID is reused with different input.
+
+It must NOT silently replay an unrelated result.
+
+## STEP 6 — RESPONSE REPLAY
+
+For each command define exactly what happens after:
+
+### First successful request
+
+Return:
+
+* authoritative result
+* operation outcome
+* any IDs required by the client
+
+### Same operation ID retry after commit
+
+Return:
+
+* same logical result
+* no duplicate domain mutation
+* no duplicate notification/outbox effect
+* no duplicate audit/event effect
+
+### Same operation ID with different payload
+
+Return a deterministic conflict.
+
+### Concurrent same-operation request
+
+Define whether it:
+
+* waits,
+* returns an in-progress response,
+* or returns a deterministic conflict.
+
+Choose one and explain why.
+
+## STEP 7 — LOST-RESPONSE RECONCILIATION
+
+For each route design how the frontend discovers the result after:
+
+* timeout
+* network failure
+* connection reset
+* 502/503/504
+* response parse failure
+* browser interruption
+* page reload
+
+Determine whether a route-specific reconciliation GET is required.
+
+If required, specify:
+
+* endpoint
+* authorization boundary
+* lookup key
+* information returned
+* information explicitly NOT returned
+
+Never create a generic endpoint that allows one user to probe another user's operation result.
+
+## STEP 8 — FRONTEND OPERATION LIFECYCLE
+
+Design the frontend lifecycle for each command:
+
+idle
+→ submitting
+→ applied
+→ already_applied
+→ unknown/reconciling
+→ rejected
+
+Determine:
+
+* where the operation ID is generated
+* how long it survives
+* how retry reuses it
+* how reload recovery works
+* how the UI distinguishes definitive rejection from uncertain outcome
+* when the pending operation can safely be cleared
+
+Do not generate a new UUID when retrying an uncertain request.
+
+## STEP 9 — NOTIFICATIONS AND OUTBOX
+
+For each command identify:
+
+* authoritative domain writes
+* required durable notification intents
+* optional notification effects
+* provider delivery
+
+Required durable intent must be atomic with the authoritative mutation where the notification is genuinely part of the business command.
+
+Provider delivery must NOT determine whether the command succeeded.
+
+Do not redesign notification workers in this task.
+
+## STEP 10 — SECURITY REVIEW
+
+For each operation identity check:
+
+* actor binding
+* authorization
+* resource ownership/scope
+* operation-ID guessing
+* replay of another user's result
+* payload substitution
+* privilege changes between first request and retry
+* sensitive response data
+
+Do not expose:
+
+* medical information
+* biometric data
+* unrelated family data
+* unrelated child data
+* internal authorization information
+
+## STEP 11 — DATA / SCHEMA IMPACT
+
+For each proposed design list:
+
+* table(s)
+* columns
+* indexes
+* unique constraints
+* foreign keys
+* check constraints
+* retention requirements
+
+Do NOT create the migration.
+
+Do NOT modify development or production databases.
+
+Explicitly state whether existing production rows would require backfill.
+
+Prefer zero-data-migration designs where safely possible.
+
+## STEP 12 — FAILURE MATRIX
+
+Create a matrix for every route covering:
+
+| Failure point                                 | Domain committed? | Client knows outcome? | Safe retry? | Reconciliation? |
+| --------------------------------------------- | ----------------: | --------------------: | ----------: | --------------: |
+| validation failure                            |                   |                       |             |                 |
+| authorization failure                         |                   |                       |             |                 |
+| before transaction                            |                   |                       |             |                 |
+| transaction rollback                          |                   |                       |             |                 |
+| domain commit + response lost                 |                   |                       |             |                 |
+| domain commit + response parse failure        |                   |                       |             |                 |
+| domain commit + optional notification failure |                   |                       |             |                 |
+| concurrent same operation                     |                   |                       |             |                 |
+| same ID + changed payload                     |                   |                       |             |                 |
+
+## STEP 13 — TEST DESIGN
+
+Do not write tests yet.
+
+Specify the exact tests required for each route:
+
+* first request
+* same-ID retry
+* same-ID concurrent retry
+* same-ID changed payload
+* lost HTTP response after commit
+* rollback before commit
+* notification/outbox failure
+* reconciliation
+* page reload during unknown outcome
+* unauthorized reconciliation
+* operation-ID collision
+* intentional second operation with a new ID
+* duplicate notification prevention
+
+Include the exact failure injection point required to prove response-loss safety.
+
+## STEP 14 — CHECK EXISTING SYSTEM PATTERNS
+
+Compare the proposed design against the already implemented Phase 2 checkout operation architecture.
+
+Reuse proven concepts where appropriate:
+
+* client-generated operation identity
+* actor/resource binding
+* durable result
+* replay
+* reconciliation
+* frontend pending operation state
+
+But DO NOT copy the checkout implementation blindly.
+
+Explain which concepts transfer and which do not.
+
+## STEP 15 — FINAL RECOMMENDATION
+
+End with:
+
+### A. Route-by-route recommendation
+
+For each of the five commands:
+
+* SAFE DESIGN
+* REQUIRED CHANGES
+* DATABASE IMPACT
+* FRONTEND IMPACT
+* RECONCILIATION REQUIRED?
+* RISK AFTER IMPLEMENTATION
+
+### B. Shared abstraction recommendation
+
+Answer explicitly:
+
+Should these five commands use:
+
+* five independent mechanisms,
+* a small shared operation framework,
+* or a broader universal idempotency system?
+
+Give the smallest justified choice.
+
+### C. Implementation order
+
+Recommend the safest implementation sequence.
+
+### D. Explicit exclusions
+
+Confirm that this design does NOT modify:
+
+* checkout
+* attendance
+* custody handover
+* pickup request creation
+* teacher allocations
+* auth/session
+* role switching
+* offline queue
+* duplicate-child architecture
+* family deletion
+* child deletion
+* SSE
+* notification workers
+* Task #75
+
+## HARD RULES
+
+This is a READ-ONLY task.
+
+Do not:
+
+* edit code
+* create migrations
+* push schema
+* alter data
+* run destructive commands
+* deploy
+* modify production
+* “fix” unrelated findings
+* implement universal middleware
+* implement Task #75
+* start Phase 4
+
+Return the completed design and implementation plan only.
+
+Do not claim response-loss safety is proven unless an actual post-commit response-loss test can be identified as part of the future implementation.
