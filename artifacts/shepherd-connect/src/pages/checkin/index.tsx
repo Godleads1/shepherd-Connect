@@ -274,7 +274,8 @@ export default function CheckIn() {
   };
 
   const checkInForSlots = async (childId: number, classId: number, slots: SlotChoice) => {
-    const slotsToBook = slots === "both" ? ["7am", "10:30am"] : [slots];
+    const slotsToBook: Array<"7am" | "10:30am"> =
+      slots === "both" ? ["7am", "10:30am"] : [slots];
     for (const s of slotsToBook) {
       // bothServices marks a deliberate both-services drop-off so the server
       // doesn't block the second slot as a "still checked in" conflict.

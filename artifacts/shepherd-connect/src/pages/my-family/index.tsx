@@ -18,6 +18,7 @@ import { PhotoUploader, SecurePhoto } from "@/components/PhotoUploader";
 import WelcomeModal, { shouldShowWelcome } from "@/components/WelcomeModal";
 import CollectionNoticeModal from "@/components/CollectionNoticeModal";
 import AnnouncementBanner from "@/components/AnnouncementBanner";
+import { formatServiceDate, watServiceDateAt } from "@/lib/wat-date";
 
 function isBirthdayToday(dob: string): boolean {
   const d = new Date(dob);
@@ -109,7 +110,7 @@ function AttendanceHistory({ children }: { children: any[] }) {
                   <div key={r.id} className="flex items-center justify-between px-4 py-3 rounded-xl bg-gray-50">
                     <div>
                       <p className="text-sm font-semibold text-gray-900">
-                        {new Date(r.serviceDate).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
+                        {formatServiceDate(r.serviceDate)}
                       </p>
                       <p className="text-xs text-gray-400 capitalize">{r.serviceSlot === "7am" ? "7:00 AM" : "10:30 AM"} service</p>
                     </div>
@@ -221,7 +222,7 @@ function ChildCard({ child, onRefetch }: { child: any; onRefetch: () => void }) 
   const updateChild = useUpdateChild();
 
   // Check if child is currently checked in (today, not yet picked up)
-  const today = new Date().toISOString().split("T")[0];
+  const today = watServiceDateAt();
   const { data: attData } = useQuery({
     queryKey: ["child-today-attendance", child.id, today],
     queryFn: () => apiGet<any>(`/attendance?childId=${child.id}&serviceDate=${today}`),
@@ -450,8 +451,6 @@ function NoFamilySetup({ userId, onCreated }: { userId?: number; onCreated: () =
     </div>
   );
 }
-
-import { watServiceDateAt } from "@/lib/wat-date";
 
 import { getListMyCustodyRequestsQueryKey } from "@workspace/api-client-react";
 

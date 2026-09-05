@@ -16,7 +16,7 @@ export interface QueuedCheckIn {
   childId: number;
   classId: number;
   serviceDate: string;
-  serviceSlot: string;
+  serviceSlot: "7am" | "10:30am";
   childName: string;
   queuedAt: string;
   /** Set when this entry is one half of a deliberate both-services booking. */
@@ -70,7 +70,9 @@ export function getQueue(userId: number): QueuedCheckIn[] {
         typeof item === "object" &&
         item !== null &&
         (item as QueuedCheckIn).originatingUserId === userId &&
-        (item as QueuedCheckIn).operation === "checkin",
+        (item as QueuedCheckIn).operation === "checkin" &&
+        ((item as QueuedCheckIn).serviceSlot === "7am" ||
+          (item as QueuedCheckIn).serviceSlot === "10:30am"),
     );
   } catch {
     return [];

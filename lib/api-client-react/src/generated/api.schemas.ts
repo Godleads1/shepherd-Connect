@@ -676,6 +676,14 @@ export interface UpdateTeacherAllocationBody {
   serviceSlot?: string;
 }
 
+export type CheckInBodyServiceSlot =
+  (typeof CheckInBodyServiceSlot)[keyof typeof CheckInBodyServiceSlot];
+
+export const CheckInBodyServiceSlot = {
+  "7am": "7am",
+  "10:30am": "10:30am",
+} as const;
+
 /**
  * Active authenticated role that originated the event.
  */
@@ -695,7 +703,7 @@ export interface CheckInBody {
   childId: number;
   classId: number;
   serviceDate: string;
-  serviceSlot: string;
+  serviceSlot: CheckInBodyServiceSlot;
   /** Set by the check-in UI when staff deliberately book BOTH services at drop-off. Skips the guard that otherwise blocks checking in for a second service while the child is still checked in (not checked out) for the other service. */
   bothServices?: boolean;
   /**

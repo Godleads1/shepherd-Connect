@@ -4,6 +4,7 @@ import { z } from "zod/v4";
 import { db, attendanceTable, childrenTable, classesTable, familiesTable, usersTable, emergenciesTable, pickupDelegatesTable, teacherAllocationsTable, teachersTable, parentFeedbackTable, childAppraisalsTable, staffScansTable, custodyEpisodesTable, auditLogsTable } from "@workspace/db";
 import { authMiddleware, requireRoles } from "../middlewares/auth";
 import { streamPdf, renderReportPdf } from "../lib/pdf";
+import { SERVICE_TIME_ZONE, formatServiceDate, formatServiceDateTime, formatServiceTime, serviceDateAt } from "../lib/serviceTime";
 
 const router = Router();
 
@@ -47,6 +48,30 @@ export function csv(rows: Array<Array<string | number | null | undefined>>): str
   }).join(",")).join("\r\n");
 }
 
+export function notPickedUpCsv(rows: Array<{
+  serviceDate: string;
+  serviceSlot: string;
+  status: string;
+  minutesSinceCheckIn: number | null;
+  child: { firstName: string; lastName: string } | null;
+  class: { name: string } | null;
+  family: { familyCode: string; parentPhone: string | null } | null;
+}>): string {
+  return csv([
+    ["Service Date", "Service Slot", "Child Name", "Class", "Status", "Minutes Since Check-in", "Family Code", "Parent Phone"],
+    ...rows.map(row => [
+      row.serviceDate,
+      row.serviceSlot,
+      `${row.child?.firstName ?? ""} ${row.child?.lastName ?? ""}`.trim(),
+      row.class?.name ?? "",
+      row.status,
+      row.minutesSinceCheckIn ?? "",
+      row.family?.familyCode ?? "",
+      row.family?.parentPhone ?? "",
+    ]),
+  ]);
+}
+
 /** Records only an allowlisted, bounded operational event, never report data. */
 async function auditReportExport(req: Request, reportType: string, format: "csv" | "pdf", filters: Record<string, unknown>, rowCount: number, sensitivityClass: "operational" | "restricted"): Promise<void> {
   const normalizedFilters = Object.fromEntries(Object.entries(filters)
@@ -66,7 +91,7 @@ router.get("/reports/not-picked-up", authMiddleware, requireRoles("super_admin",
   try {
     const { serviceDate, serviceSlot, format } = req.query as { serviceDate?: string; serviceSlot?: string; format?: string };
     if ((serviceDate && !validCalendarDate(serviceDate)) || (serviceSlot !== undefined && (typeof serviceSlot !== "string" || serviceSlot.length > 40)) || (format !== undefined && format !== "csv")) { res.status(400).json({ error: "Invalid report filters or format" }); return; }
-    const today = serviceDate || new Date().toISOString().split("T")[0];
+    const today = serviceDate || serviceDateAt();
 
     const conditions = [eq(attendanceTable.serviceDate, today), ne(attendanceTable.status, "picked_up")];
     if (serviceSlot) conditions.push(eq(attendanceTable.serviceSlot, serviceSlot));
@@ -87,12 +112,12 @@ router.get("/reports/not-picked-up", authMiddleware, requireRoles("super_admin",
         }
       }
       const checkInMins = r.checkInTime ? Math.floor((Date.now() - new Date(r.checkInTime).getTime()) / 60000) : null;
-      return { id: r.id, status: r.status, checkInTime: r.checkInTime, child: child ? { firstName: child.firstName, lastName: child.lastName } : null, class: cls ? { name: cls.name } : null, family: family ? { familyCode: family.familyCode, parentPhone } : null, minutesSinceCheckIn: checkInMins };
+      return { id: r.id, serviceDate: r.serviceDate, serviceSlot: r.serviceSlot, status: r.status, checkInTime: r.checkInTime, child: child ? { firstName: child.firstName, lastName: child.lastName } : null, class: cls ? { name: cls.name } : null, family: family ? { familyCode: family.familyCode, parentPhone } : null, minutesSinceCheckIn: checkInMins };
     }));
 
     if (format === "csv") {
       await auditReportExport(req, "not_picked_up", "csv", { serviceDate: today, serviceSlot }, enriched.length, "restricted");
-      res.type("text/csv").attachment(`not-picked-up-${today}.csv`).send(csv([["Child Name", "Class", "Status", "Minutes Since Check-in", "Family Code", "Parent Phone"], ...enriched.map(row => [`${row.child?.firstName ?? ""} ${row.child?.lastName ?? ""}`.trim(), row.class?.name ?? "", row.status, row.minutesSinceCheckIn ?? "", row.family?.familyCode ?? "", row.family?.parentPhone ?? ""])]));
+      res.type("text/csv").attachment(`not-picked-up-${today}.csv`).send(notPickedUpCsv(enriched));
       return;
     }
     res.json({ date: today, serviceSlot: serviceSlot || "all", total: enriched.length, children: enriched });
@@ -129,8 +154,8 @@ router.get("/reports/attendance-export", authMiddleware, requireRoles("super_adm
     const filtered = enriched;
 
     if (format === "csv") {
-      const headers = ["Date", "Service Slot", "Child Name", "Class", "Status", "Check-in Time", "Check-out Time"];
-      const rows = filtered.map(r => [r.date, r.serviceSlot, r.childName, r.className, r.status, r.checkInTime ? new Date(r.checkInTime).toLocaleString() : "", r.checkOutTime ? new Date(r.checkOutTime).toLocaleString() : ""]);
+      const headers = ["Date", "Service Slot", "Child Name", "Class", "Status", `Check-in Time (${SERVICE_TIME_ZONE})`, `Check-out Time (${SERVICE_TIME_ZONE})`];
+      const rows = filtered.map(r => [r.date, r.serviceSlot, r.childName, r.className, r.status, r.checkInTime ? formatServiceDateTime(r.checkInTime) : "", r.checkOutTime ? formatServiceDateTime(r.checkOutTime) : ""]);
       await auditReportExport(req, "attendance", "csv", { from, to, serviceSlot, classId }, filtered.length, "restricted");
       res.setHeader("Content-Type", "text/csv");
       res.setHeader("Content-Disposition", `attachment; filename="attendance-${from || "all"}-to-${to || "all"}.csv"`);
@@ -166,7 +191,7 @@ async function buildFamilyRegistry() {
       parent2Name, parent2Email, parent2Phone,
       address: fam.address || "", emergencyContact: fam.emergencyContactName || "", emergencyPhone: fam.emergencyContactPhone || "",
       childCount: children.length, childrenNames: children.map(c => `${c.firstName} ${c.lastName}`).join("; "),
-      registeredAt: new Date(fam.createdAt).toLocaleDateString(),
+      registeredAt: formatServiceDate(fam.createdAt),
     };
   }));
 }
@@ -277,8 +302,8 @@ router.get("/reports/emergency-log", authMiddleware, requireRoles("super_admin",
     }));
 
     if (format === "csv") {
-      const headers = ["ID", "Type", "Level", "Status", "Description", "Child", "Triggered By", "Resolution", "Created At", "Resolved At"];
-      const rows = enriched.map(r => [r.id, r.type, r.level, r.status, r.description, r.childName || "", r.triggeredBy, r.resolutionNotes || "", new Date(r.createdAt).toLocaleString(), r.resolvedAt ? new Date(r.resolvedAt).toLocaleString() : ""]);
+      const headers = ["ID", "Type", "Level", "Status", "Description", "Child", "Triggered By", "Resolution", `Created At (${SERVICE_TIME_ZONE})`, `Resolved At (${SERVICE_TIME_ZONE})`];
+      const rows = enriched.map(r => [r.id, r.type, r.level, r.status, r.description, r.childName || "", r.triggeredBy, r.resolutionNotes || "", formatServiceDateTime(r.createdAt), r.resolvedAt ? formatServiceDateTime(r.resolvedAt) : ""]);
       await auditReportExport(req, "emergency_log", "csv", {}, enriched.length, "restricted");
       res.setHeader("Content-Type", "text/csv");
       res.setHeader("Content-Disposition", 'attachment; filename="emergency-log.csv"');
@@ -295,7 +320,7 @@ router.get("/reports/emergency-log", authMiddleware, requireRoles("super_admin",
 router.get("/reports/teacher-ratios", authMiddleware, requireRoles("super_admin", "admin"), async (req, res): Promise<void> => {
   try {
     const { serviceDate, serviceSlot } = req.query as { serviceDate?: string; serviceSlot?: string };
-    const today = serviceDate || new Date().toISOString().split("T")[0];
+    const today = serviceDate || serviceDateAt();
     const classes = await db.select().from(classesTable);
     const ratios = await Promise.all(classes.map(async (cls) => {
       const conditions = [eq(attendanceTable.classId, cls.id), eq(attendanceTable.serviceDate, today)];
@@ -318,7 +343,7 @@ router.get("/reports/teacher-ratios", authMiddleware, requireRoles("super_admin"
 router.get("/reports/summary", authMiddleware, requireRoles("super_admin", "admin"), async (req, res): Promise<void> => {
   try {
     const { serviceDate } = req.query as { serviceDate?: string };
-    const today = serviceDate || new Date().toISOString().split("T")[0];
+    const today = serviceDate || serviceDateAt();
     const todayAttendance = await db.select().from(attendanceTable).where(eq(attendanceTable.serviceDate, today));
     const totalCheckedIn = todayAttendance.length;
     const stillPresent = todayAttendance.filter(a => a.status !== "picked_up").length;
@@ -487,15 +512,15 @@ router.get("/reports/custom-builder", authMiddleware, requireRoles("super_admin"
         return [
           r.serviceDate, r.serviceSlot,
           child ? `${child.firstName} ${child.lastName}` : "—", c?.name || "—", r.status,
-          r.checkInTime ? new Date(r.checkInTime).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : "—",
-          (r as any).classArrivalTime ? new Date((r as any).classArrivalTime).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : "—",
-          r.checkOutTime ? new Date(r.checkOutTime).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : "—",
+          r.checkInTime ? formatServiceTime(r.checkInTime) : "—",
+          (r as any).classArrivalTime ? formatServiceTime((r as any).classArrivalTime) : "—",
+          r.checkOutTime ? formatServiceTime(r.checkOutTime) : "—",
         ];
       }));
       const pickedUp = rows.filter(r => r[4] === "picked_up").length;
       const uniqueDates = new Set(rows.map(r => r[0])).size;
       const attendanceRate = rows.length > 0 ? Math.round((pickedUp / rows.length) * 100) : 0;
-      res.json({ title: "Attendance Log", columns: ["Date", "Slot", "Child", "Class", "Status", "Checked In", "In Class", "Picked Up"], rows, total: rows.length, summary: { totalRecords: rows.length, pickedUp, attendanceRate, uniqueDates } });
+      res.json({ title: "Attendance Log", timezone: SERVICE_TIME_ZONE, columns: ["Date", "Slot", "Child", "Class", "Status", "Checked In", "In Class", "Picked Up"], rows, total: rows.length, summary: { totalRecords: rows.length, pickedUp, attendanceRate, uniqueDates } });
       return;
     }
 
@@ -518,14 +543,14 @@ router.get("/reports/custom-builder", authMiddleware, requireRoles("super_admin"
         return [
           r.serviceDate, r.serviceSlot,
           child ? `${child.firstName} ${child.lastName}` : "—", c?.name || "—",
-          dropTime ? new Date(dropTime).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : "—",
-          arrivalTime ? new Date(arrivalTime).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : "—",
+          dropTime ? formatServiceTime(dropTime) : "—",
+          arrivalTime ? formatServiceTime(arrivalTime) : "—",
           lagMins !== null ? `${lagMins} min` : "—",
         ];
       }));
       const withLag = rows.filter(r => r[6] !== "—");
       const avgLag = withLag.length > 0 ? Math.round(withLag.reduce((s, r) => s + parseInt(r[6]), 0) / withLag.length) : null;
-      res.json({ title: "Class Arrivals (Teacher Confirmed)", columns: ["Date", "Slot", "Child", "Class", "Dropped Off", "In Class", "Lag Time"], rows, total: rows.length, summary: { totalRecords: rows.length, avgLagMins: avgLag } });
+      res.json({ title: "Class Arrivals (Teacher Confirmed)", timezone: SERVICE_TIME_ZONE, columns: ["Date", "Slot", "Child", "Class", "Dropped Off", "In Class", "Lag Time"], rows, total: rows.length, summary: { totalRecords: rows.length, avgLagMins: avgLag } });
       return;
     }
 
@@ -894,8 +919,8 @@ router.get("/reports/pdf/attendance", authMiddleware, requireRoles("super_admin"
         child ? `${child.firstName} ${child.lastName}` : "Unknown",
         cls?.name || "Unknown",
         r.status,
-        r.checkInTime ? new Date(r.checkInTime).toLocaleTimeString() : "—",
-        r.checkOutTime ? new Date(r.checkOutTime).toLocaleTimeString() : "—",
+        r.checkInTime ? formatServiceTime(r.checkInTime) : "—",
+        r.checkOutTime ? formatServiceTime(r.checkOutTime) : "—",
       ];
     }));
 
@@ -910,7 +935,7 @@ router.get("/reports/pdf/attendance", authMiddleware, requireRoles("super_admin"
     streamPdf(res, `attendance-${from || "all"}-to-${to || "all"}.pdf`, (doc) => {
       renderReportPdf(doc, {
         title: "Attendance Report",
-        subtitle: `${dateLabel}${slotLabel} · ${rows.length} records`,
+        subtitle: `${dateLabel}${slotLabel} · ${rows.length} records · Times: ${SERVICE_TIME_ZONE}`,
         columns: [
           { label: "Date", width: 65 },
           { label: "Slot", width: 50 },
@@ -1019,8 +1044,8 @@ router.get("/reports/pdf/emergency-log", authMiddleware, requireRoles("super_adm
         (r.description || "").slice(0, 60),
         childName,
         triggeredByUser ? `${triggeredByUser.firstName} ${triggeredByUser.lastName}` : "Unknown",
-        new Date(r.createdAt).toLocaleDateString(),
-        r.resolvedAt ? new Date(r.resolvedAt).toLocaleDateString() : "—",
+        formatServiceDate(r.createdAt),
+        r.resolvedAt ? formatServiceDate(r.resolvedAt) : "—",
       ];
     }));
 
@@ -1029,10 +1054,10 @@ router.get("/reports/pdf/emergency-log", authMiddleware, requireRoles("super_adm
     const security = enriched.filter(r => r[0] === "security").length;
 
     await auditReportExport(req, "emergency_log", "pdf", {}, enriched.length, "restricted");
-    streamPdf(res, `emergency-log-${new Date().toISOString().split("T")[0]}.pdf`, (doc) => {
+    streamPdf(res, `emergency-log-${serviceDateAt()}.pdf`, (doc) => {
       renderReportPdf(doc, {
         title: "Emergency Incident Log",
-        subtitle: `Generated ${new Date().toLocaleDateString()} · ${enriched.length} incidents total`,
+        subtitle: `Generated ${formatServiceDate(new Date())} (${SERVICE_TIME_ZONE}) · ${enriched.length} incidents total`,
         columns: [
           { label: "Type", width: 65 },
           { label: "Level", width: 42 },

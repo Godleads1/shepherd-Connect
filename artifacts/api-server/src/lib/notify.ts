@@ -3,6 +3,7 @@ import { db, notificationsTable, usersTable, familiesTable, childrenTable, class
 import { eq, and, isNull, or } from "drizzle-orm";
 import { logger } from "./logger";
 import { createNotificationDelivery, type OutboxChannel } from "../services/notificationOutbox";
+import { formatServiceTime, serviceDateAt } from "./serviceTime";
 
 /**
  * Returns true if a hall session is active for the given date and (optionally) slot.
@@ -157,7 +158,7 @@ export async function notifyChildCheckedIn(childId: number, classId: number, ser
   if (family?.parent1Id) parentIds.push(family.parent1Id);
   if (family?.parent2Id) parentIds.push(family.parent2Id);
 
-  const now = new Date().toLocaleTimeString("en-NG", { hour: "2-digit", minute: "2-digit" });
+  const now = formatServiceTime(new Date());
 
   for (const uid of parentIds) {
     await sendNotification({
@@ -181,7 +182,7 @@ export async function notifyChildInTransit(childId: number, classId: number, ser
   if (family?.parent1Id) parentIds.push(family.parent1Id);
   if (family?.parent2Id) parentIds.push(family.parent2Id);
 
-  const today = serviceDate ?? new Date().toISOString().slice(0, 10);
+  const today = serviceDate ?? serviceDateAt();
   const hallActive = await isHallSessionActive(today);
 
   const message = hallActive
@@ -215,8 +216,8 @@ export async function notifyTeachersChildInTransit(
   const homeClassName = cls?.name ?? "your class";
 
   const childName = `${child.firstName} ${child.lastName}`;
-  const now = new Date().toLocaleTimeString("en-NG", { hour: "2-digit", minute: "2-digit" });
-  const today = serviceDate ?? new Date().toISOString().slice(0, 10);
+  const now = formatServiceTime(new Date());
+  const today = serviceDate ?? serviceDateAt();
 
   // Check if this class is merged into another today — route to host class teachers if so.
   const mergeTarget = await getActiveMergeTarget(classId, today);
@@ -344,11 +345,11 @@ export async function notifyTeachersChildDroppedOff(
   const className = cls?.name ?? "your class";
 
   const childName = `${child.firstName} ${child.lastName}`;
-  const now = new Date().toLocaleTimeString("en-NG", { hour: "2-digit", minute: "2-digit" });
+  const now = formatServiceTime(new Date());
 
   // Find teachers allocated to this class for this date (any slot).
   // If no date-specific allocation found, fall back to any allocation for this class.
-  const today = serviceDate ?? new Date().toISOString().slice(0, 10);
+  const today = serviceDate ?? serviceDateAt();
   let allocations = await db
     .select()
     .from(teacherAllocationsTable)
@@ -409,7 +410,7 @@ export async function notifyTeachersChildDroppedOff(
  * active class merges by routing to the host class.
  */
 export async function getClassTeacherUserIds(classId: number, serviceDate?: string): Promise<number[]> {
-  const today = serviceDate ?? new Date().toISOString().slice(0, 10);
+  const today = serviceDate ?? serviceDateAt();
   const mergeTarget = await getActiveMergeTarget(classId, today);
   const routingClassId = mergeTarget?.targetClassId ?? classId;
 
@@ -451,7 +452,7 @@ export async function getClassTeacherUserIds(classId: number, serviceDate?: stri
 export async function notifyTeachersChildPickedUp(childId: number, classId: number) {
   const [child] = await db.select().from(childrenTable).where(eq(childrenTable.id, childId));
   if (!child) return;
-  const now = new Date().toLocaleTimeString("en-NG", { hour: "2-digit", minute: "2-digit" });
+  const now = formatServiceTime(new Date());
   const teacherUserIds = await getClassTeacherUserIds(classId);
   for (const uid of teacherUserIds) {
     await sendNotification({
@@ -474,7 +475,7 @@ export async function notifyTeachersDelegatePickup(
   delegateName: string,
   stage: "arrived" | "approved",
 ) {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = serviceDateAt();
   for (const childId of childIds) {
     // A child can have records for both service slots today — only the
     // active (not yet picked up) record(s) determine which class holds them now.
@@ -520,7 +521,7 @@ export async function notifyChildPickedUp(childId: number) {
   if (family?.parent1Id) parentIds.push(family.parent1Id);
   if (family?.parent2Id) parentIds.push(family.parent2Id);
 
-  const now = new Date().toLocaleTimeString("en-NG", { hour: "2-digit", minute: "2-digit" });
+  const now = formatServiceTime(new Date());
 
   for (const uid of parentIds) {
     await sendNotification({
@@ -640,7 +641,7 @@ export async function broadcastEmergency(opts: {
 
   } else if (opts.level === "L3") {
     // All staff + all parents of children checked in today
-    const today = new Date().toISOString().split("T")[0];
+    const today = serviceDateAt();
     const allUsers = await executor.select({ id: usersTable.id, role: usersTable.role }).from(usersTable).where(eq(usersTable.isActive, true));
     const staffRoles = new Set(["teacher", "support", "admin", "super_admin"]);
     const targets = new Set(allUsers.filter(u => staffRoles.has(u.role)).map(u => u.id));

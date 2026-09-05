@@ -21,6 +21,7 @@ import {
   replayCheckoutOperation,
   serializeCheckoutResult,
 } from "../services/checkoutOperations";
+import { serviceDateAt } from "../lib/serviceTime";
 
 async function getParentContacts(childId: number): Promise<{ phones: (string | null)[]; emails: (string | null)[]; parentIds: number[]; childName: string; className: string }> {
   const [child] = await db.select().from(childrenTable).where(eq(childrenTable.id, childId));
@@ -49,15 +50,13 @@ async function getParentContacts(childId: number): Promise<{ phones: (string | n
 
 const router = Router();
 
-const WAT_OFFSET_MS = 60 * 60 * 1000;
-
 export function familyCodeFromQr(qrCode: string): string | null {
   const normalized = qrCode.trim().toUpperCase();
   return /^FAM-[A-Z0-9]{6}$/.test(normalized) ? normalized : null;
 }
 
 export function watServiceDateAt(date: Date): string {
-  return new Date(date.getTime() + WAT_OFFSET_MS).toISOString().slice(0, 10);
+  return serviceDateAt(date);
 }
 
 export function attendanceEventValidationError(input: {
@@ -947,7 +946,7 @@ router.post(
 // ─── Late Pickup Alerts ───────────────────────────────────────────────────────
 router.post("/attendance/late-pickup-alerts", authMiddleware, requireRoles("super_admin", "admin", "support"), async (req, res): Promise<void> => {
   const { serviceDate, serviceSlot } = req.body as { serviceDate?: string; serviceSlot?: string };
-  const today = serviceDate || new Date().toISOString().split("T")[0];
+  const today = serviceDate || serviceDateAt();
 
   const conditions = [
     eq(attendanceTable.serviceDate, today),

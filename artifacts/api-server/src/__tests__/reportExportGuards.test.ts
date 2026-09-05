@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { getTableConfig } from "drizzle-orm/pg-core";
 import { auditLogsTable } from "@workspace/db";
-import { csv, parseBoundedReportQuery } from "../routes/reports";
+import { csv, notPickedUpCsv, parseBoundedReportQuery } from "../routes/reports";
 import { teacherClockInCsv } from "../routes/teacherClockIns";
 
 describe("report export filter guards", () => {
@@ -45,5 +45,20 @@ describe("CSV and audit privacy guards", () => {
   it("has a dedicated bounded metadata column for report audit evidence", () => {
     const columns = getTableConfig(auditLogsTable).columns.map(column => column.name);
     expect(columns).toContain("metadata_json");
+  });
+
+  it("preserves service date and slot in not-picked-up CSV rows", () => {
+    const output = notPickedUpCsv([{
+      serviceDate: "2026-08-23",
+      serviceSlot: "10:30am",
+      status: "in_class",
+      minutesSinceCheckIn: 45,
+      child: { firstName: "Ada", lastName: "Okafor" },
+      class: { name: "Class 4" },
+      family: { familyCode: "FAM-ABC123", parentPhone: "+2348000000000" },
+    }]);
+
+    expect(output.split("\r\n")[0]).toContain('"Service Date","Service Slot"');
+    expect(output).toContain('"2026-08-23","10:30am","Ada Okafor"');
   });
 });

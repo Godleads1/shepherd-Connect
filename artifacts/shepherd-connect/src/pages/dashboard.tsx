@@ -8,6 +8,7 @@ import { Link } from "wouter";
 import { apiGet } from "@/lib/api-call";
 import { useAuth } from "@/contexts/auth";
 import { format } from "date-fns";
+import { watServiceDateAt } from "@/lib/wat-date";
 import { Badge } from "@/components/ui/badge";
 import { QueryError } from "@/components/QueryError";
 
@@ -311,7 +312,7 @@ function AdminDashboard() {
   const { data: feedback, isLoading: feedbackLoading } = useGetFeedbackAnalytics();
 
   // Checked-out children today — visibility of completed pickups
-  const todayWAT = new Date(Date.now() + 60 * 60 * 1000).toISOString().slice(0, 10);
+  const todayWAT = watServiceDateAt();
   const { data: checkedOutRaw } = useQuery({
     queryKey: ["dashboard-checked-out", todayWAT],
     queryFn: () => apiGet<any[]>(`/attendance?serviceDate=${todayWAT}&status=picked_up`),

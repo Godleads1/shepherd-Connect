@@ -31,6 +31,7 @@ import {
   removeClassroomDisplayClient,
   type ClassroomDisplayClient,
 } from "../services/classroomDisplayAlerts";
+import { serviceDateAt } from "../lib/serviceTime";
 
 const router = Router();
 
@@ -85,24 +86,15 @@ export async function getPickupRequestsForChildren(childIds: number[]): Promise<
   if (childIds.length === 0) return [];
   return getActivePickupRequests(and(
     inArray(pickupRequestsTable.childId, childIds),
-    eq(pickupRequestsTable.serviceDate, todayWAT()),
+    eq(pickupRequestsTable.serviceDate, serviceDateAt()),
   ));
 }
 
 async function getPickupRequestsForClass(classId: number): Promise<PickupRequest[]> {
   return getActivePickupRequests(and(
     eq(pickupRequestsTable.classId, classId),
-    eq(pickupRequestsTable.serviceDate, todayWAT()),
+    eq(pickupRequestsTable.serviceDate, serviceDateAt()),
   ));
-}
-
-function todayWAT(): string {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Africa/Lagos",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(new Date());
 }
 
 function hashDisplayToken(token: string): string {
@@ -132,7 +124,7 @@ export async function createParentPickupRequest(parentUserId: number, childId: n
     .where(eq(childrenTable.id, childId));
   if (!child) throw new ParentPickupRequestError(404, "Child not found");
 
-  const today = todayWAT();
+  const today = serviceDateAt();
   const classId = child.children.currentClassId;
   if (!classId) throw new ParentPickupRequestError(400, "Child has no assigned class");
 
@@ -156,11 +148,19 @@ export async function createParentPickupRequest(parentUserId: number, childId: n
   const inserted = await db.transaction(async tx => {
     const lockKey = Number(today.replace(/-/g, ""));
     await tx.execute(sql`SELECT pg_advisory_xact_lock(${childId}, ${lockKey})`);
-    const [activeAttendance] = await tx.select().from(attendanceTable).where(and(
-      eq(attendanceTable.childId, childId), eq(attendanceTable.serviceDate, today),
-    )).orderBy(attendanceTable.checkInTime);
-    if (!activeAttendance || activeAttendance.status === "picked_up") {
+    // Pickup remains a day-level signal. An older picked-up interval must not
+    // mask a later active one, while two active service occurrences require an
+    // explicit product rule rather than arbitrary row selection.
+    const activeAttendances = await tx.select({ id: attendanceTable.id }).from(attendanceTable).where(and(
+      eq(attendanceTable.childId, childId),
+      eq(attendanceTable.serviceDate, today),
+      inArray(attendanceTable.status, ["dropped_off", "in_transit", "in_class"]),
+    )).orderBy(attendanceTable.id).limit(2);
+    if (activeAttendances.length === 0) {
       throw new ParentPickupRequestError(400, "Child is not currently checked in");
+    }
+    if (activeAttendances.length > 1) {
+      throw new ParentPickupRequestError(409, "Multiple active service attendances require staff assistance");
     }
     const rows = await tx.insert(pickupRequestsTable).values({
       childId, classId: routingClassId, serviceDate: today, requestedBy: parentUserId,
@@ -426,7 +426,7 @@ router.post("/pickup-requests/display-credentials", authMiddleware, async (req, 
     res.status(404).json({ error: "Not found", message: "Class not found" });
     return;
   }
-  if (!(await canAccessClass(req.user!, classId, todayWAT()))) {
+  if (!(await canAccessClass(req.user!, classId, serviceDateAt()))) {
     res.status(403).json({ error: "Forbidden", message: "You are not assigned to this class" });
     return;
   }
@@ -459,7 +459,7 @@ router.delete("/pickup-requests/display-credentials/:classId", authMiddleware, a
     res.status(400).json({ error: "Bad request", message: "Invalid class ID" });
     return;
   }
-  if (!(await canAccessClass(req.user!, classId, todayWAT()))) {
+  if (!(await canAccessClass(req.user!, classId, serviceDateAt()))) {
     res.status(403).json({ error: "Forbidden", message: "You are not assigned to this class" });
     return;
   }
@@ -485,7 +485,7 @@ router.get("/pickup-requests/display-media/:classId", authMiddleware, async (req
     res.status(400).json({ error: "Bad request", message: "Invalid class ID" });
     return;
   }
-  if (!(await canAccessClass(req.user!, classId, todayWAT()))) {
+  if (!(await canAccessClass(req.user!, classId, serviceDateAt()))) {
     res.status(403).json({ error: "Forbidden", message: "You are not assigned to this class" });
     return;
   }
@@ -524,7 +524,7 @@ router.put("/pickup-requests/display-media/:classId", authMiddleware, async (req
     res.status(404).json({ error: "Not found", message: "Class not found" });
     return;
   }
-  if (!(await canAccessClass(req.user!, classId, todayWAT()))) {
+  if (!(await canAccessClass(req.user!, classId, serviceDateAt()))) {
     res.status(403).json({ error: "Forbidden", message: "You are not assigned to this class" });
     return;
   }
@@ -718,7 +718,7 @@ router.delete("/pickup-requests/display-media/:classId", authMiddleware, async (
     res.status(400).json({ error: "Bad request", message: "Invalid class ID" });
     return;
   }
-  if (!(await canAccessClass(req.user!, classId, todayWAT()))) {
+  if (!(await canAccessClass(req.user!, classId, serviceDateAt()))) {
     res.status(403).json({ error: "Forbidden", message: "You are not assigned to this class" });
     return;
   }
@@ -742,7 +742,7 @@ router.put("/pickup-requests/display-media/:classId/page", authMiddleware, async
     res.status(400).json({ error: "Bad request", message: "Invalid class ID" });
     return;
   }
-  if (!(await canAccessClass(req.user!, classId, todayWAT()))) {
+  if (!(await canAccessClass(req.user!, classId, serviceDateAt()))) {
     res.status(403).json({ error: "Forbidden", message: "You are not assigned to this class" });
     return;
   }
@@ -833,7 +833,7 @@ router.get("/pickup-requests/display-file/:classId", async (req, res): Promise<v
 });
 
 router.get("/pickup-requests", authMiddleware, requireRoles("super_admin", "admin", "support"), async (req, res): Promise<void> => {
-  const all = await getActivePickupRequests(eq(pickupRequestsTable.serviceDate, todayWAT()));
+  const all = await getActivePickupRequests(eq(pickupRequestsTable.serviceDate, serviceDateAt()));
   all.sort((a, b) => new Date(a.requestedAt).getTime() - new Date(b.requestedAt).getTime());
   res.json({ queue: all });
 });
@@ -883,7 +883,7 @@ router.delete("/pickup-requests/:id", authMiddleware, async (req, res): Promise<
     ? await parentOwnsChild(req.user!.userId, request.childId)
     : false;
   const hasClassAccess = req.user!.role === "teacher"
-    ? await canAccessClass(req.user!, request.classId, todayWAT())
+    ? await canAccessClass(req.user!, request.classId, serviceDateAt())
     : false;
   if (!canDismissPickupRequest(req.user!.role, ownsChild, hasClassAccess)) {
     res.status(403).json({ error: "Forbidden", message: "You cannot dismiss this pickup request" });
@@ -907,7 +907,7 @@ router.delete("/pickup-requests/:id", authMiddleware, async (req, res): Promise<
 router.get("/pickup-requests/:classId", authMiddleware, async (req, res): Promise<void> => {
   const classId = Number(req.params.classId);
   if (isNaN(classId)) { res.status(400).json({ error: "Bad request" }); return; }
-  if (!(await canAccessClass(req.user!, classId, todayWAT()))) {
+  if (!(await canAccessClass(req.user!, classId, serviceDateAt()))) {
     res.status(403).json({ error: "Forbidden", message: "You are not assigned to this class" });
     return;
   }

@@ -34,7 +34,7 @@ beforeEach(async () => {
   await db.execute(sql`DELETE FROM pickup_requests WHERE child_id IN (${childId},${otherChildId})`);
   await db.execute(sql`DELETE FROM attendance WHERE child_id IN (${childId},${otherChildId})`);
   await db.execute(sql`INSERT INTO attendance (child_id,class_id,service_date,service_slot,status) VALUES
-    (${childId},${classId},${today},'both','in_class')`);
+    (${childId},${classId},${today},'7am','in_class')`);
 });
 
 afterAll(async () => {
@@ -50,6 +50,49 @@ afterAll(async () => {
 });
 
 databaseDescribe("pickup request PostgreSQL persistence", () => {
+  it("accepts pickup when the first attendance is picked up and a second is active", async () => {
+    await db.execute(sql`DELETE FROM attendance WHERE child_id=${childId}`);
+    await db.execute(sql`
+      INSERT INTO attendance
+        (child_id,class_id,service_date,service_slot,status,check_in_time,check_out_time,checked_out_by)
+      VALUES
+        (${childId},${classId},${today},'7am','picked_up',now() - interval '2 hours',now() - interval '90 minutes',${supportId}),
+        (${childId},${classId},${today},'10:30am','in_class',now() - interval '1 hour',NULL,NULL)
+    `);
+
+    const pickup = await request(app).post("/api/pickup-requests")
+      .set("Authorization", token(parentId))
+      .send({ childId })
+      .expect(200);
+
+    expect(pickup.body).toMatchObject({
+      duplicate: false,
+      request: { childId, classId },
+    });
+    expect((await db.execute(sql`
+      SELECT count(*)::int AS count FROM pickup_requests
+      WHERE child_id=${childId} AND service_date=${today} AND status='requested'
+    `)).rows[0]).toMatchObject({ count: 1 });
+  });
+
+  it("rejects pickup when both service occurrences are active and no pickup granularity rule exists", async () => {
+    await db.execute(sql`
+      INSERT INTO attendance (child_id,class_id,service_date,service_slot,status)
+      VALUES (${childId},${classId},${today},'10:30am','in_class')
+    `);
+
+    const pickup = await request(app).post("/api/pickup-requests")
+      .set("Authorization", token(parentId))
+      .send({ childId })
+      .expect(409);
+
+    expect(pickup.body.message).toBe("Multiple active service attendances require staff assistance");
+    expect((await db.execute(sql`
+      SELECT count(*)::int AS count FROM pickup_requests
+      WHERE child_id=${childId} AND service_date=${today} AND status='requested'
+    `)).rows[0]).toMatchObject({ count: 0 });
+  });
+
   it("has one durable active request under concurrent parent retries", async () => {
     const create = () => request(app).post("/api/pickup-requests").set("Authorization", token(parentId)).send({ childId });
     const replies = await Promise.all([create(), create(), create(), create()]);

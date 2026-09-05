@@ -88,6 +88,31 @@ describe("attendance event guards", () => {
   });
 });
 
+describe("check-in service slot contract", () => {
+  const checkIn = {
+    childId: 1,
+    classId: 2,
+    serviceDate: "2026-08-23",
+  };
+
+  it.each(["7am", "10:30am"] as const)("accepts the %s service slot", (serviceSlot) => {
+    expect(CheckInBody.safeParse({ ...checkIn, serviceSlot }).success).toBe(true);
+  });
+
+  it("rejects unknown service slots with normal schema validation", () => {
+    const result = CheckInBody.safeParse({ ...checkIn, serviceSlot: "9am" });
+
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(result.error.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        code: "invalid_enum_value",
+        path: ["serviceSlot"],
+      }),
+    ]));
+  });
+});
+
 describe("attendance database conflict keys", () => {
   it("deduplicates client events by user, event and operation", () => {
     const unique = getTableConfig(attendanceEventsTable).indexes.find(

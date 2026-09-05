@@ -43,6 +43,7 @@ import { createNotificationDelivery } from "./notificationOutbox";
 import { ObjectStorageService } from "../lib/objectStorage";
 import { createParentPickupRequest, ParentPickupRequestError } from "../routes/pickupRequests";
 import { scopeFamilyEmergencyUpdates } from "../lib/familyEmergencyUpdates";
+import { formatServiceLongDate, serviceDateAt, serviceHourAt } from "../lib/serviceTime";
 import {
   classifyIntent,
   fuzzyClassify,
@@ -331,7 +332,7 @@ async function getParentChildren(userId: number) {
 
 async function getTodayAttendance(childIds: number[]) {
   if (!childIds.length) return [];
-  const today = new Date().toISOString().slice(0, 10);
+  const today = serviceDateAt();
   const rows = await db.select().from(attendanceTable).where(eq(attendanceTable.serviceDate, today));
   return rows.filter(r => childIds.includes(r.childId));
 }
@@ -438,7 +439,7 @@ async function getTeacherRecord(userId: number) {
 }
 
 async function getTodayAllocationForTeacher(teacherId: number) {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = serviceDateAt();
   const allRows = await db.select().from(teacherAllocationsTable).where(eq(teacherAllocationsTable.teacherId, teacherId));
   const row = allRows.find(r => String(r.serviceDate).slice(0, 10) === today);
   if (!row) return null;
@@ -447,7 +448,7 @@ async function getTodayAllocationForTeacher(teacherId: number) {
 }
 
 async function getTodayAllocationsForTeacher(teacherId: number) {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = serviceDateAt();
   const allRows = await db.select().from(teacherAllocationsTable).where(eq(teacherAllocationsTable.teacherId, teacherId));
   const todayRows = allRows.filter(r => String(r.serviceDate).slice(0, 10) === today);
   if (!todayRows.length) return [];
@@ -467,13 +468,9 @@ async function getClassChildren(classId: number) {
 function generateRef(prefix = "SC-REQ"): string {
   return `${prefix}-${new Date().getFullYear()}-${Math.floor(10000 + Math.random() * 90000)}`;
 }
-function todayDate() { return new Date().toISOString().slice(0, 10); }
-function todayLagos() {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Africa/Lagos", year: "numeric", month: "2-digit", day: "2-digit",
-  }).format(new Date());
-}
-function todaySlot() { return new Date().getHours() < 9 ? "7am" : "10:30am"; }
+function todayDate() { return serviceDateAt(); }
+function todayLagos() { return serviceDateAt(); }
+function todaySlot() { return serviceHourAt() < 9 ? "7am" : "10:30am"; }
 function typeLabel(t: string) {
   return t === "checkin" ? "Check-in" : t === "checkout" ? "Check-out" : "Delegate Pickup";
 }
@@ -591,7 +588,9 @@ function notificationsText(notifs: Awaited<ReturnType<typeof getRecentNotificati
   if (!notifs.length) return `🔔 No recent notifications.\n\n_Open the app to adjust notification settings._`;
   const lines = notifs.map(n => {
     const dot  = n.readStatus ? "" : "🔵 ";
-    const date = new Date(n.createdAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+    const date = new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Africa/Lagos", day: "numeric", month: "short",
+    }).format(new Date(n.createdAt));
     return `${dot}*${n.title}*\n_${date}_ — ${n.message}`;
   });
   return `🔔 *Recent Notifications*\n\n${lines.join("\n\n")}\n\n_Open the app to see all._`;
@@ -984,7 +983,7 @@ async function processInboundMessage(
 
     if (isNo) {
       await db.delete(botSessionsTable).where(eq(botSessionsTable.jid, fromJid));
-      const h = new Date().getHours();
+      const h = serviceHourAt();
       const sign = h >= 5 && h < 12 ? "Have a lovely day! ☀️"
                  : h >= 12 && h < 17 ? "Have a great afternoon! 🌤️"
                  : "Good night! Rest well. 🌙";
@@ -1182,7 +1181,7 @@ async function processInboundMessage(
   if (session.step === "teacher_sub_reason") {
     if (text.trim().length < 5) { await reply(`Please type your reason (e.g. "I'm sick today").\n\nType *0* to cancel.`); return; }
     const classIds = (session.data.subClassIds ?? "").split(",").map(Number).filter(Boolean);
-    const serviceDate = session.data.subServiceDate ?? new Date().toISOString().slice(0, 10);
+    const serviceDate = session.data.subServiceDate ?? serviceDateAt();
     const classNames = session.data.subClassNames ?? "today's class";
     for (const classId of classIds) {
       await db.insert(substituteRequestsTable).values({
@@ -1259,7 +1258,7 @@ async function processInboundMessage(
   // ── Farewell — end the conversation gracefully ─────────────────────────────
   const FAREWELL_RE = /\b(bye|goodbye|good.?night|good.?eve|see.?you|later|cya|take.?care|night|signing.?off|ttyl)\b/i;
   if (FAREWELL_RE.test(input)) {
-    const hour = new Date().getHours(); // server is UTC; close enough for a hint
+    const hour = serviceHourAt();
     const sign = hour >= 5 && hour < 12 ? "Have a lovely day! ☀️"
                : hour >= 12 && hour < 17 ? "Have a great afternoon! 🌤️"
                : "Good night! Rest well. 🌙";
@@ -1570,7 +1569,7 @@ async function _handleTeacherRoster(userId: number, reply: (msg: string) => Prom
   const ch = await getClassChildren(alloc.classId);
   if (!ch.length) { await reply(`ℹ️ No children in *${alloc.className}* yet.`); return; }
   const lines = ch.map((c, i) => `${i + 1}. ${c.gender === "male" ? "👦" : "👧"} ${c.firstName} ${c.lastName}`);
-  await reply(`🏫 *${alloc.className}*\n📅 ${new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}\n\n${lines.join("\n")}\n\n_${ch.length} ${ch.length === 1 ? "child" : "children"} enrolled._`);
+  await reply(`🏫 *${alloc.className}*\n📅 ${formatServiceLongDate()}\n\n${lines.join("\n")}\n\n_${ch.length} ${ch.length === 1 ? "child" : "children"} enrolled._`);
 }
 
 async function _handleTeacherAttendance(userId: number, reply: (msg: string) => Promise<void>) {
@@ -1581,7 +1580,7 @@ async function _handleTeacherAttendance(userId: number, reply: (msg: string) => 
   const ch = await getClassChildren(alloc.classId);
   const at = await getTodayAttendance(ch.map(c => c.id));
   await reply(
-    `📋 *${alloc.className}* — Attendance\n📅 ${new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}\n\n` +
+    `📋 *${alloc.className}* — Attendance\n📅 ${formatServiceLongDate()}\n\n` +
     `🟢 In class: *${at.filter(a => a.status === "in_class").length}*\n` +
     `🟠 In transit: *${at.filter(a => a.status === "in_transit").length}*\n` +
     `🟡 Dropped off: *${at.filter(a => a.status === "dropped_off").length}*\n` +
@@ -1602,7 +1601,7 @@ async function _handleTeacherSchedule(userId: number, reply: (msg: string) => Pr
   const lines = allocs.map(a => `• *${a.className}* — ${slotLabel(a.serviceSlot ?? "")}`);
   await reply(
     `📅 *My Schedule Today*\n` +
-    `${new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}\n\n` +
+    `${formatServiceLongDate()}\n\n` +
     `${lines.join("\n")}\n\n` +
     `_Type *1* for class roster · *2* for attendance · *5* to request a substitute._`
   );
@@ -1628,7 +1627,7 @@ async function _startTeacherSubRequest(
   session.step = "teacher_sub_reason";
   session.data.subClassIds = allocs.map(a => a.classId).join(",");
   session.data.subClassNames = classNames;
-  session.data.subServiceDate = new Date().toISOString().slice(0, 10);
+  session.data.subServiceDate = serviceDateAt();
   await saveSession(fromJid, session);
   await reply(
     `🔄 *Request a Substitute*\n\n${summary}\n\n` +

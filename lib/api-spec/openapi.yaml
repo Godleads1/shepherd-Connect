@@ -3740,6 +3740,7 @@ components:
           format: date
         serviceSlot:
           type: string
+          enum: ["7am", "10:30am"]
         bothServices:
           type: boolean
           description: >-

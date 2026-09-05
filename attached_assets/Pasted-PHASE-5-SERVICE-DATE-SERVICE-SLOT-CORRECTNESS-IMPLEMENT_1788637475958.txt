@@ -1,0 +1,426 @@
+PHASE 5 — SERVICE DATE & SERVICE-SLOT CORRECTNESS
+IMPLEMENTATION PASS — D1–D5 ONLY
+
+The Phase 5 read-only diagnostic is complete.
+
+FINAL DIAGNOSTIC STATUS:
+
+PHASE 5 DIAGNOSTIC COMPLETE — DEFECTS FOUND
+
+Implement ONLY the confirmed, product-independent fixes D1–D5.
+
+DO NOT redesign pickup/custody granularity.
+
+DO NOT make product decisions.
+
+DO NOT change the meaning of requestedServices="first" | "second" | "both".
+
+DO NOT add serviceSlot to pickup_requests yet.
+
+DO NOT split custody episodes.
+
+DO NOT redesign Task #75 realtime.
+
+DO NOT rewrite Phase 2 operation handling.
+
+DO NOT modify Phase 4 authentication/session architecture.
+
+==================================================
+AUTHORITATIVE PRODUCT MODEL
+==================================================
+
+Shepherd Connect is a Sunday-services system.
+
+The domain model is:
+
+SERVICE DATE
+    ↓
+SERVICE SLOT
+    ├── First Service = 7am
+    └── Second Service = 10:30am
+         ↓
+ATTENDANCE OCCURRENCE
+
+Attendance identity is:
+
+child + service date + service slot
+
+A child MAY legitimately attend:
+
+Sunday X + First Service
+
+AND
+
+Sunday X + Second Service
+
+These are NOT duplicates.
+
+Preserve this behavior.
+
+==================================================
+FIX D1 — SECOND-SERVICE PICKUP FALSE REJECTION
+==================================================
+
+Current defect:
+
+pickupRequests.ts fetches same-child/current-date attendance, orders by checkInTime, and can inspect the wrong historical row.
+
+Scenario:
+
+1. Child attends First Service.
+2. First Service attendance is completed/picked up.
+3. Child later attends Second Service.
+4. Parent creates pickup request.
+5. Older First Service row can be selected first.
+6. System incorrectly reports child is not currently checked in.
+
+Fix this deterministically.
+
+The pickup creation path MUST:
+
+- identify active/current attendance rather than relying on oldest/latest row ordering alone;
+- never select a completed/picked-up attendance merely because it is older;
+- preserve the existing Phase 1/2/3/Task 74 operation semantics;
+- preserve authorization;
+- preserve custody behavior;
+- preserve existing requestedServices semantics.
+
+IMPORTANT:
+
+If multiple active service occurrences can legitimately exist and the existing product model cannot safely determine which one pickup should apply to, DO NOT invent a new rule.
+
+Instead:
+
+- detect the ambiguity explicitly;
+- return the existing appropriate conflict/error semantics if available;
+- document the product decision required.
+
+Do NOT silently choose an arbitrary service slot.
+
+Add a regression for:
+
+First Service picked up
+→ Second Service active
+→ pickup request
+→ correct active attendance is recognized.
+
+==================================================
+FIX D2 — SERVICE SLOT VALIDATION
+==================================================
+
+Current defect:
+
+Attendance accepts arbitrary string serviceSlot values.
+
+Known valid service slots:
+
+- "7am"
+- "10:30am"
+
+Implement authoritative validation.
+
+Requirements:
+
+- API boundary must reject unknown attendance service slots.
+- Database representation may remain text if changing schema is unnecessary.
+- Do not introduce a new service-slot architecture.
+- Reuse existing generated/API validation infrastructure where appropriate.
+- Ensure frontend/generated clients remain compatible.
+- Teacher allocation validation may be addressed only if required by the same established domain enum; do not make unrelated schema changes.
+
+Unknown values such as:
+
+"other"
+"abc"
+"third-service"
+
+must not be accepted as attendance service slots.
+
+Return normal validation semantics.
+
+Add regression tests.
+
+IMPORTANT:
+
+Do not automatically rewrite historical production data.
+
+Diagnostic found zero invalid attendance slots in production.
+
+==================================================
+FIX D3 — CENTRALIZE IMPLICIT SERVICE DATE
+==================================================
+
+Authoritative timezone:
+
+Africa/Lagos
+
+Shepherd Connect's implicit "today" / current service date must use Africa/Lagos.
+
+Find and replace inconsistent UTC-derived implicit dates in the identified paths, including where applicable:
+
+- parent/family UI
+- attendance
+- reports
+- notifications
+- WhatsApp bot
+
+Do NOT change explicitly supplied historical report dates.
+
+Do NOT reinterpret stored DATE values.
+
+Do NOT introduce a school-day/business-date abstraction.
+
+Create/reuse ONE shared service-date helper.
+
+The helper must clearly represent:
+
+"current Shepherd Connect service date in Africa/Lagos"
+
+Avoid scattered:
+
+new Date().toISOString().slice(0, 10)
+
+or equivalent UTC-date derivation for implicit current service date.
+
+Add tests around:
+
+23:30 Saturday Lagos
+00:15 Sunday Lagos
+23:30 Sunday Lagos
+00:15 Monday Lagos
+
+The test must prove the intended Lagos calendar date is used.
+
+==================================================
+FIX D4 — REPORT SERVICE CONTEXT
+==================================================
+
+Current defect:
+
+The not-picked-up report may filter by service slot but omits service-slot identity from each result row.
+
+Fix the report so every per-attendance result preserves:
+
+- serviceDate
+- serviceSlot
+
+For JSON:
+
+include serviceDate and serviceSlot.
+
+For CSV:
+
+include serviceDate and serviceSlot columns.
+
+Do not collapse:
+
+Child A + Sunday + First Service
+
+and
+
+Child A + Sunday + Second Service
+
+into one occurrence.
+
+If the report contains totals, clearly preserve the distinction between:
+
+- attendance occurrences
+- unique children
+
+Do not invent a new reporting model if the existing API contract does not require one.
+
+Update API contracts/generated clients if required.
+
+Add regression coverage for a child attending both services on the same date.
+
+==================================================
+FIX D5 — EXPLICIT AFRICA/LAGOS TIMESTAMP DISPLAY
+==================================================
+
+Operational attendance timestamps must display consistently in:
+
+Africa/Lagos
+
+Fix the identified frontend attendance display paths.
+
+Fix server-generated CSV/report timestamps so they do not depend on:
+
+- browser timezone
+- server process timezone
+- hosting environment timezone
+
+Use explicit Africa/Lagos formatting.
+
+Preserve the underlying stored timestamp.
+
+Do not change database timestamp storage unless absolutely required.
+
+Where exported timestamps could be misunderstood, make the timezone explicit.
+
+Add regression tests proving consistent output independent of host/browser timezone.
+
+==================================================
+D6 — DO NOT IMPLEMENT YET
+==================================================
+
+Do NOT implement D6 notification wording yet.
+
+D6 says pickup/checkout notifications lack service context.
+
+This depends on the unresolved product decision about pickup granularity.
+
+Do not modify notification wording merely to close the diagnostic.
+
+Document D6 as intentionally deferred.
+
+==================================================
+PRODUCT DECISIONS — FREEZE
+==================================================
+
+Do NOT decide any of these during this implementation:
+
+1. Whether pickup is one per child/date.
+2. Whether pickup is one per active service occurrence.
+3. Whether pickup should bind directly to attendanceId.
+4. Whether requestedServices="both" represents one continuous custody period.
+5. Whether classroom displays should be service-slot-specific.
+6. Whether class merges are day-wide or slot-specific.
+7. Whether non-Sunday attendance is allowed for special services.
+8. Whether future attendance is allowed.
+9. Whether staff may backdate attendance.
+10. What happens if a service crosses midnight.
+11. Whether reports should provide per-service totals, unique-child totals, or both.
+
+Preserve current behavior for all unresolved product rules.
+
+==================================================
+DATABASE SAFETY
+==================================================
+
+No production schema changes unless strictly required by D2 and proven safe.
+
+Prefer application/API validation for D2 if sufficient.
+
+Do NOT:
+
+- delete rows
+- merge attendance
+- merge children
+- update production attendance
+- rewrite historical records
+- backfill service slots
+- split custody episodes
+
+Development schema changes, if genuinely necessary, must use the project's existing development-only migration/test process.
+
+Production data must remain untouched.
+
+==================================================
+TESTING REQUIREMENTS
+==================================================
+
+Add or update tests for:
+
+1. First Service picked up → Second Service active → pickup request.
+2. Unknown service slot rejected.
+3. First Service accepted.
+4. Second Service accepted.
+5. Same child/date/First + Second Service coexistence preserved.
+6. Lagos date around midnight.
+7. Parent UI current-date correctness.
+8. Report current-date correctness.
+9. Notification/bot implicit-date correctness where practical.
+10. Not-picked-up report preserves serviceDate/serviceSlot.
+11. CSV preserves serviceDate/serviceSlot.
+12. Attendance timestamp displays consistently in Africa/Lagos.
+13. Existing Phase 1 checkout behavior.
+14. Phase 2 operation replay/reconciliation.
+15. Task 74 operation semantics.
+16. Task 75 classroom-display behavior.
+
+Run the focused tests first.
+
+Then run the complete existing test suite.
+
+Do not weaken or delete existing tests.
+
+==================================================
+REGRESSION SAFETY
+==================================================
+
+Before declaring success, explicitly verify:
+
+PHASE 1:
+Checkout remains authoritative.
+
+PHASE 2:
+Operation IDs and reconciliation remain intact.
+
+PHASE 3:
+False-failure protections remain intact.
+
+TASK 74:
+command_operations/replay/collision semantics remain intact.
+
+TASK 75:
+classroom realtime/reconciliation remains intact.
+
+PHASE 4:
+authentication/session/authorization behavior remains intact.
+
+Do not modify these architectures unless a D1–D5 fix absolutely requires it.
+
+==================================================
+ACCEPTANCE CRITERIA
+==================================================
+
+All of the following must be true:
+
+[ ] D1 fixed
+[ ] D2 fixed
+[ ] D3 fixed
+[ ] D4 fixed
+[ ] D5 fixed
+[ ] D6 intentionally deferred
+[ ] No pickup/custody product rule invented
+[ ] No attendance records merged
+[ ] No production data modified
+[ ] First + Second Service same Sunday remains valid
+[ ] Existing operation-id behavior preserved
+[ ] Existing auth/session behavior preserved
+[ ] Task #75 behavior preserved
+[ ] Regression tests added
+[ ] Full test suite passes
+[ ] Typechecks pass
+[ ] Build passes
+[ ] No new console/runtime errors
+[ ] Architecture review confirms no accidental scope expansion
+
+==================================================
+FINAL REPORT
+==================================================
+
+Report:
+
+1. Files changed
+2. Exact behavior changed for D1–D5
+3. Tests added
+4. Focused test results
+5. Full test results
+6. Typecheck result
+7. Build result
+8. Production data/schema status
+9. Deferred D6 status
+10. Confirmation that no pickup/custody product decision was invented
+11. Confirmation that First/Second Service coexistence remains valid
+12. Any remaining risks
+
+FINAL STATUS MUST BE:
+
+PHASE 5 IMPLEMENTATION COMPLETE — D1–D5 VERIFIED
+
+OR:
+
+PHASE 5 IMPLEMENTATION BLOCKED — SPECIFIC ACCEPTANCE CRITERION FAILED
+
+Do not begin Phase 6.

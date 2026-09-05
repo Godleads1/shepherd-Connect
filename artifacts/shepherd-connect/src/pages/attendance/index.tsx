@@ -6,13 +6,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { format } from "date-fns";
 import { Filter, X, Calendar, Download, CheckCircle2, ShieldAlert } from "lucide-react";
 import { useAuth } from "@/contexts/auth";
 import { useToast } from "@/hooks/use-toast";
 import { apiGet, apiPost } from "@/lib/api-call";
 import { useQuery } from "@tanstack/react-query";
 import { CheckoutRecoveryControls, useCheckoutOperation } from "../checkout/use-checkout-operation";
+import { formatServiceDate, formatWatTime, SERVICE_TIME_ZONE, watServiceDateAt } from "@/lib/wat-date";
 
 const STATUS_OPTS = [
   { value: "all", label: "All Statuses" },
@@ -47,7 +47,7 @@ export default function Attendance() {
   const [classId,     setClassId]     = useState("all");
 
   // Business day is West Africa Time (UTC+1) — match the API's definition of "today"
-  const today = new Date(Date.now() + 60 * 60 * 1000).toISOString().slice(0, 10);
+  const today = watServiceDateAt();
 
   const { data: classesData } = useListClasses({});
   const classes: any[] = classesData || [];
@@ -215,14 +215,14 @@ export default function Attendance() {
   };
 
   const exportCsv = () => {
-    const headers = ["Date","Child","Class","Service","Check In","Check Out","Status"];
+    const headers = ["Date","Child","Class","Service",`Check In (${SERVICE_TIME_ZONE})`,`Check Out (${SERVICE_TIME_ZONE})`,"Status"];
     const rows = records.map((r: any) => [
       r.serviceDate ?? "",
       `${r.child?.firstName ?? ""} ${r.child?.lastName ?? ""}`.trim(),
       r.class?.name ?? "",
       r.serviceSlot === "7am" ? "7:00 AM" : "10:30 AM",
-      r.checkInTime  ? format(new Date(r.checkInTime),  "HH:mm") : "",
-      r.checkOutTime ? format(new Date(r.checkOutTime), "HH:mm") : "",
+       r.checkInTime  ? formatWatTime(r.checkInTime) : "",
+       r.checkOutTime ? formatWatTime(r.checkOutTime) : "",
       (r.status ?? "").replace(/_/g, " "),
     ]);
     const csv = [headers, ...rows].map(row => row.map(v => `"${v}"`).join(",")).join("\n");
@@ -398,7 +398,7 @@ export default function Attendance() {
                 records.map((r: any) => (
                   <TableRow key={r.id} className="hover:bg-gray-50 transition-colors">
                     <TableCell className="text-sm font-medium">
-                      {r.serviceDate ? format(new Date(r.serviceDate + "T00:00:00"), "dd MMM yyyy") : "—"}
+                       {r.serviceDate ? formatServiceDate(r.serviceDate) : "—"}
                     </TableCell>
                     <TableCell className="font-semibold text-gray-900 text-sm whitespace-nowrap">
                       {r.child?.firstName} {r.child?.lastName}
@@ -408,10 +408,10 @@ export default function Attendance() {
                       {r.serviceSlot === "7am" ? "7:00 AM" : "10:30 AM"}
                     </TableCell>
                     <TableCell className="text-sm text-gray-600">
-                      {r.checkInTime  ? format(new Date(r.checkInTime),  "HH:mm") : "—"}
+                       {r.checkInTime  ? formatWatTime(r.checkInTime) : "—"}
                     </TableCell>
                     <TableCell className="text-sm text-gray-600">
-                      {r.checkOutTime ? format(new Date(r.checkOutTime), "HH:mm") : "—"}
+                       {r.checkOutTime ? formatWatTime(r.checkOutTime) : "—"}
                     </TableCell>
                     <TableCell>
                       <span className={`px-2.5 py-1 rounded-full text-xs font-semibold capitalize ${STATUS_STYLE[r.status] ?? "bg-gray-100 text-gray-600"}`}>

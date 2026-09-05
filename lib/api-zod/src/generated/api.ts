@@ -1801,7 +1801,7 @@ export const CheckInBody = zod.object({
   childId: zod.number(),
   classId: zod.number(),
   serviceDate: zod.string().date(),
-  serviceSlot: zod.string(),
+  serviceSlot: zod.enum(["7am", "10:30am"]),
   bothServices: zod
     .boolean()
     .optional()
