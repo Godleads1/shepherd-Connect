@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useGetMyFamily, useListPickupDelegates, useCreatePickupDelegate, useApprovePickupDelegate } from "@workspace/api-client-react";
+import { useEffect, useState } from "react";
+import { getPickupDelegateOperation, useGetMyFamily, useListPickupDelegates, useCreatePickupDelegate, useApprovePickupDelegate } from "@workspace/api-client-react";
 import { QueryError } from "@/components/QueryError";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { useAuth } from "@/contexts/auth";
 import { PhotoUploader, SecurePhoto } from "@/components/PhotoUploader";
+import { clearPendingPickupDelegateOperation, readPendingPickupDelegateOperation, writePendingPickupDelegateOperation } from "./pickup-delegate-operation";
 
 const PHONE_RE = /^\d{11}$/;
 
@@ -37,6 +38,35 @@ export default function PickupDelegates() {
   const [newOtp, setNewOtp] = useState<string | null>(null);
   const [copiedOtp, setCopiedOtp] = useState(false);
   const [delegatePhotoUrl, setDelegatePhotoUrl] = useState("");
+  const pendingUserId = user?.id ?? null;
+  const [pendingOperationId, setPendingOperationId] = useState<string | null>(() =>
+    readPendingPickupDelegateOperation(pendingUserId),
+  );
+  const [submissionUnknown, setSubmissionUnknown] = useState(false);
+
+  const clearPendingOperation = () => {
+    clearPendingPickupDelegateOperation(pendingUserId);
+    setPendingOperationId(null);
+    setSubmissionUnknown(false);
+  };
+  const checkPendingOperation = async () => {
+    if (!pendingOperationId) return;
+    try {
+      const result = await getPickupDelegateOperation(pendingOperationId);
+      setNewOtp(result.otpCode || null);
+      clearPendingOperation();
+      setIsOpen(true);
+      refetch();
+    } catch {
+      setSubmissionUnknown(true);
+      setIsOpen(true);
+    }
+  };
+  useEffect(() => {
+    setPendingOperationId(readPendingPickupDelegateOperation(pendingUserId));
+    setSubmissionUnknown(false);
+  }, [pendingUserId]);
+  useEffect(() => { void checkPendingOperation(); }, [pendingOperationId, user?.id]);
 
   const children = family?.children || [];
 
@@ -46,9 +76,14 @@ export default function PickupDelegates() {
   });
 
   const onSubmit = async (data: z.infer<typeof formSchema>) => {
+    const operationId = pendingOperationId || crypto.randomUUID();
+    if (!pendingOperationId) writePendingPickupDelegateOperation(pendingUserId, operationId);
+    setPendingOperationId(operationId);
+    setSubmissionUnknown(false);
     try {
       // One delegate covering all selected children — a single OTP is issued.
       const res = await createMutation.mutateAsync({ data: {
+        operationId,
         childId: data.childIds[0],
         childIds: data.childIds,
         name: data.name,
@@ -56,12 +91,14 @@ export default function PickupDelegates() {
         photoUrl: delegatePhotoUrl || undefined,
       } as any });
       setNewOtp(res.otpCode || null);
+      clearPendingOperation();
       toast({ title: data.childIds.length > 1 ? `Delegate added for ${data.childIds.length} children` : "Delegate added successfully" });
       form.reset({ childIds: [], name: "", phone: "" });
       setDelegatePhotoUrl("");
       refetch();
     } catch (error: any) {
-      toast({ variant: "destructive", title: error.message || "Failed to add delegate" });
+      setSubmissionUnknown(true);
+      toast({ variant: "destructive", title: "We could not confirm this submission. Check status or retry the same submission." });
     }
   };
 
@@ -167,6 +204,15 @@ export default function PickupDelegates() {
             ) : (
               <Form {...form}>
                 <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+                  {submissionUnknown && pendingOperationId && (
+                    <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-900 space-y-2">
+                      <p>Submission status is unknown. Your operation ID is retained only on this device until resolved.</p>
+                      <div className="flex gap-2">
+                        <Button type="button" size="sm" variant="outline" onClick={() => void checkPendingOperation()}>Check status</Button>
+                        <Button type="button" size="sm" variant="outline" onClick={clearPendingOperation}>Start new submission</Button>
+                      </div>
+                    </div>
+                  )}
                   <div className="flex justify-center">
                     <PhotoUploader
                       currentPhotoUrl={delegatePhotoUrl}
@@ -228,7 +274,7 @@ export default function PickupDelegates() {
                     <span>A secure 6-digit OTP will be generated. Share it with your delegate for secure pickup verification.</span>
                   </div>
                   <Button type="submit" className="w-full" style={{ background: "linear-gradient(135deg, #1e3a8a, #1d4ed8)" }} disabled={createMutation.isPending}>
-                    {createMutation.isPending ? "Creating..." : "Create Delegate & Generate OTP"}
+                    {createMutation.isPending ? "Creating..." : pendingOperationId ? "Retry Same Submission" : "Create Delegate & Generate OTP"}
                   </Button>
                 </form>
               </Form>

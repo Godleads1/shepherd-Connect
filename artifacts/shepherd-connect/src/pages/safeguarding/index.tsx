@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiGet, apiPost, apiDelete } from "@/lib/api-call";
 import { useAuth } from "@/contexts/auth";
@@ -10,6 +10,11 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ShieldCheck, Plus, AlertTriangle, CheckCircle2, Clock, X, Trash2 } from "lucide-react";
 import { format, differenceInDays } from "date-fns";
+import {
+  clearPendingSafeguardingOperation,
+  readPendingSafeguardingOperation,
+  writePendingSafeguardingOperation,
+} from "./safeguarding-operation";
 
 const STATUS_STYLES: Record<string, { bg: string; text: string; label: string; icon: React.ElementType }> = {
   clear:         { bg: "bg-green-100",  text: "text-green-700",  label: "Clear",         icon: CheckCircle2 },
@@ -30,6 +35,8 @@ export default function Safeguarding() {
   const [expiryDate, setExpiryDate] = useState("");
   const [status, setStatus] = useState("pending");
   const [notes, setNotes] = useState("");
+  const [pendingOperationId, setPendingOperationId] = useState<string | null>(null);
+  const [submissionState, setSubmissionState] = useState<"idle" | "unknown" | "checking">("idle");
 
   const { data: records, isLoading, isError } = useQuery({
     queryKey: ["safeguarding"],
@@ -42,7 +49,8 @@ export default function Safeguarding() {
   });
 
   const createMut = useMutation({
-    mutationFn: () => apiPost("/safeguarding", {
+    mutationFn: (operationId: string) => apiPost("/safeguarding", {
+      operationId,
       teacherUserId: parseInt(teacherUserId, 10),
       checkType, referenceNumber: refNumber || undefined,
       issuedDate: issuedDate || undefined,
@@ -50,13 +58,69 @@ export default function Safeguarding() {
       status, notes: notes || undefined,
     }),
     onSuccess: () => {
+      if (user?.id) clearPendingSafeguardingOperation(user.id);
+      setPendingOperationId(null);
+      setSubmissionState("idle");
       qc.invalidateQueries({ queryKey: ["safeguarding"] });
       setCreating(false);
       resetForm();
       toast({ title: "Record added" });
     },
-    onError: (e: any) => toast({ variant: "destructive", title: e.message || "Failed" }),
+    onError: () => {
+      setSubmissionState("unknown");
+      toast({ variant: "destructive", title: "Submission outcome is unknown", description: "Check status, retry this same submission, or start a new one." });
+    },
   });
+
+  async function checkPendingOperation(operationId = pendingOperationId): Promise<void> {
+    if (!operationId || !user?.id) return;
+    setSubmissionState("checking");
+    try {
+      await apiGet(`/safeguarding/operations/${operationId}`);
+      clearPendingSafeguardingOperation(user.id);
+      setPendingOperationId(null);
+      setSubmissionState("idle");
+      qc.invalidateQueries({ queryKey: ["safeguarding"] });
+      setCreating(false);
+      resetForm();
+      toast({ title: "Record confirmed" });
+    } catch {
+      setSubmissionState("unknown");
+      toast({ variant: "destructive", title: "Status not confirmed", description: "You can retry the same submission or start a new one." });
+    }
+  }
+
+  function submitNewOperation() {
+    if (!user?.id) return;
+    const operationId = crypto.randomUUID();
+    writePendingSafeguardingOperation(user.id, { operationId, createdAt: Date.now() });
+    setPendingOperationId(operationId);
+    setSubmissionState("idle");
+    createMut.mutate(operationId);
+  }
+
+  function retryPendingOperation() {
+    if (pendingOperationId) createMut.mutate(pendingOperationId);
+  }
+
+  function startNewSubmission() {
+    if (user?.id) clearPendingSafeguardingOperation(user.id);
+    setPendingOperationId(null);
+    setSubmissionState("idle");
+    resetForm();
+  }
+
+  useEffect(() => {
+    if (!user?.id) return;
+    const pending = readPendingSafeguardingOperation(user.id);
+    if (!pending) return;
+    setPendingOperationId(pending.operationId);
+    setSubmissionState("unknown");
+    void checkPendingOperation(pending.operationId);
+  // Pending identity is deliberately scoped to the authenticated user and is
+  // the only data retained across reloads; the safeguarding payload stays in memory.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
 
   const deleteMut = useMutation({
     mutationFn: (id: number) => apiDelete(`/safeguarding/${id}`),
@@ -272,13 +336,30 @@ export default function Safeguarding() {
                 className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm font-semibold text-gray-600 hover:bg-gray-50">
                 Cancel
               </button>
-              <button
-                onClick={() => createMut.mutate()}
-                disabled={!teacherUserId || !checkType || createMut.isPending}
-                className="flex-1 py-2.5 rounded-xl text-sm font-bold text-white disabled:opacity-50"
-                style={{ background: "#1e3a8a" }}>
-                {createMut.isPending ? "Saving..." : "Add Record"}
-              </button>
+              {(submissionState === "unknown" || submissionState === "checking") && pendingOperationId ? (
+                <div className="flex-1 space-y-2">
+                  <p className="text-xs text-amber-700">The previous submission may have completed. Use the same operation to avoid a duplicate.</p>
+                  <div className="flex gap-2">
+                    <button onClick={() => void checkPendingOperation()} disabled={submissionState === "checking" || createMut.isPending}
+                      className="flex-1 py-2.5 rounded-xl border border-amber-300 text-sm font-semibold text-amber-800 disabled:opacity-50">
+                      {submissionState === "checking" ? "Checking..." : "Check status"}
+                    </button>
+                    <button onClick={retryPendingOperation} disabled={!teacherUserId || !checkType || createMut.isPending}
+                      className="flex-1 py-2.5 rounded-xl text-sm font-bold text-white disabled:opacity-50" style={{ background: "#1e3a8a" }}>
+                      Retry same
+                    </button>
+                  </div>
+                  <button onClick={startNewSubmission} className="w-full text-xs font-semibold text-gray-600 underline">Start new submission</button>
+                </div>
+              ) : (
+                <button
+                  onClick={submitNewOperation}
+                  disabled={!teacherUserId || !checkType || createMut.isPending || !user?.id}
+                  className="flex-1 py-2.5 rounded-xl text-sm font-bold text-white disabled:opacity-50"
+                  style={{ background: "#1e3a8a" }}>
+                  {createMut.isPending ? "Saving..." : "Add Record"}
+                </button>
+              )}
             </div>
           </div>
         </DialogContent>

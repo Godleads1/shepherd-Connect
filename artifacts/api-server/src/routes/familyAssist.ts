@@ -1,16 +1,36 @@
-import { Router } from "express";
+import { Router, type Request, type Response } from "express";
 import { eq, ilike, or, and, sql } from "drizzle-orm";
 import { db, familiesTable, usersTable, childrenTable, classesTable, attendanceTable, pickupDelegatesTable } from "@workspace/db";
+import { CreateFamilyAssistDelegateBody } from "@workspace/api-zod";
 import { authMiddleware, requireRoles } from "../middlewares/auth";
 import { findActiveOtherSlot, stillCheckedInMessage } from "../lib/attendanceGuards";
 import { smsDelegateOtp } from "../services/sms";
 import { createAttendanceNotificationIntents } from "../lib/attendanceNotificationIntents";
+import {
+  classifyCommandOperation,
+  findCommandOperation,
+  fingerprintCommandPayload,
+  lockCommandOperation,
+  persistCommandOperation,
+  replayCommandResult,
+} from "../services/commandOperations";
 
 const router = Router();
 
-export const familyAssistRouteDependencies = {
+export const familyAssistRouteDependencies: {
+  smsDelegateOtp: typeof smsDelegateOtp;
+  beforePersist: null | (() => void | Promise<void>);
+  postCommitBeforeResponse: null | ((req: Request, res: Response) => void);
+} = {
   smsDelegateOtp,
+  beforePersist: null,
+  postCommitBeforeResponse: null,
 };
+
+const FAMILY_ASSIST_ROLES = ["super_admin", "admin", "support"] as const;
+const FAMILY_ASSIST_DELEGATE_COMMAND = "family_assist_delegate_create";
+const FAMILY_ASSIST_DELEGATE_TARGET = "child";
+const OPERATION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function generateOTP(): string {
   return Math.floor(100000 + Math.random() * 900000).toString();
@@ -34,6 +54,33 @@ export async function sendAssistedDelegateOtpAfterCommit(
 
 function todayString(): string {
   return new Date().toISOString().split("T")[0];
+}
+
+async function isCurrentlyAuthorizedFamilyAssistStaff(executor: any, userId: number, role: string): Promise<boolean> {
+  const [user] = await executor.select({
+    role: usersTable.role,
+    secondaryRoles: usersTable.secondaryRoles,
+    status: usersTable.status,
+    isActive: usersTable.isActive,
+  }).from(usersTable).where(eq(usersTable.id, userId));
+  if (!user || !user.isActive || user.status !== "active" || !FAMILY_ASSIST_ROLES.includes(role as any)) return false;
+  try {
+    const secondaryRoles = JSON.parse(user.secondaryRoles || "[]");
+    return user.role === role || (Array.isArray(secondaryRoles) && secondaryRoles.includes(role));
+  } catch {
+    return user.role === role;
+  }
+}
+
+function familyAssistDelegateResponse(delegate: typeof pickupDelegatesTable.$inferSelect) {
+  const expired = !!delegate.otpExpiresAt && new Date() > delegate.otpExpiresAt;
+  return {
+    ...delegate,
+    // The durable code may be recovered only by the original currently
+    // authorized staff actor through this route's replay/reconciliation.
+    otpCode: expired ? null : delegate.otpCode,
+    otpStatus: expired ? "expired" as const : "active" as const,
+  };
 }
 
 router.get("/family-assist/search", authMiddleware, requireRoles("super_admin", "admin", "support"), async (req, res): Promise<void> => {
@@ -81,43 +128,98 @@ router.get("/family-assist/search", authMiddleware, requireRoles("super_admin", 
   res.json(result);
 });
 
-router.post("/family-assist/delegate", authMiddleware, requireRoles("super_admin", "admin", "support"), async (req, res): Promise<void> => {
-  // Classification: the delegate row is AUTHORITATIVE; request/child checks
-  // are REQUIRED PRE-COMMIT VALIDATION; OTP SMS is an OPTIONAL SECONDARY
-  // EFFECT; the returned delegate (including its OTP) is authoritative RESPONSE
-  // ENRICHMENT. Response-loss duplicate risk remains because this create
-  // contract has no caller operation id; do not invent idempotency here.
-  const { childId, delegateName, delegatePhone } = req.body as { childId?: number; delegateName?: string; delegatePhone?: string };
-  if (!childId || !delegateName || !delegatePhone) {
-    res.status(400).json({ error: "childId, delegateName and delegatePhone are required" });
+router.post("/family-assist/delegate", authMiddleware, requireRoles(...FAMILY_ASSIST_ROLES), async (req, res): Promise<void> => {
+  const parsed = CreateFamilyAssistDelegateBody.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: "Bad request", message: parsed.error.message }); return; }
+  const input = {
+    childId: parsed.data.childId,
+    delegateName: parsed.data.delegateName.trim(),
+    delegatePhone: parsed.data.delegatePhone.trim(),
+  };
+  if (!input.delegateName || !input.delegatePhone) {
+    res.status(400).json({ error: "Bad request", message: "delegateName and delegatePhone cannot be blank" });
     return;
   }
+  const binding = {
+    actorUserId: req.user!.userId,
+    command: FAMILY_ASSIST_DELEGATE_COMMAND,
+    targetType: FAMILY_ASSIST_DELEGATE_TARGET,
+    targetId: String(input.childId),
+    payloadFingerprint: fingerprintCommandPayload(input),
+  };
+  const result = await db.transaction(async tx => {
+    // The operation lock intentionally precedes actor/child reads and every
+    // command-specific write, making a UUID one logical delegate submission.
+    await lockCommandOperation(tx, parsed.data.operationId);
+    if (!await isCurrentlyAuthorizedFamilyAssistStaff(tx, req.user!.userId, req.user!.role)) {
+      return { kind: "unauthorized" as const };
+    }
+    const existing = await findCommandOperation(tx, parsed.data.operationId);
+    const classification = classifyCommandOperation(existing, binding);
+    if (classification === "collision") return { kind: "collision" as const };
+    if (classification === "replay") {
+      const { primaryId } = replayCommandResult(existing!);
+      const [delegate] = await tx.select().from(pickupDelegatesTable)
+        .where(and(eq(pickupDelegatesTable.id, primaryId), eq(pickupDelegatesTable.childId, input.childId)));
+      if (!delegate) throw new Error("Completed family assist delegate result is missing");
+      return { kind: "complete" as const, replayed: true, delegate, childName: "" };
+    }
+    const [child] = await tx.select().from(childrenTable).where(eq(childrenTable.id, input.childId));
+    if (!child) return { kind: "child_missing" as const };
+    const otp = generateOTP();
+    const [delegate] = await tx.insert(pickupDelegatesTable).values({
+      childId: input.childId,
+      name: input.delegateName,
+      phone: input.delegatePhone,
+      otpCode: otp,
+      otpExpiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+      // Assisted creation remains immediately parent-approved.
+      parentApproved: true,
+    }).returning();
+    await familyAssistRouteDependencies.beforePersist?.();
+    await persistCommandOperation(tx, { operationId: parsed.data.operationId, ...binding, primaryId: delegate.id, resultVersion: 1 });
+    return { kind: "complete" as const, replayed: false, delegate, childName: `${child.firstName} ${child.lastName}` };
+  });
+  if (result.kind === "unauthorized") { res.status(403).json({ error: "Forbidden", message: "Insufficient permissions" }); return; }
+  if (result.kind === "collision") { res.status(409).json({ error: "Conflict", message: "operationId is bound to different command input" }); return; }
+  if (result.kind === "child_missing") { res.status(404).json({ error: "Child not found" }); return; }
+  if (!result.replayed && result.delegate.otpCode) {
+    await sendAssistedDelegateOtpAfterCommit({
+      phone: result.delegate.phone, name: result.delegate.name, childName: result.childName,
+      otp: result.delegate.otpCode, delegateId: result.delegate.id,
+    }, req.log);
+  }
+  familyAssistRouteDependencies.postCommitBeforeResponse?.(req, res);
+  if (res.destroyed || res.socket?.destroyed) return;
+  res.status(result.replayed ? 200 : 201).json({
+    ...familyAssistDelegateResponse(result.delegate),
+    operationId: parsed.data.operationId,
+    outcome: result.replayed ? "already_applied" : "applied",
+  });
+});
 
-  const [child] = await db.select().from(childrenTable).where(eq(childrenTable.id, Number(childId)));
-  if (!child) { res.status(404).json({ error: "Child not found" }); return; }
-
-  const otp = generateOTP();
-  const otpExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
-  const childName = `${child.firstName} ${child.lastName}`;
-
-  const [delegate] = await db.insert(pickupDelegatesTable).values({
-    childId: Number(childId),
-    name: delegateName,
-    phone: delegatePhone,
-    otpCode: otp,
-    otpExpiresAt,
-    parentApproved: true,
-  }).returning();
-
-  await sendAssistedDelegateOtpAfterCommit({
-    phone: delegatePhone,
-    name: delegateName,
-    childName,
-    otp,
-    delegateId: delegate.id,
-  }, req.log);
-
-  res.status(201).json({ ...delegate, otpCode: otp });
+router.get("/family-assist/delegate/operations/:operationId", authMiddleware, requireRoles(...FAMILY_ASSIST_ROLES), async (req, res): Promise<void> => {
+  const operationId = req.params.operationId as string;
+  if (!OPERATION_ID_PATTERN.test(operationId)) {
+    res.status(400).json({ error: "Bad request", message: "Invalid operation identity" });
+    return;
+  }
+  const delegate = await db.transaction(async tx => {
+    await lockCommandOperation(tx, operationId);
+    if (!await isCurrentlyAuthorizedFamilyAssistStaff(tx, req.user!.userId, req.user!.role)) return null;
+    const operation = await findCommandOperation(tx, operationId);
+    if (!operation || operation.actorUserId !== req.user!.userId
+      || operation.command !== FAMILY_ASSIST_DELEGATE_COMMAND || operation.targetType !== FAMILY_ASSIST_DELEGATE_TARGET) return null;
+    const { primaryId } = replayCommandResult(operation);
+    const [result] = await tx.select().from(pickupDelegatesTable).where(and(
+      eq(pickupDelegatesTable.id, primaryId),
+      eq(pickupDelegatesTable.childId, Number(operation.targetId)),
+    ));
+    return result ?? null;
+  });
+  // A non-original actor receives the same absence result and learns nothing.
+  if (!delegate) { res.status(404).json({ error: "Not found", message: "Operation not found" }); return; }
+  res.json({ ...familyAssistDelegateResponse(delegate), operationId, outcome: "already_applied" });
 });
 
 router.post("/family-assist/checkin", authMiddleware, requireRoles("super_admin", "admin", "support"), async (req, res): Promise<void> => {

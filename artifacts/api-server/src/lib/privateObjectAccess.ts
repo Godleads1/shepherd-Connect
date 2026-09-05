@@ -46,9 +46,10 @@ export async function registerPendingObject(objectPath: string, uploaderId: numb
 export async function assertObjectCanBind(
   objectPath: string | null | undefined,
   user: Pick<JwtPayload, "userId" | "role">,
+  executor: any = db,
 ): Promise<boolean> {
   if (!isPrivateObjectPath(objectPath)) return true;
-  const [binding] = await db
+  const [binding] = await executor
     .select()
     .from(privateObjectBindingsTable)
     .where(eq(privateObjectBindingsTable.objectPath, objectPath))
@@ -61,18 +62,19 @@ export async function bindObjectToResource(
   resourceType: ResourceType,
   resourceId: number,
   user: Pick<JwtPayload, "userId" | "role">,
+  executor: any = db,
 ): Promise<boolean> {
   if (!isPrivateObjectPath(objectPath)) return true;
-  const [binding] = await db
+  const [binding] = await executor
     .select()
     .from(privateObjectBindingsTable)
     .where(eq(privateObjectBindingsTable.objectPath, objectPath))
     .limit(1);
   if (!binding || binding.revokedAt) return false;
   if (binding.resourceType === resourceType && binding.resourceId === resourceId) return true;
-  if (!(await assertObjectCanBind(objectPath, user))) return false;
+  if (!(await assertObjectCanBind(objectPath, user, executor))) return false;
 
-  const updated = await db
+  const updated = await executor
     .update(privateObjectBindingsTable)
     .set({ resourceType, resourceId, boundAt: new Date() })
     .where(and(

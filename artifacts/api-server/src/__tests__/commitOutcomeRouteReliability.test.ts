@@ -85,6 +85,8 @@ beforeEach(async () => {
   pickupDelegateRouteDependencies.createNotificationDelivery = createNotificationDelivery;
   pickupDelegateRouteDependencies.smsDelegateOtp = smsDelegateOtp;
   familyAssistRouteDependencies.smsDelegateOtp = smsDelegateOtp;
+  familyAssistRouteDependencies.beforePersist = null;
+  familyAssistRouteDependencies.postCommitBeforeResponse = null;
   await clearOwnedRows();
   await db.execute(sql`DELETE FROM attendance WHERE child_id=${childId}`);
   await db.execute(sql`
@@ -99,6 +101,8 @@ afterAll(async () => {
   pickupDelegateRouteDependencies.createNotificationDelivery = createNotificationDelivery;
   pickupDelegateRouteDependencies.smsDelegateOtp = smsDelegateOtp;
   familyAssistRouteDependencies.smsDelegateOtp = smsDelegateOtp;
+  familyAssistRouteDependencies.beforePersist = null;
+  familyAssistRouteDependencies.postCommitBeforeResponse = null;
   await clearOwnedRows();
   for (const query of [
     sql`DELETE FROM attendance WHERE child_id=${childId}`,
@@ -163,7 +167,7 @@ databaseDescribe("owned route commit-outcome boundaries", () => {
     ) as any;
     const response = await request(app).post("/api/pickup-delegates")
       .set("Authorization", token(parentId, "parent"))
-      .send({ childId, name: "Pickup Person", phone: "08020000000", photoUrl: null })
+      .send({ operationId: crypto.randomUUID(), childId, name: "Pickup Person", phone: "08020000000", photoUrl: null })
       .expect(201);
     expect((await db.execute(sql`SELECT child_id,name FROM pickup_delegates WHERE id=${response.body.id}`)).rows[0])
       .toMatchObject({ child_id: childId, name: "Pickup Person" });
@@ -175,7 +179,7 @@ databaseDescribe("owned route commit-outcome boundaries", () => {
     ) as any;
     const response = await request(app).post("/api/family-assist/delegate")
       .set("Authorization", token(adminId, "admin"))
-      .send({ childId, delegateName: "Assisted Person", delegatePhone: "08030000000" })
+      .send({ operationId: crypto.randomUUID(), childId, delegateName: "Assisted Person", delegatePhone: "08030000000" })
       .expect(201);
     expect((await db.execute(sql`SELECT child_id,name FROM pickup_delegates WHERE id=${response.body.id}`)).rows[0])
       .toMatchObject({ child_id: childId, name: "Assisted Person" });

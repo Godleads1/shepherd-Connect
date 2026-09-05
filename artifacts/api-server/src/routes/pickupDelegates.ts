@@ -1,5 +1,5 @@
-import { Router } from "express";
-import { eq, and, inArray } from "drizzle-orm";
+import { Router, type Request, type Response } from "express";
+import { eq, and, inArray, or } from "drizzle-orm";
 import rateLimit from "express-rate-limit";
 import { db, pickupDelegatesTable, childrenTable, familiesTable, usersTable, notificationsTable } from "@workspace/db";
 import { CreatePickupDelegateBody, VerifyDelegateOtpBody, ListPickupDelegatesQueryParams } from "@workspace/api-zod";
@@ -9,6 +9,10 @@ import { notifyTeachersDelegatePickup } from "../lib/notify";
 import { createNotificationDelivery } from "../services/notificationOutbox";
 import { getParentChildIds as getOwnedChildIds } from "../lib/parentScope";
 import { assertObjectCanBind, bindObjectToResource } from "../lib/privateObjectAccess";
+import {
+  classifyCommandOperation, findCommandOperation, fingerprintCommandPayload,
+  lockCommandOperation, persistCommandOperation,
+} from "../services/commandOperations";
 
 const createDelegateLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
@@ -32,7 +36,14 @@ const router = Router();
 export const pickupDelegateRouteDependencies = {
   createNotificationDelivery,
   smsDelegateOtp,
+  beforePersist: null as null | (() => void | Promise<void>),
+  postCommitBeforeResponse: null as null | ((req: Request, res: Response) => void),
 };
+
+const PICKUP_DELEGATE_COMMAND = "pickup_delegate_create";
+const PICKUP_DELEGATE_TARGET = "child_set";
+const OPERATION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+class PickupDelegatePhotoBindingError extends Error {}
 
 function generateOTP(): string {
   return Math.floor(100000 + Math.random() * 900000).toString();
@@ -54,6 +65,24 @@ export async function sendPickupDelegateOtpAfterCommit(
 async function getParentChildIds(userId: number, role: string): Promise<number[] | null> {
   if (role !== "parent") return null;
   return getOwnedChildIds(userId);
+}
+
+async function replayPickupDelegateOperation(tx: any, resultVersion: number, resultJson: unknown, expectedChildIds: number[]) {
+  const value = resultJson as { primaryId?: unknown; createdIds?: unknown; childIds?: unknown };
+  if (resultVersion !== 1 || !Number.isInteger(value?.primaryId) || !Array.isArray(value?.createdIds) || !Array.isArray(value?.childIds)
+    || !value.createdIds.every(Number.isInteger) || !value.childIds.every(Number.isInteger)
+    || value.childIds.join(",") !== expectedChildIds.join(",")) {
+    throw new Error("Unsupported pickup delegate operation result");
+  }
+  const [delegate] = await tx.select().from(pickupDelegatesTable).where(eq(pickupDelegatesTable.id, value.primaryId as number));
+  if (!delegate || delegate.childId !== expectedChildIds[0]) throw new Error("Completed pickup delegate result is missing");
+  const rows = await tx.select({ id: pickupDelegatesTable.id, childId: pickupDelegatesTable.childId }).from(pickupDelegatesTable)
+    .where(inArray(pickupDelegatesTable.id, value.createdIds as number[]));
+  if (rows.length !== value.createdIds.length || (rows as { childId: number }[]).map(row => row.childId).sort((a, b) => a - b).join(",") !== expectedChildIds.join(",")) {
+    throw new Error("Completed pickup delegate result is missing");
+  }
+  return { kind: "complete" as const, replayed: true, delegate, childIds: value.childIds as number[],
+    createdIds: value.createdIds as number[], childNames: "" };
 }
 
 router.get("/pickup-delegates", authMiddleware, async (req, res): Promise<void> => {
@@ -83,77 +112,91 @@ router.get("/pickup-delegates", authMiddleware, async (req, res): Promise<void> 
 });
 
 router.post("/pickup-delegates", authMiddleware, createDelegateLimiter, async (req, res): Promise<void> => {
-  // Classification: delegate rows are AUTHORITATIVE; child/ownership/photo
-  // checks are REQUIRED PRE-COMMIT VALIDATION; photo binding retains the
-  // existing PARTIAL-MULTI-WRITE COMMAND semantics; OTP SMS is an OPTIONAL
-  // SECONDARY EFFECT; returned rows are authoritative RESPONSE ENRICHMENT.
-  // Response-loss duplicate risk remains because this create contract has no
-  // caller operation id; do not invent idempotency at this route.
   const parsed = CreatePickupDelegateBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: "Bad request", message: parsed.error.message }); return; }
-
-  // Optional multi-child support: body may include `childIds: number[]`.
-  // One delegate row is created per child, all sharing a single OTP (one SMS).
   const rawIds = Array.isArray((req.body as any)?.childIds) ? (req.body as any).childIds : null;
-  let childIds: number[] = rawIds
-    ? [...new Set(rawIds.filter((n: any) => Number.isInteger(n) && n > 0))] as number[]
-    : [parsed.data.childId];
-  if (childIds.length === 0) childIds = [parsed.data.childId];
+  if (rawIds && (!rawIds.length || rawIds.some((id: unknown) => !Number.isInteger(id) || (id as number) <= 0))) {
+    res.status(400).json({ error: "Bad request", message: "childIds must contain positive integer IDs" }); return;
+  }
+  const childIds = [...new Set((rawIds ?? [parsed.data.childId]) as number[])].sort((a, b) => a - b);
   if (childIds.length > 10) {
     res.status(400).json({ error: "Bad request", message: "A delegate can cover at most 10 children at once" });
     return;
   }
-  if (!(await assertObjectCanBind(parsed.data.photoUrl, req.user!))) {
-    res.status(403).json({ error: "Forbidden", message: "This uploaded photo cannot be attached to this delegate" });
-    return;
+  const input = { childIds, name: parsed.data.name.trim(), phone: parsed.data.phone.trim(), photoUrl: parsed.data.photoUrl ?? null };
+  if (!input.name || !input.phone) { res.status(400).json({ error: "Bad request", message: "name and phone cannot be blank" }); return; }
+  const binding = { actorUserId: req.user!.userId, command: PICKUP_DELEGATE_COMMAND, targetType: PICKUP_DELEGATE_TARGET,
+    targetId: childIds.join(","), payloadFingerprint: fingerprintCommandPayload(input) };
+  let result: any;
+  try {
+    result = await db.transaction(async tx => {
+    await lockCommandOperation(tx, parsed.data.operationId);
+    const existing = await findCommandOperation(tx, parsed.data.operationId);
+    const classification = classifyCommandOperation(existing, binding);
+    if (classification === "collision") return { kind: "collision" as const };
+    if (classification === "replay") return replayPickupDelegateOperation(tx, existing!.resultVersion, existing!.resultJson, childIds);
+    const children = await tx.select().from(childrenTable).where(inArray(childrenTable.id, childIds));
+    if (children.length !== childIds.length) return { kind: "child_missing" as const };
+    if (req.user!.role === "parent") {
+      const owned = await tx.select({ id: childrenTable.id }).from(childrenTable).innerJoin(familiesTable, eq(childrenTable.familyId, familiesTable.id))
+        .where(and(inArray(childrenTable.id, childIds), or(eq(familiesTable.parent1Id, req.user!.userId), eq(familiesTable.parent2Id, req.user!.userId))));
+      if (owned.length !== childIds.length) return { kind: "unauthorized" as const };
+    }
+    if (!await assertObjectCanBind(input.photoUrl, req.user!, tx)) return { kind: "photo_denied" as const };
+    const otp = generateOTP();
+    const inserted = await tx.insert(pickupDelegatesTable).values(childIds.map(childId => ({ ...input, childId, otpCode: otp,
+      otpExpiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000), parentApproved: false }))).returning();
+    if (!await bindObjectToResource(input.photoUrl, "pickup_delegate", inserted[0].id, req.user!, tx)) {
+      throw new PickupDelegatePhotoBindingError();
+    }
+    await pickupDelegateRouteDependencies.beforePersist?.();
+    const createdIds = inserted.map(delegate => delegate.id);
+    await persistCommandOperation(tx, { operationId: parsed.data.operationId, ...binding, primaryId: inserted[0].id, resultVersion: 1,
+      resultJson: { primaryId: inserted[0].id, createdIds, childIds } });
+    return { kind: "complete" as const, replayed: false, delegate: inserted[0], childIds, createdIds,
+      childNames: children.map(child => `${child.firstName} ${child.lastName}`).join(", ") || "your child" };
+    });
+  } catch (error) {
+    if (error instanceof PickupDelegatePhotoBindingError) {
+      res.status(403).json({ error: "Forbidden", message: "This uploaded photo cannot be attached to this delegate" });
+      return;
+    }
+    throw error;
   }
+  if (result.kind === "collision") { res.status(409).json({ error: "Conflict", message: "operationId is bound to different command input" }); return; }
+  if (result.kind === "child_missing") { res.status(400).json({ error: "Bad request", message: "One or more selected children were not found" }); return; }
+  if (result.kind === "unauthorized" || result.kind === "photo_denied") { res.status(403).json({ error: "Forbidden", message: result.kind === "photo_denied" ? "This uploaded photo cannot be attached to this delegate" : "You can only create pickup delegates for your own children" }); return; }
+  if (!result.replayed && result.delegate.otpCode) await sendPickupDelegateOtpAfterCommit({ phone: result.delegate.phone, name: result.delegate.name,
+    childNames: result.childNames, otp: result.delegate.otpCode, delegateIds: result.createdIds }, req.log);
+  pickupDelegateRouteDependencies.postCommitBeforeResponse?.(req, res);
+  if (res.destroyed || res.socket?.destroyed) return;
+  const expired = !!result.delegate.otpExpiresAt && new Date() > result.delegate.otpExpiresAt;
+  res.status(result.replayed ? 200 : 201).json({ ...result.delegate, otpCode: expired ? null : result.delegate.otpCode,
+    otpStatus: expired ? "expired" : "active", childIds: result.childIds, operationId: parsed.data.operationId,
+    outcome: result.replayed ? "already_applied" : "applied" });
+});
 
-  // Parents may only create delegates for their own children.
-  const ownIds = await getParentChildIds(req.user!.userId, req.user!.role);
-  if (ownIds !== null && childIds.some(id => !ownIds.includes(id))) {
-    res.status(403).json({ error: "Forbidden", message: "You can only create pickup delegates for your own children" });
-    return;
-  }
-
-  // Ensure all children exist before inserting anything
-  const children = await db.select().from(childrenTable).where(inArray(childrenTable.id, childIds));
-  if (children.length !== childIds.length) {
-    res.status(400).json({ error: "Bad request", message: "One or more selected children were not found" });
-    return;
-  }
-
-  const otp = generateOTP();
-  const otpExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
-  const { childId: _single, ...delegateFields } = parsed.data;
-
-  const inserted = await db.insert(pickupDelegatesTable).values(childIds.map(cid => ({
-    ...delegateFields,
-    childId: cid,
-    otpCode: otp,
-    otpExpiresAt,
-    parentApproved: false,
-  }))).returning();
-  if (
-    inserted[0]?.photoUrl
-    && !(await bindObjectToResource(inserted[0].photoUrl, "pickup_delegate", inserted[0].id, req.user!))
-  ) {
-    await db.delete(pickupDelegatesTable).where(inArray(pickupDelegatesTable.id, inserted.map(d => d.id)));
-    res.status(403).json({ error: "Forbidden", message: "This uploaded photo cannot be attached to this delegate" });
-    return;
-  }
-
-  // One SMS listing every child covered by this OTP
-  const childNames = children.map(c => `${c.firstName} ${c.lastName}`).join(", ") || "your child";
-  await sendPickupDelegateOtpAfterCommit({
-    phone: delegateFields.phone,
-    name: delegateFields.name,
-    childNames,
-    otp,
-    delegateIds: inserted.map(d => d.id),
-  }, req.log);
-
-  // Return the first row with OTP (backwards compatible) plus all covered childIds
-  res.status(201).json({ ...inserted[0], childIds: inserted.map(d => d.childId) });
+router.get("/pickup-delegates/operations/:operationId", authMiddleware, async (req, res): Promise<void> => {
+  const operationId = req.params.operationId as string;
+  if (!OPERATION_ID_PATTERN.test(operationId)) { res.status(400).json({ error: "Bad request", message: "Invalid operation identity" }); return; }
+  const result = await db.transaction(async tx => {
+    await lockCommandOperation(tx, operationId);
+    const operation = await findCommandOperation(tx, operationId);
+    if (!operation || operation.actorUserId !== req.user!.userId || operation.command !== PICKUP_DELEGATE_COMMAND
+      || operation.targetType !== PICKUP_DELEGATE_TARGET) return null;
+    const childIds: number[] = operation.targetId.split(",").map(Number);
+    if (!childIds.length || childIds.some(id => !Number.isInteger(id))) return null;
+    if (req.user!.role === "parent") {
+      const owned = await tx.select({ id: childrenTable.id }).from(childrenTable).innerJoin(familiesTable, eq(childrenTable.familyId, familiesTable.id))
+        .where(and(inArray(childrenTable.id, childIds), or(eq(familiesTable.parent1Id, req.user!.userId), eq(familiesTable.parent2Id, req.user!.userId))));
+      if (owned.length !== childIds.length) return null;
+    }
+    return replayPickupDelegateOperation(tx, operation.resultVersion, operation.resultJson, childIds);
+  });
+  if (!result) { res.status(404).json({ error: "Not found", message: "Operation not found" }); return; }
+  const expired = !!result.delegate.otpExpiresAt && new Date() > result.delegate.otpExpiresAt;
+  res.json({ ...result.delegate, otpCode: expired ? null : result.delegate.otpCode, otpStatus: expired ? "expired" : "active",
+    childIds: result.childIds, operationId, outcome: "already_applied" });
 });
 
 router.post("/pickup-delegates/verify-otp", verifyOtpLimiter, async (req, res): Promise<void> => {

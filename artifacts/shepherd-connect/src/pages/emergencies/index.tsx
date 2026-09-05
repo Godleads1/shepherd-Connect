@@ -1,5 +1,12 @@
 import { useState, useEffect, useRef } from "react";
-import { useTriggerEmergency, useListEmergencies, usePublishFamilyEmergencyUpdate } from "@workspace/api-client-react";
+import {
+  postEmergencyTimelineUpdate,
+  reconcileEmergencyTimelineUpdate,
+  getEmergencyOperation,
+  useTriggerEmergency,
+  useListEmergencies,
+  usePublishFamilyEmergencyUpdate,
+} from "@workspace/api-client-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -15,6 +22,18 @@ import { useToast } from "@/hooks/use-toast";
 import { apiGet, apiPost, apiPut } from "@/lib/api-call";
 import { format } from "date-fns";
 import { useAuth } from "@/contexts/auth";
+import {
+  clearPendingEmergencyUpdate,
+  readPendingEmergencyUpdate,
+  writePendingEmergencyUpdate,
+  type PendingEmergencyUpdate,
+} from "./emergency-update-operation";
+import {
+  clearPendingEmergencyCreate,
+  readPendingEmergencyCreate,
+  writePendingEmergencyCreate,
+  type PendingEmergencyCreate,
+} from "./emergency-create-operation";
 
 type EmergencyUpdate = {
   id: number; emergencyId: number; userId: number; message: string;
@@ -45,6 +64,14 @@ type Emergency = {
   childId: number | null; triggeredBy: number; createdAt: string;
   resolvedAt: string | null; resolutionNotes: string | null;
   child: any; triggeredByUser: any; updates?: EmergencyUpdate[];
+};
+
+type EmergencyUpdateOperationPhase = "idle" | "submitting" | "unknown" | "reconciling";
+type EmergencyCreatePayload = {
+  type: "medical" | "missing_child" | "fire_evacuation" | "security" | "general";
+  level: "L1" | "L2" | "L3" | "L4";
+  description: string;
+  childId?: number;
 };
 
 // ─── post-incident report ─────────────────────────────────────────────────────
@@ -209,7 +236,12 @@ function EscalationTreePanel({ currentLevel }: { currentLevel: string }) {
 
 // ─── incident thread ──────────────────────────────────────────────────────────
 
-function EmergencyThread({ emergency, onClose, canPublishFamilyUpdate }: { emergency: Emergency; onClose: () => void; canPublishFamilyUpdate: boolean }) {
+function EmergencyThread({ emergency, onClose, canPublishFamilyUpdate, userId }: {
+  emergency: Emergency;
+  onClose: () => void;
+  canPublishFamilyUpdate: boolean;
+  userId: number;
+}) {
   const [msg, setMsg] = useState("");
   const [updateType, setUpdateType] = useState("update");
   const [showEscalate, setShowEscalate] = useState(false);
@@ -223,6 +255,9 @@ function EmergencyThread({ emergency, onClose, canPublishFamilyUpdate }: { emerg
   const qc = useQueryClient();
   const publishFamilyUpdate = usePublishFamilyEmergencyUpdate();
   const threadRef = useRef<HTMLDivElement>(null);
+  const payloadRef = useRef<{ message: string; updateType: "update" | "note" } | null>(null);
+  const [pendingUpdate, setPendingUpdate] = useState<PendingEmergencyUpdate | null>(() => readPendingEmergencyUpdate(userId));
+  const [updatePhase, setUpdatePhase] = useState<EmergencyUpdateOperationPhase>("idle");
 
   const { data: thread } = useQuery({
     queryKey: ["emergency-updates", emergency.id],
@@ -234,15 +269,74 @@ function EmergencyThread({ emergency, onClose, canPublishFamilyUpdate }: { emerg
     if (threadRef.current) threadRef.current.scrollTop = threadRef.current.scrollHeight;
   }, [thread]);
 
-  const postUpdate = useMutation({
-    mutationFn: (d: { message: string; updateType: string }) =>
-      apiPost(`/emergencies/${emergency.id}/update`, d),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["emergency-updates", emergency.id] });
-      setMsg("");
-    },
-    onError: () => toast({ variant: "destructive", title: "Failed to post update" }),
-  });
+  const completeUpdate = (targetId: number) => {
+    clearPendingEmergencyUpdate(userId);
+    setPendingUpdate(null);
+    setUpdatePhase("idle");
+    payloadRef.current = null;
+    setMsg("");
+    qc.invalidateQueries({ queryKey: ["emergency-updates", targetId] });
+  };
+
+  const checkUpdateStatus = async (pending = pendingUpdate) => {
+    if (!pending) return;
+    setUpdatePhase("reconciling");
+    try {
+      await reconcileEmergencyTimelineUpdate(pending.emergencyId, pending.operationId);
+      completeUpdate(pending.emergencyId);
+      toast({ title: "Emergency update confirmed" });
+    } catch (error) {
+      if ((error as any)?.status === 404) setUpdatePhase("idle");
+      else setUpdatePhase("unknown");
+    }
+  };
+
+  useEffect(() => {
+    const pending = readPendingEmergencyUpdate(userId);
+    setPendingUpdate(pending);
+    if (pending) void checkUpdateStatus(pending);
+    // Reconcile once for this authenticated user when the thread mounts.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId]);
+
+  const submitEmergencyUpdate = async (startNew = false) => {
+    const content = msg.trim();
+    let pending = pendingUpdate;
+    if (startNew) {
+      clearPendingEmergencyUpdate(userId);
+      pending = null;
+      setPendingUpdate(null);
+    }
+    if (!pending) {
+      if (!content) return;
+      pending = { operationId: crypto.randomUUID(), emergencyId: emergency.id, createdAt: Date.now() };
+      writePendingEmergencyUpdate(userId, pending);
+      setPendingUpdate(pending);
+      payloadRef.current = { message: content, updateType: updateType as "update" | "note" };
+    }
+    const payload = payloadRef.current;
+    if (!payload || pending.emergencyId !== emergency.id) return;
+    setUpdatePhase("submitting");
+    try {
+      await postEmergencyTimelineUpdate(pending.emergencyId, {
+        operationId: pending.operationId,
+        ...payload,
+      });
+      completeUpdate(pending.emergencyId);
+    } catch (error) {
+      const status = (error as any)?.status;
+      if (typeof status === "number" && status >= 400 && status < 500 && status !== 408) {
+        clearPendingEmergencyUpdate(userId);
+        setPendingUpdate(null);
+        setUpdatePhase("idle");
+        payloadRef.current = null;
+        toast({ variant: "destructive", title: "Emergency update was rejected" });
+      } else {
+        setUpdatePhase("unknown");
+        toast({ variant: "destructive", title: "Update status unknown", description: "Check status or retry the same submission." });
+      }
+    }
+  };
 
   const escalate = useMutation({
     mutationFn: () => apiPut(`/emergencies/${emergency.id}/escalate`, { reason: escalateReason }),
@@ -410,15 +504,37 @@ function EmergencyThread({ emergency, onClose, canPublishFamilyUpdate }: { emerg
             onKeyDown={e => {
               if (e.key === "Enter" && msg.trim()) {
                 e.preventDefault();
-                postUpdate.mutate({ message: msg.trim(), updateType });
+                void submitEmergencyUpdate();
               }
             }}
           />
-          <button onClick={() => msg.trim() && postUpdate.mutate({ message: msg.trim(), updateType })}
-            disabled={!msg.trim() || postUpdate.isPending}
+          <button onClick={() => void submitEmergencyUpdate()}
+            disabled={!msg.trim() || updatePhase === "submitting" || updatePhase === "reconciling" || !!pendingUpdate}
             className="px-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg disabled:opacity-40 transition-colors">
             <MessageSquare className="h-4 w-4" />
           </button>
+          {pendingUpdate && (
+            <div className="basis-full rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs text-amber-950">
+              <p className="font-semibold">
+                {updatePhase === "reconciling" ? "Checking update status…" :
+                  updatePhase === "unknown" ? "Update status is unknown." : "An update is awaiting confirmation."}
+              </p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                <button type="button" className="rounded border bg-white px-2 py-1"
+                  disabled={updatePhase === "reconciling"} onClick={() => void checkUpdateStatus()}>
+                  Check status
+                </button>
+                <button type="button" className="rounded bg-blue-700 px-2 py-1 text-white"
+                  disabled={!payloadRef.current || updatePhase === "submitting"} onClick={() => void submitEmergencyUpdate()}>
+                  Retry same submission
+                </button>
+                <button type="button" className="rounded border border-amber-500 px-2 py-1"
+                  onClick={() => void submitEmergencyUpdate(true)}>
+                  Start new submission
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
       {canPublishFamilyUpdate && emergency.childId && (
@@ -679,10 +795,11 @@ function MissingChildModal({ open, onClose }: { open: boolean; onClose: () => vo
 // ─── trigger dialog ───────────────────────────────────────────────────────────
 
 function TriggerDialog({
-  open, onClose, defaultType, children,
+  open, onClose, defaultType, children, userId,
 }: {
   open: boolean; onClose: () => void; defaultType: string;
   children: ChildInfo[];
+  userId: number;
 }) {
   const [type, setType] = useState(defaultType);
   const [level, setLevel] = useState("L1");
@@ -691,6 +808,9 @@ function TriggerDialog({
   const { toast } = useToast();
   const qc = useQueryClient();
   const triggerMutation = useTriggerEmergency();
+  const [pending, setPending] = useState<PendingEmergencyCreate | null>(() => readPendingEmergencyCreate(userId));
+  const [phase, setPhase] = useState<"idle" | "submitting" | "unknown" | "reconciling">("idle");
+  const payloadRef = useRef<EmergencyCreatePayload | null>(null);
 
   useEffect(() => {
     setType(defaultType);
@@ -701,24 +821,84 @@ function TriggerDialog({
     setDescription("");
   }, [defaultType, open]);
 
+  const completeTrigger = () => {
+    clearPendingEmergencyCreate(userId);
+    setPending(null);
+    setPhase("idle");
+    payloadRef.current = null;
+    qc.invalidateQueries({ queryKey: ["emergencies-all"] });
+    onClose();
+  };
+
+  const checkStatus = async (operation = pending) => {
+    if (!operation) return;
+    setPhase("reconciling");
+    try {
+      await getEmergencyOperation(operation.operationId);
+      completeTrigger();
+      toast({ variant: "destructive", title: "⚠️ EMERGENCY TRIGGERED" });
+    } catch (error) {
+      setPhase((error as any)?.status === 404 ? "unknown" : "unknown");
+    }
+  };
+
+  useEffect(() => {
+    const stored = readPendingEmergencyCreate(userId);
+    setPending(stored);
+    if (stored) void checkStatus(stored);
+    // Reconcile the one user-scoped pending identity after reload.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId]);
+
   const cfg = LEVEL_CONFIG[level] ?? LEVEL_CONFIG.L1;
 
-  const handleTrigger = async () => {
+  const handleTrigger = async (startNew = false) => {
     if (!type) { toast({ variant: "destructive", title: "Select emergency type" }); return; }
+    let operation = pending;
+    if (startNew) {
+      clearPendingEmergencyCreate(userId);
+      operation = null;
+      setPending(null);
+      payloadRef.current = null;
+    }
+    if (!operation) {
+      operation = { operationId: crypto.randomUUID() };
+      writePendingEmergencyCreate(userId, operation);
+      setPending(operation);
+      payloadRef.current = {
+        type: type as "medical" | "missing_child" | "fire_evacuation" | "security" | "general",
+        level: level as "L1" | "L2" | "L3" | "L4",
+        description: description || `${type.replace(/_/g, " ")} emergency triggered`,
+        ...(childId !== "none" ? { childId: Number(childId) } : {}),
+      };
+    }
+    const payload = payloadRef.current;
+    if (!payload) {
+      setPhase("unknown");
+      return;
+    }
+    setPhase("submitting");
     try {
       await triggerMutation.mutateAsync({
         data: {
-          type: type as "medical" | "missing_child" | "fire_evacuation" | "security" | "general",
-          level: level as "L1" | "L2" | "L3" | "L4",
-          description: description || `${type.replace(/_/g, " ")} emergency triggered`,
-          ...(childId !== "none" ? { childId: Number(childId) } : {}),
+          ...payload,
+          operationId: operation.operationId,
         }
       });
-      qc.invalidateQueries({ queryKey: ["emergencies-all"] });
-      onClose();
+      completeTrigger();
       toast({ variant: "destructive", title: "⚠️ EMERGENCY TRIGGERED", description: `${cfg.notified.map(n => n.label).join(" + ")} notified.` });
-    } catch {
-      toast({ variant: "destructive", title: "Failed to trigger. Use radio if this persists." });
+    } catch (error) {
+      const status = (error as any)?.status;
+      if (typeof status === "number" && status >= 400 && status < 500 && status !== 408) {
+        clearPendingEmergencyCreate(userId);
+        setPending(null);
+        setPhase("idle");
+        payloadRef.current = null;
+        toast({ variant: "destructive", title: "Emergency trigger was rejected" });
+      } else {
+        setPhase("unknown");
+        toast({ variant: "destructive", title: "Emergency status unknown", description: "Check status or retry the same submission." });
+      }
     }
   };
 
@@ -803,11 +983,26 @@ function TriggerDialog({
               className="h-12 rounded-xl text-gray-600 font-bold border border-gray-200 bg-white hover:bg-gray-50">
               CANCEL
             </button>
-            <button type="button" onClick={handleTrigger} disabled={triggerMutation.isPending}
+            <button type="button" onClick={() => void handleTrigger()} disabled={triggerMutation.isPending || !!pending}
               className="h-12 rounded-xl text-white font-black bg-red-600 hover:bg-red-700 shadow-lg shadow-red-600/30 disabled:opacity-50">
               {triggerMutation.isPending ? "SENDING..." : "SOUND ALARM"}
             </button>
           </div>
+          {pending && (
+            <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-950">
+              <p className="font-semibold">{phase === "reconciling" ? "Checking emergency status…" : "Emergency submission status is unknown."}</p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                <button type="button" className="rounded border bg-white px-2 py-1" disabled={phase === "reconciling"}
+                  onClick={() => void checkStatus()}>Check status</button>
+                <button type="button" className="rounded bg-red-700 px-2 py-1 text-white"
+                  disabled={!payloadRef.current || phase === "submitting"} onClick={() => void handleTrigger()}>
+                  Retry same submission
+                </button>
+                <button type="button" className="rounded border border-amber-500 px-2 py-1"
+                  onClick={() => void handleTrigger(true)}>Start new submission</button>
+              </div>
+            </div>
+          )}
         </div>
       </DialogContent>
     </Dialog>
@@ -1022,6 +1217,7 @@ export default function Emergencies() {
         onClose={() => setTriggerOpen(false)}
         defaultType={triggerType}
         children={children || []}
+        userId={user!.id}
       />
 
       {/* Incident thread dialog */}
@@ -1032,6 +1228,7 @@ export default function Emergencies() {
               emergency={detailData}
               onClose={() => setShowDetailId(null)}
               canPublishFamilyUpdate={["support", "admin", "super_admin"].includes(user?.role ?? "")}
+              userId={user!.id}
             />
           ) : (
             <div className="p-10 text-center text-gray-400 flex flex-col items-center gap-2">

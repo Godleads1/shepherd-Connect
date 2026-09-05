@@ -2552,6 +2552,64 @@ export const GetFamilyQrCodeResponse = zod.object({
 });
 
 /**
+ * @summary Create an immediately approved delegate while assisting a family
+ */
+
+export const CreateFamilyAssistDelegateBody = zod.object({
+  operationId: zod.string().uuid(),
+  childId: zod.number(),
+  delegateName: zod.string().min(1),
+  delegatePhone: zod.string().min(1),
+});
+
+export const CreateFamilyAssistDelegateResponse = zod
+  .object({
+    id: zod.number(),
+    childId: zod.number(),
+    name: zod.string(),
+    phone: zod.string(),
+    photoUrl: zod.string().nullish(),
+    otpCode: zod.string().nullish(),
+    otpExpiresAt: zod.string().datetime({}).nullish(),
+    parentApproved: zod.boolean(),
+    createdAt: zod.string().datetime({}),
+  })
+  .and(
+    zod.object({
+      operationId: zod.string().uuid(),
+      outcome: zod.enum(["applied", "already_applied"]),
+      otpStatus: zod.enum(["active", "expired"]),
+    }),
+  );
+
+/**
+ * @summary Reconcile a family assist delegate operation whose response was not received
+ */
+export const GetFamilyAssistDelegateOperationParams = zod.object({
+  operationId: zod.coerce.string().uuid(),
+});
+
+export const GetFamilyAssistDelegateOperationResponse = zod
+  .object({
+    id: zod.number(),
+    childId: zod.number(),
+    name: zod.string(),
+    phone: zod.string(),
+    photoUrl: zod.string().nullish(),
+    otpCode: zod.string().nullish(),
+    otpExpiresAt: zod.string().datetime({}).nullish(),
+    parentApproved: zod.boolean(),
+    createdAt: zod.string().datetime({}),
+  })
+  .and(
+    zod.object({
+      operationId: zod.string().uuid(),
+      outcome: zod.enum(["applied", "already_applied"]),
+      otpStatus: zod.enum(["active", "expired"]),
+    }),
+  );
+
+/**
  * @summary List pickup delegates
  */
 export const ListPickupDelegatesQueryParams = zod.object({
@@ -2577,11 +2635,62 @@ export const ListPickupDelegatesResponse = zod.array(
  * @summary Create pickup delegate and generate OTP
  */
 export const CreatePickupDelegateBody = zod.object({
+  operationId: zod.string().uuid(),
   childId: zod.number(),
+  childIds: zod.array(zod.number()).optional(),
   name: zod.string(),
   phone: zod.string(),
   photoUrl: zod.string().nullish(),
 });
+
+export const CreatePickupDelegateResponse = zod
+  .object({
+    id: zod.number(),
+    childId: zod.number(),
+    name: zod.string(),
+    phone: zod.string(),
+    photoUrl: zod.string().nullish(),
+    otpCode: zod.string().nullish(),
+    otpExpiresAt: zod.string().datetime({}).nullish(),
+    parentApproved: zod.boolean(),
+    createdAt: zod.string().datetime({}),
+  })
+  .and(
+    zod.object({
+      operationId: zod.string().uuid(),
+      outcome: zod.enum(["applied", "already_applied"]),
+      childIds: zod.array(zod.number()),
+      otpStatus: zod.enum(["active", "expired"]),
+    }),
+  );
+
+/**
+ * @summary Reconcile a pickup delegate operation whose original response was not received
+ */
+export const GetPickupDelegateOperationParams = zod.object({
+  operationId: zod.coerce.string().uuid(),
+});
+
+export const GetPickupDelegateOperationResponse = zod
+  .object({
+    id: zod.number(),
+    childId: zod.number(),
+    name: zod.string(),
+    phone: zod.string(),
+    photoUrl: zod.string().nullish(),
+    otpCode: zod.string().nullish(),
+    otpExpiresAt: zod.string().datetime({}).nullish(),
+    parentApproved: zod.boolean(),
+    createdAt: zod.string().datetime({}),
+  })
+  .and(
+    zod.object({
+      operationId: zod.string().uuid(),
+      outcome: zod.enum(["applied", "already_applied"]),
+      childIds: zod.array(zod.number()),
+      otpStatus: zod.enum(["active", "expired"]),
+    }),
+  );
 
 /**
  * @summary Verify delegate OTP for pickup
@@ -2962,6 +3071,7 @@ export const ListEmergenciesResponse = zod.array(ListEmergenciesResponseItem);
  * @summary Trigger an emergency
  */
 export const TriggerEmergencyBody = zod.object({
+  operationId: zod.string().uuid(),
   type: zod.enum([
     "medical",
     "missing_child",
@@ -2973,6 +3083,129 @@ export const TriggerEmergencyBody = zod.object({
   childId: zod.number().nullish(),
   description: zod.string(),
 });
+
+export const TriggerEmergencyResponse = zod
+  .object({
+    id: zod.number(),
+    type: zod.enum([
+      "medical",
+      "missing_child",
+      "fire_evacuation",
+      "security",
+      "general",
+    ]),
+    level: zod.enum(["L1", "L2", "L3", "L4"]),
+    childId: zod.number().nullish(),
+    triggeredBy: zod.number(),
+    status: zod.enum(["active", "monitoring", "resolved"]),
+    description: zod.string(),
+    resolutionNotes: zod.string().nullish(),
+    child: zod
+      .object({
+        id: zod.number(),
+        familyId: zod.number(),
+        firstName: zod.string(),
+        lastName: zod.string(),
+        dob: zod.string().date(),
+        age: zod.number(),
+        gender: zod.string(),
+        allergies: zod.string().nullish(),
+        medicalNotes: zod.string().nullish(),
+        photoUrl: zod.string().nullish(),
+        faceDescriptorJson: zod.string().nullish(),
+        servicePreference: zod.enum(["7am", "10:30am", "both"]).nullish(),
+        currentClassId: zod.number().nullish(),
+        currentClass: zod
+          .object({
+            id: zod.number(),
+            name: zod.string(),
+            ageMin: zod.number(),
+            ageMax: zod.number(),
+            capacity: zod.number(),
+            roomLocation: zod.string(),
+            serviceSlot: zod.enum(["7am", "10:30am"]),
+            description: zod.string().nullish(),
+            enrollmentCount: zod.number(),
+            createdAt: zod.string().datetime({}),
+          })
+          .nullish(),
+        createdAt: zod.string().datetime({}),
+      })
+      .nullish(),
+    createdAt: zod.string().datetime({}),
+    resolvedAt: zod.string().datetime({}).nullish(),
+  })
+  .and(
+    zod.object({
+      operationId: zod.string().uuid(),
+      outcome: zod.enum(["applied", "already_applied"]),
+    }),
+  );
+
+/**
+ * @summary Reconcile an emergency trigger operation whose response was not received
+ */
+export const GetEmergencyOperationParams = zod.object({
+  operationId: zod.coerce.string().uuid(),
+});
+
+export const GetEmergencyOperationResponse = zod
+  .object({
+    id: zod.number(),
+    type: zod.enum([
+      "medical",
+      "missing_child",
+      "fire_evacuation",
+      "security",
+      "general",
+    ]),
+    level: zod.enum(["L1", "L2", "L3", "L4"]),
+    childId: zod.number().nullish(),
+    triggeredBy: zod.number(),
+    status: zod.enum(["active", "monitoring", "resolved"]),
+    description: zod.string(),
+    resolutionNotes: zod.string().nullish(),
+    child: zod
+      .object({
+        id: zod.number(),
+        familyId: zod.number(),
+        firstName: zod.string(),
+        lastName: zod.string(),
+        dob: zod.string().date(),
+        age: zod.number(),
+        gender: zod.string(),
+        allergies: zod.string().nullish(),
+        medicalNotes: zod.string().nullish(),
+        photoUrl: zod.string().nullish(),
+        faceDescriptorJson: zod.string().nullish(),
+        servicePreference: zod.enum(["7am", "10:30am", "both"]).nullish(),
+        currentClassId: zod.number().nullish(),
+        currentClass: zod
+          .object({
+            id: zod.number(),
+            name: zod.string(),
+            ageMin: zod.number(),
+            ageMax: zod.number(),
+            capacity: zod.number(),
+            roomLocation: zod.string(),
+            serviceSlot: zod.enum(["7am", "10:30am"]),
+            description: zod.string().nullish(),
+            enrollmentCount: zod.number(),
+            createdAt: zod.string().datetime({}),
+          })
+          .nullish(),
+        createdAt: zod.string().datetime({}),
+      })
+      .nullish(),
+    createdAt: zod.string().datetime({}),
+    resolvedAt: zod.string().datetime({}).nullish(),
+  })
+  .and(
+    zod.object({
+      operationId: zod.string().uuid(),
+      outcome: zod.enum(["applied", "already_applied"]),
+    }),
+  );
 
 /**
  * @summary Get emergency by ID
@@ -3095,6 +3328,67 @@ export const UpdateEmergencyResponse = zod.object({
   createdAt: zod.string().datetime({}),
   resolvedAt: zod.string().datetime({}).nullish(),
 });
+
+/**
+ * @summary Add one idempotent emergency timeline update
+ */
+export const PostEmergencyTimelineUpdateParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const postEmergencyTimelineUpdateBodyUpdateTypeDefault = `update`;
+
+export const PostEmergencyTimelineUpdateBody = zod.object({
+  operationId: zod.string().uuid(),
+  message: zod.string().min(1),
+  updateType: zod
+    .enum(["update", "escalation", "all_clear", "note"])
+    .default(postEmergencyTimelineUpdateBodyUpdateTypeDefault),
+});
+
+export const PostEmergencyTimelineUpdateResponse = zod
+  .object({
+    id: zod.number(),
+    emergencyId: zod.number(),
+    userId: zod.number(),
+    message: zod.string(),
+    updateType: zod.enum(["update", "escalation", "all_clear", "note"]),
+    eventId: zod.string().uuid(),
+    createdAt: zod.string().datetime({}),
+    user: zod.record(zod.string(), zod.unknown()).nullable(),
+  })
+  .and(
+    zod.object({
+      operationId: zod.string().uuid(),
+      outcome: zod.enum(["applied", "already_applied"]),
+    }),
+  );
+
+/**
+ * @summary Reconcile an emergency timeline update after an unknown transport outcome
+ */
+export const ReconcileEmergencyTimelineUpdateParams = zod.object({
+  id: zod.coerce.number(),
+  operationId: zod.coerce.string().uuid(),
+});
+
+export const ReconcileEmergencyTimelineUpdateResponse = zod
+  .object({
+    id: zod.number(),
+    emergencyId: zod.number(),
+    userId: zod.number(),
+    message: zod.string(),
+    updateType: zod.enum(["update", "escalation", "all_clear", "note"]),
+    eventId: zod.string().uuid(),
+    createdAt: zod.string().datetime({}),
+    user: zod.record(zod.string(), zod.unknown()).nullable(),
+  })
+  .and(
+    zod.object({
+      operationId: zod.string().uuid(),
+      outcome: zod.enum(["applied", "already_applied"]),
+    }),
+  );
 
 /**
  * @summary Publish a reviewed family-visible emergency update
@@ -4169,3 +4463,91 @@ export const CreateParentPickupRequestResponse = zod.object({
   }),
   message: zod.string(),
 });
+
+/**
+ * @summary Create a safeguarding record
+ */
+
+export const createSafeguardingRecordBodyStatusDefault = `pending`;
+
+export const CreateSafeguardingRecordBody = zod.object({
+  operationId: zod.string().uuid(),
+  teacherUserId: zod.number(),
+  checkType: zod.string().min(1),
+  referenceNumber: zod.string().optional(),
+  issuedDate: zod.string().optional(),
+  expiryDate: zod.string().optional(),
+  status: zod
+    .enum(["clear", "pending", "expired", "not_submitted"])
+    .default(createSafeguardingRecordBodyStatusDefault),
+  notes: zod.string().optional(),
+});
+
+export const CreateSafeguardingRecordResponse = zod
+  .object({
+    id: zod.number(),
+    teacherUserId: zod.number(),
+    checkType: zod.string(),
+    referenceNumber: zod.string().nullish(),
+    issuedDate: zod.string().nullish(),
+    expiryDate: zod.string().nullish(),
+    status: zod.enum(["clear", "pending", "expired", "not_submitted"]),
+    notes: zod.string().nullish(),
+    createdBy: zod.number().nullish(),
+    createdAt: zod.string().datetime({}),
+    updatedAt: zod.string().datetime({}),
+    teacher: zod
+      .object({
+        id: zod.number().optional(),
+        firstName: zod.string().optional(),
+        lastName: zod.string().optional(),
+        email: zod.string().optional(),
+      })
+      .nullish(),
+    isExpiringSoon: zod.boolean().optional(),
+    isExpired: zod.boolean().optional(),
+  })
+  .and(
+    zod.object({
+      operationId: zod.string().uuid(),
+      outcome: zod.enum(["applied", "already_applied"]),
+    }),
+  );
+
+/**
+ * @summary Reconcile a safeguarding record operation
+ */
+export const GetSafeguardingOperationParams = zod.object({
+  operationId: zod.coerce.string().uuid(),
+});
+
+export const GetSafeguardingOperationResponse = zod
+  .object({
+    id: zod.number(),
+    teacherUserId: zod.number(),
+    checkType: zod.string(),
+    referenceNumber: zod.string().nullish(),
+    issuedDate: zod.string().nullish(),
+    expiryDate: zod.string().nullish(),
+    status: zod.enum(["clear", "pending", "expired", "not_submitted"]),
+    notes: zod.string().nullish(),
+    createdBy: zod.number().nullish(),
+    createdAt: zod.string().datetime({}),
+    updatedAt: zod.string().datetime({}),
+    teacher: zod
+      .object({
+        id: zod.number().optional(),
+        firstName: zod.string().optional(),
+        lastName: zod.string().optional(),
+        email: zod.string().optional(),
+      })
+      .nullish(),
+    isExpiringSoon: zod.boolean().optional(),
+    isExpired: zod.boolean().optional(),
+  })
+  .and(
+    zod.object({
+      operationId: zod.string().uuid(),
+      outcome: zod.enum(["applied", "already_applied"]),
+    }),
+  );

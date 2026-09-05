@@ -52,11 +52,15 @@ import type {
   CustodyRequestResult,
   DashboardStats,
   Emergency,
+  EmergencyTimelineUpdateInput,
+  EmergencyTimelineUpdateResult,
   ErrorResponse,
   ExceptionReport,
   ExportAttendanceParams,
   ExportEmergencyLogParams,
   Family,
+  FamilyAssistDelegateBody,
+  FamilyAssistDelegateOperationResult,
   FamilyEmergencyUpdate,
   FamilyEmergencyUpdateInput,
   FamilyTree,
@@ -108,17 +112,21 @@ import type {
   ParentRequestItem,
   ParentRequestType,
   PickupDelegate,
+  PickupDelegateOperationResult,
   PreDismissalBody,
   QrCodeData,
   QrScanResult,
   RegisterBody,
   RejectClassChangeRequestBody,
+  SafeguardingOperationResult,
+  SafeguardingRecordInput,
   ScanFaceBody,
   ScanQrBody,
   SseTicketResponse,
   SuccessResponse,
   Teacher,
   TeacherAllocation,
+  TriggerEmergencyResponse,
   UpdateClassAssignmentBody,
   UpdateEmergencyBody,
   UpdateFaceDescriptorBody,
@@ -4720,6 +4728,197 @@ export function useGetFamilyQrCode<
 }
 
 /**
+ * @summary Create an immediately approved delegate while assisting a family
+ */
+export const getCreateFamilyAssistDelegateUrl = () => {
+  return `/api/family-assist/delegate`;
+};
+
+export const createFamilyAssistDelegate = async (
+  familyAssistDelegateBody: FamilyAssistDelegateBody,
+  options?: RequestInit,
+): Promise<FamilyAssistDelegateOperationResult> => {
+  return customFetch<FamilyAssistDelegateOperationResult>(
+    getCreateFamilyAssistDelegateUrl(),
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(familyAssistDelegateBody),
+    },
+  );
+};
+
+export const getCreateFamilyAssistDelegateMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createFamilyAssistDelegate>>,
+    TError,
+    { data: BodyType<FamilyAssistDelegateBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof createFamilyAssistDelegate>>,
+  TError,
+  { data: BodyType<FamilyAssistDelegateBody> },
+  TContext
+> => {
+  const mutationKey = ["createFamilyAssistDelegate"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof createFamilyAssistDelegate>>,
+    { data: BodyType<FamilyAssistDelegateBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return createFamilyAssistDelegate(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CreateFamilyAssistDelegateMutationResult = NonNullable<
+  Awaited<ReturnType<typeof createFamilyAssistDelegate>>
+>;
+export type CreateFamilyAssistDelegateMutationBody =
+  BodyType<FamilyAssistDelegateBody>;
+export type CreateFamilyAssistDelegateMutationError = ErrorType<void>;
+
+/**
+ * @summary Create an immediately approved delegate while assisting a family
+ */
+export const useCreateFamilyAssistDelegate = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createFamilyAssistDelegate>>,
+    TError,
+    { data: BodyType<FamilyAssistDelegateBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof createFamilyAssistDelegate>>,
+  TError,
+  { data: BodyType<FamilyAssistDelegateBody> },
+  TContext
+> => {
+  return useMutation(getCreateFamilyAssistDelegateMutationOptions(options));
+};
+
+/**
+ * @summary Reconcile a family assist delegate operation whose response was not received
+ */
+export const getGetFamilyAssistDelegateOperationUrl = (operationId: string) => {
+  return `/api/family-assist/delegate/operations/${operationId}`;
+};
+
+export const getFamilyAssistDelegateOperation = async (
+  operationId: string,
+  options?: RequestInit,
+): Promise<FamilyAssistDelegateOperationResult> => {
+  return customFetch<FamilyAssistDelegateOperationResult>(
+    getGetFamilyAssistDelegateOperationUrl(operationId),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getGetFamilyAssistDelegateOperationQueryKey = (
+  operationId: string,
+) => {
+  return [`/api/family-assist/delegate/operations/${operationId}`] as const;
+};
+
+export const getGetFamilyAssistDelegateOperationQueryOptions = <
+  TData = Awaited<ReturnType<typeof getFamilyAssistDelegateOperation>>,
+  TError = ErrorType<void>,
+>(
+  operationId: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getFamilyAssistDelegateOperation>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ??
+    getGetFamilyAssistDelegateOperationQueryKey(operationId);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getFamilyAssistDelegateOperation>>
+  > = ({ signal }) =>
+    getFamilyAssistDelegateOperation(operationId, {
+      signal,
+      ...requestOptions,
+    });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!operationId,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getFamilyAssistDelegateOperation>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetFamilyAssistDelegateOperationQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getFamilyAssistDelegateOperation>>
+>;
+export type GetFamilyAssistDelegateOperationQueryError = ErrorType<void>;
+
+/**
+ * @summary Reconcile a family assist delegate operation whose response was not received
+ */
+
+export function useGetFamilyAssistDelegateOperation<
+  TData = Awaited<ReturnType<typeof getFamilyAssistDelegateOperation>>,
+  TError = ErrorType<void>,
+>(
+  operationId: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getFamilyAssistDelegateOperation>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetFamilyAssistDelegateOperationQueryOptions(
+    operationId,
+    options,
+  );
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
  * @summary List pickup delegates
  */
 export const getListPickupDelegatesUrl = (
@@ -4829,13 +5028,16 @@ export const getCreatePickupDelegateUrl = () => {
 export const createPickupDelegate = async (
   createPickupDelegateBody: CreatePickupDelegateBody,
   options?: RequestInit,
-): Promise<PickupDelegate> => {
-  return customFetch<PickupDelegate>(getCreatePickupDelegateUrl(), {
-    ...options,
-    method: "POST",
-    headers: { "Content-Type": "application/json", ...options?.headers },
-    body: JSON.stringify(createPickupDelegateBody),
-  });
+): Promise<PickupDelegateOperationResult> => {
+  return customFetch<PickupDelegateOperationResult>(
+    getCreatePickupDelegateUrl(),
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(createPickupDelegateBody),
+    },
+  );
 };
 
 export const getCreatePickupDelegateMutationOptions = <
@@ -4905,6 +5107,102 @@ export const useCreatePickupDelegate = <
 > => {
   return useMutation(getCreatePickupDelegateMutationOptions(options));
 };
+
+/**
+ * @summary Reconcile a pickup delegate operation whose original response was not received
+ */
+export const getGetPickupDelegateOperationUrl = (operationId: string) => {
+  return `/api/pickup-delegates/operations/${operationId}`;
+};
+
+export const getPickupDelegateOperation = async (
+  operationId: string,
+  options?: RequestInit,
+): Promise<PickupDelegateOperationResult> => {
+  return customFetch<PickupDelegateOperationResult>(
+    getGetPickupDelegateOperationUrl(operationId),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getGetPickupDelegateOperationQueryKey = (operationId: string) => {
+  return [`/api/pickup-delegates/operations/${operationId}`] as const;
+};
+
+export const getGetPickupDelegateOperationQueryOptions = <
+  TData = Awaited<ReturnType<typeof getPickupDelegateOperation>>,
+  TError = ErrorType<void>,
+>(
+  operationId: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getPickupDelegateOperation>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ??
+    getGetPickupDelegateOperationQueryKey(operationId);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getPickupDelegateOperation>>
+  > = ({ signal }) =>
+    getPickupDelegateOperation(operationId, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!operationId,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getPickupDelegateOperation>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetPickupDelegateOperationQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getPickupDelegateOperation>>
+>;
+export type GetPickupDelegateOperationQueryError = ErrorType<void>;
+
+/**
+ * @summary Reconcile a pickup delegate operation whose original response was not received
+ */
+
+export function useGetPickupDelegateOperation<
+  TData = Awaited<ReturnType<typeof getPickupDelegateOperation>>,
+  TError = ErrorType<void>,
+>(
+  operationId: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getPickupDelegateOperation>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetPickupDelegateOperationQueryOptions(
+    operationId,
+    options,
+  );
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
 
 /**
  * @summary Verify delegate OTP for pickup
@@ -6060,8 +6358,8 @@ export const getTriggerEmergencyUrl = () => {
 export const triggerEmergency = async (
   createEmergencyBody: CreateEmergencyBody,
   options?: RequestInit,
-): Promise<Emergency> => {
-  return customFetch<Emergency>(getTriggerEmergencyUrl(), {
+): Promise<TriggerEmergencyResponse> => {
+  return customFetch<TriggerEmergencyResponse>(getTriggerEmergencyUrl(), {
     ...options,
     method: "POST",
     headers: { "Content-Type": "application/json", ...options?.headers },
@@ -6070,7 +6368,7 @@ export const triggerEmergency = async (
 };
 
 export const getTriggerEmergencyMutationOptions = <
-  TError = ErrorType<unknown>,
+  TError = ErrorType<void>,
   TContext = unknown,
 >(options?: {
   mutation?: UseMutationOptions<
@@ -6111,13 +6409,13 @@ export type TriggerEmergencyMutationResult = NonNullable<
   Awaited<ReturnType<typeof triggerEmergency>>
 >;
 export type TriggerEmergencyMutationBody = BodyType<CreateEmergencyBody>;
-export type TriggerEmergencyMutationError = ErrorType<unknown>;
+export type TriggerEmergencyMutationError = ErrorType<void>;
 
 /**
  * @summary Trigger an emergency
  */
 export const useTriggerEmergency = <
-  TError = ErrorType<unknown>,
+  TError = ErrorType<void>,
   TContext = unknown,
 >(options?: {
   mutation?: UseMutationOptions<
@@ -6135,6 +6433,101 @@ export const useTriggerEmergency = <
 > => {
   return useMutation(getTriggerEmergencyMutationOptions(options));
 };
+
+/**
+ * @summary Reconcile an emergency trigger operation whose response was not received
+ */
+export const getGetEmergencyOperationUrl = (operationId: string) => {
+  return `/api/emergencies/operations/${operationId}`;
+};
+
+export const getEmergencyOperation = async (
+  operationId: string,
+  options?: RequestInit,
+): Promise<TriggerEmergencyResponse> => {
+  return customFetch<TriggerEmergencyResponse>(
+    getGetEmergencyOperationUrl(operationId),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getGetEmergencyOperationQueryKey = (operationId: string) => {
+  return [`/api/emergencies/operations/${operationId}`] as const;
+};
+
+export const getGetEmergencyOperationQueryOptions = <
+  TData = Awaited<ReturnType<typeof getEmergencyOperation>>,
+  TError = ErrorType<void>,
+>(
+  operationId: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getEmergencyOperation>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetEmergencyOperationQueryKey(operationId);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getEmergencyOperation>>
+  > = ({ signal }) =>
+    getEmergencyOperation(operationId, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!operationId,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getEmergencyOperation>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetEmergencyOperationQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getEmergencyOperation>>
+>;
+export type GetEmergencyOperationQueryError = ErrorType<void>;
+
+/**
+ * @summary Reconcile an emergency trigger operation whose response was not received
+ */
+
+export function useGetEmergencyOperation<
+  TData = Awaited<ReturnType<typeof getEmergencyOperation>>,
+  TError = ErrorType<void>,
+>(
+  operationId: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getEmergencyOperation>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetEmergencyOperationQueryOptions(
+    operationId,
+    options,
+  );
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
 
 /**
  * @summary Get emergency by ID
@@ -6309,6 +6702,206 @@ export const useUpdateEmergency = <
 > => {
   return useMutation(getUpdateEmergencyMutationOptions(options));
 };
+
+/**
+ * @summary Add one idempotent emergency timeline update
+ */
+export const getPostEmergencyTimelineUpdateUrl = (id: number) => {
+  return `/api/emergencies/${id}/update`;
+};
+
+export const postEmergencyTimelineUpdate = async (
+  id: number,
+  emergencyTimelineUpdateInput: EmergencyTimelineUpdateInput,
+  options?: RequestInit,
+): Promise<EmergencyTimelineUpdateResult> => {
+  return customFetch<EmergencyTimelineUpdateResult>(
+    getPostEmergencyTimelineUpdateUrl(id),
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(emergencyTimelineUpdateInput),
+    },
+  );
+};
+
+export const getPostEmergencyTimelineUpdateMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof postEmergencyTimelineUpdate>>,
+    TError,
+    { id: number; data: BodyType<EmergencyTimelineUpdateInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof postEmergencyTimelineUpdate>>,
+  TError,
+  { id: number; data: BodyType<EmergencyTimelineUpdateInput> },
+  TContext
+> => {
+  const mutationKey = ["postEmergencyTimelineUpdate"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof postEmergencyTimelineUpdate>>,
+    { id: number; data: BodyType<EmergencyTimelineUpdateInput> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return postEmergencyTimelineUpdate(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type PostEmergencyTimelineUpdateMutationResult = NonNullable<
+  Awaited<ReturnType<typeof postEmergencyTimelineUpdate>>
+>;
+export type PostEmergencyTimelineUpdateMutationBody =
+  BodyType<EmergencyTimelineUpdateInput>;
+export type PostEmergencyTimelineUpdateMutationError = ErrorType<void>;
+
+/**
+ * @summary Add one idempotent emergency timeline update
+ */
+export const usePostEmergencyTimelineUpdate = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof postEmergencyTimelineUpdate>>,
+    TError,
+    { id: number; data: BodyType<EmergencyTimelineUpdateInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof postEmergencyTimelineUpdate>>,
+  TError,
+  { id: number; data: BodyType<EmergencyTimelineUpdateInput> },
+  TContext
+> => {
+  return useMutation(getPostEmergencyTimelineUpdateMutationOptions(options));
+};
+
+/**
+ * @summary Reconcile an emergency timeline update after an unknown transport outcome
+ */
+export const getReconcileEmergencyTimelineUpdateUrl = (
+  id: number,
+  operationId: string,
+) => {
+  return `/api/emergencies/${id}/update-operations/${operationId}`;
+};
+
+export const reconcileEmergencyTimelineUpdate = async (
+  id: number,
+  operationId: string,
+  options?: RequestInit,
+): Promise<EmergencyTimelineUpdateResult> => {
+  return customFetch<EmergencyTimelineUpdateResult>(
+    getReconcileEmergencyTimelineUpdateUrl(id, operationId),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getReconcileEmergencyTimelineUpdateQueryKey = (
+  id: number,
+  operationId: string,
+) => {
+  return [`/api/emergencies/${id}/update-operations/${operationId}`] as const;
+};
+
+export const getReconcileEmergencyTimelineUpdateQueryOptions = <
+  TData = Awaited<ReturnType<typeof reconcileEmergencyTimelineUpdate>>,
+  TError = ErrorType<void>,
+>(
+  id: number,
+  operationId: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof reconcileEmergencyTimelineUpdate>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ??
+    getReconcileEmergencyTimelineUpdateQueryKey(id, operationId);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof reconcileEmergencyTimelineUpdate>>
+  > = ({ signal }) =>
+    reconcileEmergencyTimelineUpdate(id, operationId, {
+      signal,
+      ...requestOptions,
+    });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!(id && operationId),
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof reconcileEmergencyTimelineUpdate>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ReconcileEmergencyTimelineUpdateQueryResult = NonNullable<
+  Awaited<ReturnType<typeof reconcileEmergencyTimelineUpdate>>
+>;
+export type ReconcileEmergencyTimelineUpdateQueryError = ErrorType<void>;
+
+/**
+ * @summary Reconcile an emergency timeline update after an unknown transport outcome
+ */
+
+export function useReconcileEmergencyTimelineUpdate<
+  TData = Awaited<ReturnType<typeof reconcileEmergencyTimelineUpdate>>,
+  TError = ErrorType<void>,
+>(
+  id: number,
+  operationId: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof reconcileEmergencyTimelineUpdate>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getReconcileEmergencyTimelineUpdateQueryOptions(
+    id,
+    operationId,
+    options,
+  );
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
 
 /**
  * @summary Publish a reviewed family-visible emergency update
@@ -9083,3 +9676,188 @@ export const useCreateParentPickupRequest = <
 > => {
   return useMutation(getCreateParentPickupRequestMutationOptions(options));
 };
+
+/**
+ * @summary Create a safeguarding record
+ */
+export const getCreateSafeguardingRecordUrl = () => {
+  return `/api/safeguarding`;
+};
+
+export const createSafeguardingRecord = async (
+  safeguardingRecordInput: SafeguardingRecordInput,
+  options?: RequestInit,
+): Promise<SafeguardingOperationResult> => {
+  return customFetch<SafeguardingOperationResult>(
+    getCreateSafeguardingRecordUrl(),
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(safeguardingRecordInput),
+    },
+  );
+};
+
+export const getCreateSafeguardingRecordMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createSafeguardingRecord>>,
+    TError,
+    { data: BodyType<SafeguardingRecordInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof createSafeguardingRecord>>,
+  TError,
+  { data: BodyType<SafeguardingRecordInput> },
+  TContext
+> => {
+  const mutationKey = ["createSafeguardingRecord"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof createSafeguardingRecord>>,
+    { data: BodyType<SafeguardingRecordInput> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return createSafeguardingRecord(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CreateSafeguardingRecordMutationResult = NonNullable<
+  Awaited<ReturnType<typeof createSafeguardingRecord>>
+>;
+export type CreateSafeguardingRecordMutationBody =
+  BodyType<SafeguardingRecordInput>;
+export type CreateSafeguardingRecordMutationError = ErrorType<void>;
+
+/**
+ * @summary Create a safeguarding record
+ */
+export const useCreateSafeguardingRecord = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createSafeguardingRecord>>,
+    TError,
+    { data: BodyType<SafeguardingRecordInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof createSafeguardingRecord>>,
+  TError,
+  { data: BodyType<SafeguardingRecordInput> },
+  TContext
+> => {
+  return useMutation(getCreateSafeguardingRecordMutationOptions(options));
+};
+
+/**
+ * @summary Reconcile a safeguarding record operation
+ */
+export const getGetSafeguardingOperationUrl = (operationId: string) => {
+  return `/api/safeguarding/operations/${operationId}`;
+};
+
+export const getSafeguardingOperation = async (
+  operationId: string,
+  options?: RequestInit,
+): Promise<SafeguardingOperationResult> => {
+  return customFetch<SafeguardingOperationResult>(
+    getGetSafeguardingOperationUrl(operationId),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getGetSafeguardingOperationQueryKey = (operationId: string) => {
+  return [`/api/safeguarding/operations/${operationId}`] as const;
+};
+
+export const getGetSafeguardingOperationQueryOptions = <
+  TData = Awaited<ReturnType<typeof getSafeguardingOperation>>,
+  TError = ErrorType<void>,
+>(
+  operationId: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getSafeguardingOperation>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetSafeguardingOperationQueryKey(operationId);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getSafeguardingOperation>>
+  > = ({ signal }) =>
+    getSafeguardingOperation(operationId, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!operationId,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getSafeguardingOperation>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetSafeguardingOperationQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getSafeguardingOperation>>
+>;
+export type GetSafeguardingOperationQueryError = ErrorType<void>;
+
+/**
+ * @summary Reconcile a safeguarding record operation
+ */
+
+export function useGetSafeguardingOperation<
+  TData = Awaited<ReturnType<typeof getSafeguardingOperation>>,
+  TError = ErrorType<void>,
+>(
+  operationId: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getSafeguardingOperation>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetSafeguardingOperationQueryOptions(
+    operationId,
+    options,
+  );
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}

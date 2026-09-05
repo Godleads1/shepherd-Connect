@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router, type Request, type Response } from "express";
 import { eq, and, like, inArray, isNotNull, desc, sql } from "drizzle-orm";
 import { db, emergenciesTable, emergencyUpdatesTable, childrenTable, usersTable, notificationsTable, attendanceTable, familiesTable } from "@workspace/db";
 import {
@@ -6,6 +6,7 @@ import {
   UpdateEmergencyBody,
   ListEmergenciesQueryParams,
   PublishFamilyEmergencyUpdateBody,
+  PostEmergencyTimelineUpdateBody,
   ListFamilyEmergencyUpdatesResponseItem,
   ListFamilyEmergencyUpdatesResponse,
 } from "@workspace/api-zod";
@@ -14,8 +15,44 @@ import { broadcastEmergency, sendNotification } from "../lib/notify";
 import { createNotificationDelivery } from "../services/notificationOutbox";
 import { getParentChildIds } from "../lib/parentScope";
 import { scopeFamilyEmergencyUpdates, toFamilyEmergencyUpdateDto } from "../lib/familyEmergencyUpdates";
+import {
+  classifyCommandOperation,
+  findCommandOperation,
+  fingerprintCommandPayload,
+  lockCommandOperation,
+  persistCommandOperation,
+  replayCommandResult,
+} from "../services/commandOperations";
 
 const router = Router();
+
+const EMERGENCY_TIMELINE_UPDATE_COMMAND = "emergency_timeline_update";
+const EMERGENCY_TARGET_TYPE = "emergency";
+const EMERGENCY_CREATE_COMMAND = "emergency_create";
+const EMERGENCY_CREATE_TARGET_TYPE = "emergency_create";
+
+export const emergencyUpdateRouteDependencies: {
+  beforePersist: null | (() => void | Promise<void>);
+  postCommitBeforeResponse: null | ((req: Request, res: Response) => void);
+} = {
+  beforePersist: null,
+  // Tests may terminate the real HTTP socket here, after the transaction has
+  // committed and before Express writes a response.
+  postCommitBeforeResponse: null,
+};
+
+export const emergencyCreateRouteDependencies: {
+  /** Test-only seam immediately after required transactional broadcast intent. */
+  requiredOutboxFailure: null | (() => void | Promise<void>);
+  beforePersist: null | (() => void | Promise<void>);
+  postCommitBeforeResponse: null | ((req: Request, res: Response) => void);
+} = {
+  requiredOutboxFailure: null,
+  beforePersist: null,
+  // Tests may terminate the real HTTP socket here, after the transaction has
+  // committed and before Express writes a response.
+  postCommitBeforeResponse: null,
+};
 
 type QueryExecutor = Pick<typeof db, "select">;
 
@@ -41,6 +78,24 @@ async function formatUpdate(u: typeof emergencyUpdatesTable.$inferSelect, execut
     ...u,
     user: user ? { id: user.id, firstName: user.firstName, lastName: user.lastName, role: user.role } : null,
   };
+}
+
+async function isCurrentlyAuthorizedStaff(executor: any, userId: number, role: string): Promise<boolean> {
+  const [user] = await executor.select({
+    role: usersTable.role,
+    secondaryRoles: usersTable.secondaryRoles,
+    status: usersTable.status,
+    isActive: usersTable.isActive,
+  }).from(usersTable).where(eq(usersTable.id, userId));
+  if (!user || !user.isActive || user.status !== "active") return false;
+  let secondaryRoles: string[] = [];
+  try {
+    const parsed = JSON.parse(user.secondaryRoles || "[]");
+    if (Array.isArray(parsed)) secondaryRoles = parsed.filter((value): value is string => typeof value === "string");
+  } catch {
+    secondaryRoles = [];
+  }
+  return [...STAFF_ROLES].includes(role as any) && (user.role === role || secondaryRoles.includes(role));
 }
 
 // Emergency records are staff-facing operational data. Parents are informed
@@ -102,12 +157,43 @@ router.post("/emergencies", authMiddleware, requireRoles(...STAFF_ROLES), async 
   // Only admins/super_admins may alert parents. Emergencies reported by
   // teachers (or any other role) are routed to admins alone for review.
   const isAdmin = ["admin", "super_admin"].includes(req.user!.role);
-  // AUTHORITATIVE: emergency + audit update. REQUIRED TRANSACTIONAL OUTBOX/INTENT:
-  // broadcast intent. RESPONSE ENRICHMENT: child/triggering user, read before commit.
-  // A lost create response can still be retried into a duplicate; no idempotency key exists.
-  const formatted = await db.transaction(async tx => {
+  const input = {
+    type: parsed.data.type,
+    level: parsed.data.level,
+    childId: parsed.data.childId ?? null,
+    description: parsed.data.description,
+  };
+  // The audience boundary is command input too: staff-originated incidents
+  // intentionally notify admins only, while admins may notify parents.
+  const binding = {
+    actorUserId: req.user!.userId,
+    command: EMERGENCY_CREATE_COMMAND,
+    targetType: EMERGENCY_CREATE_TARGET_TYPE,
+    targetId: `child:${input.childId ?? "none"}`,
+    payloadFingerprint: fingerprintCommandPayload({ ...input, adminsOnly: !isAdmin }),
+  };
+  const result = await db.transaction(async tx => {
+    // Always take the command-operation lock before any authorization read,
+    // domain write, or notification/outbox lock.
+    await lockCommandOperation(tx, parsed.data.operationId);
+    if (!await isCurrentlyAuthorizedStaff(tx, req.user!.userId, req.user!.role)) {
+      return { kind: "unauthorized" as const };
+    }
+    const existing = await findCommandOperation(tx, parsed.data.operationId);
+    const classification = classifyCommandOperation(existing, binding);
+    if (classification === "collision") return { kind: "collision" as const };
+    if (classification === "replay") {
+      const { primaryId } = replayCommandResult(existing!);
+      const [emergency] = await tx.select().from(emergenciesTable)
+        .where(eq(emergenciesTable.id, primaryId));
+      if (!emergency) throw new Error("Completed emergency result is missing");
+      return { kind: "complete" as const, replayed: true, emergency: await formatEmergency(emergency, tx) };
+    }
+    // AUTHORITATIVE: emergency + initial audit update. REQUIRED
+    // TRANSACTIONAL OUTBOX/INTENT: broadcast intent. Response enrichment also
+    // runs in this transaction, so any required failure rolls back all effects.
     const [created] = await tx.insert(emergenciesTable).values({
-      ...parsed.data,
+      ...input,
       triggeredBy: req.user!.userId,
       status: "active",
     }).returning();
@@ -127,10 +213,51 @@ router.post("/emergencies", authMiddleware, requireRoles(...STAFF_ROLES), async 
       childId: created.childId,
       adminsOnly: !isAdmin,
     });
-    return formatEmergency(created, tx);
+    // The broadcast's notification projections/outbox rows are required
+    // transaction effects. A failure at this boundary must abort the entire
+    // command, rather than reporting an emergency with unresolved intent.
+    await emergencyCreateRouteDependencies.requiredOutboxFailure?.();
+    await emergencyCreateRouteDependencies.beforePersist?.();
+    await persistCommandOperation(tx, {
+      operationId: parsed.data.operationId,
+      ...binding,
+      primaryId: created.id,
+      resultVersion: 1,
+    });
+    return { kind: "complete" as const, replayed: false, emergency: await formatEmergency(created, tx) };
   });
+  if (result.kind === "unauthorized") { res.status(403).json({ error: "Forbidden", message: "Insufficient permissions" }); return; }
+  if (result.kind === "collision") { res.status(409).json({ error: "Conflict", message: "operationId is bound to different command input" }); return; }
+  emergencyCreateRouteDependencies.postCommitBeforeResponse?.(req, res);
+  if (res.destroyed || res.socket?.destroyed) return;
+  res.status(result.replayed ? 200 : 201).json({
+    ...result.emergency,
+    operationId: parsed.data.operationId,
+    outcome: result.replayed ? "already_applied" : "applied",
+  });
+});
 
-  res.status(201).json(formatted);
+router.get("/emergencies/operations/:operationId", authMiddleware, requireRoles(...STAFF_ROLES), async (req, res): Promise<void> => {
+  const operationId = req.params.operationId as string;
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(operationId)) {
+    res.status(400).json({ error: "Bad request", message: "Invalid operation identity" });
+    return;
+  }
+  const emergency = await db.transaction(async tx => {
+    await lockCommandOperation(tx, operationId);
+    if (!await isCurrentlyAuthorizedStaff(tx, req.user!.userId, req.user!.role)) return null;
+    const operation = await findCommandOperation(tx, operationId);
+    if (!operation
+      || operation.actorUserId !== req.user!.userId
+      || operation.command !== EMERGENCY_CREATE_COMMAND
+      || operation.targetType !== EMERGENCY_CREATE_TARGET_TYPE) return null;
+    const { primaryId } = replayCommandResult(operation);
+    const [created] = await tx.select().from(emergenciesTable).where(eq(emergenciesTable.id, primaryId));
+    return created ? formatEmergency(created, tx) : null;
+  });
+  // Do not reveal another actor's operation existence.
+  if (!emergency) { res.status(404).json({ error: "Not found", message: "Operation not found" }); return; }
+  res.json({ ...emergency, operationId, outcome: "already_applied" });
 });
 
 router.get("/emergencies/:id", authMiddleware, requireRoles(...STAFF_ROLES), async (req, res): Promise<void> => {
@@ -223,26 +350,98 @@ router.put("/emergencies/:id/escalate", authMiddleware, requireRoles("super_admi
 router.post("/emergencies/:id/update", authMiddleware, requireRoles(...STAFF_ROLES), async (req, res): Promise<void> => {
   const id = parseInt(req.params.id as string, 10);
   if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
-  const { message, updateType } = req.body as { message: string; updateType?: string };
-  if (!message) { res.status(400).json({ error: "Bad request", message: "message is required" }); return; }
-  if (updateType && !VALID_UPDATE_TYPES.includes(updateType as any)) {
-    res.status(400).json({ error: "Bad request", message: `Invalid updateType. Must be one of: ${VALID_UPDATE_TYPES.join(", ")}` }); return;
+  const parsed = PostEmergencyTimelineUpdateBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Bad request", message: parsed.error.message });
+    return;
   }
-  // REQUIRED PRE-COMMIT VALIDATION: emergency existence. AUTHORITATIVE: update
-  // insertion. RESPONSE ENRICHMENT: author, read before the insert commits.
-  const formatted = await db.transaction(async tx => {
+  const message = parsed.data.message.trim();
+  if (!message) { res.status(400).json({ error: "Bad request", message: "message cannot be blank" }); return; }
+  const updateType = parsed.data.updateType ?? "update";
+  const binding = {
+    actorUserId: req.user!.userId,
+    command: EMERGENCY_TIMELINE_UPDATE_COMMAND,
+    targetType: EMERGENCY_TARGET_TYPE,
+    targetId: String(id),
+    payloadFingerprint: fingerprintCommandPayload({ message, updateType }),
+  };
+  const result = await db.transaction(async tx => {
+    // The operation lock is always first; no emergency/domain row is read or
+    // locked before concurrent submissions sharing this operation ID serialize.
+    await lockCommandOperation(tx, parsed.data.operationId);
+    if (!await isCurrentlyAuthorizedStaff(tx, req.user!.userId, req.user!.role)) {
+      return { kind: "unauthorized" as const };
+    }
+    const existing = await findCommandOperation(tx, parsed.data.operationId);
+    const classification = classifyCommandOperation(existing, binding);
+    if (classification === "collision") return { kind: "collision" as const };
+    if (classification === "replay") {
+      const { primaryId } = replayCommandResult(existing!);
+      const [update] = await tx.select().from(emergencyUpdatesTable).where(and(
+        eq(emergencyUpdatesTable.id, primaryId),
+        eq(emergencyUpdatesTable.emergencyId, id),
+      ));
+      if (!update) throw new Error("Completed emergency update result is missing");
+      return { kind: "complete" as const, replayed: true, update: await formatUpdate(update, tx) };
+    }
     const [emergency] = await tx.select().from(emergenciesTable).where(eq(emergenciesTable.id, id));
-    if (!emergency) return null;
+    if (!emergency) return { kind: "missing" as const };
     const [update] = await tx.insert(emergencyUpdatesTable).values({
       emergencyId: id,
       userId: req.user!.userId,
       message,
-      updateType: (updateType as "update" | "escalation" | "all_clear" | "note") || "update",
+      updateType,
+      eventId: parsed.data.operationId,
     }).returning();
-    return formatUpdate(update, tx);
+    await emergencyUpdateRouteDependencies.beforePersist?.();
+    await persistCommandOperation(tx, {
+      operationId: parsed.data.operationId,
+      ...binding,
+      primaryId: update.id,
+      resultVersion: 1,
+    });
+    return { kind: "complete" as const, replayed: false, update: await formatUpdate(update, tx) };
   });
-  if (!formatted) { res.status(404).json({ error: "Not found", message: "Emergency not found" }); return; }
-  res.status(201).json(formatted);
+  if (result.kind === "unauthorized") { res.status(403).json({ error: "Forbidden", message: "Insufficient permissions" }); return; }
+  if (result.kind === "collision") { res.status(409).json({ error: "Conflict", message: "operationId is bound to different command input" }); return; }
+  if (result.kind === "missing") { res.status(404).json({ error: "Not found", message: "Emergency not found" }); return; }
+  emergencyUpdateRouteDependencies.postCommitBeforeResponse?.(req, res);
+  if (res.destroyed || res.socket?.destroyed) return;
+  res.status(result.replayed ? 200 : 201).json({
+    ...result.update,
+    operationId: parsed.data.operationId,
+    outcome: result.replayed ? "already_applied" : "applied",
+  });
+});
+
+router.get("/emergencies/:id/update-operations/:operationId", authMiddleware, requireRoles(...STAFF_ROLES), async (req, res): Promise<void> => {
+  const id = parseInt(req.params.id as string, 10);
+  const operationId = req.params.operationId as string;
+  if (isNaN(id) || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(operationId)) {
+    res.status(400).json({ error: "Bad request", message: "Invalid operation identity" });
+    return;
+  }
+  const result = await db.transaction(async tx => {
+    await lockCommandOperation(tx, operationId);
+    if (!await isCurrentlyAuthorizedStaff(tx, req.user!.userId, req.user!.role)) return null;
+    const operation = await findCommandOperation(tx, operationId);
+    if (!operation
+      || operation.actorUserId !== req.user!.userId
+      || operation.command !== EMERGENCY_TIMELINE_UPDATE_COMMAND
+      || operation.targetType !== EMERGENCY_TARGET_TYPE
+      || operation.targetId !== String(id)) return null;
+    const { primaryId } = replayCommandResult(operation);
+    const [emergency] = await tx.select({ id: emergenciesTable.id }).from(emergenciesTable)
+      .where(eq(emergenciesTable.id, id));
+    if (!emergency) return null;
+    const [update] = await tx.select().from(emergencyUpdatesTable).where(and(
+      eq(emergencyUpdatesTable.id, primaryId),
+      eq(emergencyUpdatesTable.emergencyId, id),
+    ));
+    return update ? formatUpdate(update, tx) : null;
+  });
+  if (!result) { res.status(404).json({ error: "Not found", message: "Operation not found" }); return; }
+  res.json({ ...result, operationId, outcome: "already_applied" });
 });
 
 router.post("/emergencies/:id/family-update", authMiddleware, requireRoles("support", "admin", "super_admin"), async (req, res): Promise<void> => {

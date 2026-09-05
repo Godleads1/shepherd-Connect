@@ -690,11 +690,67 @@ export interface PickupDelegate {
 }
 
 export interface CreatePickupDelegateBody {
+  operationId: string;
   childId: number;
+  childIds?: number[];
   name: string;
   phone: string;
   photoUrl?: string | null;
 }
+
+export type PickupDelegateOperationResultOutcome =
+  (typeof PickupDelegateOperationResultOutcome)[keyof typeof PickupDelegateOperationResultOutcome];
+
+export const PickupDelegateOperationResultOutcome = {
+  applied: "applied",
+  already_applied: "already_applied",
+} as const;
+
+export type PickupDelegateOperationResultOtpStatus =
+  (typeof PickupDelegateOperationResultOtpStatus)[keyof typeof PickupDelegateOperationResultOtpStatus];
+
+export const PickupDelegateOperationResultOtpStatus = {
+  active: "active",
+  expired: "expired",
+} as const;
+
+export type PickupDelegateOperationResult = PickupDelegate & {
+  operationId: string;
+  outcome: PickupDelegateOperationResultOutcome;
+  childIds: number[];
+  otpStatus: PickupDelegateOperationResultOtpStatus;
+};
+
+export interface FamilyAssistDelegateBody {
+  operationId: string;
+  childId: number;
+  /** @minLength 1 */
+  delegateName: string;
+  /** @minLength 1 */
+  delegatePhone: string;
+}
+
+export type FamilyAssistDelegateOperationResultOutcome =
+  (typeof FamilyAssistDelegateOperationResultOutcome)[keyof typeof FamilyAssistDelegateOperationResultOutcome];
+
+export const FamilyAssistDelegateOperationResultOutcome = {
+  applied: "applied",
+  already_applied: "already_applied",
+} as const;
+
+export type FamilyAssistDelegateOperationResultOtpStatus =
+  (typeof FamilyAssistDelegateOperationResultOtpStatus)[keyof typeof FamilyAssistDelegateOperationResultOtpStatus];
+
+export const FamilyAssistDelegateOperationResultOtpStatus = {
+  active: "active",
+  expired: "expired",
+} as const;
+
+export type FamilyAssistDelegateOperationResult = PickupDelegate & {
+  operationId: string;
+  outcome: FamilyAssistDelegateOperationResultOutcome;
+  otpStatus: FamilyAssistDelegateOperationResultOtpStatus;
+};
 
 export interface VerifyOtpBody {
   otpCode: string;
@@ -937,6 +993,63 @@ export interface FamilyEmergencyUpdate {
   publishedAt: string;
 }
 
+export type EmergencyTimelineUpdateInputUpdateType =
+  (typeof EmergencyTimelineUpdateInputUpdateType)[keyof typeof EmergencyTimelineUpdateInputUpdateType];
+
+export const EmergencyTimelineUpdateInputUpdateType = {
+  update: "update",
+  escalation: "escalation",
+  all_clear: "all_clear",
+  note: "note",
+} as const;
+
+export interface EmergencyTimelineUpdateInput {
+  operationId: string;
+  /** @minLength 1 */
+  message: string;
+  updateType?: EmergencyTimelineUpdateInputUpdateType;
+}
+
+export type EmergencyTimelineUpdateUpdateType =
+  (typeof EmergencyTimelineUpdateUpdateType)[keyof typeof EmergencyTimelineUpdateUpdateType];
+
+export const EmergencyTimelineUpdateUpdateType = {
+  update: "update",
+  escalation: "escalation",
+  all_clear: "all_clear",
+  note: "note",
+} as const;
+
+/**
+ * @nullable
+ */
+export type EmergencyTimelineUpdateUser = { [key: string]: unknown } | null;
+
+export interface EmergencyTimelineUpdate {
+  id: number;
+  emergencyId: number;
+  userId: number;
+  message: string;
+  updateType: EmergencyTimelineUpdateUpdateType;
+  eventId: string;
+  createdAt: string;
+  /** @nullable */
+  user: EmergencyTimelineUpdateUser;
+}
+
+export type EmergencyTimelineUpdateResultOutcome =
+  (typeof EmergencyTimelineUpdateResultOutcome)[keyof typeof EmergencyTimelineUpdateResultOutcome];
+
+export const EmergencyTimelineUpdateResultOutcome = {
+  applied: "applied",
+  already_applied: "already_applied",
+} as const;
+
+export type EmergencyTimelineUpdateResult = EmergencyTimelineUpdate & {
+  operationId: string;
+  outcome: EmergencyTimelineUpdateResultOutcome;
+};
+
 export type EmergencyType = (typeof EmergencyType)[keyof typeof EmergencyType];
 
 export const EmergencyType = {
@@ -1002,11 +1115,25 @@ export const CreateEmergencyBodyLevel = {
 } as const;
 
 export interface CreateEmergencyBody {
+  operationId: string;
   type: CreateEmergencyBodyType;
   level: CreateEmergencyBodyLevel;
   childId?: number | null;
   description: string;
 }
+
+export type TriggerEmergencyResponseOutcome =
+  (typeof TriggerEmergencyResponseOutcome)[keyof typeof TriggerEmergencyResponseOutcome];
+
+export const TriggerEmergencyResponseOutcome = {
+  applied: "applied",
+  already_applied: "already_applied",
+} as const;
+
+export type TriggerEmergencyResponse = Emergency & {
+  operationId: string;
+  outcome: TriggerEmergencyResponseOutcome;
+};
 
 export type UpdateEmergencyBodyStatus =
   (typeof UpdateEmergencyBodyStatus)[keyof typeof UpdateEmergencyBodyStatus];
@@ -1174,6 +1301,84 @@ export interface CreateClassChangeRequestBody {
   currentClassId?: number | null;
   reason?: string | null;
 }
+
+export type SafeguardingRecordInputStatus =
+  (typeof SafeguardingRecordInputStatus)[keyof typeof SafeguardingRecordInputStatus];
+
+export const SafeguardingRecordInputStatus = {
+  clear: "clear",
+  pending: "pending",
+  expired: "expired",
+  not_submitted: "not_submitted",
+} as const;
+
+export interface SafeguardingRecordInput {
+  operationId: string;
+  teacherUserId: number;
+  /** @minLength 1 */
+  checkType: string;
+  referenceNumber?: string;
+  issuedDate?: string;
+  expiryDate?: string;
+  status?: SafeguardingRecordInputStatus;
+  notes?: string;
+}
+
+export type SafeguardingRecordStatus =
+  (typeof SafeguardingRecordStatus)[keyof typeof SafeguardingRecordStatus];
+
+export const SafeguardingRecordStatus = {
+  clear: "clear",
+  pending: "pending",
+  expired: "expired",
+  not_submitted: "not_submitted",
+} as const;
+
+/**
+ * @nullable
+ */
+export type SafeguardingRecordTeacher = {
+  id?: number;
+  firstName?: string;
+  lastName?: string;
+  email?: string;
+} | null;
+
+export interface SafeguardingRecord {
+  id: number;
+  teacherUserId: number;
+  checkType: string;
+  /** @nullable */
+  referenceNumber?: string | null;
+  /** @nullable */
+  issuedDate?: string | null;
+  /** @nullable */
+  expiryDate?: string | null;
+  status: SafeguardingRecordStatus;
+  /** @nullable */
+  notes?: string | null;
+  /** @nullable */
+  createdBy?: number | null;
+  createdAt: string;
+  updatedAt: string;
+  /** @nullable */
+  teacher?: SafeguardingRecordTeacher;
+  isExpiringSoon?: boolean;
+  isExpired?: boolean;
+}
+
+export type SafeguardingOperationResultOutcome =
+  (typeof SafeguardingOperationResultOutcome)[keyof typeof SafeguardingOperationResultOutcome];
+
+export const SafeguardingOperationResultOutcome = {
+  applied: "applied",
+  already_applied: "already_applied",
+} as const;
+
+export type SafeguardingOperationResult = SafeguardingRecord & {
+  operationId: string;
+  outcome: SafeguardingOperationResultOutcome;
+};
 
 export type ListUsersParams = {
   role?: string;

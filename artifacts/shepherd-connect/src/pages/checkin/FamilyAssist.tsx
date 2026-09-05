@@ -3,6 +3,12 @@ import { useToast } from "@/hooks/use-toast";
 import { Input } from "@/components/ui/input";
 import { Search, UserPlus, ShieldCheck, Check, Copy, AlertCircle, Baby, Users2, CheckCircle, Printer, Plus, Trash2 } from "lucide-react";
 import { useGeneralSettings } from "@/components/AnnouncementBanner";
+import {
+  clearPendingFamilyAssistDelegateOperation,
+  familyAssistActorId,
+  readPendingFamilyAssistDelegateOperation,
+  writePendingFamilyAssistDelegateOperation,
+} from "./family-assist-delegate-operation";
 
 type SlotChoice = "7am" | "10:30am" | "both";
 
@@ -77,6 +83,18 @@ export default function FamilyAssist() {
   const [generatedOtp, setGeneratedOtp] = useState<string | null>(null);
   const [copiedOtp, setCopiedOtp] = useState(false);
   const [generatingDelegate, setGeneratingDelegate] = useState(false);
+  // Deliberately persist only the user-scoped command identity. The delegate
+  // payload, phone number, and OTP never enter browser persistence.
+  const [pendingDelegateOperationId, setPendingDelegateOperationId] = useState<string | null>(() => {
+    return readPendingFamilyAssistDelegateOperation(familyAssistActorId(localStorage.getItem("token")));
+  });
+
+  const savePendingDelegateOperation = (operationId: string | null) => {
+    const actorId = familyAssistActorId(localStorage.getItem("token"));
+    if (operationId) writePendingFamilyAssistDelegateOperation(actorId, operationId);
+    else clearPendingFamilyAssistDelegateOperation(actorId);
+    setPendingDelegateOperationId(operationId);
+  };
 
   type GuestChildForm = { firstName: string; lastName: string; dob: string; gender: "male" | "female" };
   const blankChild = (): GuestChildForm => ({ firstName: "", lastName: "", dob: "", gender: "male" });
@@ -130,19 +148,48 @@ export default function FamilyAssist() {
 
   const handleGenerateDelegate = async () => {
     if (!delegateFor || !delegateName.trim() || !delegatePhone.trim()) return;
+    // A new UUID is minted only when this logical submission is first
+    // confirmed. Unknown-outcome retries reuse the persisted UUID.
+    const operationId = pendingDelegateOperationId ?? crypto.randomUUID();
+    if (!pendingDelegateOperationId) savePendingDelegateOperation(operationId);
     setGeneratingDelegate(true);
     try {
       const res = await apiCall("/api/family-assist/delegate", "POST", {
+        operationId,
         childId: delegateFor.id,
         delegateName: delegateName.trim(),
         delegatePhone: delegatePhone.trim(),
       });
       setGeneratedOtp(res.otpCode);
+      savePendingDelegateOperation(null);
     } catch (e: any) {
-      toast({ variant: "destructive", title: e.message || "Failed to generate OTP" });
+      // A transport failure does not prove that the command failed. Keep the
+      // same identity for explicit retry or status reconciliation.
+      toast({ variant: "destructive", title: "Submission outcome unknown", description: "Retry this submission or check its status before starting a new one." });
     } finally {
       setGeneratingDelegate(false);
     }
+  };
+
+  const handleCheckDelegateStatus = async () => {
+    if (!pendingDelegateOperationId) return;
+    setGeneratingDelegate(true);
+    try {
+      const result = await apiCall(`/api/family-assist/delegate/operations/${pendingDelegateOperationId}`, "GET");
+      setGeneratedOtp(result.otpCode);
+      savePendingDelegateOperation(null);
+    } catch (e: any) {
+      toast({ variant: "destructive", title: e.message || "No completed submission found yet" });
+    } finally {
+      setGeneratingDelegate(false);
+    }
+  };
+
+  const handleStartNewDelegateSubmission = () => {
+    savePendingDelegateOperation(null);
+    setGeneratedOtp(null);
+    setDelegateName("");
+    setDelegatePhone("");
   };
 
   const handleGuestSubmit = async (e: React.FormEvent) => {
@@ -362,6 +409,25 @@ export default function FamilyAssist() {
                   style={{ background: "linear-gradient(135deg, #1e3a8a, #1d4ed8)" }}>
                   {generatingDelegate ? "Generating…" : "Generate OTP & Send SMS"}
                 </button>
+                {pendingDelegateOperationId && (
+                  <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 space-y-2">
+                    <p className="text-xs text-amber-800">A previous submission has an unknown outcome.</p>
+                    <div className="flex gap-2">
+                      <button type="button" onClick={handleGenerateDelegate} disabled={generatingDelegate}
+                        className="flex-1 h-9 rounded-lg bg-amber-600 text-xs font-bold text-white disabled:opacity-50">
+                        Retry same submission
+                      </button>
+                      <button type="button" onClick={handleCheckDelegateStatus} disabled={generatingDelegate}
+                        className="flex-1 h-9 rounded-lg border border-amber-400 text-xs font-bold text-amber-800 disabled:opacity-50">
+                        Check status
+                      </button>
+                    </div>
+                    <button type="button" onClick={handleStartNewDelegateSubmission}
+                      className="w-full text-xs font-semibold text-amber-800 underline">
+                      Start new submission
+                    </button>
+                  </div>
+                )}
               </div>
             ) : (
               <div className="text-center space-y-4">

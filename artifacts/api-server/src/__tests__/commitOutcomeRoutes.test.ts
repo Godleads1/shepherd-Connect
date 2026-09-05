@@ -47,6 +47,15 @@ vi.mock("../services/push", () => ({
   pushToUsers: vi.fn().mockResolvedValue(undefined),
 }));
 
+vi.mock("../services/commandOperations", () => ({
+  lockCommandOperation: vi.fn().mockResolvedValue(undefined),
+  findCommandOperation: vi.fn().mockResolvedValue(null),
+  fingerprintCommandPayload: vi.fn(() => "deterministic-fingerprint"),
+  classifyCommandOperation: vi.fn(() => "new"),
+  persistCommandOperation: vi.fn().mockResolvedValue(undefined),
+  replayCommandResult: vi.fn(),
+}));
+
 import attendanceRouter from "../routes/attendance";
 import safeguardingRouter from "../routes/safeguarding";
 import substituteRequestsRouter from "../routes/substituteRequests";
@@ -248,10 +257,28 @@ describe("mutation response reads share the authoritative transaction", () => {
       status: "clear",
       expiryDate: null,
     });
+    const selectResults: unknown[] = [
+      [{ role: "super_admin", status: "active", isActive: true, secondaryRoles: null }],
+      [{ role: "teacher", status: "active", isActive: true }],
+      new Error("injected response enrichment failure"),
+    ];
+    mocks.tx.select.mockImplementation(() => ({
+      from: vi.fn(() => ({
+        where: vi.fn(() => {
+          const result = selectResults.shift();
+          return result instanceof Error ? Promise.reject(result) : Promise.resolve(result);
+        }),
+      })),
+    }));
 
     await request(appFor(safeguardingRouter))
       .post("/api/safeguarding")
-      .send({ teacherUserId: 8, checkType: "DBS", status: "clear" })
+      .send({
+        operationId: "55555555-5555-4555-8555-555555555555",
+        teacherUserId: 8,
+        checkType: "DBS",
+        status: "clear",
+      })
       .expect(500);
 
     expect(mocks.tx.insert).toHaveBeenCalledOnce();

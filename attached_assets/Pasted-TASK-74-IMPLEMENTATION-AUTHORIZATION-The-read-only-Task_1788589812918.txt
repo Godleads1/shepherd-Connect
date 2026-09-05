@@ -1,0 +1,455 @@
+TASK #74 — IMPLEMENTATION AUTHORIZATION
+
+The read-only Task #74 design has been reviewed and is APPROVED for implementation, subject to the gates below.
+
+Implement ONLY Task #74.
+
+DO NOT start Phase 4.
+DO NOT implement Task #75.
+DO NOT introduce universal idempotency middleware.
+DO NOT modify unrelated routes.
+
+APPROVED ROUTES:
+
+1. POST /api/emergencies
+2. POST /api/emergencies/:id/update
+3. POST /api/family-assist/delegate
+4. POST /api/pickup-delegates
+5. POST /api/safeguarding
+
+==================================================
+NON-NEGOTIABLE GUARDRAILS
+==================================================
+
+1. Do not modify Phase 2 checkout/idempotency implementation.
+
+2. Do not modify:
+- attendance
+- custody handover
+- pickup request creation
+- teacher allocations
+- authentication/session architecture
+- role switching
+- offline queue
+- duplicate-child architecture
+- family deletion
+- child deletion
+- SSE architecture
+- notification workers
+- Task #75
+- production
+
+3. No universal Express idempotency middleware.
+
+4. No automatic generation of a new operation UUID on retry.
+
+5. A client-generated operation ID represents ONE logical submission.
+Every retry/reconciliation of that submission must reuse the same ID.
+
+6. Payload equality must NEVER be used as the identity of a command.
+Payload fingerprints are only substitution/binding protection.
+
+7. Same operation ID + different actor/command/target/payload must never execute another mutation.
+
+8. Required durable notification/outbox persistence is authoritative only when explicitly classified as required.
+Provider delivery is never authoritative.
+
+9. Do not store sensitive request payloads in command_operations.result_json.
+
+10. Do not fabricate operation IDs for historical records.
+
+11. Do not backfill historical domain records.
+
+12. Do not alter production schema/data.
+
+==================================================
+IMPLEMENTATION GATES
+==================================================
+
+Before implementing the pickup-delegate route, resolve and document the photo-binding boundary.
+
+If photo binding is required for successful delegate creation:
+
+- it must participate in the authoritative success boundary, OR
+- there must be an equally durable mechanism guaranteeing the command cannot report success while required photo binding is unresolved.
+
+Do NOT silently weaken this requirement.
+
+If the existing photo-binding helper cannot safely participate, STOP that route implementation and report the blocker instead of inventing a storage redesign.
+
+For OTP:
+
+Preserve the existing compatibility behavior where safe.
+
+An original authorized actor may recover an unexpired OTP from the durable delegate record after response loss/reload.
+
+Do not generate a new OTP during replay.
+
+Do not store OTP in command_operations.result_json.
+
+Do not expose OTP through generic operation inspection/list endpoints.
+
+If OTP expiry makes the original OTP unavailable, return the completed delegate result with an explicit expired/null state rather than generating a replacement automatically.
+
+==================================================
+IMPLEMENTATION ARCHITECTURE
+==================================================
+
+Create the narrowly scoped command_operations mechanism described in the approved design.
+
+The shared service may own ONLY:
+
+- operation lock
+- operation lookup
+- actor/command/target binding
+- payload fingerprint comparison
+- collision handling
+- result persistence
+- replay classification
+
+Each route adapter remains responsible for:
+
+- validation
+- authorization
+- canonicalization
+- domain transaction
+- domain-specific locks
+- required outbox/notification intent
+- response reconstruction
+- reconciliation authorization
+- sensitive-data filtering
+
+Do not create generic domain behavior inside the shared operation service.
+
+==================================================
+IMPLEMENTATION ORDER
+==================================================
+
+Implement one route at a time:
+
+PHASE A
+POST /api/emergencies/:id/update
+
+PHASE B
+POST /api/safeguarding
+
+PHASE C
+POST /api/emergencies
+
+PHASE D
+POST /api/family-assist/delegate
+
+PHASE E
+POST /api/pickup-delegates
+
+After each route:
+
+1. Run its focused tests.
+2. Verify schema/API/client consistency.
+3. Verify same-ID replay.
+4. Verify changed-payload conflict.
+5. Verify actor binding.
+6. Verify no duplicate notification/audit effect.
+7. Only then proceed to the next route.
+
+Do not implement all five first and test afterward.
+
+==================================================
+OPERATION RESULT
+==================================================
+
+Persist only the minimum data required to replay/reconcile.
+
+Examples:
+
+emergency:
+{ primaryId }
+
+emergency update:
+{ primaryId }
+
+family-assist delegate:
+{ primaryId }
+
+pickup delegate:
+{
+  primaryId,
+  createdIds,
+  childIds
+}
+
+safeguarding:
+{ primaryId }
+
+Use a schema/version discriminator so future result decoding is deterministic.
+
+Never store:
+
+- OTP
+- phone numbers
+- emergency narrative
+- safeguarding notes/reference
+- medical information
+- biometric information
+- photo contents
+- raw request body
+- enriched child/family/user data
+- authorization reasoning
+
+==================================================
+CONCURRENCY
+==================================================
+
+Operation lock MUST be acquired before command-specific domain locks.
+
+For the same operation ID submitted concurrently:
+
+Request B must wait for Request A.
+
+If A commits:
+- B replays A's result
+- B performs no second domain mutation
+- B produces no duplicate audit/outbox effect
+- B does not generate another OTP
+
+If A rolls back:
+- B may execute the command once.
+
+Do not implement:
+
+SELECT operation
+IF absent
+INSERT operation
+
+without an atomic uniqueness/claim mechanism.
+
+==================================================
+POST RESPONSE CONTRACT
+==================================================
+
+Add operationId to the five POST request contracts.
+
+Successful first execution:
+
+201
+{
+  operationId,
+  outcome: "applied",
+  ...existing response...
+}
+
+Same operation replay:
+
+200
+{
+  operationId,
+  outcome: "already_applied",
+  ...equivalent authorized response...
+}
+
+Binding mismatch:
+
+409
+
+Do not silently create another resource.
+
+Preserve existing route semantics wherever possible.
+
+==================================================
+RECONCILIATION
+==================================================
+
+Implement route-specific reconciliation endpoints.
+
+Do not create:
+
+GET /api/operations/:id
+
+Each reconciliation endpoint must:
+
+- authenticate
+- verify current authorization
+- bind operation to actor
+- return only authorized result
+- not reveal existence to unauthorized actors
+- not execute the command
+- not generate another operation ID
+
+A completed operation whose actor is no longer authorized must not expose sensitive prior data.
+
+==================================================
+FRONTEND
+==================================================
+
+Generate the UUID when the user confirms a new logical submission.
+
+Do NOT generate it:
+- on render
+- per HTTP attempt
+- during retry
+- during reconciliation
+
+Persist only minimal pending identity information.
+
+Unknown transport outcomes must enter:
+
+unknown/reconciling
+
+rather than definitive failure.
+
+Retry uses the SAME operation ID.
+
+Reload preserves/reconciles the SAME operation ID.
+
+Provide explicit distinction between:
+- Retry same submission
+- Check status
+- Start new submission
+
+Do not automatically start a new operation after timeout/network failure.
+
+==================================================
+RESPONSE-LOSS TESTING
+==================================================
+
+This is mandatory.
+
+For EACH of the five routes implement a genuine test-only post-commit response-loss seam.
+
+The test must represent:
+
+1. Real HTTP request.
+2. Transaction commits.
+3. Domain record exists.
+4. Operation record exists.
+5. HTTP connection is terminated/dropped before the client receives the response.
+6. Client observes an unknown transport outcome.
+7. Client retries with the SAME operation ID.
+8. Server returns the original logical result as already_applied.
+9. Exactly ONE domain mutation exists.
+10. Exactly ONE audit/outbox effect exists.
+11. No duplicate OTP is generated.
+12. Optional SMS/provider work is not repeated by replay.
+
+A mocked function exception is NOT sufficient proof.
+
+If the current test harness cannot perform the connection-drop boundary accurately, STOP and report that limitation rather than claiming the test proves response-loss safety.
+
+==================================================
+REQUIRED TEST MATRIX
+==================================================
+
+For each route test:
+
+- first request
+- sequential same-ID retry
+- concurrent same-ID retry
+- changed payload
+- changed target
+- different actor
+- validation failure
+- authorization failure
+- rollback before commit
+- reconciliation
+- unauthorized reconciliation
+- reload recovery
+- intentional second operation with a NEW ID
+- optional provider failure
+- actual post-commit response loss
+
+For pickup delegates additionally test:
+
+- one child
+- multiple children
+- canonical child ordering
+- duplicate child IDs in request
+- photo present
+- photo absent
+- photo binding failure
+- OTP replay
+- expired OTP
+- no OTP-based row discovery
+
+For emergency create additionally verify:
+
+- exactly one emergency
+- exactly one initial audit/update row
+- exactly one logical required notification/outbox effect
+
+For emergency update additionally verify:
+
+- exactly one timeline row
+- eventId equals operationId
+
+For safeguarding additionally verify:
+
+- target user is actually an eligible teacher
+- no sensitive request data is stored in command_operations
+
+==================================================
+VALIDATION AFTER EACH ROUTE
+==================================================
+
+Run:
+
+- focused route tests
+- concurrency tests
+- operation replay tests
+- response-loss tests
+- API contract/type generation checks
+- backend typecheck
+- frontend typecheck where affected
+
+After all five:
+
+- full PostgreSQL test suite
+- frontend reliability tests
+- full root test gate
+- typechecks
+- production build
+- security/architecture review
+- git diff review
+- workflow/preview health check
+
+Do not deploy.
+
+==================================================
+STOP CONDITIONS
+==================================================
+
+STOP implementation and report the blocker if:
+
+- photo binding cannot be safely incorporated
+- operation binding can be bypassed
+- same-ID concurrency can execute twice
+- response replay requires storing sensitive data
+- reconciliation can expose another actor's result
+- a route requires a broader schema redesign than approved
+- a genuine response-loss test cannot be implemented
+- an unrelated route must be modified to make the design work
+- production changes appear necessary
+
+Do not solve these by broadening scope.
+
+==================================================
+FINAL REPORT
+==================================================
+
+At completion provide:
+
+1. Exact files changed.
+2. Exact database schema/migration changes.
+3. Exact API contract changes.
+4. Exact frontend changes.
+5. Route-by-route operation semantics.
+6. Test counts and results.
+7. Evidence for genuine post-commit response-loss testing.
+8. Evidence of concurrent same-ID safety.
+9. Evidence of changed-payload collision safety.
+10. Evidence of actor-bound reconciliation.
+11. Evidence that sensitive data is absent from result_json.
+12. Confirmation that Phase 2 checkout is untouched.
+13. Confirmation that Task #75 and Phase 4 were not started.
+14. Confirmation that production was not modified or deployed.
+
+Do not claim Task #74 complete unless all five routes pass the required response-loss and concurrency tests.

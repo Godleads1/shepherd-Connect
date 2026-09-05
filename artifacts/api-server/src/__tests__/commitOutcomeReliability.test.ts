@@ -84,6 +84,7 @@ vi.mock("@workspace/db", () => {
     },
     emergenciesTable: table,
     emergencyUpdatesTable: table,
+    commandOperationsTable: table,
     childrenTable: table,
     usersTable: table,
     notificationsTable: table,
@@ -128,7 +129,7 @@ vi.mock("../lib/parentScope", () => ({
 const now = new Date("2026-01-01T10:00:00Z");
 const user = {
   id: 1, firstName: "Admin", lastName: "User", role: "admin",
-  email: "admin@example.com", photoUrl: null, isActive: true,
+  email: "admin@example.com", photoUrl: null, isActive: true, status: "active", secondaryRoles: null,
 };
 const recipient = {
   id: 2, firstName: "Parent", lastName: "User", role: "parent",
@@ -208,14 +209,14 @@ const classBody = {
 const cases: RouteCase[] = [
   {
     name: "POST /emergencies", method: "post", path: "/emergencies",
-    body: { type: "medical", level: "L1", description: "Incident" },
+    body: { operationId: "11111111-1111-4111-8111-111111111111", type: "medical", level: "L1", description: "Incident" },
     arrangeFailure: () => {
       state.txMutation.push([emergency], []);
-      state.txSelect.push(enrichmentError());
+      state.txSelect.push([user], [], enrichmentError());
     },
     arrangeSuccess: () => {
       state.txMutation.push([emergency], []);
-      state.txSelect.push([user]);
+      state.txSelect.push([user], [], [user]);
     },
     expectedStatus: 201,
     assertResponse: body => expect(body).toMatchObject({ id: 10, child: null, triggeredByUser: { id: 1 } }),
@@ -250,14 +251,14 @@ const cases: RouteCase[] = [
   },
   {
     name: "POST /emergencies/:id/update", method: "post", path: "/emergencies/10/update",
-    body: { message: "Update" },
+    body: { operationId: "55555555-5555-4555-8555-555555555555", message: "Update" },
     arrangeFailure: () => {
-      state.txSelect.push([emergency], enrichmentError());
-      state.txMutation.push([emergencyUpdate]);
+      state.txSelect.push([user], [], [emergency], enrichmentError());
+      state.txMutation.push([emergencyUpdate], []);
     },
     arrangeSuccess: () => {
-      state.txSelect.push([emergency], [user]);
-      state.txMutation.push([emergencyUpdate]);
+      state.txSelect.push([user], [], [emergency], [user]);
+      state.txMutation.push([emergencyUpdate], []);
     },
     expectedStatus: 201,
     assertResponse: body => expect(body).toMatchObject({ id: 11, user: { id: 1 } }),

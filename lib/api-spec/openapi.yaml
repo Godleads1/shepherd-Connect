@@ -37,6 +37,8 @@ tags:
     description: Parent feedback
   - name: appraisals
     description: Child appraisals
+  - name: safeguarding
+    description: Safeguarding and DBS records
   - name: emergencies
     description: Emergency management
   - name: auditLogs
@@ -1167,6 +1169,59 @@ paths:
                 required: [qrCode, familyCode, familyId]
 
   # PICKUP DELEGATES
+  /family-assist/delegate:
+    post:
+      operationId: createFamilyAssistDelegate
+      tags: [pickupDelegates]
+      summary: Create an immediately approved delegate while assisting a family
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FamilyAssistDelegateBody"
+      responses:
+        "201":
+          description: Delegate was created for this new operation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FamilyAssistDelegateOperationResult"
+        "200":
+          description: This operation was already applied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FamilyAssistDelegateOperationResult"
+        "409":
+          description: operationId is bound to different command input
+
+  /family-assist/delegate/operations/{operationId}:
+    get:
+      operationId: getFamilyAssistDelegateOperation
+      tags: [pickupDelegates]
+      summary: Reconcile a family assist delegate operation whose response was not received
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: operationId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Original authorized family assist delegate result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FamilyAssistDelegateOperationResult"
+        "404":
+          description: No matching family assist delegate operation exists for this actor
+
   /pickup-delegates:
     get:
       operationId: listPickupDelegates
@@ -1190,6 +1245,8 @@ paths:
       operationId: createPickupDelegate
       tags: [pickupDelegates]
       summary: Create pickup delegate and generate OTP
+      security:
+        - bearerAuth: []
       requestBody:
         required: true
         content:
@@ -1202,7 +1259,37 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/PickupDelegate"
+                $ref: "#/components/schemas/PickupDelegateOperationResult"
+        "200":
+          description: Original delegate operation replayed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PickupDelegateOperationResult"
+
+  /pickup-delegates/operations/{operationId}:
+    get:
+      operationId: getPickupDelegateOperation
+      tags: [pickupDelegates]
+      summary: Reconcile a pickup delegate operation whose original response was not received
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: operationId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Original authorized pickup delegate result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PickupDelegateOperationResult"
+        "404":
+          description: No matching authorized operation exists
 
   /pickup-delegates/verify-otp:
     post:
@@ -1482,6 +1569,8 @@ paths:
       operationId: triggerEmergency
       tags: [emergencies]
       summary: Trigger an emergency
+      security:
+        - bearerAuth: []
       requestBody:
         required: true
         content:
@@ -1490,11 +1579,43 @@ paths:
               $ref: "#/components/schemas/CreateEmergencyBody"
       responses:
         "201":
-          description: Emergency triggered
+          description: Emergency was applied for this new operation
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Emergency"
+                $ref: "#/components/schemas/TriggerEmergencyResponse"
+        "200":
+          description: This operation was already applied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TriggerEmergencyResponse"
+        "409":
+          description: operationId is bound to different command input
+
+  /emergencies/operations/{operationId}:
+    get:
+      operationId: getEmergencyOperation
+      tags: [emergencies]
+      summary: Reconcile an emergency trigger operation whose response was not received
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: operationId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Original authorized emergency trigger result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TriggerEmergencyResponse"
+        "404":
+          description: No matching emergency trigger operation exists for this actor
 
   /emergencies/{id}:
     get:
@@ -1537,6 +1658,70 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Emergency"
+
+  /emergencies/{id}/update:
+    post:
+      operationId: postEmergencyTimelineUpdate
+      tags: [emergencies]
+      summary: Add one idempotent emergency timeline update
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EmergencyTimelineUpdateInput"
+      responses:
+        "200":
+          description: The same logical update was already applied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmergencyTimelineUpdateResult"
+        "201":
+          description: Timeline update applied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmergencyTimelineUpdateResult"
+        "409":
+          description: Operation ID is already bound to different command input
+
+  /emergencies/{id}/update-operations/{operationId}:
+    get:
+      operationId: reconcileEmergencyTimelineUpdate
+      tags: [emergencies]
+      summary: Reconcile an emergency timeline update after an unknown transport outcome
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: operationId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Authorized completed operation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmergencyTimelineUpdateResult"
+        "404":
+          description: No matching operation is visible to this actor
 
   /emergencies/{id}/family-update:
     post:
@@ -2231,6 +2416,58 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ParentPickupRequestResult"
+
+  /safeguarding:
+    post:
+      operationId: createSafeguardingRecord
+      tags: [safeguarding]
+      summary: Create a safeguarding record
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SafeguardingRecordInput"
+      responses:
+        "201":
+          description: Safeguarding record applied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SafeguardingOperationResult"
+        "200":
+          description: Safeguarding record already applied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SafeguardingOperationResult"
+        "409":
+          description: Operation ID is bound to different input
+  /safeguarding/operations/{operationId}:
+    get:
+      operationId: getSafeguardingOperation
+      tags: [safeguarding]
+      summary: Reconcile a safeguarding record operation
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: operationId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Original authorized safeguarding result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SafeguardingOperationResult"
+        "404":
+          description: No matching authorized operation exists
 
 components:
   parameters:
@@ -3333,8 +3570,15 @@ components:
     CreatePickupDelegateBody:
       type: object
       properties:
+        operationId:
+          type: string
+          format: uuid
         childId:
           type: integer
+        childIds:
+          type: array
+          items:
+            type: integer
         name:
           type: string
         phone:
@@ -3343,9 +3587,62 @@ components:
           type: string
           nullable: true
       required:
+        - operationId
         - childId
         - name
         - phone
+
+    PickupDelegateOperationResult:
+      allOf:
+        - $ref: "#/components/schemas/PickupDelegate"
+        - type: object
+          required: [operationId, outcome, childIds, otpStatus]
+          properties:
+            operationId:
+              type: string
+              format: uuid
+            outcome:
+              type: string
+              enum: [applied, already_applied]
+            childIds:
+              type: array
+              items:
+                type: integer
+            otpStatus:
+              type: string
+              enum: [active, expired]
+
+    FamilyAssistDelegateBody:
+      type: object
+      required: [operationId, childId, delegateName, delegatePhone]
+      properties:
+        operationId:
+          type: string
+          format: uuid
+        childId:
+          type: integer
+        delegateName:
+          type: string
+          minLength: 1
+        delegatePhone:
+          type: string
+          minLength: 1
+
+    FamilyAssistDelegateOperationResult:
+      allOf:
+        - $ref: "#/components/schemas/PickupDelegate"
+        - type: object
+          required: [operationId, outcome, otpStatus]
+          properties:
+            operationId:
+              type: string
+              format: uuid
+            outcome:
+              type: string
+              enum: [applied, already_applied]
+            otpStatus:
+              type: string
+              enum: [active, expired]
 
     VerifyOtpBody:
       type: object
@@ -3683,6 +3980,60 @@ components:
           format: date-time
       required: [id, emergencyId, childId, childFirstName, status, instructions, publishedAt]
 
+    EmergencyTimelineUpdateInput:
+      type: object
+      additionalProperties: false
+      properties:
+        operationId:
+          type: string
+          format: uuid
+        message:
+          type: string
+          minLength: 1
+        updateType:
+          type: string
+          enum: [update, escalation, all_clear, note]
+          default: update
+      required: [operationId, message]
+
+    EmergencyTimelineUpdate:
+      type: object
+      properties:
+        id:
+          type: integer
+        emergencyId:
+          type: integer
+        userId:
+          type: integer
+        message:
+          type: string
+        updateType:
+          type: string
+          enum: [update, escalation, all_clear, note]
+        eventId:
+          type: string
+          format: uuid
+        createdAt:
+          type: string
+          format: date-time
+        user:
+          type: ["object", "null"]
+          additionalProperties: true
+      required: [id, emergencyId, userId, message, updateType, eventId, createdAt, user]
+
+    EmergencyTimelineUpdateResult:
+      allOf:
+        - $ref: "#/components/schemas/EmergencyTimelineUpdate"
+        - type: object
+          properties:
+            operationId:
+              type: string
+              format: uuid
+            outcome:
+              type: string
+              enum: [applied, already_applied]
+          required: [operationId, outcome]
+
     Emergency:
       type: object
       properties:
@@ -3729,6 +4080,9 @@ components:
     CreateEmergencyBody:
       type: object
       properties:
+        operationId:
+          type: string
+          format: uuid
         type:
           type: string
           enum: [medical, missing_child, fire_evacuation, security, general]
@@ -3741,9 +4095,23 @@ components:
         description:
           type: string
       required:
+        - operationId
         - type
         - level
         - description
+
+    TriggerEmergencyResponse:
+      allOf:
+        - $ref: "#/components/schemas/Emergency"
+        - type: object
+          properties:
+            operationId:
+              type: string
+              format: uuid
+            outcome:
+              type: string
+              enum: [applied, already_applied]
+          required: [operationId, outcome]
 
     UpdateEmergencyBody:
       type: object
@@ -4093,3 +4461,65 @@ components:
       required:
         - childId
         - requestedClassId
+
+    SafeguardingRecordInput:
+      type: object
+      required:
+        - operationId
+        - teacherUserId
+        - checkType
+      properties:
+        operationId:
+          type: string
+          format: uuid
+        teacherUserId:
+          type: integer
+        checkType:
+          type: string
+          minLength: 1
+        referenceNumber:
+          type: string
+        issuedDate:
+          type: string
+        expiryDate:
+          type: string
+        status:
+          type: string
+          enum: [clear, pending, expired, not_submitted]
+          default: pending
+        notes:
+          type: string
+
+    SafeguardingRecord:
+      type: object
+      required: [id, teacherUserId, checkType, status, createdAt, updatedAt]
+      properties:
+        id: { type: integer }
+        teacherUserId: { type: integer }
+        checkType: { type: string }
+        referenceNumber: { type: ["string", "null"] }
+        issuedDate: { type: ["string", "null"] }
+        expiryDate: { type: ["string", "null"] }
+        status: { type: string, enum: [clear, pending, expired, not_submitted] }
+        notes: { type: ["string", "null"] }
+        createdBy: { type: ["integer", "null"] }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        teacher:
+          type: ["object", "null"]
+          properties:
+            id: { type: integer }
+            firstName: { type: string }
+            lastName: { type: string }
+            email: { type: string }
+        isExpiringSoon: { type: boolean }
+        isExpired: { type: boolean }
+
+    SafeguardingOperationResult:
+      allOf:
+        - $ref: "#/components/schemas/SafeguardingRecord"
+        - type: object
+          required: [operationId, outcome]
+          properties:
+            operationId: { type: string, format: uuid }
+            outcome: { type: string, enum: [applied, already_applied] }

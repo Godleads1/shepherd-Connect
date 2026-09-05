@@ -1,10 +1,30 @@
-import { Router } from "express";
-import { eq, desc } from "drizzle-orm";
+import { Router, type Request, type Response } from "express";
+import { and, eq, desc } from "drizzle-orm";
 import { db, safeguardingRecordsTable, usersTable } from "@workspace/db";
+import { CreateSafeguardingRecordBody } from "@workspace/api-zod";
 import { authMiddleware, requireRoles } from "../middlewares/auth";
 import { z } from "zod";
+import {
+  classifyCommandOperation,
+  findCommandOperation,
+  fingerprintCommandPayload,
+  lockCommandOperation,
+  persistCommandOperation,
+  replayCommandResult,
+} from "../services/commandOperations";
 
 const router = Router();
+const SAFEGUARDING_CREATE_COMMAND = "safeguarding_record_create";
+const SAFEGUARDING_TEACHER_TARGET = "teacher";
+const OPERATION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+export const safeguardingRouteDependencies: {
+  beforePersist: null | (() => void | Promise<void>);
+  postCommitBeforeResponse: null | ((req: Request, res: Response) => void);
+} = {
+  beforePersist: null,
+  postCommitBeforeResponse: null,
+};
 
 const CreateRecordBody = z.object({
   teacherUserId: z.number(),
@@ -17,6 +37,31 @@ const CreateRecordBody = z.object({
 });
 
 const UpdateRecordBody = CreateRecordBody.partial().omit({ teacherUserId: true });
+
+async function isEligibleTeacher(executor: any, userId: number): Promise<boolean> {
+  const [teacher] = await executor.select({
+    role: usersTable.role,
+    status: usersTable.status,
+    isActive: usersTable.isActive,
+  }).from(usersTable).where(eq(usersTable.id, userId));
+  return !!teacher && teacher.role === "teacher" && teacher.status === "active" && teacher.isActive;
+}
+
+async function isCurrentlyAuthorizedAdministrator(executor: any, userId: number, role: string): Promise<boolean> {
+  const [actor] = await executor.select({
+    role: usersTable.role,
+    status: usersTable.status,
+    isActive: usersTable.isActive,
+    secondaryRoles: usersTable.secondaryRoles,
+  }).from(usersTable).where(eq(usersTable.id, userId));
+  if (!actor || !actor.isActive || actor.status !== "active") return false;
+  let secondaryRoles: string[] = [];
+  try {
+    const parsed = JSON.parse(actor.secondaryRoles || "[]");
+    if (Array.isArray(parsed)) secondaryRoles = parsed.filter((value): value is string => typeof value === "string");
+  } catch { /* malformed legacy secondary roles grant nothing */ }
+  return ["admin", "super_admin"].includes(role) && (actor.role === role || secondaryRoles.includes(role));
+}
 
 async function formatRecordWith(executor: any, r: typeof safeguardingRecordsTable.$inferSelect) {
   const [teacher] = await executor.select().from(usersTable).where(eq(usersTable.id, r.teacherUserId));
@@ -64,22 +109,97 @@ router.get("/safeguarding/teacher/:teacherUserId", authMiddleware, async (req, r
 });
 
 router.post("/safeguarding", authMiddleware, requireRoles("admin", "super_admin"), async (req, res): Promise<void> => {
-  const parsed = CreateRecordBody.safeParse(req.body);
+  const parsed = CreateSafeguardingRecordBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: "Bad request", message: parsed.error.message }); return; }
-  const record = await db.transaction(async tx => {
+  const data = {
+    ...parsed.data,
+    checkType: parsed.data.checkType.trim(),
+    status: parsed.data.status ?? "pending",
+  };
+  if (!data.checkType) { res.status(400).json({ error: "Bad request", message: "checkType cannot be blank" }); return; }
+  const binding = {
+    actorUserId: req.user!.userId,
+    command: SAFEGUARDING_CREATE_COMMAND,
+    targetType: SAFEGUARDING_TEACHER_TARGET,
+    targetId: String(data.teacherUserId),
+    payloadFingerprint: fingerprintCommandPayload({
+      checkType: data.checkType,
+      referenceNumber: data.referenceNumber ?? null,
+      issuedDate: data.issuedDate ?? null,
+      expiryDate: data.expiryDate ?? null,
+      status: data.status,
+      notes: data.notes ?? null,
+    }),
+  };
+  const result = await db.transaction(async tx => {
+    // This precedes target validation and every domain read/lock, so a shared
+    // operation ID can never run two safeguarding mutations concurrently.
+    await lockCommandOperation(tx, data.operationId);
+    if (!await isCurrentlyAuthorizedAdministrator(tx, req.user!.userId, req.user!.role)) {
+      return { kind: "unauthorized" as const };
+    }
+    const existing = await findCommandOperation(tx, data.operationId);
+    const classification = classifyCommandOperation(existing, binding);
+    if (classification === "collision") return { kind: "collision" as const };
+    if (classification === "replay") {
+      const { primaryId } = replayCommandResult(existing!);
+      const [record] = await tx.select().from(safeguardingRecordsTable).where(and(
+        eq(safeguardingRecordsTable.id, primaryId),
+        eq(safeguardingRecordsTable.teacherUserId, data.teacherUserId),
+      ));
+      if (!record) throw new Error("Completed safeguarding result is missing");
+      return { kind: "complete" as const, replayed: true, record: await formatRecordWith(tx, record) };
+    }
+    if (!await isEligibleTeacher(tx, data.teacherUserId)) return { kind: "ineligible_teacher" as const };
     const [created] = await tx.insert(safeguardingRecordsTable).values({
-      teacherUserId: parsed.data.teacherUserId,
-      checkType: parsed.data.checkType,
-      referenceNumber: parsed.data.referenceNumber ?? null,
-      issuedDate: parsed.data.issuedDate ?? null,
-      expiryDate: parsed.data.expiryDate ?? null,
-      status: parsed.data.status,
-      notes: parsed.data.notes ?? null,
+      teacherUserId: data.teacherUserId,
+      checkType: data.checkType,
+      referenceNumber: data.referenceNumber ?? null,
+      issuedDate: data.issuedDate ?? null,
+      expiryDate: data.expiryDate ?? null,
+      status: data.status,
+      notes: data.notes ?? null,
       createdBy: req.user!.userId,
     }).returning();
-    return formatRecordWith(tx, created);
+    await safeguardingRouteDependencies.beforePersist?.();
+    await persistCommandOperation(tx, { operationId: data.operationId, ...binding, primaryId: created.id, resultVersion: 1 });
+    return { kind: "complete" as const, replayed: false, record: await formatRecordWith(tx, created) };
   });
-  res.status(201).json(record);
+  if (result.kind === "unauthorized") { res.status(403).json({ error: "Forbidden", message: "Insufficient permissions" }); return; }
+  if (result.kind === "collision") { res.status(409).json({ error: "Conflict", message: "operationId is bound to different command input" }); return; }
+  if (result.kind === "ineligible_teacher") { res.status(400).json({ error: "Bad request", message: "teacherUserId must identify an active teacher" }); return; }
+  safeguardingRouteDependencies.postCommitBeforeResponse?.(req, res);
+  if (res.destroyed || res.socket?.destroyed) return;
+  res.status(result.replayed ? 200 : 201).json({
+    ...result.record,
+    operationId: data.operationId,
+    outcome: result.replayed ? "already_applied" : "applied",
+  });
+});
+
+router.get("/safeguarding/operations/:operationId", authMiddleware, requireRoles("admin", "super_admin"), async (req, res): Promise<void> => {
+  const operationId = req.params.operationId as string;
+  if (!OPERATION_ID_PATTERN.test(operationId)) {
+    res.status(400).json({ error: "Bad request", message: "Invalid operation identity" });
+    return;
+  }
+  const record = await db.transaction(async tx => {
+    await lockCommandOperation(tx, operationId);
+    if (!await isCurrentlyAuthorizedAdministrator(tx, req.user!.userId, req.user!.role)) return null;
+    const operation = await findCommandOperation(tx, operationId);
+    if (!operation
+      || operation.actorUserId !== req.user!.userId
+      || operation.command !== SAFEGUARDING_CREATE_COMMAND
+      || operation.targetType !== SAFEGUARDING_TEACHER_TARGET) return null;
+    const { primaryId } = replayCommandResult(operation);
+    const [result] = await tx.select().from(safeguardingRecordsTable).where(and(
+      eq(safeguardingRecordsTable.id, primaryId),
+      eq(safeguardingRecordsTable.teacherUserId, Number(operation.targetId)),
+    ));
+    return result ? formatRecordWith(tx, result) : null;
+  });
+  if (!record) { res.status(404).json({ error: "Not found", message: "Operation not found" }); return; }
+  res.json({ ...record, operationId, outcome: "already_applied" });
 });
 
 router.put("/safeguarding/:id", authMiddleware, requireRoles("admin", "super_admin"), async (req, res): Promise<void> => {
