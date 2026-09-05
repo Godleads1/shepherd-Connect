@@ -1,0 +1,906 @@
+SHEPHERD CONNECT — FINAL PRODUCTION READINESS AUDIT
+
+ROLE
+
+Act as a principal software architect, security engineer, database reliability engineer,
+QA lead, and production-readiness reviewer.
+
+This is the FINAL SYSTEM-WIDE PRODUCTION READINESS AUDIT for Shepherd Connect.
+
+IMPORTANT:
+THIS IS A READ-ONLY AUDIT.
+
+DO NOT MODIFY CODE.
+DO NOT MODIFY DATABASE SCHEMA.
+DO NOT MODIFY PRODUCTION DATA.
+DO NOT RUN MIGRATIONS.
+DO NOT CHANGE CONFIGURATION.
+DO NOT REFACTOR.
+DO NOT "FIX" FINDINGS.
+DO NOT START ANOTHER DEVELOPMENT PHASE.
+
+Your job is to inspect, test safely, verify, classify, and report.
+
+The purpose is to determine whether Shepherd Connect is genuinely ready for production
+operation for its real Sunday-service workflow.
+
+==================================================
+ALREADY COMPLETED — DO NOT REOPEN WITHOUT EVIDENCE
+==================================================
+
+Treat the following work as already implemented and verified.
+
+PHASE 1 — OUTCOME SEMANTICS
+
+- Authoritative mutations are distinguished from secondary cleanup/refresh/realtime work.
+- Checkout is the authoritative handover command.
+- Duplicate checkout is deterministic.
+- Successful committed mutations must not be reported as failures merely because
+  secondary work fails.
+
+PHASE 2 — OPERATION IDENTITY / RECONCILIATION
+
+- Durable operation identity exists for the covered mutation workflows.
+- Client-generated operation IDs survive retry/reload.
+- Response-loss and unknown-outcome situations reconcile.
+- Same operation ID replay does not duplicate the domain mutation.
+- Actor/resource binding is enforced.
+
+PHASE 3 — SECONDARY WORK / FALSE FAILURE
+
+- Identified false-failure mutation routes were remediated.
+- Response enrichment is not allowed to turn a committed mutation into a false failure.
+- Required notification intent is transactional where established.
+- Optional notification delivery is secondary.
+- Classroom display broadcast is secondary to authoritative persistence.
+
+PHASE 4 — AUTHENTICATION / AUTHORIZATION HARDENING
+
+Treat the completed Phase 4 implementation as authoritative unless your audit
+finds concrete evidence of regression or incomplete implementation.
+
+Verify:
+- session revocation
+- logout invalidation
+- password-change/reset invalidation
+- admin reset invalidation
+- role consistency
+- role switching
+- least-privilege authorization
+- family/child ownership boundaries
+- safeguarding access
+- pickup-delegate authorization
+- MFA protections
+- OTP purpose/channel boundaries
+- SSE termination/revalidation
+- multi-tab/device behavior
+- offline queue authorization
+- 401 vs 403 semantics
+- security audit events
+
+PHASE 5 — SUNDAY SERVICE DATE / SLOT CORRECTNESS
+
+The actual domain is SUNDAY SERVICES, not school/business days.
+
+Current service slots:
+- First Service — 7am
+- Second Service — 10:30am
+
+Authoritative attendance identity:
+
+Child + Service Date + Service Slot
+
+Phase 5 verified:
+- D1 active-attendance selection
+- D2 service-slot allowlist
+- D3 Africa/Lagos service-date handling
+- D4 report service-date/service-slot context
+- D5 Africa/Lagos operational timestamps/exports
+- D6 pickup/checkout notification context
+
+PICKUP/CUSTODY GRANULARITY — FINAL PRODUCT DECISION
+
+The approved model is:
+
+ATTENDANCE:
+Child + Service Date + Service Slot
+
+PICKUP REQUEST:
+Child + Service Date
+
+CUSTODY:
+Child + Service Date + requestedServices
+where requestedServices may be:
+- first
+- second
+- both
+
+Do NOT treat absence of serviceSlot from pickup_request as a defect.
+
+The pickup request is intentionally date-level.
+
+Service-specific attendance remains authoritative.
+
+If both attendance occurrences are simultaneously active and a command is ambiguous,
+the system must not guess and must return the deterministic staff-assistance conflict.
+
+D6 notifications derive service context from the authoritative attendance row.
+
+TASK #75 — CLASSROOM REALTIME
+
+Classroom display state remains backed by PostgreSQL as the source of truth.
+
+Realtime is an invalidation/reconciliation mechanism, not the authoritative data source.
+
+The system includes:
+- cross-instance invalidation
+- listener reconnect reconciliation
+- bounded authoritative refresh
+- indefinite capped reconnect
+- focus/visibility recovery
+- generation protection
+- initial snapshot race protection
+- class isolation
+
+Do not redesign this architecture during this audit.
+
+==================================================
+AUDIT OBJECTIVE
+==================================================
+
+Answer one question:
+
+CAN SHEPHERD CONNECT SAFELY OPERATE IN PRODUCTION FOR REAL SUNDAY SERVICES?
+
+Do not answer based on code quality alone.
+
+Evaluate actual behavior, state transitions, authorization boundaries,
+concurrency, failure recovery, data integrity, deployment behavior, and
+real user workflows.
+
+==================================================
+1. SYSTEM INVENTORY
+==================================================
+
+Establish the current implementation inventory.
+
+Report:
+- frontend application(s)
+- API/backend application(s)
+- database
+- background workers/jobs
+- notification providers
+- realtime mechanisms
+- authentication/session mechanisms
+- offline mechanisms
+- generated API clients/contracts
+- scheduled jobs
+- external integrations
+- production environment assumptions
+
+Compare the implementation against the previous architecture findings.
+
+Identify any material architecture drift.
+
+==================================================
+2. AUTHENTICATION AND SESSION SECURITY
+==================================================
+
+Verify actual implementation, not merely intended behavior.
+
+Test/inspect:
+
+A. Login
+- registration
+- OTP verification
+- password login
+- MFA challenge
+- MFA completion
+- role selection
+
+B. Session lifecycle
+- normal authenticated request
+- logout
+- password change
+- password reset
+- admin password reset
+- MFA change
+- account suspension
+- account deactivation
+- role removal
+
+C. Token/session revocation
+Verify old credentials cannot continue making authorized requests
+after events that are supposed to revoke them.
+
+D. Role consistency
+Verify:
+- selected role
+- JWT/session role
+- /auth/me role
+- backend effective role
+- SSE role
+remain consistent.
+
+Test role-switching and reload behavior.
+
+E. Multi-tab/device behavior
+Verify revocation and role changes propagate safely.
+
+F. Auth bootstrap
+A temporary:
+- network failure
+- timeout
+- 500
+- malformed response
+must NOT incorrectly log a legitimate user out.
+
+A genuine 401/revocation must correctly terminate the session.
+
+CLASSIFICATION:
+Any concrete privilege escalation, stale credential acceptance after required
+revocation, or cross-role authorization defect is at least HIGH and potentially BLOCKER.
+
+==================================================
+3. AUTHORIZATION / TENANT / FAMILY BOUNDARIES
+==================================================
+
+Map every high-risk resource boundary.
+
+At minimum inspect:
+- families
+- children
+- child profile
+- medical information
+- biometric/face descriptor information
+- custody
+- pickup
+- pickup delegates
+- safeguarding
+- attendance
+- messages
+- staff records
+- operational searches
+
+Test representative combinations:
+
+Parent → own family
+Parent → another family
+
+Teacher → own permitted children
+Teacher → unrelated child/family
+
+Support → permitted operational scope
+Support → unrelated sensitive records
+
+Admin → permitted administrative scope
+
+Non-parent → parent-owned resources
+
+Teacher → another teacher's safeguarding data
+
+Any role → another family's biometric/medical data
+
+Determine whether any authenticated role can cross an intended boundary.
+
+Do not call intentionally broad operational/admin access a defect unless
+the implementation violates the established product/security model.
+
+==================================================
+4. SUNDAY SERVICE WORKFLOW
+==================================================
+
+Walk the complete authoritative workflow.
+
+Test conceptually and, where safe, through existing test infrastructure:
+
+Sunday:
+
+1. child registration/family
+2. service selection
+3. First Service check-in
+4. First Service active attendance
+5. First Service checkout
+6. Second Service check-in
+7. Second Service active attendance
+8. Second Service checkout
+9. custody request
+10. pickup
+11. notifications
+12. classroom display
+13. reports
+
+Then test:
+
+A. First picked up, Second active
+B. Second picked up, First active
+C. Both active
+D. Both requested through custody
+E. First-only custody
+F. Second-only custody
+G. ambiguous active attendance
+H. duplicate submission
+I. retry after response loss
+J. concurrent staff actions
+
+Verify no state transition can accidentally:
+- pick up the wrong service
+- check out the wrong occurrence
+- mask an active occurrence
+- create duplicate attendance
+- create conflicting custody
+- report successful work as failed.
+
+==================================================
+5. DATE / TIME / SERVICE-DATE CORRECTNESS
+==================================================
+
+The intended timezone is:
+
+Africa/Lagos
+
+Inspect every production-critical path that derives service date.
+
+Test boundaries around:
+- Sunday 00:00 Lagos
+- Sunday 00:59 Lagos
+- Saturday/Sunday transition
+- Sunday/Monday transition
+
+Look specifically for:
+- UTC toISOString date derivation
+- browser-local date assumptions
+- server-local timezone assumptions
+- inconsistent report timestamps
+- notification timestamps
+- scheduler dates
+- offline queue dates
+
+Verify First Service and Second Service remain separate occurrences.
+
+Do not invent a new service-window policy if none exists.
+
+Report policy gaps separately from technical defects.
+
+==================================================
+6. PICKUP / CUSTODY
+==================================================
+
+Verify the approved granularity exactly.
+
+Pickup request:
+Child + Service Date
+
+Custody:
+Child + Service Date + requestedServices
+
+Attendance:
+Child + Service Date + Service Slot
+
+Verify:
+
+- pickup never guesses a service occurrence
+- custody "first" behaves as first
+- custody "second" behaves as second
+- custody "both" behaves as approved
+- date-level pickup remains intentional
+- checkout notification obtains slot from authoritative attendance
+- both-service release produces accurate service-specific notifications
+- no notification incorrectly assigns a slot to pickup_request itself
+
+Do not recommend adding serviceSlot to pickup_request unless concrete evidence
+shows the approved product model is internally inconsistent.
+
+==================================================
+7. IDEMPOTENCY / RESPONSE LOSS / CONCURRENCY
+==================================================
+
+This is a major production-readiness area.
+
+Inspect covered mutation routes for:
+
+- double-click
+- rapid duplicate submission
+- browser retry
+- timeout
+- connection drop after commit
+- frontend reload
+- offline replay
+- duplicate webhook/provider delivery where applicable
+- worker retry
+- two tabs
+- two devices
+- simultaneous staff actions
+
+Verify operation identity is correctly bound.
+
+For important mutation paths verify:
+
+FIRST REQUEST
+→ exactly one authoritative mutation
+
+RETRY WITH SAME OPERATION ID
+→ deterministic replay/reconciliation
+
+CONCURRENT SAME OPERATION ID
+→ no duplicate mutation
+
+CONCURRENT DIFFERENT OPERATION IDS
+→ correct domain concurrency behavior
+
+Do not confuse a legitimate business conflict with a system defect.
+
+==================================================
+8. DATABASE INTEGRITY
+==================================================
+
+Inspect production data safely/read-only.
+
+Look for:
+
+- duplicate attendance identities
+- invalid service slots
+- impossible dates
+- active attendance after completed pickup
+- picked-up custody retaining active attendance
+- conflicting custody
+- orphaned records
+- duplicate operation records
+- malformed operation results
+- notification/outbox inconsistencies
+- impossible parent/child relationships
+- suspicious cross-family relationships
+- invalid biometric ownership
+- invalid safeguarding references
+
+Use the established authoritative identities.
+
+For attendance:
+
+Child + Service Date + Service Slot
+
+For pickup:
+
+Child + Service Date
+
+For custody:
+
+Child + Service Date + requestedServices
+
+Do not auto-repair or merge anything.
+
+If suspicious historical data exists, report it for human review.
+
+==================================================
+9. NOTIFICATIONS / OUTBOX / DELIVERY
+==================================================
+
+Separate:
+
+1. authoritative business state
+2. notification intent
+3. provider delivery
+4. user-visible delivery
+
+Verify a provider failure cannot falsely report the underlying business
+mutation as failed.
+
+Inspect:
+- duplicate notifications
+- missing notification intent
+- outbox failures
+- dead-letter items
+- retry behavior
+- provider response handling
+- correlation IDs
+- idempotency
+
+Report existing dead-letter records separately from a newly introduced defect.
+
+==================================================
+10. CLASSROOM REALTIME / DISPLAY RELIABILITY
+==================================================
+
+Verify Task #75 behavior remains intact.
+
+Inspect:
+
+- pickup invalidation
+- custody invalidation
+- checkout invalidation
+- display media invalidation
+- cross-instance behavior
+- listener reconnect
+- missed events
+- authoritative reconciliation
+- bounded refresh
+- EventSource generation protection
+- class isolation
+- display credential validation
+
+Specifically verify:
+
+A mutation on API instance A
+must eventually be visible to a classroom connected through API instance B.
+
+A missed realtime event must NOT permanently stale the classroom display.
+
+An event for Class A must NOT expose Class B state.
+
+Do not propose a complete realtime rewrite.
+
+==================================================
+11. OFFLINE / NETWORK FAILURE
+==================================================
+
+Inspect offline queue behavior.
+
+Test/verify:
+
+- queued mutation
+- reconnect
+- retry
+- response loss
+- duplicate replay
+- logout
+- role change
+- account revocation
+- multiple tabs
+
+Verify queued operations cannot bypass current authorization.
+
+Verify original service date/service slot are preserved where applicable.
+
+==================================================
+12. REPORTS / EXPORTS
+==================================================
+
+Inspect operational reports.
+
+Verify service context is explicit where required.
+
+At minimum:
+- serviceDate
+- serviceSlot
+- correct Lagos date
+- correct Lagos timestamp
+- First/Second Service distinction
+- all-services reporting
+- not-picked-up reporting
+- CSV export
+- PDF/report rendering where applicable
+
+Ensure two attendance occurrences for the same child/date cannot become
+ambiguous merely because they share the same child/date.
+
+==================================================
+13. ERROR SEMANTICS
+==================================================
+
+Search for remaining patterns where:
+
+DB COMMIT
+→ secondary work fails
+→ API returns failure
+
+Inspect:
+- post-commit database reads
+- formatting
+- notification delivery
+- realtime broadcast
+- provider calls
+- cleanup
+- analytics
+- response serialization
+
+The key question:
+
+Can a real user receive "failed" when the authoritative business
+operation actually succeeded?
+
+If yes:
+- classify severity
+- identify exact route
+- identify exact failure boundary
+- do NOT fix it during this audit.
+
+==================================================
+14. API CONTRACTS
+==================================================
+
+Inspect:
+- OpenAPI
+- generated clients
+- frontend API wrappers
+- required/optional fields
+- 200/201/204 semantics
+- error formats
+- operation IDs
+- reconciliation endpoints
+
+Check for mismatches between:
+- backend implementation
+- OpenAPI
+- generated API client
+- frontend usage
+
+Do not make contract changes.
+
+==================================================
+15. OBSERVABILITY / AUDITABILITY
+==================================================
+
+Verify that important security and mutation events can be correlated.
+
+Look for:
+
+- request ID
+- operation ID
+- actor/user
+- effective role
+- target
+- outcome
+- reason
+- timestamp
+- IP/user agent where appropriate
+- notification/provider correlation
+- realtime correlation
+
+Verify secrets/tokens/OTP/passwords are not logged.
+
+Check whether authorization failures provide sufficient audit evidence.
+
+==================================================
+16. DEPLOYMENT / OPERATIONAL READINESS
+==================================================
+
+Inspect:
+
+- environment variables
+- production configuration
+- database migration strategy
+- startup
+- restart behavior
+- worker startup
+- realtime listener startup
+- health endpoint
+- API/frontend builds
+- dependency/build warnings
+- scheduled jobs
+- rate limits
+- timeouts
+- graceful failure
+- logging
+- backup/recovery assumptions where visible
+
+Identify anything that would prevent reliable production operation.
+
+Do not modify configuration.
+
+==================================================
+17. TEST / BUILD VALIDATION
+==================================================
+
+Run the existing validation suites in READ-ONLY fashion.
+
+At minimum:
+
+- full dev PostgreSQL/API tests
+- focused critical workflow tests
+- frontend tests
+- workspace typecheck
+- API build
+- frontend build
+- architecture/security checks
+- git diff check
+- health check
+- browser smoke test
+
+Do not weaken, skip, or rewrite tests to obtain a pass.
+
+Clearly distinguish:
+- PASS
+- EXPECTED SKIP
+- FAILURE
+- ENVIRONMENT LIMITATION
+
+==================================================
+18. REGRESSION CHECK AGAINST COMPLETED WORK
+==================================================
+
+Explicitly verify no regression of:
+
+Phase 1
+Phase 2
+Phase 3
+Phase 4
+Phase 5
+Pickup/Custody decision
+D6
+Task #75
+
+Do not simply say "tests passed."
+
+Map evidence to each area.
+
+==================================================
+19. FINDING CLASSIFICATION
+==================================================
+
+Every finding must receive exactly one classification:
+
+🔴 RELEASE BLOCKER
+
+A defect that makes safe production operation unacceptable.
+
+🟠 HIGH
+
+Serious defect that should be fixed before production unless explicitly
+accepted by the appropriate owner.
+
+🟡 MEDIUM
+
+Real issue that does not block launch but should be tracked.
+
+🔵 LOW
+
+Minor issue, cleanup, usability, documentation, or non-critical improvement.
+
+⚪ PRODUCT / POLICY DECISION
+
+Not a technical defect; requires an explicit product decision.
+
+✅ VERIFIED
+
+Investigated and no defect found.
+
+IMPORTANT:
+
+Do not inflate severity.
+
+Do not classify theoretical possibilities as confirmed vulnerabilities.
+
+Do not turn stylistic preferences into defects.
+
+Do not report already-fixed historical findings as current defects.
+
+==================================================
+20. FINAL REPORT FORMAT
+==================================================
+
+Produce exactly this structure:
+
+# SHEPHERD CONNECT — FINAL PRODUCTION READINESS AUDIT
+
+## 1. Executive Verdict
+
+One of:
+
+READY FOR PRODUCTION
+
+or
+
+NOT READY — RELEASE BLOCKERS REMAIN
+
+Then provide a concise explanation.
+
+## 2. Audit Scope
+
+List the systems/workflows examined.
+
+## 3. Completed Phase Verification
+
+| Area | Status | Evidence |
+|---|---|---|
+| Phase 1 | ... | ... |
+| Phase 2 | ... | ... |
+| Phase 3 | ... | ... |
+| Phase 4 | ... | ... |
+| Phase 5 | ... | ... |
+| Pickup/Custody | ... | ... |
+| D6 | ... | ... |
+| Task #75 | ... | ... |
+
+## 4. Release Blockers
+
+If none:
+
+NONE FOUND
+
+Otherwise list each blocker with:
+- exact defect
+- affected route/workflow
+- evidence
+- security/business impact
+- reproduction
+- required action
+
+## 5. High-Severity Findings
+
+Same evidence standard.
+
+## 6. Medium Findings
+
+## 7. Low Findings
+
+## 8. Product / Policy Decisions
+
+Only include genuine decisions that remain unresolved.
+
+## 9. Verified Safe Areas
+
+List the major areas explicitly checked and passed.
+
+## 10. Production Data Integrity
+
+Report actual production findings.
+
+No automatic repair.
+
+## 11. Test / Build Results
+
+Include exact counts.
+
+## 12. Deployment Readiness
+
+PASS / FAIL with evidence.
+
+## 13. Remaining Risk Register
+
+Only genuine remaining risks.
+
+## 14. Final Recommendation
+
+If clean:
+
+RECOMMENDATION:
+PROCEED TO PRODUCTION LAUNCH PREPARATION.
+
+If blockers remain:
+
+RECOMMENDATION:
+DO NOT LAUNCH.
+FIX ONLY THE IDENTIFIED BLOCKERS AND RERUN THE RELEVANT ACCEPTANCE TESTS.
+
+==================================================
+FINAL RULES
+==================================================
+
+THIS AUDIT MUST REMAIN READ-ONLY.
+
+No:
+- code changes
+- migrations
+- schema changes
+- production data modifications
+- configuration changes
+- dependency upgrades
+- refactors
+- test modifications
+- "quick fixes"
+
+If a test requires a mutation to production data, DO NOT perform it.
+Use existing test infrastructure or development data.
+
+If an environment limitation prevents verification, explicitly say:
+
+UNVERIFIED — ENVIRONMENT LIMITATION
+
+Do not convert an inability to test into either PASS or FAIL.
+
+Do not invent evidence.
+
+Do not claim production readiness simply because builds pass.
+
+Do not claim a blocker merely because something could theoretically go wrong.
+
+At the end, provide a single definitive verdict:
+
+READY FOR PRODUCTION
+
+OR
+
+NOT READY — RELEASE BLOCKERS REMAIN
+
+This is an audit, not another development phase.
+Do not begin any follow-up implementation automatically.
