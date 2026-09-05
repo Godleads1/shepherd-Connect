@@ -1,0 +1,1214 @@
+PHASE 4 — COMPLETE AUTHENTICATION, SESSION & AUTHORIZATION HARDENING
+FINAL IMPLEMENTATION PASS — COMPLETE THE WORK AND CLOSE PHASE 4
+
+You have completed the Phase 4 read-only security diagnostic.
+
+The diagnostic concluded:
+
+REAL HIGH-SEVERITY SECURITY DEFECT.
+
+Confirmed issues include:
+
+1. Existing 24-hour bearer JWTs survive logout.
+2. Existing JWTs survive password change/reset/admin reset.
+3. Generic family/child APIs are over-broad for non-parent roles.
+4. Child medical/biometric routes are over-broad.
+5. Safeguarding teacher lookup is over-broad.
+6. Pickup-delegate routes are over-broad.
+7. `/auth/me` can disagree with the JWT-selected role.
+8. MFA setup can overwrite the MFA secret without sufficient step-up.
+9. MFA/security changes do not properly revoke existing sessions.
+10. WhatsApp OTP requests can use the SMS provider.
+11. Authentication bootstrap incorrectly clears valid tokens on transient failures.
+12. General user SSE can remain authorized after logout/security changes for up to five minutes.
+13. Multi-tab auth state does not reliably reconcile.
+14. Offline queued work can retain stale role context.
+
+The diagnostic did NOT find a cryptographic JWT break or unauthenticated system-wide takeover.
+
+YOUR TASK NOW IS TO IMPLEMENT THE COMPLETE PHASE 4 HARDENING.
+
+DO NOT STOP AFTER ONE SUBSECTION.
+
+DO NOT RETURN A PLAN ONLY.
+
+IMPLEMENT, TEST, VERIFY, AND CLOSE PHASE 4.
+
+==================================================
+NON-NEGOTIABLE SAFETY RULE
+==================================================
+
+This is a production-security hardening task.
+
+Before modifying anything:
+
+1. Read the current implementation.
+2. Read the current role definitions.
+3. Read current authorization helpers.
+4. Read the current auth/session implementation.
+5. Read the current SSE implementation.
+6. Read the current OTP implementation.
+7. Read the current frontend auth/bootstrap implementation.
+8. Read the current offline queue implementation.
+9. Read the existing tests.
+
+Do NOT rely blindly on the diagnostic report.
+
+The report is the starting evidence.
+
+Current code is authoritative.
+
+Do not invent role names.
+
+Do not invent authorization policy.
+
+Do not remove legitimate operational permissions.
+
+Do not weaken any existing authorization.
+
+Do not modify unrelated application behavior.
+
+==================================================
+GLOBAL IMPLEMENTATION PRINCIPLE
+==================================================
+
+Use the smallest safe architectural changes.
+
+Do NOT rewrite authentication from scratch.
+
+Do NOT introduce unnecessary infrastructure.
+
+Do NOT introduce Redis.
+
+Do NOT introduce an external identity provider.
+
+Do NOT replace JWT authentication with a completely different system unless absolutely required.
+
+Prefer the existing PostgreSQL infrastructure.
+
+Prefer a minimal server-side session/version mechanism.
+
+Preserve existing API conventions wherever practical.
+
+Preserve existing operation-id/reconciliation work from Phase 2 and Task #74.
+
+Preserve Task #75 classroom-display SSE architecture.
+
+==================================================
+PART 1 — SERVER-SIDE SESSION REVOCATION
+==================================================
+
+Implement reliable server-side invalidation of bearer sessions.
+
+Preferred minimum design:
+
+Add:
+
+users.session_version
+
+with:
+
+INTEGER
+NOT NULL
+DEFAULT 1
+
+If the current schema already has an equivalent mechanism, reuse it rather than creating another.
+
+Include session version in newly issued authenticated JWTs.
+
+Authentication middleware MUST:
+
+1. Verify JWT signature.
+2. Verify expiration.
+3. Load current user.
+4. Verify account active/status.
+5. Verify claimed role is still assigned.
+6. Compare token session version against current user session version.
+7. Reject stale/revoked sessions.
+
+Use a clear authentication error.
+
+Do not expose internal security details to clients.
+
+Existing tokens that predate the session-version field must be handled safely.
+
+Choose a migration-safe default that does not accidentally invalidate all legitimate production users unless intentionally required.
+
+==================================================
+PART 2 — LOGOUT
+==================================================
+
+Fix logout.
+
+POST /api/auth/logout must no longer be a meaningless no-op.
+
+Logout must:
+
+- authenticate the caller where appropriate
+- invalidate the intended session(s)
+- clear server authorization state
+- cause future use of the revoked credential to fail
+
+Do not assume browser localStorage cleanup equals logout.
+
+The frontend must continue clearing:
+
+- token
+- user state
+- caches
+- offline state as currently intended
+
+But server-side revocation must become authoritative.
+
+Determine whether the existing product behavior should be:
+
+A. current-session logout
+or
+B. all-session logout
+
+Use the existing application's semantics if already defined.
+
+If the current architecture cannot distinguish devices, use the safest minimal global session-version invalidation for security-sensitive logout rather than pretending to support per-device logout.
+
+Document the decision.
+
+==================================================
+PART 3 — PASSWORD CHANGE
+==================================================
+
+After successful password change:
+
+- invalidate appropriate existing sessions
+- ensure previously issued bearer credentials cannot remain valid indefinitely
+- ensure the current user receives a valid authenticated state if the product expects the current session to survive
+
+Do not accidentally make the user appear logged out before the password-change operation completes.
+
+Test:
+
+device A
+device B
+
+change password on A
+
+then verify the intended session policy on B.
+
+==================================================
+PART 4 — PASSWORD RESET
+==================================================
+
+After successful password reset:
+
+REVOKE ALL EXISTING AUTHENTICATED SESSIONS.
+
+This is a compromise-recovery operation.
+
+Ensure:
+
+- old JWTs fail
+- old SSE connections terminate according to the implemented session mechanism
+- browser must authenticate again
+- attacker holding a stolen pre-reset JWT cannot continue using it
+
+Do not change the existing password-reset user experience unnecessarily.
+
+==================================================
+PART 5 — ADMINISTRATOR PASSWORD RESET
+==================================================
+
+Apply the same session-revocation security semantics to administrator-triggered password resets.
+
+An administrator resetting another user's password must invalidate that user's previous authenticated sessions.
+
+Do not revoke the administrator's own session accidentally.
+
+==================================================
+PART 6 — ROLE CONSISTENCY
+==================================================
+
+Fix `/api/auth/me`.
+
+The effective authenticated role must agree with the role actually being used by the authenticated request.
+
+If the JWT/session says:
+
+role = teacher
+
+then `/auth/me` must not silently report the database primary role as:
+
+role = parent
+
+when the authenticated request is operating under teacher authority.
+
+Use:
+
+req.user.role
+
+or the authoritative session role.
+
+Do not change the database's primary-role concept.
+
+Do not remove multi-role capability.
+
+Do not invent a global selected-role database field unless actually required.
+
+The goal is:
+
+JWT/session effective role
+=
+API authorization role
+=
+`/auth/me` effective role
+=
+frontend effective role
+
+==================================================
+PART 7 — ROLE SWITCHING
+==================================================
+
+Preserve role switching.
+
+When:
+
+A → B
+
+the new authenticated state must consistently represent B.
+
+Decide and document behavior of the old A token.
+
+Security requirement:
+
+Role switching must NOT create an unintended privilege escalation.
+
+A user may only operate under roles currently assigned to that account.
+
+If the existing architecture permits concurrent legitimately assigned roles, preserve that capability unless there is a concrete security reason not to.
+
+However:
+
+- `/auth/me`
+- frontend
+- API
+- SSE
+
+must not disagree about the effective role within the same session.
+
+==================================================
+PART 8 — FRONTEND AUTH BOOTSTRAP
+==================================================
+
+Fix the current behavior where ANY `/auth/me` error clears the token.
+
+Differentiate:
+
+401 invalid/expired/revoked authentication
+→ clear authentication
+
+403 authorization issue
+→ do NOT automatically assume credentials are invalid
+
+5xx
+→ retain token
+→ show/recover from unknown server state
+
+network failure
+→ retain token
+→ retry/recover
+
+timeout
+→ retain token
+
+offline
+→ retain token
+
+malformed/transient response
+→ retain token unless authentication invalidity is proven
+
+Do not create a false logout during an outage.
+
+Preserve the existing inactivity timeout as a client UX mechanism, but do not represent it as server-side revocation unless it actually revokes the session.
+
+==================================================
+PART 9 — MULTI-TAB AUTH SYNCHRONIZATION
+==================================================
+
+Implement reliable browser synchronization for:
+
+- logout
+- session revocation
+- role switch where appropriate
+- authentication changes
+
+Use an appropriate browser mechanism such as:
+
+- storage event
+- BroadcastChannel
+
+Prefer the simplest reliable mechanism already compatible with the application.
+
+Ensure:
+
+Tab A logout
+
+causes:
+
+Tab B
+
+to reconcile authentication state.
+
+Likewise, stale role state must not remain indefinitely after a role transition.
+
+Do not create an infinite event loop.
+
+Do not broadcast tokens.
+
+Do not broadcast passwords, OTPs, MFA secrets, or other sensitive values.
+
+==================================================
+PART 10 — AUTHORIZATION HARDENING
+==================================================
+
+This is a HIGH PRIORITY SECURITY FIX.
+
+Do NOT leave generic family/child access globally open to every non-parent role.
+
+Review the current role definitions and existing operational authorization model.
+
+Implement explicit least-privilege authorization for:
+
+A. Families
+B. Children
+C. Child biometric descriptors
+D. Safeguarding teacher lookup
+E. Pickup delegates
+
+CRITICAL RULE:
+
+Do not invent new roles.
+
+Do not remove legitimate admin/super-admin capabilities.
+
+Do not break intentionally global operational workflows.
+
+Use the application's existing role model and explicit operational permissions.
+
+At minimum:
+
+PARENT:
+- own family
+- own children
+- existing parent-authorized resources
+
+ADMIN / SUPER-ADMIN:
+- retain legitimate global administrative access
+
+TEACHER:
+- only access children/families/resources justified by existing teacher/class allocation rules
+- no arbitrary global family/child access
+- no arbitrary biometric modification
+- safeguarding teacher lookup only where explicitly authorized
+
+SUPPORT / OPERATIONAL ROLES:
+- preserve documented operational workflows
+- access only the resources their existing role is explicitly intended to manage
+
+If an existing operational helper already establishes legitimate global authority, preserve it.
+
+Do NOT simply replace every non-parent role with "deny."
+
+==================================================
+PART 11 — FAMILY ROUTES
+==================================================
+
+Review all generic family routes.
+
+At minimum:
+
+GET /api/families
+GET /api/families/:id
+GET /api/families/:id/tree
+POST /api/families
+PUT /api/families/:id
+
+Ensure a teacher or unrelated operational user cannot:
+
+- enumerate all families
+- read arbitrary family details
+- read arbitrary family trees
+- create arbitrary family records
+- mutate arbitrary families
+- reassign parents
+
+Use existing authorization helpers where possible.
+
+Do not break:
+
+- admin family management
+- legitimate support workflows
+- parent self-service
+
+==================================================
+PART 12 — CHILD ROUTES
+==================================================
+
+Review generic child routes.
+
+At minimum:
+
+GET /api/children
+POST /api/children
+GET /api/children/:id
+PUT /api/children/:id
+
+Ensure arbitrary child IDs cannot be used to bypass authorization.
+
+Especially protect:
+
+- medical information
+- family information
+- profile information
+- attendance-related sensitive information
+- photos
+- biometric/face descriptors
+
+A teacher must not automatically receive unrestricted access merely because they are non-parent.
+
+Preserve legitimate teacher/classroom operational access.
+
+==================================================
+PART 13 — CHILD BIOMETRIC ROUTES
+==================================================
+
+Explicitly protect child face descriptor operations.
+
+Ensure:
+
+- parent ownership remains valid
+- explicitly authorized operational roles remain valid only where intended
+- unrelated teachers/staff cannot write/delete arbitrary child biometric data
+
+Do not expose biometric material in errors/logs.
+
+Do not log descriptors.
+
+==================================================
+PART 14 — SAFEGUARDING
+==================================================
+
+Fix:
+
+GET /api/safeguarding/teacher/:teacherUserId
+
+Current defect:
+
+non-teachers can query arbitrary teacher IDs.
+
+Implement explicit authorization.
+
+Safe baseline:
+
+- teacher can access own permitted safeguarding information
+- admin/super-admin can access according to existing administrative policy
+- other roles require explicit authorization
+
+Do not allow:
+
+/teacher/123
+
+to become a generic record-enumeration mechanism.
+
+Do not change safeguarding business semantics beyond authorization.
+
+==================================================
+PART 15 — PICKUP DELEGATES
+==================================================
+
+Fix pickup-delegate authorization.
+
+Review:
+
+- list
+- inspect
+- create
+- approve
+- notify
+- delete
+- verification-related operations
+
+Do not treat every non-parent role as globally trusted.
+
+Preserve legitimate operational staff functionality where existing code explicitly authorizes it.
+
+A teacher must not automatically gain access to unrelated families' pickup delegates.
+
+Ensure child/family ownership or operational authorization is checked before mutation.
+
+==================================================
+PART 16 — MFA SETUP
+==================================================
+
+Harden:
+
+POST /api/auth/mfa/setup
+
+Current defect:
+
+ordinary bearer authentication can overwrite the MFA secret.
+
+Implement recent-authentication / step-up protection.
+
+Use the least disruptive secure mechanism compatible with the existing MFA flow.
+
+At minimum require an appropriate recent proof of identity before:
+
+- first-time MFA setup
+- replacing an existing MFA secret
+
+Do not return MFA secrets anywhere after unnecessary exposure.
+
+Do not log:
+
+- secret
+- QR URI
+- TOTP
+- OTP
+
+If setup is started but not confirmed, do not leave the account in an ambiguous active-MFA state.
+
+==================================================
+PART 17 — MFA CONFIRM / DISABLE
+==================================================
+
+Harden:
+
+POST /api/auth/mfa/confirm
+POST /api/auth/mfa/disable
+
+Require appropriate authentication/step-up.
+
+Add reasonable attempt throttling consistent with existing OTP protection.
+
+After a security-sensitive MFA state change:
+
+- revoke appropriate existing sessions
+- require reauthentication where necessary
+- preserve the current flow where safe
+
+Do not create a route where disabling MFA bypasses authentication.
+
+==================================================
+PART 18 — SECURITY-SENSITIVE ACCOUNT CHANGES
+==================================================
+
+Review account changes such as:
+
+- email
+- phone
+- password
+- MFA
+- other authentication/security settings
+
+Require recent authentication where appropriate.
+
+Do not add step-up requirements to ordinary operational actions unnecessarily.
+
+Security-sensitive account control actions should not rely solely on an ancient bearer session.
+
+==================================================
+PART 19 — WHATSAPP OTP
+==================================================
+
+Fix the confirmed channel/provider mismatch.
+
+If request says:
+
+channel = whatsapp
+
+the OTP must actually use the configured WhatsApp provider/path.
+
+Do not silently send WhatsApp-requested OTPs through SMS.
+
+Bind OTP semantics to:
+
+- purpose
+- channel
+- identity/contact
+
+without breaking the existing registration flow.
+
+Registration OTP must not become interchangeable with:
+
+- password reset
+- delegate verification
+- other unrelated purposes
+
+Do not log OTP values.
+
+==================================================
+PART 20 — PASSWORD RESET OTP/CODE SECURITY
+==================================================
+
+Improve reset-code storage safely.
+
+Prefer:
+
+- hashed/HMAC-protected reset codes
+- attempt limits
+- atomic consumption
+- expiry
+- purpose binding
+
+Do not expose reset codes in logs.
+
+Do not break the anti-user-enumeration behavior already present.
+
+Preserve existing delivery behavior unless the provider path is demonstrably incorrect.
+
+==================================================
+PART 21 — DELEGATE OTP POLICY
+==================================================
+
+Review pickup/family-assist delegate credentials.
+
+Do not arbitrarily destroy existing business functionality.
+
+At minimum:
+
+- bind credentials to intended delegate
+- enforce expiry
+- prevent cross-purpose reuse
+- prevent cross-child/family authorization
+- avoid logging raw codes
+- define replay behavior explicitly
+
+If the product intentionally allows a delegate code to be reusable until expiry, preserve that behavior while ensuring it cannot cross authorization boundaries.
+
+==================================================
+PART 22 — GENERAL USER SSE
+==================================================
+
+Harden ONLY the general user SSE.
+
+Do NOT redesign Task #75 classroom-display SSE.
+
+Existing:
+
+GET /api/events
+
+must become bound to the revocable authentication session/version.
+
+When a session is revoked because of:
+
+- logout
+- password reset
+- password change where applicable
+- MFA/security change where applicable
+- account suspension
+- role removal
+
+the existing general user SSE connection must close according to the new session state.
+
+Do not require a completely new realtime architecture.
+
+Keep the current ticket mechanism.
+
+Bind the ticket/connection to session identity/version.
+
+Ensure reconnect requires current valid authentication.
+
+Task #75 classroom display behavior MUST remain unchanged.
+
+==================================================
+PART 23 — SSE ROLE SAFETY
+==================================================
+
+A general user SSE opened under role A must not silently continue as role A after that session's authority has been revoked or replaced.
+
+Ensure:
+
+- role removal closes/rejects the stream
+- session revocation closes/rejects the stream
+- reconnect uses current role
+- no post-revocation protected event is delivered
+
+Do not unnecessarily introduce per-event database authorization checks if session/version binding provides the required guarantee.
+
+==================================================
+PART 24 — OFFLINE QUEUE
+==================================================
+
+Do not redesign the offline queue.
+
+Make only the security boundary corrections required by Phase 4.
+
+A queued mutation must NOT gain authority merely because it was created earlier.
+
+At replay:
+
+- current authentication must be valid
+- current authorization must be checked
+- operation ID semantics must remain intact
+
+If a role changed and queued work is no longer authorized:
+
+- do not silently execute it
+- mark it non-retryable or require user reconciliation according to existing queue semantics
+
+Do not store JWTs in the queue.
+
+Do not introduce sensitive credentials into queue records.
+
+==================================================
+PART 25 — AUTHORIZATION ERROR SEMANTICS
+==================================================
+
+Make authentication and authorization failures distinguishable.
+
+Use:
+
+401
+for invalid/missing/revoked authentication where appropriate.
+
+403
+for authenticated but unauthorized access.
+
+Do not turn every 403 into a logout.
+
+Do not reveal sensitive authorization information.
+
+Do not introduce inconsistent error formats if the existing API contract already has a standard format.
+
+==================================================
+PART 26 — SECURITY AUDITING
+==================================================
+
+Improve authentication security observability.
+
+Use existing audit infrastructure.
+
+Record appropriate events for:
+
+- login success
+- login failure
+- logout
+- password change
+- password reset
+- admin password reset
+- role switch
+- MFA setup
+- MFA confirmation
+- MFA disable
+- OTP send
+- OTP verification failure/success
+- session revocation
+- authorization failures where useful
+
+Never record:
+
+- password
+- JWT
+- bearer token
+- cookie value
+- OTP
+- TOTP
+- MFA secret
+- reset code
+- biometric descriptor
+- sensitive child data
+
+Include request ID/user ID/effective role when appropriate.
+
+Do not create excessive noisy logs.
+
+==================================================
+PART 27 — DATABASE MIGRATION SAFETY
+==================================================
+
+If schema change is necessary:
+
+- create proper migration
+- ensure production-safe default
+- ensure existing users remain valid unless deliberately revoked
+- do not modify production data manually
+- do not backfill sensitive values unnecessarily
+
+If using:
+
+users.session_version
+
+ensure existing records receive:
+
+1
+
+without invalidating all current sessions unintentionally unless explicitly required.
+
+Do not introduce a session table unless per-device/session control is genuinely necessary.
+
+==================================================
+PART 28 — API CONTRACTS
+==================================================
+
+If API responses change:
+
+- update API specification
+- update generated clients
+- update frontend consumers
+- update tests
+
+Do not leave generated clients inconsistent.
+
+Avoid unnecessary breaking changes.
+
+==================================================
+PART 29 — TESTING
+==================================================
+
+Create comprehensive regression coverage.
+
+MANDATORY:
+
+### SESSION
+
+1. login
+2. logout
+3. reuse old JWT after logout
+4. password change
+5. password reset
+6. admin password reset
+7. session version mismatch
+8. active session remains valid when appropriate
+9. revoked session rejected
+10. concurrent authenticated request during logout
+
+### ROLE
+
+11. login selecting primary role
+12. login selecting secondary role
+13. `/auth/me` after secondary-role login
+14. role switch
+15. `/auth/me` after switch
+16. browser reload after switch
+17. second tab after switch
+18. old token behavior
+19. removed role token rejection
+20. simultaneous role switches
+
+### AUTH BOOTSTRAP
+
+21. `/auth/me` 401 → logout
+22. `/auth/me` 403 → no false logout
+23. `/auth/me` 500 → token retained
+24. network failure → token retained
+25. offline → token retained
+26. malformed/transient response → token retained
+
+### AUTHORIZATION
+
+27. parent own family
+28. parent unrelated family
+29. parent own child
+30. parent unrelated child
+31. teacher assigned child
+32. teacher unrelated child
+33. teacher arbitrary family
+34. unauthorized family mutation
+35. unauthorized child mutation
+36. unauthorized biometric write
+37. unauthorized biometric delete
+38. safeguarding self
+39. safeguarding unrelated teacher
+40. unauthorized safeguarding access
+41. authorized pickup delegate
+42. unauthorized pickup delegate
+43. admin global workflow remains functional
+44. legitimate support/operational workflows remain functional
+
+### MFA
+
+45. MFA setup without step-up
+46. MFA setup with valid step-up
+47. MFA setup replacing existing secret
+48. wrong confirmation
+49. repeated confirmation attempts
+50. MFA disable without sufficient proof
+51. MFA disable with valid proof
+52. session revocation after security change
+
+### OTP
+
+53. registration OTP
+54. OTP replay
+55. wrong-purpose OTP
+56. wrong-channel OTP
+57. wrong-identity OTP
+58. expired OTP
+59. rate limiting
+60. WhatsApp request invokes WhatsApp provider
+61. SMS request invokes SMS provider
+62. no OTP secret/code leakage in logs
+
+### SSE
+
+63. valid SSE connection
+64. revoked session closes SSE
+65. logout closes SSE
+66. password reset closes SSE
+67. suspension closes SSE
+68. role removal closes SSE
+69. revoked session cannot reconnect
+70. current session can reconnect
+71. Task #75 classroom display remains functional
+
+### MULTI-TAB
+
+72. logout in tab A updates tab B
+73. role state reconciliation
+74. stale tab cannot silently operate as revoked session
+
+### OFFLINE
+
+75. queued mutation replays under valid current authorization
+76. unauthorized queued mutation is rejected
+77. role change does not grant stale queue authority
+78. logout does not cause stale queued mutation to execute unexpectedly
+
+==================================================
+PART 30 — RESPONSE-LOSS / CONCURRENCY
+==================================================
+
+For security-sensitive operations where appropriate, include tests for:
+
+- response loss after commit
+- retry after response loss
+- duplicate submission
+- concurrent session revocation
+- concurrent password reset/change
+- concurrent role switch
+
+Do not break Phase 2 operation IDs.
+
+==================================================
+PART 31 — REGRESSION PROTECTION
+==================================================
+
+Run all existing tests.
+
+Do not accept:
+
+- reduced existing test coverage
+- broken checkout
+- broken custody
+- broken pickup
+- broken classroom display
+- broken notifications
+- broken operation reconciliation
+- broken attendance
+- broken role workflows
+
+The completed Phase 4 must preserve:
+
+Phase 1
+Phase 2
+Phase 3
+Task #74
+Task #75
+
+==================================================
+PART 32 — PRODUCTION SAFETY
+==================================================
+
+Before applying anything:
+
+- inspect migration
+- inspect changed files
+- inspect authorization changes
+- inspect session logic
+- inspect frontend auth changes
+
+Use development/test DB for validation.
+
+DO NOT:
+
+- mutate production data
+- manually modify production DB
+- revoke real production sessions during development testing
+- send real OTPs
+- access real user secrets
+- deploy without final validation
+
+==================================================
+PART 33 — REQUIRED VALIDATION
+==================================================
+
+Run:
+
+1. Full backend tests.
+2. Full PostgreSQL integration tests.
+3. Full frontend tests.
+4. Typecheck.
+5. Production build.
+6. Security/architecture review.
+7. Migration validation.
+8. API contract validation.
+9. Generated client validation.
+10. Health check.
+11. Existing Phase 1/2/3/74/75 regression suites.
+
+Do not stop at focused tests.
+
+Report exact counts.
+
+==================================================
+PART 34 — FINAL SECURITY REVIEW
+==================================================
+
+After implementation, independently review the resulting code.
+
+Specifically verify:
+
+- old JWT cannot bypass session revocation
+- logout actually invalidates intended credentials
+- password reset invalidates old sessions
+- `/auth/me` and effective JWT role agree
+- arbitrary family access is blocked
+- arbitrary child access is blocked
+- biometric access is protected
+- safeguarding access is protected
+- pickup delegates are protected
+- MFA setup cannot be hijacked by a stolen ordinary session without required step-up
+- WhatsApp requests use the WhatsApp provider
+- transient `/auth/me` errors do not falsely log the user out
+- revoked SSE connections terminate
+- SSE reconnect requires valid current authorization
+- no sensitive secrets enter logs
+- no privilege escalation was introduced
+
+==================================================
+PART 35 — DO NOT FIX THESE UNRELATED AREAS
+==================================================
+
+Do NOT use Phase 4 as an excuse to modify:
+
+- duplicate child records
+- family deletion redesign
+- general tenant architecture
+- classroom display architecture
+- Task #75 realtime infrastructure
+- notification worker architecture
+- media architecture
+- attendance business semantics
+- custody business semantics
+- pickup business semantics
+- offline queue redesign
+- unrelated UI redesign
+- generic API refactoring
+- unrelated performance work
+
+If you discover unrelated defects, document them separately.
+
+Do not fix them in this pass.
+
+==================================================
+PART 36 — FINAL ACCEPTANCE CRITERIA
+==================================================
+
+Phase 4 is complete only if ALL are true:
+
+[ ] Server-side session revocation implemented.
+[ ] Logout invalidates intended session(s).
+[ ] Password change follows approved revocation semantics.
+[ ] Password reset invalidates all prior sessions.
+[ ] Admin password reset invalidates target sessions.
+[ ] `/auth/me` agrees with effective authenticated role.
+[ ] Role switching is internally consistent.
+[ ] Multi-tab auth state reconciles.
+[ ] Auth bootstrap no longer false-logs-out on transient failures.
+[ ] Generic family authorization hardened.
+[ ] Generic child authorization hardened.
+[ ] Child biometric authorization hardened.
+[ ] Safeguarding teacher lookup hardened.
+[ ] Pickup delegate authorization hardened.
+[ ] MFA setup protected by appropriate step-up.
+[ ] MFA confirmation/disable protected and rate-limited.
+[ ] Security-sensitive account changes protected.
+[ ] WhatsApp OTP provider mismatch fixed.
+[ ] OTP purpose/channel/identity boundaries protected.
+[ ] Password reset credentials hardened where required.
+[ ] General user SSE bound to revocable session state.
+[ ] Revoked sessions cannot reconnect.
+[ ] Offline mutations remain authorization-safe.
+[ ] Security events adequately audited.
+[ ] No secrets in logs.
+[ ] API contracts consistent.
+[ ] Generated clients consistent.
+[ ] Database migration validated.
+[ ] Full test suite passes.
+[ ] PostgreSQL integration suite passes.
+[ ] Frontend suite passes.
+[ ] Typecheck passes.
+[ ] Production build passes.
+[ ] Security review passes.
+[ ] Architecture review passes.
+[ ] Phase 1 regression passes.
+[ ] Phase 2 regression passes.
+[ ] Phase 3 regression passes.
+[ ] Task #74 regression passes.
+[ ] Task #75 regression passes.
+[ ] No production changes made during validation.
+
+==================================================
+FINAL REPORT
+==================================================
+
+Return:
+
+1. IMPLEMENTATION COMPLETE
+2. SECURITY FINDINGS FIXED
+3. AUTHORIZATION CHANGES
+4. SESSION/REVOCATION CHANGES
+5. ROLE CONSISTENCY CHANGES
+6. MFA CHANGES
+7. OTP/WHATSAPP CHANGES
+8. SSE CHANGES
+9. FRONTEND AUTH CHANGES
+10. OFFLINE AUTH CHANGES
+11. DATABASE/MIGRATION CHANGES
+12. API/GENERATED CLIENT CHANGES
+13. TEST RESULTS — EXACT COUNTS
+14. SECURITY REVIEW RESULT
+15. ARCHITECTURE REVIEW RESULT
+16. REGRESSION RESULT
+17. FILES CHANGED
+18. PRODUCTION SAFETY CONFIRMATION
+19. REMAINING FINDINGS — ONLY IF NOT FIXED
+20. PHASE 4 FINAL STATUS
+
+The final status must be exactly one of:
+
+PHASE 4 COMPLETE — SECURITY HARDENING VERIFIED
+
+or
+
+PHASE 4 BLOCKED — SPECIFIC ACCEPTANCE CRITERION FAILED
+
+Do not claim completion if any mandatory acceptance criterion failed.
+
+==================================================
+FINAL INSTRUCTION
+==================================================
+
+IMPLEMENT THE COMPLETE PHASE 4 HARDENING NOW.
+
+Do not merely describe what should be done.
+
+Do not stop after authorization.
+
+Do not stop after session revocation.
+
+Do not stop after MFA.
+
+Complete all confirmed Phase 4 work, test it comprehensively, perform the final security review, and close Phase 4.
+
+After the final report, STOP.
+
+Do not automatically begin another phase or task.

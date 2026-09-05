@@ -99,11 +99,130 @@ export const GetCurrentUserResponse = zod.object({
 });
 
 /**
- * @summary Logout
+ * @summary Logout and revoke all authenticated sessions
  */
 export const LogoutResponse = zod.object({
   success: zod.boolean(),
   message: zod.string().optional(),
+});
+
+/**
+ * @summary Change the current user's password and replace the current session
+ */
+export const changePasswordBodyNewPasswordMin = 6;
+
+export const ChangePasswordBody = zod.object({
+  currentPassword: zod.string(),
+  newPassword: zod.string().min(changePasswordBodyNewPasswordMin),
+});
+
+export const ChangePasswordResponse = zod.object({
+  success: zod.boolean(),
+  message: zod.string(),
+  token: zod
+    .string()
+    .describe(
+      "Replacement bearer token for the session that performed the change.",
+    ),
+});
+
+/**
+ * @summary Reset a password using a delivered reset code
+ */
+export const resetPasswordBodyNewPasswordMin = 6;
+
+export const ResetPasswordBody = zod.object({
+  email: zod.string().email(),
+  code: zod.string(),
+  newPassword: zod.string().min(resetPasswordBodyNewPasswordMin),
+});
+
+export const ResetPasswordResponse = zod.object({
+  success: zod.boolean(),
+  message: zod.string().optional(),
+});
+
+/**
+ * @summary Send a purpose-, channel-, and contact-bound registration code
+ */
+export const SendRegistrationOtpBody = zod
+  .union([
+    zod.object({
+      channel: zod.enum(["sms", "whatsapp"]).optional(),
+    }),
+    zod.object({
+      channel: zod.unknown().optional(),
+    }),
+  ])
+  .and(
+    zod.object({
+      phone: zod
+        .string()
+        .optional()
+        .describe("Required when channel is sms or whatsapp."),
+      email: zod
+        .string()
+        .email()
+        .optional()
+        .describe("Required when channel is email."),
+      channel: zod.enum(["sms", "whatsapp", "email"]),
+    }),
+  );
+
+export const SendRegistrationOtpResponse = zod.object({
+  pinId: zod.string(),
+  message: zod.string(),
+});
+
+/**
+ * @summary Begin MFA setup after password step-up
+ */
+export const SetupMfaBody = zod.object({
+  currentPassword: zod.string(),
+});
+
+export const SetupMfaResponse = zod.object({
+  qrCodeUri: zod.string(),
+  secret: zod.string(),
+});
+
+/**
+ * @summary Confirm pending MFA and replace the current session
+ */
+export const confirmMfaBodyTotpCodeRegExp = new RegExp("^\\d{6}$");
+
+export const ConfirmMfaBody = zod.object({
+  totpCode: zod.string().regex(confirmMfaBodyTotpCodeRegExp),
+});
+
+export const ConfirmMfaResponse = zod.object({
+  success: zod.boolean(),
+  message: zod.string(),
+  token: zod
+    .string()
+    .describe(
+      "Replacement bearer token for the session that performed the change.",
+    ),
+});
+
+/**
+ * @summary Disable MFA after password and authenticator step-up
+ */
+export const disableMfaBodyTotpCodeRegExp = new RegExp("^\\d{6}$");
+
+export const DisableMfaBody = zod.object({
+  totpCode: zod.string().regex(disableMfaBodyTotpCodeRegExp),
+  currentPassword: zod.string(),
+});
+
+export const DisableMfaResponse = zod.object({
+  success: zod.boolean(),
+  message: zod.string(),
+  token: zod
+    .string()
+    .describe(
+      "Replacement bearer token for the session that performed the change.",
+    ),
 });
 
 /**
@@ -180,6 +299,7 @@ export const GetUserResponse = zod.object({
 });
 
 /**
+ * A self-service phone-number change requires currentPassword. Other updates do not.
  * @summary Update user
  */
 export const UpdateUserParams = zod.object({
@@ -192,6 +312,12 @@ export const UpdateUserBody = zod.object({
   phone: zod.string().optional(),
   isActive: zod.boolean().optional(),
   role: zod.string().optional(),
+  currentPassword: zod
+    .string()
+    .optional()
+    .describe(
+      "Required only when the authenticated user changes their own phone number.",
+    ),
 });
 
 export const UpdateUserResponse = zod.object({
@@ -258,6 +384,24 @@ export const ApproveUserParams = zod.object({
 });
 
 export const ApproveUserResponse = zod.object({
+  success: zod.boolean(),
+  message: zod.string().optional(),
+});
+
+/**
+ * @summary Administratively reset another user's password and revoke their sessions
+ */
+export const AdminResetUserPasswordParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const adminResetUserPasswordBodyPasswordMin = 6;
+
+export const AdminResetUserPasswordBody = zod.object({
+  password: zod.string().min(adminResetUserPasswordBodyPasswordMin),
+});
+
+export const AdminResetUserPasswordResponse = zod.object({
   success: zod.boolean(),
   message: zod.string().optional(),
 });
@@ -369,7 +513,7 @@ export const ListFamiliesResponse = zod.object({
             allergies: zod.string().nullish(),
             medicalNotes: zod.string().nullish(),
             photoUrl: zod.string().nullish(),
-            faceDescriptorJson: zod.string().nullish(),
+            hasFaceDescriptor: zod.boolean(),
             servicePreference: zod.enum(["7am", "10:30am", "both"]).nullish(),
             currentClassId: zod.number().nullish(),
             currentClass: zod
@@ -473,7 +617,7 @@ export const GetFamilyResponse = zod.object({
         allergies: zod.string().nullish(),
         medicalNotes: zod.string().nullish(),
         photoUrl: zod.string().nullish(),
-        faceDescriptorJson: zod.string().nullish(),
+        hasFaceDescriptor: zod.boolean(),
         servicePreference: zod.enum(["7am", "10:30am", "both"]).nullish(),
         currentClassId: zod.number().nullish(),
         currentClass: zod
@@ -569,7 +713,7 @@ export const UpdateFamilyResponse = zod.object({
         allergies: zod.string().nullish(),
         medicalNotes: zod.string().nullish(),
         photoUrl: zod.string().nullish(),
-        faceDescriptorJson: zod.string().nullish(),
+        hasFaceDescriptor: zod.boolean(),
         servicePreference: zod.enum(["7am", "10:30am", "both"]).nullish(),
         currentClassId: zod.number().nullish(),
         currentClass: zod
@@ -670,7 +814,7 @@ export const GetFamilyTreeResponse = zod.object({
           allergies: zod.string().nullish(),
           medicalNotes: zod.string().nullish(),
           photoUrl: zod.string().nullish(),
-          faceDescriptorJson: zod.string().nullish(),
+          hasFaceDescriptor: zod.boolean(),
           servicePreference: zod.enum(["7am", "10:30am", "both"]).nullish(),
           currentClassId: zod.number().nullish(),
           currentClass: zod
@@ -791,7 +935,7 @@ export const GetFamilyTreeResponse = zod.object({
                 allergies: zod.string().nullish(),
                 medicalNotes: zod.string().nullish(),
                 photoUrl: zod.string().nullish(),
-                faceDescriptorJson: zod.string().nullish(),
+                hasFaceDescriptor: zod.boolean(),
                 servicePreference: zod
                   .enum(["7am", "10:30am", "both"])
                   .nullish(),
@@ -894,7 +1038,7 @@ export const GetMyFamilyResponse = zod.object({
         allergies: zod.string().nullish(),
         medicalNotes: zod.string().nullish(),
         photoUrl: zod.string().nullish(),
-        faceDescriptorJson: zod.string().nullish(),
+        hasFaceDescriptor: zod.boolean(),
         servicePreference: zod.enum(["7am", "10:30am", "both"]).nullish(),
         currentClassId: zod.number().nullish(),
         currentClass: zod
@@ -946,7 +1090,7 @@ export const ListChildrenResponse = zod.object({
       allergies: zod.string().nullish(),
       medicalNotes: zod.string().nullish(),
       photoUrl: zod.string().nullish(),
-      faceDescriptorJson: zod.string().nullish(),
+      hasFaceDescriptor: zod.boolean(),
       servicePreference: zod.enum(["7am", "10:30am", "both"]).nullish(),
       currentClassId: zod.number().nullish(),
       currentClass: zod
@@ -1005,7 +1149,7 @@ export const GetChildResponse = zod.object({
   allergies: zod.string().nullish(),
   medicalNotes: zod.string().nullish(),
   photoUrl: zod.string().nullish(),
-  faceDescriptorJson: zod.string().nullish(),
+  hasFaceDescriptor: zod.boolean(),
   servicePreference: zod.enum(["7am", "10:30am", "both"]).nullish(),
   currentClassId: zod.number().nullish(),
   currentClass: zod
@@ -1056,7 +1200,7 @@ export const UpdateChildResponse = zod.object({
   allergies: zod.string().nullish(),
   medicalNotes: zod.string().nullish(),
   photoUrl: zod.string().nullish(),
-  faceDescriptorJson: zod.string().nullish(),
+  hasFaceDescriptor: zod.boolean(),
   servicePreference: zod.enum(["7am", "10:30am", "both"]).nullish(),
   currentClassId: zod.number().nullish(),
   currentClass: zod
@@ -1213,7 +1357,7 @@ export const ListClassAssignmentsResponseItem = zod.object({
       allergies: zod.string().nullish(),
       medicalNotes: zod.string().nullish(),
       photoUrl: zod.string().nullish(),
-      faceDescriptorJson: zod.string().nullish(),
+      hasFaceDescriptor: zod.boolean(),
       servicePreference: zod.enum(["7am", "10:30am", "both"]).nullish(),
       currentClassId: zod.number().nullish(),
       currentClass: zod
@@ -1291,7 +1435,7 @@ export const UpdateClassAssignmentResponse = zod.object({
       allergies: zod.string().nullish(),
       medicalNotes: zod.string().nullish(),
       photoUrl: zod.string().nullish(),
-      faceDescriptorJson: zod.string().nullish(),
+      hasFaceDescriptor: zod.boolean(),
       servicePreference: zod.enum(["7am", "10:30am", "both"]).nullish(),
       currentClassId: zod.number().nullish(),
       currentClass: zod
@@ -1611,7 +1755,7 @@ export const ListAttendanceResponseItem = zod.object({
       allergies: zod.string().nullish(),
       medicalNotes: zod.string().nullish(),
       photoUrl: zod.string().nullish(),
-      faceDescriptorJson: zod.string().nullish(),
+      hasFaceDescriptor: zod.boolean(),
       servicePreference: zod.enum(["7am", "10:30am", "both"]).nullish(),
       currentClassId: zod.number().nullish(),
       currentClass: zod
@@ -1710,7 +1854,7 @@ export const CheckInResponse = zod.object({
       allergies: zod.string().nullish(),
       medicalNotes: zod.string().nullish(),
       photoUrl: zod.string().nullish(),
-      faceDescriptorJson: zod.string().nullish(),
+      hasFaceDescriptor: zod.boolean(),
       servicePreference: zod.enum(["7am", "10:30am", "both"]).nullish(),
       currentClassId: zod.number().nullish(),
       currentClass: zod
@@ -1778,7 +1922,7 @@ export const MarkArrivedResponse = zod.object({
       allergies: zod.string().nullish(),
       medicalNotes: zod.string().nullish(),
       photoUrl: zod.string().nullish(),
-      faceDescriptorJson: zod.string().nullish(),
+      hasFaceDescriptor: zod.boolean(),
       servicePreference: zod.enum(["7am", "10:30am", "both"]).nullish(),
       currentClassId: zod.number().nullish(),
       currentClass: zod
@@ -1859,7 +2003,7 @@ export const CheckOutResponse = zod.object({
         allergies: zod.string().nullish(),
         medicalNotes: zod.string().nullish(),
         photoUrl: zod.string().nullish(),
-        faceDescriptorJson: zod.string().nullish(),
+        hasFaceDescriptor: zod.boolean(),
         servicePreference: zod.enum(["7am", "10:30am", "both"]).nullish(),
         currentClassId: zod.number().nullish(),
         currentClass: zod
@@ -1934,7 +2078,7 @@ export const GetCheckoutOperationResponse = zod.object({
         allergies: zod.string().nullish(),
         medicalNotes: zod.string().nullish(),
         photoUrl: zod.string().nullish(),
-        faceDescriptorJson: zod.string().nullish(),
+        hasFaceDescriptor: zod.boolean(),
         servicePreference: zod.enum(["7am", "10:30am", "both"]).nullish(),
         currentClassId: zod.number().nullish(),
         currentClass: zod
@@ -2052,7 +2196,7 @@ export const ScanQrCodeResponse = zod.object({
           allergies: zod.string().nullish(),
           medicalNotes: zod.string().nullish(),
           photoUrl: zod.string().nullish(),
-          faceDescriptorJson: zod.string().nullish(),
+          hasFaceDescriptor: zod.boolean(),
           servicePreference: zod.enum(["7am", "10:30am", "both"]).nullish(),
           currentClassId: zod.number().nullish(),
           currentClass: zod
@@ -2155,7 +2299,7 @@ export const ScanQrCodeResponse = zod.object({
                 allergies: zod.string().nullish(),
                 medicalNotes: zod.string().nullish(),
                 photoUrl: zod.string().nullish(),
-                faceDescriptorJson: zod.string().nullish(),
+                hasFaceDescriptor: zod.boolean(),
                 servicePreference: zod
                   .enum(["7am", "10:30am", "both"])
                   .nullish(),
@@ -2232,7 +2376,7 @@ export const EscortToClassResponse = zod.object({
       allergies: zod.string().nullish(),
       medicalNotes: zod.string().nullish(),
       photoUrl: zod.string().nullish(),
-      faceDescriptorJson: zod.string().nullish(),
+      hasFaceDescriptor: zod.boolean(),
       servicePreference: zod.enum(["7am", "10:30am", "both"]).nullish(),
       currentClassId: zod.number().nullish(),
       currentClass: zod
@@ -2347,7 +2491,7 @@ export const ScanFaceResponse = zod.object({
           allergies: zod.string().nullish(),
           medicalNotes: zod.string().nullish(),
           photoUrl: zod.string().nullish(),
-          faceDescriptorJson: zod.string().nullish(),
+          hasFaceDescriptor: zod.boolean(),
           servicePreference: zod.enum(["7am", "10:30am", "both"]).nullish(),
           currentClassId: zod.number().nullish(),
           currentClass: zod
@@ -2450,7 +2594,7 @@ export const ScanFaceResponse = zod.object({
                 allergies: zod.string().nullish(),
                 medicalNotes: zod.string().nullish(),
                 photoUrl: zod.string().nullish(),
-                faceDescriptorJson: zod.string().nullish(),
+                hasFaceDescriptor: zod.boolean(),
                 servicePreference: zod
                   .enum(["7am", "10:30am", "both"])
                   .nullish(),
@@ -2518,7 +2662,7 @@ export const UpdateFaceDescriptorResponse = zod.object({
   allergies: zod.string().nullish(),
   medicalNotes: zod.string().nullish(),
   photoUrl: zod.string().nullish(),
-  faceDescriptorJson: zod.string().nullish(),
+  hasFaceDescriptor: zod.boolean(),
   servicePreference: zod.enum(["7am", "10:30am", "both"]).nullish(),
   currentClassId: zod.number().nullish(),
   currentClass: zod
@@ -2955,7 +3099,7 @@ export const ListAppraisalsResponseItem = zod.object({
       allergies: zod.string().nullish(),
       medicalNotes: zod.string().nullish(),
       photoUrl: zod.string().nullish(),
-      faceDescriptorJson: zod.string().nullish(),
+      hasFaceDescriptor: zod.boolean(),
       servicePreference: zod.enum(["7am", "10:30am", "both"]).nullish(),
       currentClassId: zod.number().nullish(),
       currentClass: zod
@@ -3042,7 +3186,7 @@ export const ListEmergenciesResponseItem = zod.object({
       allergies: zod.string().nullish(),
       medicalNotes: zod.string().nullish(),
       photoUrl: zod.string().nullish(),
-      faceDescriptorJson: zod.string().nullish(),
+      hasFaceDescriptor: zod.boolean(),
       servicePreference: zod.enum(["7am", "10:30am", "both"]).nullish(),
       currentClassId: zod.number().nullish(),
       currentClass: zod
@@ -3112,7 +3256,7 @@ export const TriggerEmergencyResponse = zod
         allergies: zod.string().nullish(),
         medicalNotes: zod.string().nullish(),
         photoUrl: zod.string().nullish(),
-        faceDescriptorJson: zod.string().nullish(),
+        hasFaceDescriptor: zod.boolean(),
         servicePreference: zod.enum(["7am", "10:30am", "both"]).nullish(),
         currentClassId: zod.number().nullish(),
         currentClass: zod
@@ -3177,7 +3321,7 @@ export const GetEmergencyOperationResponse = zod
         allergies: zod.string().nullish(),
         medicalNotes: zod.string().nullish(),
         photoUrl: zod.string().nullish(),
-        faceDescriptorJson: zod.string().nullish(),
+        hasFaceDescriptor: zod.boolean(),
         servicePreference: zod.enum(["7am", "10:30am", "both"]).nullish(),
         currentClassId: zod.number().nullish(),
         currentClass: zod
@@ -3241,7 +3385,7 @@ export const GetEmergencyResponse = zod.object({
       allergies: zod.string().nullish(),
       medicalNotes: zod.string().nullish(),
       photoUrl: zod.string().nullish(),
-      faceDescriptorJson: zod.string().nullish(),
+      hasFaceDescriptor: zod.boolean(),
       servicePreference: zod.enum(["7am", "10:30am", "both"]).nullish(),
       currentClassId: zod.number().nullish(),
       currentClass: zod
@@ -3305,7 +3449,7 @@ export const UpdateEmergencyResponse = zod.object({
       allergies: zod.string().nullish(),
       medicalNotes: zod.string().nullish(),
       photoUrl: zod.string().nullish(),
-      faceDescriptorJson: zod.string().nullish(),
+      hasFaceDescriptor: zod.boolean(),
       servicePreference: zod.enum(["7am", "10:30am", "both"]).nullish(),
       currentClassId: zod.number().nullish(),
       currentClass: zod
@@ -3601,7 +3745,7 @@ export const GetLiveViewResponseItem = zod.object({
             allergies: zod.string().nullish(),
             medicalNotes: zod.string().nullish(),
             photoUrl: zod.string().nullish(),
-            faceDescriptorJson: zod.string().nullish(),
+            hasFaceDescriptor: zod.boolean(),
             servicePreference: zod.enum(["7am", "10:30am", "both"]).nullish(),
             currentClassId: zod.number().nullish(),
             currentClass: zod
@@ -3759,7 +3903,7 @@ export const GetExceptionsResponse = zod.object({
           allergies: zod.string().nullish(),
           medicalNotes: zod.string().nullish(),
           photoUrl: zod.string().nullish(),
-          faceDescriptorJson: zod.string().nullish(),
+          hasFaceDescriptor: zod.boolean(),
           servicePreference: zod.enum(["7am", "10:30am", "both"]).nullish(),
           currentClassId: zod.number().nullish(),
           currentClass: zod
@@ -3921,7 +4065,7 @@ export const ListClassChangeRequestsResponse = zod.object({
           allergies: zod.string().nullish(),
           medicalNotes: zod.string().nullish(),
           photoUrl: zod.string().nullish(),
-          faceDescriptorJson: zod.string().nullish(),
+          hasFaceDescriptor: zod.boolean(),
           servicePreference: zod.enum(["7am", "10:30am", "both"]).nullish(),
           currentClassId: zod.number().nullish(),
           currentClass: zod
@@ -4209,7 +4353,7 @@ export const CompleteCustodyPickupResponse = zod.object({
           allergies: zod.string().nullish(),
           medicalNotes: zod.string().nullish(),
           photoUrl: zod.string().nullish(),
-          faceDescriptorJson: zod.string().nullish(),
+          hasFaceDescriptor: zod.boolean(),
           servicePreference: zod.enum(["7am", "10:30am", "both"]).nullish(),
           currentClassId: zod.number().nullish(),
           currentClass: zod
@@ -4311,7 +4455,7 @@ export const OverrideCustodyPickupResponse = zod.object({
           allergies: zod.string().nullish(),
           medicalNotes: zod.string().nullish(),
           photoUrl: zod.string().nullish(),
-          faceDescriptorJson: zod.string().nullish(),
+          hasFaceDescriptor: zod.boolean(),
           servicePreference: zod.enum(["7am", "10:30am", "both"]).nullish(),
           currentClassId: zod.number().nullish(),
           currentClass: zod

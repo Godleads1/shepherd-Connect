@@ -22,6 +22,7 @@ const activeUser = {
   isActive: true,
   status: "active",
   secondaryRoles: JSON.stringify(["support"]),
+  sessionVersion: 1,
 };
 
 function mockCurrentUser(user: typeof activeUser | null) {
@@ -132,6 +133,49 @@ describe("authoritative authentication", () => {
 
     expect(next).not.toHaveBeenCalled();
     expect(res.status).toHaveBeenCalledWith(401);
+  });
+
+  it("rejects a token whose server-side session version was revoked", async () => {
+    mockCurrentUser({ ...activeUser, sessionVersion: 2 });
+    const { authMiddleware, generateToken } = await import("../middlewares/auth");
+    const req = {
+      headers: {
+        authorization: `Bearer ${generateToken({
+          userId: activeUser.id,
+          email: activeUser.email,
+          role: activeUser.role,
+          firstName: activeUser.firstName,
+          lastName: activeUser.lastName,
+          sessionVersion: 1,
+        })}`,
+      },
+    } as Request;
+    const res = response();
+    const next = vi.fn() as NextFunction;
+
+    await authMiddleware(req, res, next);
+
+    expect(next).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(401);
+  });
+
+  it("migration-safely treats a legacy full token as session version one", async () => {
+    const { authMiddleware } = await import("../middlewares/auth");
+    const token = jwt.sign({
+      userId: activeUser.id,
+      email: activeUser.email,
+      role: activeUser.role,
+      firstName: activeUser.firstName,
+      lastName: activeUser.lastName,
+    }, process.env.SESSION_SECRET!, { expiresIn: "5m" });
+    const req = { headers: { authorization: `Bearer ${token}` } } as Request;
+    const res = response();
+    const next = vi.fn() as NextFunction;
+
+    await authMiddleware(req, res, next);
+
+    expect(next).toHaveBeenCalledOnce();
+    expect(req.user?.sessionVersion).toBe(1);
   });
 
   it.each(["parent", "teacher", "support"])(

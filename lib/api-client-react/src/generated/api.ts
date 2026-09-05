@@ -17,6 +17,7 @@ import type {
 } from "@tanstack/react-query";
 
 import type {
+  AdminPasswordResetInput,
   AnalyzeFeedbackSentiment200,
   Appraisal,
   ApproveClassChangeRequestBody,
@@ -96,6 +97,10 @@ import type {
   ListUsersParams,
   LiveClassView,
   LoginBody,
+  MfaConfirmationInput,
+  MfaDisableInput,
+  MfaSetupInput,
+  MfaSetupResponse,
   Notification,
   NotificationPreferenceInput,
   NotificationPreferences,
@@ -111,17 +116,22 @@ import type {
   ParentRequestCenter,
   ParentRequestItem,
   ParentRequestType,
+  PasswordChangeInput,
+  PasswordResetInput,
   PickupDelegate,
   PickupDelegateOperationResult,
   PreDismissalBody,
   QrCodeData,
   QrScanResult,
   RegisterBody,
+  RegistrationOtpInput,
+  RegistrationOtpResponse,
   RejectClassChangeRequestBody,
   SafeguardingOperationResult,
   SafeguardingRecordInput,
   ScanFaceBody,
   ScanQrBody,
+  SessionReplacementResponse,
   SseTicketResponse,
   SuccessResponse,
   Teacher,
@@ -643,7 +653,7 @@ export function useGetCurrentUser<
 }
 
 /**
- * @summary Logout
+ * @summary Logout and revoke all authenticated sessions
  */
 export const getLogoutUrl = () => {
   return `/api/auth/logout`;
@@ -659,7 +669,7 @@ export const logout = async (
 };
 
 export const getLogoutMutationOptions = <
-  TError = ErrorType<unknown>,
+  TError = ErrorType<ErrorResponse>,
   TContext = unknown,
 >(options?: {
   mutation?: UseMutationOptions<
@@ -698,13 +708,13 @@ export type LogoutMutationResult = NonNullable<
   Awaited<ReturnType<typeof logout>>
 >;
 
-export type LogoutMutationError = ErrorType<unknown>;
+export type LogoutMutationError = ErrorType<ErrorResponse>;
 
 /**
- * @summary Logout
+ * @summary Logout and revoke all authenticated sessions
  */
 export const useLogout = <
-  TError = ErrorType<unknown>,
+  TError = ErrorType<ErrorResponse>,
   TContext = unknown,
 >(options?: {
   mutation?: UseMutationOptions<
@@ -721,6 +731,522 @@ export const useLogout = <
   TContext
 > => {
   return useMutation(getLogoutMutationOptions(options));
+};
+
+/**
+ * @summary Change the current user's password and replace the current session
+ */
+export const getChangePasswordUrl = () => {
+  return `/api/auth/change-password`;
+};
+
+export const changePassword = async (
+  passwordChangeInput: PasswordChangeInput,
+  options?: RequestInit,
+): Promise<SessionReplacementResponse> => {
+  return customFetch<SessionReplacementResponse>(getChangePasswordUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(passwordChangeInput),
+  });
+};
+
+export const getChangePasswordMutationOptions = <
+  TError = ErrorType<ErrorResponse | void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof changePassword>>,
+    TError,
+    { data: BodyType<PasswordChangeInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof changePassword>>,
+  TError,
+  { data: BodyType<PasswordChangeInput> },
+  TContext
+> => {
+  const mutationKey = ["changePassword"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof changePassword>>,
+    { data: BodyType<PasswordChangeInput> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return changePassword(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ChangePasswordMutationResult = NonNullable<
+  Awaited<ReturnType<typeof changePassword>>
+>;
+export type ChangePasswordMutationBody = BodyType<PasswordChangeInput>;
+export type ChangePasswordMutationError = ErrorType<ErrorResponse | void>;
+
+/**
+ * @summary Change the current user's password and replace the current session
+ */
+export const useChangePassword = <
+  TError = ErrorType<ErrorResponse | void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof changePassword>>,
+    TError,
+    { data: BodyType<PasswordChangeInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof changePassword>>,
+  TError,
+  { data: BodyType<PasswordChangeInput> },
+  TContext
+> => {
+  return useMutation(getChangePasswordMutationOptions(options));
+};
+
+/**
+ * @summary Reset a password using a delivered reset code
+ */
+export const getResetPasswordUrl = () => {
+  return `/api/auth/reset-password`;
+};
+
+export const resetPassword = async (
+  passwordResetInput: PasswordResetInput,
+  options?: RequestInit,
+): Promise<SuccessResponse> => {
+  return customFetch<SuccessResponse>(getResetPasswordUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(passwordResetInput),
+  });
+};
+
+export const getResetPasswordMutationOptions = <
+  TError = ErrorType<ErrorResponse | void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof resetPassword>>,
+    TError,
+    { data: BodyType<PasswordResetInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof resetPassword>>,
+  TError,
+  { data: BodyType<PasswordResetInput> },
+  TContext
+> => {
+  const mutationKey = ["resetPassword"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof resetPassword>>,
+    { data: BodyType<PasswordResetInput> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return resetPassword(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ResetPasswordMutationResult = NonNullable<
+  Awaited<ReturnType<typeof resetPassword>>
+>;
+export type ResetPasswordMutationBody = BodyType<PasswordResetInput>;
+export type ResetPasswordMutationError = ErrorType<ErrorResponse | void>;
+
+/**
+ * @summary Reset a password using a delivered reset code
+ */
+export const useResetPassword = <
+  TError = ErrorType<ErrorResponse | void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof resetPassword>>,
+    TError,
+    { data: BodyType<PasswordResetInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof resetPassword>>,
+  TError,
+  { data: BodyType<PasswordResetInput> },
+  TContext
+> => {
+  return useMutation(getResetPasswordMutationOptions(options));
+};
+
+/**
+ * @summary Send a purpose-, channel-, and contact-bound registration code
+ */
+export const getSendRegistrationOtpUrl = () => {
+  return `/api/auth/send-otp`;
+};
+
+export const sendRegistrationOtp = async (
+  registrationOtpInput: RegistrationOtpInput,
+  options?: RequestInit,
+): Promise<RegistrationOtpResponse> => {
+  return customFetch<RegistrationOtpResponse>(getSendRegistrationOtpUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(registrationOtpInput),
+  });
+};
+
+export const getSendRegistrationOtpMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof sendRegistrationOtp>>,
+    TError,
+    { data: BodyType<RegistrationOtpInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof sendRegistrationOtp>>,
+  TError,
+  { data: BodyType<RegistrationOtpInput> },
+  TContext
+> => {
+  const mutationKey = ["sendRegistrationOtp"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof sendRegistrationOtp>>,
+    { data: BodyType<RegistrationOtpInput> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return sendRegistrationOtp(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type SendRegistrationOtpMutationResult = NonNullable<
+  Awaited<ReturnType<typeof sendRegistrationOtp>>
+>;
+export type SendRegistrationOtpMutationBody = BodyType<RegistrationOtpInput>;
+export type SendRegistrationOtpMutationError = ErrorType<void>;
+
+/**
+ * @summary Send a purpose-, channel-, and contact-bound registration code
+ */
+export const useSendRegistrationOtp = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof sendRegistrationOtp>>,
+    TError,
+    { data: BodyType<RegistrationOtpInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof sendRegistrationOtp>>,
+  TError,
+  { data: BodyType<RegistrationOtpInput> },
+  TContext
+> => {
+  return useMutation(getSendRegistrationOtpMutationOptions(options));
+};
+
+/**
+ * @summary Begin MFA setup after password step-up
+ */
+export const getSetupMfaUrl = () => {
+  return `/api/auth/mfa/setup`;
+};
+
+export const setupMfa = async (
+  mfaSetupInput: MfaSetupInput,
+  options?: RequestInit,
+): Promise<MfaSetupResponse> => {
+  return customFetch<MfaSetupResponse>(getSetupMfaUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(mfaSetupInput),
+  });
+};
+
+export const getSetupMfaMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof setupMfa>>,
+    TError,
+    { data: BodyType<MfaSetupInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof setupMfa>>,
+  TError,
+  { data: BodyType<MfaSetupInput> },
+  TContext
+> => {
+  const mutationKey = ["setupMfa"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof setupMfa>>,
+    { data: BodyType<MfaSetupInput> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return setupMfa(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type SetupMfaMutationResult = NonNullable<
+  Awaited<ReturnType<typeof setupMfa>>
+>;
+export type SetupMfaMutationBody = BodyType<MfaSetupInput>;
+export type SetupMfaMutationError = ErrorType<void>;
+
+/**
+ * @summary Begin MFA setup after password step-up
+ */
+export const useSetupMfa = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof setupMfa>>,
+    TError,
+    { data: BodyType<MfaSetupInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof setupMfa>>,
+  TError,
+  { data: BodyType<MfaSetupInput> },
+  TContext
+> => {
+  return useMutation(getSetupMfaMutationOptions(options));
+};
+
+/**
+ * @summary Confirm pending MFA and replace the current session
+ */
+export const getConfirmMfaUrl = () => {
+  return `/api/auth/mfa/confirm`;
+};
+
+export const confirmMfa = async (
+  mfaConfirmationInput: MfaConfirmationInput,
+  options?: RequestInit,
+): Promise<SessionReplacementResponse> => {
+  return customFetch<SessionReplacementResponse>(getConfirmMfaUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(mfaConfirmationInput),
+  });
+};
+
+export const getConfirmMfaMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof confirmMfa>>,
+    TError,
+    { data: BodyType<MfaConfirmationInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof confirmMfa>>,
+  TError,
+  { data: BodyType<MfaConfirmationInput> },
+  TContext
+> => {
+  const mutationKey = ["confirmMfa"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof confirmMfa>>,
+    { data: BodyType<MfaConfirmationInput> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return confirmMfa(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ConfirmMfaMutationResult = NonNullable<
+  Awaited<ReturnType<typeof confirmMfa>>
+>;
+export type ConfirmMfaMutationBody = BodyType<MfaConfirmationInput>;
+export type ConfirmMfaMutationError = ErrorType<void>;
+
+/**
+ * @summary Confirm pending MFA and replace the current session
+ */
+export const useConfirmMfa = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof confirmMfa>>,
+    TError,
+    { data: BodyType<MfaConfirmationInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof confirmMfa>>,
+  TError,
+  { data: BodyType<MfaConfirmationInput> },
+  TContext
+> => {
+  return useMutation(getConfirmMfaMutationOptions(options));
+};
+
+/**
+ * @summary Disable MFA after password and authenticator step-up
+ */
+export const getDisableMfaUrl = () => {
+  return `/api/auth/mfa/disable`;
+};
+
+export const disableMfa = async (
+  mfaDisableInput: MfaDisableInput,
+  options?: RequestInit,
+): Promise<SessionReplacementResponse> => {
+  return customFetch<SessionReplacementResponse>(getDisableMfaUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(mfaDisableInput),
+  });
+};
+
+export const getDisableMfaMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof disableMfa>>,
+    TError,
+    { data: BodyType<MfaDisableInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof disableMfa>>,
+  TError,
+  { data: BodyType<MfaDisableInput> },
+  TContext
+> => {
+  const mutationKey = ["disableMfa"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof disableMfa>>,
+    { data: BodyType<MfaDisableInput> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return disableMfa(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DisableMfaMutationResult = NonNullable<
+  Awaited<ReturnType<typeof disableMfa>>
+>;
+export type DisableMfaMutationBody = BodyType<MfaDisableInput>;
+export type DisableMfaMutationError = ErrorType<void>;
+
+/**
+ * @summary Disable MFA after password and authenticator step-up
+ */
+export const useDisableMfa = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof disableMfa>>,
+    TError,
+    { data: BodyType<MfaDisableInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof disableMfa>>,
+  TError,
+  { data: BodyType<MfaDisableInput> },
+  TContext
+> => {
+  return useMutation(getDisableMfaMutationOptions(options));
 };
 
 /**
@@ -1062,6 +1588,7 @@ export function useGetUser<
 }
 
 /**
+ * A self-service phone-number change requires currentPassword. Other updates do not.
  * @summary Update user
  */
 export const getUpdateUserUrl = (id: number) => {
@@ -1082,7 +1609,7 @@ export const updateUser = async (
 };
 
 export const getUpdateUserMutationOptions = <
-  TError = ErrorType<unknown>,
+  TError = ErrorType<void>,
   TContext = unknown,
 >(options?: {
   mutation?: UseMutationOptions<
@@ -1123,13 +1650,13 @@ export type UpdateUserMutationResult = NonNullable<
   Awaited<ReturnType<typeof updateUser>>
 >;
 export type UpdateUserMutationBody = BodyType<UpdateUserBody>;
-export type UpdateUserMutationError = ErrorType<unknown>;
+export type UpdateUserMutationError = ErrorType<void>;
 
 /**
  * @summary Update user
  */
 export const useUpdateUser = <
-  TError = ErrorType<unknown>,
+  TError = ErrorType<void>,
   TContext = unknown,
 >(options?: {
   mutation?: UseMutationOptions<
@@ -1389,6 +1916,94 @@ export const useApproveUser = <
   TContext
 > => {
   return useMutation(getApproveUserMutationOptions(options));
+};
+
+/**
+ * @summary Administratively reset another user's password and revoke their sessions
+ */
+export const getAdminResetUserPasswordUrl = (id: number) => {
+  return `/api/users/${id}/reset-password`;
+};
+
+export const adminResetUserPassword = async (
+  id: number,
+  adminPasswordResetInput: AdminPasswordResetInput,
+  options?: RequestInit,
+): Promise<SuccessResponse> => {
+  return customFetch<SuccessResponse>(getAdminResetUserPasswordUrl(id), {
+    ...options,
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(adminPasswordResetInput),
+  });
+};
+
+export const getAdminResetUserPasswordMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof adminResetUserPassword>>,
+    TError,
+    { id: number; data: BodyType<AdminPasswordResetInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof adminResetUserPassword>>,
+  TError,
+  { id: number; data: BodyType<AdminPasswordResetInput> },
+  TContext
+> => {
+  const mutationKey = ["adminResetUserPassword"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof adminResetUserPassword>>,
+    { id: number; data: BodyType<AdminPasswordResetInput> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return adminResetUserPassword(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type AdminResetUserPasswordMutationResult = NonNullable<
+  Awaited<ReturnType<typeof adminResetUserPassword>>
+>;
+export type AdminResetUserPasswordMutationBody =
+  BodyType<AdminPasswordResetInput>;
+export type AdminResetUserPasswordMutationError = ErrorType<void>;
+
+/**
+ * @summary Administratively reset another user's password and revoke their sessions
+ */
+export const useAdminResetUserPassword = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof adminResetUserPassword>>,
+    TError,
+    { id: number; data: BodyType<AdminPasswordResetInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof adminResetUserPassword>>,
+  TError,
+  { id: number; data: BodyType<AdminPasswordResetInput> },
+  TContext
+> => {
+  return useMutation(getAdminResetUserPasswordMutationOptions(options));
 };
 
 /**

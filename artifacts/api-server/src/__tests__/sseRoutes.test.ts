@@ -15,18 +15,23 @@ vi.mock("drizzle-orm", () => ({
   eq: (...conditions: unknown[]) => conditions,
   gt: (...conditions: unknown[]) => conditions,
   isNull: (condition: unknown) => condition,
+  sql: (strings: TemplateStringsArray, ...values: unknown[]) => ({ strings, values }),
 }));
-vi.mock("@workspace/db", () => ({
-  db: {
+vi.mock("@workspace/db", () => {
+  const mockedDb = {
     insert: () => ({ values: mocks.inserted }),
     update: () => ({ set: () => ({ where: () => ({ returning: mocks.redeemed }) }) }),
     select: () => ({ from: () => ({ where: mocks.selectedUser }) }),
-  },
+    execute: vi.fn(),
+    transaction: async (callback: (tx: unknown) => unknown) => callback(mockedDb),
+  };
+  return { db: mockedDb,
   sseTicketsTable: {
     ticketHash: "ticket_hash", purpose: "purpose", expiresAt: "expires_at", consumedAt: "consumed_at",
   },
   usersTable: { id: "id", role: "role", secondaryRoles: "secondary_roles", isActive: "is_active", status: "status" },
-}));
+  };
+});
 vi.mock("../middlewares/auth", () => ({
   authMiddleware: (req: Request, res: Response, next: () => void) => {
     if (req.headers.authorization === "Bearer valid") {
@@ -42,7 +47,7 @@ vi.mock("../lib/sse", () => ({
   removeConnection: mocks.removeConnection,
 }));
 
-const activeUser = { id: 7, role: "parent", secondaryRoles: JSON.stringify(["attendant"]), isActive: true, status: "active" };
+const activeUser = { id: 7, role: "parent", secondaryRoles: JSON.stringify(["attendant"]), isActive: true, status: "active", sessionVersion: 1 };
 
 function response() {
   const res: any = new EventEmitter();
@@ -117,8 +122,9 @@ describe("SSE ticket endpoints", async () => {
     ["suspended", [{ ...activeUser, status: "suspended" }]],
     ["rejected", [{ ...activeUser, status: "rejected" }]],
     ["removed role", [{ ...activeUser, secondaryRoles: "[]" }]],
+    ["revoked session", [{ ...activeUser, sessionVersion: 2 }]],
   ])("rejects redemption for a %s account", async (_label, users) => {
-    mocks.redeemed.mockResolvedValue([{ userId: 7, selectedRole: "attendant" }]);
+    mocks.redeemed.mockResolvedValue([{ userId: 7, selectedRole: "attendant", sessionVersion: 1 }]);
     mocks.selectedUser.mockResolvedValue(users);
     const res = response();
     await get({ headers: { cookie: `${events.TICKET_COOKIE}=ticket` } } as Request, res);

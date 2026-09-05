@@ -116,6 +116,10 @@ databaseDescribe("multi-role PostgreSQL concurrency integrity", () => {
       DELETE FROM teachers
       WHERE user_id IN (SELECT id FROM users WHERE email LIKE ${`${prefix}%`})
     `);
+    await db.execute(sql`
+      DELETE FROM audit_logs
+      WHERE user_id IN (SELECT id FROM users WHERE email LIKE ${`${prefix}%`})
+    `);
     await db.execute(sql`DELETE FROM users WHERE email LIKE ${`${prefix}%`}`);
   });
 

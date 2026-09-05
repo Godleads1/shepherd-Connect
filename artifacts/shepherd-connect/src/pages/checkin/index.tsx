@@ -6,7 +6,7 @@ import { useToast } from "@/hooks/use-toast";
 import FaceCapture from "@/components/FaceCapture";
 import QrCameraScanner from "@/components/QrCameraScanner";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
-import { enqueueCheckIn, getQueue, removeFromQueue } from "@/lib/offline-queue";
+import { enqueueCheckIn, getQueue, isAuthorizationReplayFailure, markForReconciliation, removeFromQueue } from "@/lib/offline-queue";
 import { useAuth } from "@/contexts/auth";
 import FamilyAssist from "./FamilyAssist";
 import LocationBanner from "@/components/LocationBanner";
@@ -294,8 +294,10 @@ export default function CheckIn() {
     replayInProgressRef.current = true;
     setSyncingQueue(true);
     let synced = 0;
+    let authorizationBlocked = 0;
     try {
       for (const item of queue) {
+        if (item.reconciliationRequired) continue;
         try {
           await checkInMutation.mutateAsync({
             data: {
@@ -312,7 +314,16 @@ export default function CheckIn() {
           });
           removeFromQueue(user.id, item.eventId);
           synced++;
-        } catch { /* server remains authoritative; leave rejected entries queued */ }
+        } catch (error) {
+          // The bearer used at replay is authoritative. Do not retry a
+          // rejected role/session after reconnect: it could execute after a
+          // later role change. Keep it visible for operator reconciliation.
+          if (isAuthorizationReplayFailure(error)) {
+            markForReconciliation(user.id, item.eventId);
+            authorizationBlocked++;
+          }
+          // Transient and conflict failures remain retryable as before.
+        }
       }
       setQueueCount(getQueue(user.id).length);
     } finally {
@@ -322,6 +333,13 @@ export default function CheckIn() {
     if (synced > 0) {
       toast({ title: `Synced ${synced} offline check-in${synced > 1 ? "s" : ""}` });
       refetchAttendance();
+    }
+    if (authorizationBlocked > 0) {
+      toast({
+        variant: "destructive",
+        title: `${authorizationBlocked} queued check-in${authorizationBlocked > 1 ? "s" : ""} needs reconciliation`,
+        description: "It was not authorized under your current session and will not be retried automatically.",
+      });
     }
   }, [user, checkInMutation, toast, refetchAttendance]);
 
@@ -616,7 +634,7 @@ export default function CheckIn() {
           style={{ background: "#ecfdf5", color: "#065f46", border: "1px solid #a7f3d0" }}>
           <div className="flex items-center gap-2">
             <Upload className="w-4 h-4" />
-            {queueCount} offline check-in{queueCount > 1 ? "s" : ""} ready to sync
+            {queueCount} offline check-in{queueCount > 1 ? "s" : ""} {user && getQueue(user.id).some(item => item.reconciliationRequired) ? "needs reconciliation" : "ready to sync"}
           </div>
           <button
             onClick={processOfflineQueue}

@@ -3,6 +3,8 @@ import {
   clearQueue,
   enqueueCheckIn,
   getQueue,
+  isAuthorizationReplayFailure,
+  markForReconciliation,
   removeFromQueue,
 } from "./offline-queue";
 
@@ -99,5 +101,25 @@ describe("offline check-in queue", () => {
     clearQueue(101);
     expect(getQueue(101)).toEqual([]);
     expect(getQueue(202)).toHaveLength(1);
+  });
+
+  it("marks replay 401/403 as non-retryable reconciliation work and leaves transient failures retryable", () => {
+    const eventId = enqueueCheckIn(101, "support", payload);
+    expect(isAuthorizationReplayFailure({ status: 401 })).toBe(true);
+    expect(isAuthorizationReplayFailure({ status: 403 })).toBe(true);
+    expect(isAuthorizationReplayFailure({ status: 500 })).toBe(false);
+    expect(isAuthorizationReplayFailure(new TypeError("offline"))).toBe(false);
+
+    markForReconciliation(101, eventId);
+    expect(getQueue(101)).toMatchObject([{ eventId, reconciliationRequired: "unauthorized" }]);
+  });
+
+  it("never persists bearer credentials with queued work", () => {
+    enqueueCheckIn(101, "support", payload);
+    const persisted = localStorage.getItem("shepherd_offline_checkin_queue:101")!;
+    expect(persisted.toLowerCase()).not.toContain("token");
+    expect(persisted.toLowerCase()).not.toContain("authorization");
+    expect(persisted.toLowerCase()).not.toContain("bearer");
+    expect(persisted).not.toContain("eyJ");
   });
 });

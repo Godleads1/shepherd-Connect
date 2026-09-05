@@ -4,8 +4,11 @@ import { createHash, randomBytes } from "node:crypto";
 import { db, sseTicketsTable, usersTable } from "@workspace/db";
 import { authMiddleware } from "../middlewares/auth";
 import { addConnection, removeConnection } from "../lib/sse";
+import { startSessionInvalidationListener } from "../lib/sessionInvalidation";
+import { lockSessionRevocation } from "../lib/sessionRevocation";
 
 const router = Router();
+startSessionInvalidationListener();
 export const TICKET_COOKIE = "sse_ticket";
 export const TICKET_TTL_SECONDS = 30;
 export const STREAM_MAX_AGE_MS = 5 * 60_000;
@@ -39,6 +42,7 @@ router.post("/events/ticket", authMiddleware, async (req, res): Promise<void> =>
     ticketHash: ticketHash(ticket),
     userId: req.user!.userId,
     selectedRole: req.user!.role,
+    sessionVersion: req.user!.sessionVersion ?? 1,
     purpose: "sse",
     expiresAt,
   });
@@ -88,52 +92,77 @@ router.get("/events", async (req, res): Promise<void> => {
     return;
   }
 
-  // The ticket is not a durable authorization grant. Re-check the account and
-  // the role selected when it was minted immediately after redemption.
-  const [user] = await db.select({
-    id: usersTable.id,
-    role: usersTable.role,
-    secondaryRoles: usersTable.secondaryRoles,
-    isActive: usersTable.isActive,
-    status: usersTable.status,
-  }).from(usersTable).where(eq(usersTable.id, redeemed.userId));
-  let secondaryRoles: string[] = [];
-  if (user?.secondaryRoles) {
-    try {
-      const parsed = JSON.parse(user.secondaryRoles);
-      if (Array.isArray(parsed)) secondaryRoles = parsed.filter((role): role is string => typeof role === "string");
-    } catch {
-      secondaryRoles = [];
-    }
+  const userId = redeemed.userId;
+  const streamSessionVersion = redeemed.sessionVersion ?? 1;
+  let registered = false;
+  let authorized = false;
+  try {
+    authorized = await db.transaction(async tx => {
+      // Shared with every revoker. Headers, initial synchronous write, and
+      // registry insertion form one ordered handshake; no lock is retained
+      // across heartbeat/drain/network awaits.
+      await lockSessionRevocation(tx, userId, true);
+      const [user] = await tx.select({
+        id: usersTable.id, role: usersTable.role, secondaryRoles: usersTable.secondaryRoles,
+        isActive: usersTable.isActive, status: usersTable.status,
+        sessionVersion: usersTable.sessionVersion,
+      }).from(usersTable).where(eq(usersTable.id, userId));
+      let secondaryRoles: string[] = [];
+      try {
+        const parsed = JSON.parse(user?.secondaryRoles ?? "[]");
+        if (Array.isArray(parsed)) secondaryRoles = parsed.filter((role): role is string => typeof role === "string");
+      } catch { secondaryRoles = []; }
+      if (!user || !user.isActive || user.status !== "active" ||
+        !new Set<string>([user.role, ...secondaryRoles]).has(redeemed.selectedRole) ||
+        (user.sessionVersion ?? 1) !== streamSessionVersion) return false;
+
+      res.setHeader("Content-Type", "text/event-stream");
+      res.setHeader("Cache-Control", "no-cache, no-transform");
+      res.setHeader("Connection", "keep-alive");
+      res.setHeader("X-Accel-Buffering", "no");
+      res.flushHeaders();
+      res.write(`event: connected\ndata: {"userId":${userId}}\n\n`);
+      addConnection(userId, res, streamSessionVersion, redeemed.selectedRole);
+      registered = true;
+      return true;
+    });
+  } catch {
+    if (registered) removeConnection(userId, res);
+    try { res.end(); } catch { /* already closed */ }
+    return;
   }
-  if (!user || !user.isActive || user.status !== "active" ||
-    !new Set<string>([user.role, ...secondaryRoles]).has(redeemed.selectedRole)) {
+  if (!authorized) {
     res.status(401).json({ error: "Unauthorized", message: "Account is not active" });
     return;
   }
 
-  const userId = redeemed.userId;
-
-  // SSE headers
-  res.setHeader("Content-Type", "text/event-stream");
-  res.setHeader("Cache-Control", "no-cache, no-transform");
-  res.setHeader("Connection", "keep-alive");
-  // Disable Nginx/proxy response buffering so events are flushed immediately
-  res.setHeader("X-Accel-Buffering", "no");
-  res.flushHeaders();
-
-  // Initial handshake event
-  res.write(`event: connected\ndata: {"userId":${userId}}\n\n`);
-
-  addConnection(userId, res);
-
   // Heartbeat comment every 25 s — keeps the connection alive through load
   // balancers and CDN proxies that close idle connections at ~30 s.
-  const heartbeat = setInterval(() => {
+  const heartbeat = setInterval(async () => {
     try {
+      const [current] = await db.select({
+        isActive: usersTable.isActive,
+        status: usersTable.status,
+        role: usersTable.role,
+        secondaryRoles: usersTable.secondaryRoles,
+        sessionVersion: usersTable.sessionVersion,
+      }).from(usersTable).where(eq(usersTable.id, userId));
+      let roles: string[] = [];
+      try {
+        const parsed = JSON.parse(current?.secondaryRoles ?? "[]");
+        if (Array.isArray(parsed)) roles = parsed.filter((role): role is string => typeof role === "string");
+      } catch { roles = []; }
+      if (!current || !current.isActive || current.status !== "active" ||
+        current.sessionVersion !== streamSessionVersion ||
+        !new Set([current.role, ...roles]).has(redeemed.selectedRole)) {
+        close();
+        res.end();
+        return;
+      }
       res.write(": heartbeat\n\n");
     } catch {
-      clearInterval(heartbeat);
+      close();
+      res.end();
     }
   }, 25_000);
 

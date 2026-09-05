@@ -16,6 +16,7 @@ export interface JwtPayload {
   role: string;
   firstName: string;
   lastName: string;
+  sessionVersion?: number;
   mfaOnly?: unknown;
 }
 
@@ -28,7 +29,7 @@ declare global {
 }
 
 export function generateToken(payload: JwtPayload): string {
-  return jwt.sign(payload, JWT_SECRET, { expiresIn: "24h" });
+  return jwt.sign({ ...payload, sessionVersion: payload.sessionVersion ?? 1 }, JWT_SECRET, { expiresIn: "24h" });
 }
 
 export function verifyToken(token: string): JwtPayload | null {
@@ -65,6 +66,7 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
       isActive: usersTable.isActive,
       status: usersTable.status,
       secondaryRoles: usersTable.secondaryRoles,
+      sessionVersion: usersTable.sessionVersion,
     }).from(usersTable).where(eq(usersTable.id, payload.userId));
 
     if (!currentUser || !currentUser.isActive || currentUser.status !== "active") {
@@ -86,6 +88,12 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
       res.status(401).json({ error: "Unauthorized", message: "Account role has changed" });
       return;
     }
+    // Tokens issued before this migration implicitly belong to version 1.
+    // They remain valid until the first deliberate account revocation.
+    if ((payload.sessionVersion ?? 1) !== (currentUser.sessionVersion ?? 1)) {
+      res.status(401).json({ error: "Unauthorized", message: "Invalid or expired session" });
+      return;
+    }
 
     req.user = {
       userId: currentUser.id,
@@ -93,6 +101,7 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
       role: payload.role,
       firstName: currentUser.firstName,
       lastName: currentUser.lastName,
+      sessionVersion: currentUser.sessionVersion ?? 1,
     };
     next();
   } catch (err) {

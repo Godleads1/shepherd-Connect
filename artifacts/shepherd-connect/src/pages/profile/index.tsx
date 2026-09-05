@@ -16,9 +16,16 @@ import { PhotoUploader, SecurePhoto } from "@/components/PhotoUploader";
 import { useGeneralSettings } from "@/components/AnnouncementBanner";
 import {
   getGetNotificationPreferencesQueryKey,
+  useChangePassword,
+  useConfirmMfa,
+  useDisableMfa,
   useGetNotificationPreferences,
+  useSetupMfa,
   useUpdateNotificationPreferences,
+  updateUser,
 } from "@workspace/api-client-react";
+import { installReplacementToken } from "@/lib/auth-session";
+import { buildSelfProfileUpdate, phoneChangeRequiresPassword } from "@/lib/profile-security";
 
 interface CommPrefs {
   inApp: boolean;
@@ -110,13 +117,19 @@ type MfaSetupStep = "idle" | "loading" | "qr" | "confirm" | "done";
 
 function MfaSection() {
   const { toast } = useToast();
+  const { replaceToken } = useAuth();
   const [step, setStep] = useState<MfaSetupStep>("idle");
   const [qrUri, setQrUri] = useState("");
   const [secretBase32, setSecretBase32] = useState("");
+  const [setupPassword, setSetupPassword] = useState("");
   const [totpCode, setTotpCode] = useState("");
   const [disableCode, setDisableCode] = useState("");
+  const [disablePassword, setDisablePassword] = useState("");
   const [showDisable, setShowDisable] = useState(false);
   const [disableLoading, setDisableLoading] = useState(false);
+  const setupMfaMutation = useSetupMfa();
+  const confirmMfaMutation = useConfirmMfa();
+  const disableMfaMutation = useDisableMfa();
 
   const { data: mfaStatus, refetch: refetchStatus } = useQuery({
     queryKey: ["mfa-status"],
@@ -126,9 +139,13 @@ function MfaSection() {
   const isEnabled = mfaStatus?.mfaEnabled;
 
   const startSetup = async () => {
+    if (!setupPassword) return;
     setStep("loading");
     try {
-      const res = await apiPost<{ qrCodeUri: string; secret: string }>("/auth/mfa/setup", {});
+      const res = await setupMfaMutation.mutateAsync({ data: { currentPassword: setupPassword } });
+      // The password is proof for this request only; never retain it after it
+      // has been submitted.
+      setSetupPassword("");
       setQrUri(res.qrCodeUri);
       setSecretBase32(res.secret);
       setStep("qr");
@@ -142,7 +159,11 @@ function MfaSection() {
     if (totpCode.length < 6) return;
     setStep("loading");
     try {
-      await apiPost("/auth/mfa/confirm", { totpCode });
+      const result = await confirmMfaMutation.mutateAsync({ data: { totpCode } });
+      installReplacementToken(result, replaceToken);
+      setTotpCode("");
+      setQrUri("");
+      setSecretBase32("");
       toast({ title: "Two-factor authentication enabled!", description: "Your account is now protected with TOTP MFA." });
       setStep("done");
       refetchStatus();
@@ -155,13 +176,15 @@ function MfaSection() {
   };
 
   const handleDisable = async () => {
-    if (disableCode.length < 6) return;
+    if (disableCode.length < 6 || !disablePassword) return;
     setDisableLoading(true);
     try {
-      await apiPost("/auth/mfa/disable", { totpCode: disableCode });
+      const result = await disableMfaMutation.mutateAsync({ data: { totpCode: disableCode, currentPassword: disablePassword } });
+      installReplacementToken(result, replaceToken);
       toast({ title: "Two-factor authentication disabled.", description: "MFA has been removed from your account." });
       setShowDisable(false);
       setDisableCode("");
+      setDisablePassword("");
       refetchStatus();
     } catch (e: any) {
       toast({ variant: "destructive", title: e.message || "Invalid code" });
@@ -186,18 +209,20 @@ function MfaSection() {
           </button>
         ) : (
           <div className="space-y-3 border-t pt-4">
-            <p className="text-sm font-semibold text-gray-700">Enter your current authenticator code to confirm:</p>
+            <p className="text-sm font-semibold text-gray-700">Confirm with your password and current authenticator code:</p>
+            <Input type="password" value={disablePassword} onChange={e => setDisablePassword(e.target.value)}
+              autoComplete="current-password" placeholder="Current password" />
             <input type="text" inputMode="numeric" maxLength={6} value={disableCode}
               onChange={e => setDisableCode(e.target.value.replace(/\D/g, ""))}
               placeholder="000000"
               className="w-full rounded-xl text-center text-2xl font-mono tracking-widest py-3 border focus:outline-none focus:ring-2 focus:ring-red-200"
               style={{ letterSpacing: "0.2em" }} />
             <div className="flex gap-2">
-              <button onClick={() => { setShowDisable(false); setDisableCode(""); }}
+              <button onClick={() => { setShowDisable(false); setDisableCode(""); setDisablePassword(""); }}
                 className="flex-1 py-2 text-sm text-gray-600 border rounded-xl hover:bg-gray-50 transition-colors">
                 Cancel
               </button>
-              <button onClick={handleDisable} disabled={disableCode.length < 6 || disableLoading}
+              <button onClick={handleDisable} disabled={disableCode.length < 6 || !disablePassword || disableLoading}
                 className="flex-1 py-2 text-sm font-bold text-white bg-red-600 hover:bg-red-700 rounded-xl transition-colors disabled:opacity-50">
                 {disableLoading ? "Disabling..." : "Confirm Disable"}
               </button>
@@ -217,11 +242,16 @@ function MfaSection() {
       <p className="text-xs text-gray-500 mb-4">Add an extra layer of security. Use Google Authenticator, Authy, or any TOTP app on your phone.</p>
 
       {step === "idle" && (
-        <button onClick={startSetup}
-          className="flex items-center gap-2 text-sm font-bold px-4 py-2.5 rounded-xl text-white transition-colors"
-          style={{ background: "#1e3a8a" }}>
-          <QrCode className="w-4 h-4" /> Set Up Authenticator App
-        </button>
+        <div className="space-y-3">
+          <p className="text-xs text-gray-600">Confirm your current password before creating an authenticator secret.</p>
+          <Input type="password" value={setupPassword} onChange={e => setSetupPassword(e.target.value)}
+            autoComplete="current-password" placeholder="Current password" />
+          <button onClick={startSetup} disabled={!setupPassword || setupMfaMutation.isPending}
+            className="flex items-center gap-2 text-sm font-bold px-4 py-2.5 rounded-xl text-white transition-colors disabled:opacity-50"
+            style={{ background: "#1e3a8a" }}>
+            <QrCode className="w-4 h-4" /> Set Up Authenticator App
+          </button>
+        </div>
       )}
 
       {step === "loading" && (
@@ -251,11 +281,11 @@ function MfaSection() {
           </div>
 
           <div className="flex gap-2">
-            <button onClick={() => { setStep("idle"); setTotpCode(""); }}
+            <button onClick={() => { setStep("idle"); setTotpCode(""); setQrUri(""); setSecretBase32(""); }}
               className="flex-1 py-2.5 text-sm text-gray-600 border rounded-xl hover:bg-gray-50 transition-colors">
               Cancel
             </button>
-            <button onClick={confirmSetup} disabled={totpCode.length < 6}
+            <button onClick={confirmSetup} disabled={totpCode.length < 6 || confirmMfaMutation.isPending}
               className="flex-1 py-2.5 text-sm font-bold text-white rounded-xl transition-colors disabled:opacity-50"
               style={{ background: "#1e3a8a" }}>
               <span className="flex items-center justify-center gap-2"><ShieldCheck className="w-4 h-4" /> Activate 2FA</span>
@@ -275,11 +305,13 @@ function MfaSection() {
 
 function ChangePasswordSection() {
   const { toast } = useToast();
+  const { replaceToken } = useAuth();
   const [open, setOpen] = useState(false);
   const [currentPw, setCurrentPw] = useState("");
   const [newPw, setNewPw] = useState("");
   const [confirmPw, setConfirmPw] = useState("");
   const [loading, setLoading] = useState(false);
+  const changePasswordMutation = useChangePassword();
 
   const handleSubmit = async () => {
     if (!currentPw || !newPw || !confirmPw) {
@@ -293,7 +325,8 @@ function ChangePasswordSection() {
     }
     setLoading(true);
     try {
-      await apiPost("/auth/change-password", { currentPassword: currentPw, newPassword: newPw });
+      const result = await changePasswordMutation.mutateAsync({ data: { currentPassword: currentPw, newPassword: newPw } });
+      installReplacementToken(result, replaceToken);
       toast({ title: "Password changed successfully", description: "Your new password is active immediately." });
       setOpen(false);
       setCurrentPw(""); setNewPw(""); setConfirmPw("");
@@ -408,6 +441,8 @@ export default function Profile() {
   const [hideContact, setHideContact] = useState(false);
   const [savingPrivacy, setSavingPrivacy] = useState(false);
   const [editing, setEditing] = useState(false);
+  // Never persisted: this proof is used only if this submission changes phone.
+  const [phoneChangePassword, setPhoneChangePassword] = useState("");
   const [savingPref, setSavingPref] = useState<string | null>(null);
   const preferenceQuery = useGetNotificationPreferences({
     query: {
@@ -439,18 +474,28 @@ export default function Profile() {
   }, [preferenceQuery.data]);
 
   const saveMutation = useMutation({
-    mutationFn: (data: any) => apiPut(`/users/${authUser!.id}`, data),
+    mutationFn: (data: typeof form & { currentPassword?: string }) =>
+      // Preserve existing profile fields while routing the update through the
+      // generated client, including the currentPassword API contract.
+      updateUser(authUser!.id, data as Parameters<typeof updateUser>[1]),
     onSuccess: () => {
       toast({ title: "Profile updated successfully" });
       setEditing(false);
+      setPhoneChangePassword("");
       refetch();
     },
     onError: (e: any) => toast({ variant: "destructive", title: e.message }),
   });
 
   const handleSave = () => {
-    saveMutation.mutate(form);
+    try {
+      saveMutation.mutate(buildSelfProfileUpdate(form, profile?.phone ?? authUser?.phone, phoneChangePassword));
+    } catch (error: any) {
+      toast({ variant: "destructive", title: error.message });
+    }
   };
+
+  const phoneChangePending = phoneChangeRequiresPassword(profile?.phone ?? authUser?.phone, form.phone);
 
   const togglePrivacy = async () => {
     const next = !hideContact;
@@ -553,7 +598,10 @@ export default function Profile() {
               {completeness < 100 && <p className="text-xs text-gray-400 mt-1">Complete your profile for the best experience</p>}
             </div>
           </div>
-          <Button variant={editing ? "outline" : "default"} size="sm" onClick={() => setEditing(e => !e)}
+          <Button variant={editing ? "outline" : "default"} size="sm" onClick={() => {
+            if (editing) setPhoneChangePassword("");
+            setEditing(e => !e);
+          }}
             style={editing ? {} : { background: "#1e3a8a" }}>
             {editing ? "Cancel" : "Edit Profile"}
           </Button>
@@ -635,6 +683,20 @@ export default function Profile() {
                 />
                 {form.phone && !/^\d{11}$/.test(form.phone) && (
                   <p className="text-xs text-red-500 mt-1">Must be exactly 11 digits</p>
+                )}
+                {phoneChangePending && (
+                  <div className="mt-3">
+                    <label className="text-xs font-semibold text-gray-600 block mb-1">
+                      Current Password <span className="text-red-600">required to change your phone number</span>
+                    </label>
+                    <Input
+                      type="password"
+                      value={phoneChangePassword}
+                      onChange={e => setPhoneChangePassword(e.target.value)}
+                      autoComplete="current-password"
+                      placeholder="Enter current password"
+                    />
+                  </div>
                 )}
               </>
             ) : <p className="text-gray-900">{form.phone || "—"}</p>}
@@ -746,7 +808,7 @@ export default function Profile() {
 
       {editing && (
         <Button className="w-full flex items-center gap-2 py-6 text-base" style={{ background: "linear-gradient(135deg, #1e3a8a, #1d4ed8)" }}
-          onClick={handleSave} disabled={saveMutation.isPending || !!(form.phone && !/^\d{11}$/.test(form.phone))}>
+          onClick={handleSave} disabled={saveMutation.isPending || !!(form.phone && !/^\d{11}$/.test(form.phone)) || (phoneChangePending && !phoneChangePassword)}>
           <Save className="w-5 h-5" />
           {saveMutation.isPending ? "Saving..." : "Save Changes"}
         </Button>

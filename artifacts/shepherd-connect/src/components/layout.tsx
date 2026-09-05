@@ -1,7 +1,6 @@
 import { ReactNode, useState, useEffect, useRef, useCallback } from "react";
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/contexts/auth";
-import { useLogout } from "@workspace/api-client-react";
 import { useLang, LANGUAGES, LangCode } from "@/contexts/language";
 import { useToast } from "@/hooks/use-toast";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
@@ -204,7 +203,6 @@ export function Layout({ children }: { children: ReactNode }) {
   }, [qc]);
   const ptr = usePullToRefresh(handlePullRefresh);
 
-  const logoutMutation = useLogout();
   const { toast } = useToast();
   const prevUnreadRef = useRef(0);
   const prevMsgRef = useRef(0);
@@ -264,7 +262,14 @@ export function Layout({ children }: { children: ReactNode }) {
   }, [msgUnreadCount, toast]);
 
   const handleLogout = async () => {
-    try { await logoutMutation.mutateAsync(); } finally { localLogout(); }
+    const confirmed = await localLogout();
+    if (!confirmed) {
+      toast({
+        variant: "destructive",
+        title: "Sign out was not confirmed",
+        description: "Your session remains active. Check your connection and try again.",
+      });
+    }
   };
 
   const role = user?.role || "parent";

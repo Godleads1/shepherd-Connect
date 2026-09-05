@@ -1,16 +1,32 @@
 import { Router } from "express";
-import { eq, ilike, or, sql } from "drizzle-orm";
+import { and, eq, ilike, inArray, or, sql } from "drizzle-orm";
 import { db, familiesTable, usersTable, childrenTable, classesTable, attendanceTable, childAppraisalsTable } from "@workspace/db";
 import { CreateFamilyBody, ListFamiliesQueryParams } from "@workspace/api-zod";
 import { authMiddleware, requireRoles } from "../middlewares/auth";
 import { nanoid } from "../lib/utils";
 import { getParentFamilyIds, parentOwnsFamily } from "../lib/parentScope";
+import {
+  canCreateOrEditFamily,
+  getTeacherClassIds,
+  isFamilyChildOperationalRole,
+} from "../lib/routeAuthorization";
+import { toSafeChildResponse } from "../lib/childResponse";
+import { toSafeFamilyResponse } from "../lib/familyResponse";
 
-/** For parent-role users, sends 403 unless the family is their own. Returns true if allowed. */
-async function assertParentOwnsFamily(req: import("express").Request, res: import("express").Response, familyId: number): Promise<boolean> {
-  if (req.user!.role !== "parent") return true;
-  if (await parentOwnsFamily(req.user!.userId, familyId)) return true;
-  res.status(403).json({ error: "Forbidden", message: "You can only access your own family" });
+async function teacherFamilyClassIds(userId: number, familyId: number): Promise<number[]> {
+  const classIds = await getTeacherClassIds(userId);
+  if (!classIds.length) return [];
+  const children = await db.select({ classId: childrenTable.currentClassId }).from(childrenTable)
+    .where(and(eq(childrenTable.familyId, familyId), inArray(childrenTable.currentClassId, classIds)));
+  return [...new Set(children.map(child => child.classId).filter((id): id is number => id !== null))];
+}
+
+async function assertCanReadFamily(req: import("express").Request, res: import("express").Response, familyId: number): Promise<boolean> {
+  const { role, userId } = req.user!;
+  if (isFamilyChildOperationalRole(role)
+    || (role === "parent" && await parentOwnsFamily(userId, familyId))
+    || (role === "teacher" && (await teacherFamilyClassIds(userId, familyId)).length > 0)) return true;
+  res.status(403).json({ error: "Forbidden", message: "Access denied" });
   return false;
 }
 
@@ -20,7 +36,11 @@ function generateFamilyCode(): string {
   return "FAM-" + Math.random().toString(36).slice(2, 8).toUpperCase();
 }
 
-export async function formatFamily(family: typeof familiesTable.$inferSelect, query: Pick<typeof db, "select"> = db) {
+export async function formatFamily(
+  family: typeof familiesTable.$inferSelect,
+  query: Pick<typeof db, "select"> = db,
+  allowedClassIds?: number[],
+) {
   const [parent1] = family.parent1Id
     ? await query.select().from(usersTable).where(eq(usersTable.id, family.parent1Id))
     : [null];
@@ -30,7 +50,9 @@ export async function formatFamily(family: typeof familiesTable.$inferSelect, qu
   const children = await query
     .select()
     .from(childrenTable)
-    .where(eq(childrenTable.familyId, family.id));
+    .where(allowedClassIds
+      ? and(eq(childrenTable.familyId, family.id), inArray(childrenTable.currentClassId, allowedClassIds))
+      : eq(childrenTable.familyId, family.id));
 
   const childrenWithAge = await Promise.all(
     children.map(async (child) => {
@@ -43,7 +65,7 @@ export async function formatFamily(family: typeof familiesTable.$inferSelect, qu
         const [cls] = await query.select().from(classesTable).where(eq(classesTable.id, child.currentClassId));
         currentClass = cls || null;
       }
-      return { ...child, age, currentClass };
+      return toSafeChildResponse(child, { age, currentClass });
     })
   );
 
@@ -53,7 +75,7 @@ export async function formatFamily(family: typeof familiesTable.$inferSelect, qu
   } : null;
 
   return {
-    ...family,
+    ...toSafeFamilyResponse(family),
     parent1: sanitizeUser(parent1),
     parent2: sanitizeUser(parent2),
     children: childrenWithAge,
@@ -76,6 +98,23 @@ router.get("/families", authMiddleware, async (req, res): Promise<void> => {
       const formattedOwn = await Promise.all(own.map(family => formatFamily(family)));
       res.json({ data: formattedOwn, total: formattedOwn.length, page, limit });
       return;
+    }
+    if (req.user!.role === "teacher") {
+      const classIds = await getTeacherClassIds(req.user!.userId);
+      if (!classIds.length) { res.json({ data: [], total: 0, page, limit }); return; }
+      const familyRows = await db.select({ familyId: childrenTable.familyId }).from(childrenTable)
+        .where(inArray(childrenTable.currentClassId, classIds));
+      const familyIds = [...new Set(familyRows.map(row => row.familyId))];
+      if (!familyIds.length) { res.json({ data: [], total: 0, page, limit }); return; }
+      const offset = (page - 1) * limit;
+      const families = await db.select().from(familiesTable).where(inArray(familiesTable.id, familyIds))
+        .limit(limit).offset(offset);
+      const formatted = await Promise.all(families.map(family => formatFamily(family, db, classIds)));
+      res.json({ data: formatted, total: familyIds.length, page, limit });
+      return;
+    }
+    if (!isFamilyChildOperationalRole(req.user!.role)) {
+      res.status(403).json({ error: "Forbidden", message: "Insufficient permissions" }); return;
     }
     const offset = (page - 1) * limit;
     let families: typeof familiesTable.$inferSelect[] = [];
@@ -108,6 +147,9 @@ router.post("/families", authMiddleware, async (req, res): Promise<void> => {
   // REQUIRED PRE-COMMIT VALIDATION: body and parent self-access policy.
   // AUTHORITATIVE: family insert. RESPONSE ENRICHMENT: parent/children/class reads are required in the insert transaction.
   try {
+    if (!canCreateOrEditFamily(req.user!.role)) {
+      res.status(403).json({ error: "Forbidden", message: "Insufficient permissions" }); return;
+    }
     const parsed = CreateFamilyBody.safeParse(req.body);
     if (!parsed.success) {
       res.status(400).json({ error: "Bad request", message: parsed.error.message });
@@ -152,10 +194,11 @@ router.get("/families/:id", authMiddleware, async (req, res): Promise<void> => {
   try {
     const id = parseInt(req.params.id as string, 10);
     if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
-    if (!(await assertParentOwnsFamily(req, res, id))) return;
+    if (!(await assertCanReadFamily(req, res, id))) return;
     const [family] = await db.select().from(familiesTable).where(eq(familiesTable.id, id));
     if (!family) { res.status(404).json({ error: "Not found", message: "Family not found" }); return; }
-    const formatted = await formatFamily(family);
+    const classIds = req.user!.role === "teacher" ? await getTeacherClassIds(req.user!.userId) : undefined;
+    const formatted = await formatFamily(family, db, classIds);
     res.json(formatted);
   } catch (err) {
     req.log.error({ err }, "Failed to get family");
@@ -167,9 +210,14 @@ router.put("/families/:id", authMiddleware, async (req, res): Promise<void> => {
   // REQUIRED PRE-COMMIT VALIDATION: id, ownership, body, and parent reassignment policy.
   // AUTHORITATIVE: family update. RESPONSE ENRICHMENT: parent/children/class reads are required in the update transaction.
   try {
+    if (!canCreateOrEditFamily(req.user!.role)) {
+      res.status(403).json({ error: "Forbidden", message: "Insufficient permissions" }); return;
+    }
     const id = parseInt(req.params.id as string, 10);
     if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
-    if (!(await assertParentOwnsFamily(req, res, id))) return;
+    if (req.user!.role === "parent" && !(await parentOwnsFamily(req.user!.userId, id))) {
+      res.status(403).json({ error: "Forbidden", message: "Access denied" }); return;
+    }
     const parsed = CreateFamilyBody.safeParse(req.body);
     if (!parsed.success) { res.status(400).json({ error: "Bad request", message: parsed.error.message }); return; }
     // Parents may edit family details but NOT reassign who the parents are —
@@ -195,7 +243,7 @@ router.get("/families/:id/tree", authMiddleware, async (req, res): Promise<void>
   try {
     const id = parseInt(req.params.id as string, 10);
     if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
-    if (!(await assertParentOwnsFamily(req, res, id))) return;
+    if (!(await assertCanReadFamily(req, res, id))) return;
     const [family] = await db.select().from(familiesTable).where(eq(familiesTable.id, id));
     if (!family) { res.status(404).json({ error: "Not found", message: "Family not found" }); return; }
 
@@ -209,7 +257,10 @@ router.get("/families/:id/tree", authMiddleware, async (req, res): Promise<void>
       if (p) parents.push({ id: p.id, email: p.email, phone: p.phone, role: p.role, firstName: p.firstName, lastName: p.lastName, isActive: p.isActive, createdAt: p.createdAt });
     }
 
-    const children = await db.select().from(childrenTable).where(eq(childrenTable.familyId, id));
+    const teacherClassIds = req.user!.role === "teacher" ? await getTeacherClassIds(req.user!.userId) : undefined;
+    const children = await db.select().from(childrenTable).where(teacherClassIds
+      ? and(eq(childrenTable.familyId, id), inArray(childrenTable.currentClassId, teacherClassIds))
+      : eq(childrenTable.familyId, id));
     const childrenWithDetails = await Promise.all(
       children.map(async (child) => {
         const dob = new Date(child.dob);
@@ -229,11 +280,11 @@ router.get("/families/:id/tree", authMiddleware, async (req, res): Promise<void>
         const attendanceHistory = await db.select().from(attendanceTable)
           .where(eq(attendanceTable.childId, child.id))
           .orderBy(attendanceTable.createdAt);
-        return { ...child, age, currentClass, teacher, lastAttendance, attendanceHistory };
+        return toSafeChildResponse(child, { age, currentClass, teacher, lastAttendance, attendanceHistory });
       })
     );
 
-    res.json({ family, parents, children: childrenWithDetails });
+    res.json({ family: toSafeFamilyResponse(family), parents, children: childrenWithDetails });
   } catch (err) {
     req.log.error({ err }, "Failed to get family tree");
     res.status(500).json({ error: "Failed to get family tree" });
@@ -273,7 +324,13 @@ router.get("/families/:id/qr-code", authMiddleware, async (req, res): Promise<vo
   try {
     const id = parseInt(req.params.id as string, 10);
     if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
-    if (!(await assertParentOwnsFamily(req, res, id))) return;
+    if (req.user!.role === "parent") {
+      if (!(await parentOwnsFamily(req.user!.userId, id))) {
+        res.status(403).json({ error: "Forbidden", message: "Access denied" }); return;
+      }
+    } else if (!isFamilyChildOperationalRole(req.user!.role)) {
+      res.status(403).json({ error: "Forbidden", message: "Insufficient permissions" }); return;
+    }
     const [family] = await db.select().from(familiesTable).where(eq(familiesTable.id, id));
     if (!family) { res.status(404).json({ error: "Not found", message: "Family not found" }); return; }
     res.json({ qrCode: `QR:${family.id}`, familyCode: family.familyCode, familyId: family.id });

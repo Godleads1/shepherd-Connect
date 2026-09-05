@@ -13,6 +13,7 @@ export const sseTicketsTable = pgTable("sse_tickets", {
   // This deliberately is not user_role: selected roles can include approved
   // legacy/secondary roles which are validated against the live account.
   selectedRole: varchar("selected_role", { length: 64 }).notNull(),
+  sessionVersion: integer("session_version").notNull().default(1),
   purpose: sseTicketPurposeEnum("purpose").notNull().default("sse"),
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   consumedAt: timestamp("consumed_at", { withTimezone: true }),

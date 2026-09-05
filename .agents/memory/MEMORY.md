@@ -4,3 +4,4 @@
 - [DB test notification cleanup](db-test-notification-cleanup.md) — synthetic active admins may receive cross-domain notifications; clean recipient outbox and projections before deleting fixtures.
 - [Phase 6 attendance and custody rulings](phase6-human-rulings.md) — preserve the approved authority split, custody ownership, QR, WhatsApp, and compatibility rules.
 - [Authoritative mutation reliability](authoritative-mutation-reliability.md) — command success is final; refresh failures stay secondary, and related races share a DB lock.
+- [Auth SSE revocation ordering](auth-sse-revocation-ordering.md) — serialize stream handshakes and writes with revocation; use transactional app notifications, not custom trigger DDL.

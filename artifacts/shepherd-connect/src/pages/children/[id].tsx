@@ -298,7 +298,7 @@ export default function ChildProfile() {
             <FaceEnrollment
               childId={childId}
               childName={`${child.firstName} ${child.lastName}`}
-              isEnrolled={!!child.faceDescriptorJson}
+              isEnrolled={child.hasFaceDescriptor}
               onUpdate={() => window.location.reload()}
             />
           </CardContent>

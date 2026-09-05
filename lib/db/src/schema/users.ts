@@ -25,6 +25,7 @@ export const usersTable = pgTable("users", {
   whatsappVerified: boolean("whatsapp_verified").notNull().default(false),
   whatsappVerifiedAt: timestamp("whatsapp_verified_at", { withTimezone: true }),
   contactVersion: integer("contact_version").notNull().default(1),
+  sessionVersion: integer("session_version").notNull().default(1),
   passwordHash: text("password_hash").notNull(),
   role: userRoleEnum("role").notNull().default("parent"),
   firstName: text("first_name").notNull(),
@@ -44,6 +45,7 @@ export const usersTable = pgTable("users", {
   pendingRoles: text("pending_roles"),
   resetToken: text("reset_token"),
   resetTokenExpiry: timestamp("reset_token_expiry"),
+  resetTokenAttempts: integer("reset_token_attempts").notNull().default(0),
   primaryClassId: integer("primary_class_id"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });

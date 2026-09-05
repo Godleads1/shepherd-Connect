@@ -1,18 +1,27 @@
 import { Router } from "express";
-import { eq, and, isNull, ilike, or, sql, asc } from "drizzle-orm";
+import { eq, and, isNull, ilike, or, sql, asc, inArray } from "drizzle-orm";
 import { db, childrenTable, classesTable, attendanceTable, classAssignmentsTable, pickupDelegatesTable, childAppraisalsTable, classChangeRequestsTable, classWaitlistTable, emergenciesTable, familiesTable, usersTable } from "@workspace/db";
 import { CreateChildBody, ListChildrenQueryParams } from "@workspace/api-zod";
 import { authMiddleware, requireRoles } from "../middlewares/auth";
 import { getParentFamilyIds, parentOwnsChild, parentOwnsFamily } from "../lib/parentScope";
 import { assertObjectCanBind, bindObjectToResource } from "../lib/privateObjectAccess";
+import { toSafeChildResponse } from "../lib/childResponse";
+import {
+  canCreateOrEditChild,
+  canManageChildBiometrics,
+  getTeacherClassIds,
+  isFamilyChildOperationalRole,
+  teacherCanReadChild,
+} from "../lib/routeAuthorization";
 
 const router = Router();
 
-/** For parent-role users, sends 403 unless the child belongs to their family. Returns true if allowed. */
-async function assertParentOwnsChild(req: import("express").Request, res: import("express").Response, childId: number): Promise<boolean> {
-  if (req.user!.role !== "parent") return true;
-  if (await parentOwnsChild(req.user!.userId, childId)) return true;
-  res.status(403).json({ error: "Forbidden", message: "You can only access your own children" });
+async function assertCanReadChild(req: import("express").Request, res: import("express").Response, childId: number): Promise<boolean> {
+  const { role, userId } = req.user!;
+  if (isFamilyChildOperationalRole(role)
+    || (role === "parent" && await parentOwnsChild(userId, childId))
+    || (role === "teacher" && await teacherCanReadChild(userId, childId))) return true;
+  res.status(403).json({ error: "Forbidden", message: "Access denied" });
   return false;
 }
 
@@ -33,7 +42,7 @@ async function formatChild(child: typeof childrenTable.$inferSelect, query: Pick
       currentClass = { ...cls, enrollmentCount: Number(count) };
     }
   }
-  return { ...child, age, currentClass };
+  return toSafeChildResponse(child, { age, currentClass });
 }
 
 router.get("/children", authMiddleware, async (req, res): Promise<void> => {
@@ -59,6 +68,15 @@ router.get("/children", authMiddleware, async (req, res): Promise<void> => {
         res.status(403).json({ error: "Forbidden", message: "You can only access your own family" }); return;
       }
       conditions.push(sql`${childrenTable.familyId} IN (${sql.join(familyIds.map(id => sql`${id}`), sql`, `)})`);
+    } else if (req.user!.role === "teacher") {
+      const classIds = await getTeacherClassIds(req.user!.userId);
+      if (!classIds.length) { res.json({ data: [], total: 0, page, limit }); return; }
+      if (classId && !classIds.includes(classId)) {
+        res.status(403).json({ error: "Forbidden", message: "Access denied" }); return;
+      }
+      conditions.push(inArray(childrenTable.currentClassId, classIds));
+    } else if (!isFamilyChildOperationalRole(req.user!.role)) {
+      res.status(403).json({ error: "Forbidden", message: "Insufficient permissions" }); return;
     }
     const offset = (page - 1) * limit;
     const whereClause = conditions.length ? and(...conditions) : undefined;
@@ -127,6 +145,9 @@ router.post("/children", authMiddleware, async (req, res): Promise<void> => {
   // AUTHORITATIVE: child insert. PARTIAL-MULTI-WRITE COMMAND: the existing post-insert object binding/compensation.
   // RESPONSE ENRICHMENT: class/count reads are required inside the insert transaction so they cannot fail after commit.
   try {
+    if (!canCreateOrEditChild(req.user!.role)) {
+      res.status(403).json({ error: "Forbidden", message: "Insufficient permissions" }); return;
+    }
     const parsed = CreateChildBody.safeParse(req.body);
     if (!parsed.success) { res.status(400).json({ error: "Bad request", message: parsed.error.message }); return; }
     // Parents may only add children to their own family.
@@ -161,7 +182,7 @@ router.get("/children/:id", authMiddleware, async (req, res): Promise<void> => {
   try {
     const id = parseInt(req.params.id as string, 10);
     if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
-    if (!(await assertParentOwnsChild(req, res, id))) return;
+    if (!(await assertCanReadChild(req, res, id))) return;
     const [child] = await db.select().from(childrenTable).where(eq(childrenTable.id, id));
     if (!child) { res.status(404).json({ error: "Not found", message: "Child not found" }); return; }
     res.json(await formatChild(child));
@@ -176,9 +197,14 @@ router.put("/children/:id", authMiddleware, async (req, res): Promise<void> => {
   // AUTHORITATIVE: child update. PARTIAL-MULTI-WRITE COMMAND: the existing object binding/compensating photo restore.
   // RESPONSE ENRICHMENT: class/count reads are required inside the update transaction so they cannot fail after commit.
   try {
+    if (!canCreateOrEditChild(req.user!.role)) {
+      res.status(403).json({ error: "Forbidden", message: "Insufficient permissions" }); return;
+    }
     const id = parseInt(req.params.id as string, 10);
     if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
-    if (!(await assertParentOwnsChild(req, res, id))) return;
+    if (req.user!.role === "parent" && !(await parentOwnsChild(req.user!.userId, id))) {
+      res.status(403).json({ error: "Forbidden", message: "Access denied" }); return;
+    }
     const parsed = CreateChildBody.safeParse(req.body);
     if (!parsed.success) { res.status(400).json({ error: "Bad request", message: parsed.error.message }); return; }
     const [existingChild] = await db.select({ photoUrl: childrenTable.photoUrl })
@@ -222,7 +248,13 @@ router.get("/children/:id/qr-code", authMiddleware, async (req, res): Promise<vo
   try {
     const id = parseInt(req.params.id as string, 10);
     if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
-    if (!(await assertParentOwnsChild(req, res, id))) return;
+    if (req.user!.role === "parent") {
+      if (!(await parentOwnsChild(req.user!.userId, id))) {
+        res.status(403).json({ error: "Forbidden", message: "Access denied" }); return;
+      }
+    } else if (!isFamilyChildOperationalRole(req.user!.role)) {
+      res.status(403).json({ error: "Forbidden", message: "Insufficient permissions" }); return;
+    }
     const [child] = await db.select().from(childrenTable).where(eq(childrenTable.id, id));
     if (!child) { res.status(404).json({ error: "Not found", message: "Child not found" }); return; }
     const [family] = await db.select().from(familiesTable).where(eq(familiesTable.id, child.familyId));
@@ -239,9 +271,14 @@ router.put("/children/:id/face-descriptor", authMiddleware, async (req, res): Pr
   // REQUIRED PRE-COMMIT VALIDATION: id, ownership, consent, and descriptor shape.
   // AUTHORITATIVE: descriptor update. RESPONSE ENRICHMENT: class/count reads are required in the same transaction.
   try {
+    if (!canManageChildBiometrics(req.user!.role)) {
+      res.status(403).json({ error: "Forbidden", message: "Insufficient permissions" }); return;
+    }
     const id = parseInt(req.params.id as string, 10);
     if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
-    if (!(await assertParentOwnsChild(req, res, id))) return;
+    if (req.user!.role === "parent" && !(await parentOwnsChild(req.user!.userId, id))) {
+      res.status(403).json({ error: "Forbidden", message: "Access denied" }); return;
+    }
     const { descriptorJson, consentGiven } = req.body as { descriptorJson: string; consentGiven: boolean };
     if (!descriptorJson || typeof descriptorJson !== "string") {
       res.status(400).json({ error: "Bad request", message: "descriptorJson is required" }); return;
@@ -390,9 +427,14 @@ router.post("/children/bulk-import", authMiddleware, requireRoles("super_admin",
 
 router.delete("/children/:id/face-descriptor", authMiddleware, async (req, res): Promise<void> => {
   try {
+    if (!canManageChildBiometrics(req.user!.role)) {
+      res.status(403).json({ error: "Forbidden", message: "Insufficient permissions" }); return;
+    }
     const id = parseInt(req.params.id as string, 10);
     if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
-    if (!(await assertParentOwnsChild(req, res, id))) return;
+    if (req.user!.role === "parent" && !(await parentOwnsChild(req.user!.userId, id))) {
+      res.status(403).json({ error: "Forbidden", message: "Access denied" }); return;
+    }
     const [child] = await db.update(childrenTable)
       .set({ faceDescriptorJson: null })
       .where(eq(childrenTable.id, id))

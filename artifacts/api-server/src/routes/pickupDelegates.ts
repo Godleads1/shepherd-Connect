@@ -3,12 +3,13 @@ import { eq, and, inArray, or } from "drizzle-orm";
 import rateLimit from "express-rate-limit";
 import { db, pickupDelegatesTable, childrenTable, familiesTable, usersTable, notificationsTable } from "@workspace/db";
 import { CreatePickupDelegateBody, VerifyDelegateOtpBody, ListPickupDelegatesQueryParams } from "@workspace/api-zod";
-import { authMiddleware } from "../middlewares/auth";
+import { authMiddleware, requireRoles } from "../middlewares/auth";
 import { smsDelegateOtp } from "../services/sms";
 import { notifyTeachersDelegatePickup } from "../lib/notify";
 import { createNotificationDelivery } from "../services/notificationOutbox";
 import { getParentChildIds as getOwnedChildIds } from "../lib/parentScope";
 import { assertObjectCanBind, bindObjectToResource } from "../lib/privateObjectAccess";
+import { canOperatePickupDelegates } from "../lib/routeAuthorization";
 import {
   classifyCommandOperation, findCommandOperation, fingerprintCommandPayload,
   lockCommandOperation, persistCommandOperation,
@@ -32,6 +33,7 @@ const verifyOtpLimiter = rateLimit({
 });
 
 const router = Router();
+const pickupDelegateRoles = requireRoles("parent", "support", "admin", "super_admin");
 
 export const pickupDelegateRouteDependencies = {
   createNotificationDelivery,
@@ -85,7 +87,7 @@ async function replayPickupDelegateOperation(tx: any, resultVersion: number, res
     createdIds: value.createdIds as number[], childNames: "" };
 }
 
-router.get("/pickup-delegates", authMiddleware, async (req, res): Promise<void> => {
+router.get("/pickup-delegates", authMiddleware, pickupDelegateRoles, async (req, res): Promise<void> => {
   const params = ListPickupDelegatesQueryParams.safeParse(req.query);
   if (!params.success) { res.status(400).json({ error: "Bad request", message: params.error.message }); return; }
   const { childId } = params.data;
@@ -104,14 +106,14 @@ router.get("/pickup-delegates", authMiddleware, async (req, res): Promise<void> 
     return;
   }
 
-  // Admin / attendant: normal filter
+  // Explicit operational roles: normal filter
   const conditions = childId ? [eq(pickupDelegatesTable.childId, childId)] : [];
   const delegates = await db.select().from(pickupDelegatesTable)
     .where(conditions.length ? and(...conditions) : undefined);
   res.json(delegates.map(d => ({ ...d, otpCode: undefined })));
 });
 
-router.post("/pickup-delegates", authMiddleware, createDelegateLimiter, async (req, res): Promise<void> => {
+router.post("/pickup-delegates", authMiddleware, pickupDelegateRoles, createDelegateLimiter, async (req, res): Promise<void> => {
   const parsed = CreatePickupDelegateBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: "Bad request", message: parsed.error.message }); return; }
   const rawIds = Array.isArray((req.body as any)?.childIds) ? (req.body as any).childIds : null;
@@ -176,7 +178,7 @@ router.post("/pickup-delegates", authMiddleware, createDelegateLimiter, async (r
     outcome: result.replayed ? "already_applied" : "applied" });
 });
 
-router.get("/pickup-delegates/operations/:operationId", authMiddleware, async (req, res): Promise<void> => {
+router.get("/pickup-delegates/operations/:operationId", authMiddleware, pickupDelegateRoles, async (req, res): Promise<void> => {
   const operationId = req.params.operationId as string;
   if (!OPERATION_ID_PATTERN.test(operationId)) { res.status(400).json({ error: "Bad request", message: "Invalid operation identity" }); return; }
   const result = await db.transaction(async tx => {
@@ -227,15 +229,19 @@ router.post("/pickup-delegates/verify-otp", verifyOtpLimiter, async (req, res): 
   });
 });
 
-/** Checks if the authenticated parent owns the delegate (i.e. the delegate's child belongs to their family). Returns 403 if denied, false if the check does not apply (non-parent role). */
-async function assertParentOwnsDelegateOrAdmin(
+/** Checks parent ownership or an explicit operational delegate role. */
+async function assertParentOwnsDelegateOrOperational(
   delegateChildId: number,
   userId: number,
   role: string,
   res: import("express").Response,
 ): Promise<boolean> {
   const ownChildIds = await getParentChildIds(userId, role);
-  if (ownChildIds === null) return true; // admin/attendant — allow
+  if (ownChildIds === null && canOperatePickupDelegates(role)) return true;
+  if (ownChildIds === null) {
+    res.status(403).json({ error: "Forbidden", message: "Access denied" });
+    return false;
+  }
   if (!ownChildIds.includes(delegateChildId)) {
     res.status(403).json({ error: "Forbidden", message: "Access denied" });
     return false;
@@ -243,21 +249,21 @@ async function assertParentOwnsDelegateOrAdmin(
   return true;
 }
 
-router.get("/pickup-delegates/:id", authMiddleware, async (req, res): Promise<void> => {
+router.get("/pickup-delegates/:id", authMiddleware, pickupDelegateRoles, async (req, res): Promise<void> => {
   const id = parseInt(req.params.id as string, 10);
   if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
   const [delegate] = await db.select().from(pickupDelegatesTable).where(eq(pickupDelegatesTable.id, id));
   if (!delegate) { res.status(404).json({ error: "Not found", message: "Delegate not found" }); return; }
-  if (!await assertParentOwnsDelegateOrAdmin(delegate.childId, req.user!.userId, req.user!.role, res)) return;
+  if (!await assertParentOwnsDelegateOrOperational(delegate.childId, req.user!.userId, req.user!.role, res)) return;
   res.json({ ...delegate, otpCode: undefined });
 });
 
-router.put("/pickup-delegates/:id/approve", authMiddleware, async (req, res): Promise<void> => {
+router.put("/pickup-delegates/:id/approve", authMiddleware, pickupDelegateRoles, async (req, res): Promise<void> => {
   const id = parseInt(req.params.id as string, 10);
   if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
   const [existing] = await db.select().from(pickupDelegatesTable).where(eq(pickupDelegatesTable.id, id));
   if (!existing) { res.status(404).json({ error: "Not found", message: "Delegate not found" }); return; }
-  if (!await assertParentOwnsDelegateOrAdmin(existing.childId, req.user!.userId, req.user!.role, res)) return;
+  if (!await assertParentOwnsDelegateOrOperational(existing.childId, req.user!.userId, req.user!.role, res)) return;
   // Approval applies to the whole OTP group (one code may cover several children)
   const group = await getDelegateGroup(existing);
   const wasAlreadyApproved = group.every(g => g.approvalStatus === "approved");
@@ -281,7 +287,7 @@ async function getDelegateGroup(delegate: typeof pickupDelegatesTable.$inferSele
   return siblings.length ? siblings : [delegate];
 }
 
-router.post("/pickup-delegates/:id/notify-parent", authMiddleware, async (req, res): Promise<void> => {
+router.post("/pickup-delegates/:id/notify-parent", authMiddleware, pickupDelegateRoles, async (req, res): Promise<void> => {
   // Classification: the pending approval state and parent notification records
   // are AUTHORITATIVE and REQUIRED TRANSACTIONAL OUTBOX/INTENT respectively;
   // recipient/child/group reads are REQUIRED PRE-COMMIT VALIDATION; the teacher
@@ -291,7 +297,7 @@ router.post("/pickup-delegates/:id/notify-parent", authMiddleware, async (req, r
 
   const [delegate] = await db.select().from(pickupDelegatesTable).where(eq(pickupDelegatesTable.id, id));
   if (!delegate) { res.status(404).json({ error: "Not found", message: "Delegate not found" }); return; }
-  if (!await assertParentOwnsDelegateOrAdmin(delegate.childId, req.user!.userId, req.user!.role, res)) return;
+  if (!await assertParentOwnsDelegateOrOperational(delegate.childId, req.user!.userId, req.user!.role, res)) return;
 
   // The OTP may cover multiple children — approval applies to the whole group.
   const group = await getDelegateGroup(delegate);
@@ -343,11 +349,11 @@ router.post("/pickup-delegates/:id/notify-parent", authMiddleware, async (req, r
 });
 
 /** Returns true if the user is authorised to approve/deny this delegate pickup.
- *  Authorised if: admin/attendant, OR parent owns the child, OR the system sent them
+ *  Authorised if: an explicit operational role, OR parent owns the child, OR the system sent them
  *  a delegate_approval_request notification for this specific delegate. */
 async function canActOnDelegateApproval(delegateId: number, childId: number, userId: number, role: string): Promise<boolean> {
-  // Admins and attendants: always allowed
-  if (role !== "parent") return true;
+  // Explicit operational roles are allowed.
+  if (role !== "parent") return canOperatePickupDelegates(role);
   // Parent owns the child: allowed
   const ownChildIds = await getParentChildIds(userId, role);
   if (ownChildIds && ownChildIds.includes(childId)) return true;
@@ -359,7 +365,7 @@ async function canActOnDelegateApproval(delegateId: number, childId: number, use
   });
 }
 
-router.post("/pickup-delegates/:id/approve", authMiddleware, async (req, res): Promise<void> => {
+router.post("/pickup-delegates/:id/approve", authMiddleware, pickupDelegateRoles, async (req, res): Promise<void> => {
   const id = parseInt(req.params.id as string, 10);
   if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
 
@@ -383,7 +389,7 @@ router.post("/pickup-delegates/:id/approve", authMiddleware, async (req, res): P
   res.json({ success: true, delegate: updated, message: "Pickup approved. Child may be released." });
 });
 
-router.post("/pickup-delegates/:id/deny", authMiddleware, async (req, res): Promise<void> => {
+router.post("/pickup-delegates/:id/deny", authMiddleware, pickupDelegateRoles, async (req, res): Promise<void> => {
   const id = parseInt(req.params.id as string, 10);
   if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
 
@@ -402,13 +408,13 @@ router.post("/pickup-delegates/:id/deny", authMiddleware, async (req, res): Prom
   res.json({ success: true, delegate: updated, message: "Pickup denied. Front desk has been notified." });
 });
 
-router.delete("/pickup-delegates/:id", authMiddleware, async (req, res): Promise<void> => {
+router.delete("/pickup-delegates/:id", authMiddleware, pickupDelegateRoles, async (req, res): Promise<void> => {
   const id = parseInt(req.params.id as string, 10);
   if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
 
   const [existing] = await db.select().from(pickupDelegatesTable).where(eq(pickupDelegatesTable.id, id));
   if (!existing) { res.status(404).json({ error: "Not found", message: "Delegate not found" }); return; }
-  if (!await assertParentOwnsDelegateOrAdmin(existing.childId, req.user!.userId, req.user!.role, res)) return;
+  if (!await assertParentOwnsDelegateOrOperational(existing.childId, req.user!.userId, req.user!.role, res)) return;
 
   await db.delete(pickupDelegatesTable).where(eq(pickupDelegatesTable.id, id));
 

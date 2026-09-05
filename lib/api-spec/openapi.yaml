@@ -155,6 +155,8 @@ paths:
       operationId: getCurrentUser
       tags: [auth]
       summary: Get current authenticated user
+      security:
+        - bearerAuth: []
       responses:
         "200":
           description: Current user
@@ -167,7 +169,9 @@ paths:
     post:
       operationId: logout
       tags: [auth]
-      summary: Logout
+      summary: Logout and revoke all authenticated sessions
+      security:
+        - bearerAuth: []
       responses:
         "200":
           description: Logged out
@@ -175,6 +179,174 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/SuccessResponse"
+        "401":
+          description: Authentication is missing, invalid, expired, or revoked
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /auth/change-password:
+    post:
+      operationId: changePassword
+      tags: [auth]
+      summary: Change the current user's password and replace the current session
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PasswordChangeInput"
+      responses:
+        "200":
+          description: Password changed; all previous bearer tokens are revoked
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionReplacementResponse"
+        "400":
+          description: Invalid password input or current password
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Authentication is missing, invalid, expired, or revoked
+
+  /auth/reset-password:
+    post:
+      operationId: resetPassword
+      tags: [auth]
+      summary: Reset a password using a delivered reset code
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PasswordResetInput"
+      responses:
+        "200":
+          description: Password reset and all prior authenticated sessions revoked
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+        "400":
+          description: Invalid, expired, consumed, or attempt-limited reset code
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: Too many reset attempts
+
+  /auth/send-otp:
+    post:
+      operationId: sendRegistrationOtp
+      tags: [auth]
+      summary: Send a purpose-, channel-, and contact-bound registration code
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegistrationOtpInput"
+      responses:
+        "200":
+          description: Verification code accepted for sending
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RegistrationOtpResponse"
+        "400":
+          description: The selected channel's required contact is invalid
+        "429":
+          description: Issuance limit or contact cooldown reached
+        "503":
+          description: The selected delivery provider did not accept the request
+
+  /auth/mfa/setup:
+    post:
+      operationId: setupMfa
+      tags: [auth]
+      summary: Begin MFA setup after password step-up
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MfaSetupInput"
+      responses:
+        "200":
+          description: Pending authenticator configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MfaSetupResponse"
+        "401":
+          description: Authentication or current-password proof failed
+        "409":
+          description: Active MFA must be disabled before replacement
+        "429":
+          description: Too many attempts
+
+  /auth/mfa/confirm:
+    post:
+      operationId: confirmMfa
+      tags: [auth]
+      summary: Confirm pending MFA and replace the current session
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MfaConfirmationInput"
+      responses:
+        "200":
+          description: MFA enabled; all previous bearer tokens are revoked
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionReplacementResponse"
+        "400":
+          description: MFA setup is absent or the authenticator code is invalid
+        "401":
+          description: Authentication is missing, invalid, expired, or revoked
+        "429":
+          description: Too many attempts
+
+  /auth/mfa/disable:
+    post:
+      operationId: disableMfa
+      tags: [auth]
+      summary: Disable MFA after password and authenticator step-up
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MfaDisableInput"
+      responses:
+        "200":
+          description: MFA disabled; all previous bearer tokens are revoked
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionReplacementResponse"
+        "400":
+          description: MFA is not active or the authenticator code is invalid
+        "401":
+          description: Authentication or current-password proof failed
+        "429":
+          description: Too many attempts
 
   /events/ticket:
     post:
@@ -265,6 +437,9 @@ paths:
       operationId: updateUser
       tags: [users]
       summary: Update user
+      description: A self-service phone-number change requires currentPassword. Other updates do not.
+      security:
+        - bearerAuth: []
       parameters:
         - name: id
           in: path
@@ -284,6 +459,10 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/User"
+        "401":
+          description: Authentication or required current-password proof failed
+        "403":
+          description: The authenticated user cannot update this account
     delete:
       operationId: deleteUser
       tags: [users]
@@ -333,6 +512,41 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/SuccessResponse"
+
+  /users/{id}/reset-password:
+    put:
+      operationId: adminResetUserPassword
+      tags: [users]
+      summary: Administratively reset another user's password and revoke their sessions
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminPasswordResetInput"
+      responses:
+        "200":
+          description: Password reset and target user's sessions revoked
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+        "400":
+          description: Invalid password, ID, or attempt to use the administrator route for self
+        "401":
+          description: Authentication is missing, invalid, expired, or revoked
+        "403":
+          description: Administrator permission is required
+        "404":
+          description: Target user not found
 
   /users/{id}/reject:
     put:
@@ -2763,6 +2977,123 @@ components:
         - token
         - user
 
+    PasswordChangeInput:
+      type: object
+      additionalProperties: false
+      properties:
+        currentPassword:
+          type: string
+        newPassword:
+          type: string
+          minLength: 6
+      required: [currentPassword, newPassword]
+
+    PasswordResetInput:
+      type: object
+      additionalProperties: false
+      properties:
+        email:
+          type: string
+          format: email
+        code:
+          type: string
+        newPassword:
+          type: string
+          minLength: 6
+      required: [email, code, newPassword]
+
+    AdminPasswordResetInput:
+      type: object
+      additionalProperties: false
+      properties:
+        password:
+          type: string
+          minLength: 6
+      required: [password]
+
+    SessionReplacementResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        token:
+          type: string
+          description: Replacement bearer token for the session that performed the change.
+      required: [success, message, token]
+
+    MfaSetupInput:
+      type: object
+      additionalProperties: false
+      properties:
+        currentPassword:
+          type: string
+      required: [currentPassword]
+
+    MfaSetupResponse:
+      type: object
+      properties:
+        qrCodeUri:
+          type: string
+        secret:
+          type: string
+      required: [qrCodeUri, secret]
+
+    MfaConfirmationInput:
+      type: object
+      additionalProperties: false
+      properties:
+        totpCode:
+          type: string
+          pattern: '^\d{6}$'
+      required: [totpCode]
+
+    MfaDisableInput:
+      type: object
+      additionalProperties: false
+      properties:
+        totpCode:
+          type: string
+          pattern: '^\d{6}$'
+        currentPassword:
+          type: string
+      required: [totpCode, currentPassword]
+
+    RegistrationOtpInput:
+      type: object
+      additionalProperties: false
+      properties:
+        phone:
+          type: string
+          description: Required when channel is sms or whatsapp.
+        email:
+          type: string
+          format: email
+          description: Required when channel is email.
+        channel:
+          type: string
+          enum: [sms, whatsapp, email]
+      required: [channel]
+      anyOf:
+        - properties:
+            channel:
+              enum: [sms, whatsapp]
+          required: [phone]
+        - properties:
+            channel:
+              const: email
+          required: [email]
+
+    RegistrationOtpResponse:
+      type: object
+      properties:
+        pinId:
+          type: string
+        message:
+          type: string
+      required: [pinId, message]
+
     # USER
     User:
       type: object
@@ -2851,6 +3182,9 @@ components:
           type: boolean
         role:
           type: string
+        currentPassword:
+          type: string
+          description: Required only when the authenticated user changes their own phone number.
 
     PaginatedUsers:
       type: object
@@ -3034,9 +3368,8 @@ components:
         photoUrl:
           type: string
           nullable: true
-        faceDescriptorJson:
-          type: string
-          nullable: true
+        hasFaceDescriptor:
+          type: boolean
         servicePreference:
           type: string
           enum: ["7am", "10:30am", "both"]
@@ -3058,6 +3391,7 @@ components:
         - dob
         - age
         - gender
+        - hasFaceDescriptor
         - createdAt
 
     CreateChildBody:

@@ -30,14 +30,15 @@ const { smokeUser } = vi.hoisted(() => ({
     mfaEnabled: true,
     mfaSecret: "JBSWY3DPEHPK3PXP" as string | null,
     passwordHash: "",
+    sessionVersion: 1,
   },
 }));
 
 // ── Mock all external dependencies before importing app ──────────────────────
 // vi.mock calls are hoisted to the top by vitest even though they appear here.
 
-vi.mock("@workspace/db", () => ({
-  db: {
+vi.mock("@workspace/db", () => {
+  const mockedDb = {
     select: vi.fn().mockReturnValue({
       from: vi.fn().mockReturnValue({
         where: vi.fn().mockImplementation(() => Promise.resolve([smokeUser])),
@@ -46,7 +47,11 @@ vi.mock("@workspace/db", () => ({
     insert: vi.fn(),
     update: vi.fn(),
     delete: vi.fn(),
-  },
+    transaction: vi.fn(async (callback: (tx: unknown) => unknown) => callback(mockedDb)),
+    execute: vi.fn().mockResolvedValue({ rows: [], rowCount: 0 }),
+  };
+  return {
+  db: mockedDb,
   usersTable: {
     id: "id",
     email: "email",
@@ -56,9 +61,11 @@ vi.mock("@workspace/db", () => ({
     isActive: "isActive",
     status: "status",
     secondaryRoles: "secondaryRoles",
+    sessionVersion: "sessionVersion",
   },
   pool: { on: vi.fn(), connect: vi.fn(), end: vi.fn() },
-}));
+  };
+});
 
 vi.mock("@workspace/db/schema", () => ({}));
 
@@ -103,6 +110,7 @@ function preMfaToken(mfaOnly: unknown = true) {
     role: "super_admin",
     firstName: "Test",
     lastName: "User",
+    sessionVersion: 1,
     mfaOnly,
   }, process.env.SESSION_SECRET!, { expiresIn: "5m" });
 }

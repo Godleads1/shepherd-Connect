@@ -568,6 +568,17 @@ export async function smsRegistrationOtp(phone: string | null | undefined, otp: 
   ));
 }
 
+/** Registration proof requested over WhatsApp must never fall back to SMS. */
+export async function whatsappRegistrationOtp(phone: string | null | undefined, otp: string, logger?: Logger): Promise<boolean> {
+  if (!phone) return false;
+  const text = `Your Shepherd Connect Verification Pin is ${otp} for Shepherd Connect app. It expires in 10 minutes.`;
+  return boundedRegistrationProvider((async () => {
+    const { sendWhatsAppMessage } = await import("./whatsapp");
+    if (await sendWhatsAppMessage(phone, text)) return true;
+    return sendViaTwilioWhatsApp(phone, text, logger);
+  })());
+}
+
 export async function emailRegistrationOtp(email: string | null | undefined, otp: string, logger?: Logger): Promise<boolean> {
   if (!email) return false;
   const html = `

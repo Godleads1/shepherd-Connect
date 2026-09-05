@@ -234,7 +234,7 @@ router.post("/messages", authMiddleware, async (req, res): Promise<void> => {
 
   // Push real-time SSE event so the recipient's app updates instantly
   try {
-    pushEvent(parsed.data.recipientId, "new_message", { senderId: req.user!.userId });
+    await pushEvent(parsed.data.recipientId, "new_message", { senderId: req.user!.userId });
   } catch (error) {
     req.log.warn({ err: error, messageId: message.id }, "Failed to push optional new-message SSE event");
   }

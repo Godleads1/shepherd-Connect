@@ -248,7 +248,7 @@ export interface Child {
   allergies?: string | null;
   medicalNotes?: string | null;
   photoUrl?: string | null;
-  faceDescriptorJson?: string | null;
+  hasFaceDescriptor: boolean;
   servicePreference?: ChildServicePreference;
   currentClassId?: number | null;
   currentClass?: Class | null;
@@ -364,6 +364,85 @@ export interface AuthResponse {
   user: User;
 }
 
+export interface PasswordChangeInput {
+  currentPassword: string;
+  /** @minLength 6 */
+  newPassword: string;
+}
+
+export interface PasswordResetInput {
+  email: string;
+  code: string;
+  /** @minLength 6 */
+  newPassword: string;
+}
+
+export interface AdminPasswordResetInput {
+  /** @minLength 6 */
+  password: string;
+}
+
+export interface SessionReplacementResponse {
+  success: boolean;
+  message: string;
+  /** Replacement bearer token for the session that performed the change. */
+  token: string;
+}
+
+export interface MfaSetupInput {
+  currentPassword: string;
+}
+
+export interface MfaSetupResponse {
+  qrCodeUri: string;
+  secret: string;
+}
+
+export interface MfaConfirmationInput {
+  /** @pattern ^\d{6}$ */
+  totpCode: string;
+}
+
+export interface MfaDisableInput {
+  /** @pattern ^\d{6}$ */
+  totpCode: string;
+  currentPassword: string;
+}
+
+export type RegistrationOtpInputChannel =
+  (typeof RegistrationOtpInputChannel)[keyof typeof RegistrationOtpInputChannel];
+
+export const RegistrationOtpInputChannel = {
+  sms: "sms",
+  whatsapp: "whatsapp",
+  email: "email",
+} as const;
+
+export type RegistrationOtpInput =
+  | ({
+      channel?: "sms" | "whatsapp";
+    } & {
+      /** Required when channel is sms or whatsapp. */
+      phone?: string;
+      /** Required when channel is email. */
+      email?: string;
+      channel: RegistrationOtpInputChannel;
+    })
+  | ({
+      channel?: "email";
+    } & {
+      /** Required when channel is sms or whatsapp. */
+      phone?: string;
+      /** Required when channel is email. */
+      email?: string;
+      channel: RegistrationOtpInputChannel;
+    });
+
+export interface RegistrationOtpResponse {
+  pinId: string;
+  message: string;
+}
+
 export interface CreateUserBody {
   firstName: string;
   lastName: string;
@@ -379,6 +458,8 @@ export interface UpdateUserBody {
   phone?: string;
   isActive?: boolean;
   role?: string;
+  /** Required only when the authenticated user changes their own phone number. */
+  currentPassword?: string;
 }
 
 export interface PaginatedUsers {

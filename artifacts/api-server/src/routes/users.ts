@@ -5,6 +5,9 @@ import { db, usersTable, teachersTable, classesTable, pool, botLidCacheTable, bo
 import { CreateUserBody, UpdateUserBody, ListUsersQueryParams } from "@workspace/api-zod";
 import { authMiddleware, requireRoles } from "../middlewares/auth";
 import { bindObjectToResource } from "../lib/privateObjectAccess";
+import { closeUserConnections } from "../lib/sse";
+import { securityAudit } from "../lib/securityAudit";
+import { lockSessionRevocation, notifySessionRevocation, SESSION_REVOCATION_LOCK_NAMESPACE } from "../lib/sessionRevocation";
 import { createNotificationDelivery } from "../services/notificationOutbox";
 import {
   canonicalPendingRoles,
@@ -202,6 +205,7 @@ router.put("/users/:id/approve", authMiddleware, requireRoles("super_admin", "ad
   const id = parseInt(req.params.id as string, 10);
   if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
   const user = await db.transaction(async tx => {
+    await lockSessionRevocation(tx, id);
     const target = await lockUserById(tx, id);
     if (!target) return undefined;
     const [approved] = await tx.update(usersTable)
@@ -212,6 +216,7 @@ router.put("/users/:id/approve", authMiddleware, requireRoles("super_admin", "ad
       await tx.insert(teachersTable).values({ userId: target.id }).onConflictDoNothing();
     }
     await createDecisionDelivery(tx, approved, target.role, "approved", "account");
+    await notifySessionRevocation(tx, id);
     return approved;
   });
   if (!user) { res.status(404).json({ error: "Not found", message: "User not found" }); return; }
@@ -223,6 +228,7 @@ router.put("/users/:id/reject", authMiddleware, requireRoles("super_admin", "adm
   const id = parseInt(req.params.id as string, 10);
   if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
   const user = await db.transaction(async tx => {
+    await lockSessionRevocation(tx, id);
     const target = await lockUserById(tx, id);
     if (!target) return undefined;
     const [rejected] = await tx.update(usersTable)
@@ -230,9 +236,12 @@ router.put("/users/:id/reject", authMiddleware, requireRoles("super_admin", "adm
       .where(eq(usersTable.id, id))
       .returning();
     await createDecisionDelivery(tx, rejected, target.role, "rejected", "account");
+    await notifySessionRevocation(tx, id);
     return rejected;
   });
   if (!user) { res.status(404).json({ error: "Not found", message: "User not found" }); return; }
+  closeUserConnections(id);
+  await securityAudit(req, "account_rejected", id);
   const viewer = { role: req.user!.role, userId: req.user!.userId };
   res.json({ success: true, message: "User rejected", user: sanitizeUser(user, viewer) });
 });
@@ -240,27 +249,39 @@ router.put("/users/:id/reject", authMiddleware, requireRoles("super_admin", "adm
 router.put("/users/:id/reset-password", authMiddleware, requireRoles("super_admin", "admin"), async (req, res): Promise<void> => {
   const id = parseInt(req.params.id as string, 10);
   if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
+  if (id === req.user!.userId) {
+    res.status(400).json({ error: "Bad request", message: "Use change password for your own account" }); return;
+  }
   const { password } = req.body as { password?: string };
   if (!password || password.length < 6) {
     res.status(400).json({ error: "Bad request", message: "Password must be at least 6 characters" }); return;
   }
   const passwordHash = await bcrypt.hash(password, 12);
-  const [user] = await db.update(usersTable)
-    .set({ passwordHash })
-    .where(eq(usersTable.id, id))
-    .returning();
+  const [user] = await db.transaction(async tx => {
+    await lockSessionRevocation(tx, id);
+    const rows = await tx.update(usersTable).set({ passwordHash, sessionVersion: sql`${usersTable.sessionVersion} + 1` })
+      .where(eq(usersTable.id, id)).returning();
+    if (rows.length === 1) await notifySessionRevocation(tx, id);
+    return rows;
+  });
   if (!user) { res.status(404).json({ error: "Not found", message: "User not found" }); return; }
+  closeUserConnections(id);
+  await securityAudit(req, "admin_password_reset", id, { administratorId: req.user!.userId });
   res.json({ success: true, message: "Password reset successfully" });
 });
 
 router.put("/users/:id/suspend", authMiddleware, requireRoles("super_admin"), async (req, res): Promise<void> => {
   const id = parseInt(req.params.id as string, 10);
   if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
-  const [user] = await db.update(usersTable)
-    .set({ status: "suspended", isActive: false })
-    .where(eq(usersTable.id, id))
-    .returning();
+  const [user] = await db.transaction(async tx => {
+    await lockSessionRevocation(tx, id);
+    const rows = await tx.update(usersTable).set({ status: "suspended", isActive: false }).where(eq(usersTable.id, id)).returning();
+    if (rows.length === 1) await notifySessionRevocation(tx, id);
+    return rows;
+  });
   if (!user) { res.status(404).json({ error: "Not found", message: "User not found" }); return; }
+  closeUserConnections(id);
+  await securityAudit(req, "account_suspended", id);
   const viewer = { role: req.user!.role, userId: req.user!.userId };
   res.json({ success: true, message: "User suspended", user: sanitizeUser(user, viewer) });
 });
@@ -281,7 +302,7 @@ router.put("/users/:id", authMiddleware, async (req, res): Promise<void> => {
 
   const parsed = UpdateUserBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: "Bad request", message: parsed.error.message }); return; }
-  const [existingUser] = await db.select({ photoUrl: usersTable.photoUrl, phone: usersTable.phone })
+  const [existingUser] = await db.select({ photoUrl: usersTable.photoUrl, phone: usersTable.phone, passwordHash: usersTable.passwordHash, sessionVersion: usersTable.sessionVersion })
     .from(usersTable).where(eq(usersTable.id, id)).limit(1);
   if (!existingUser) { res.status(404).json({ error: "Not found", message: "User not found" }); return; }
 
@@ -314,14 +335,23 @@ router.put("/users/:id", authMiddleware, async (req, res): Promise<void> => {
   if (isSelf && body["hideContactFromAdmin"] !== undefined) updates.hideContactFromAdmin = Boolean(body["hideContactFromAdmin"]);
 
   const phoneChanged = updates.phone !== undefined && updates.phone !== existingUser.phone;
-  const [user] = (updates.role || phoneChanged)
+  if (isSelf && phoneChanged) {
+    const currentPassword = typeof body["currentPassword"] === "string" ? body["currentPassword"] : "";
+    if (!currentPassword || !(await bcrypt.compare(currentPassword, existingUser.passwordHash))) {
+      res.status(401).json({ error: "Unauthorized", message: "Current password is required to change your phone number" });
+      return;
+    }
+  }
+  const [user] = (updates.role || phoneChanged || updates.isActive !== undefined)
     ? await db.transaction(async tx => {
+        await lockSessionRevocation(tx, id);
         const locked = await lockUserById(tx, id);
         if (!locked) return [];
+        if (isSelf && locked.sessionVersion !== (req.user!.sessionVersion ?? 1)) return [];
         const primaryRole = updates.role as UserRole;
         const lockedPhoneChanged = updates.phone !== undefined && updates.phone !== locked.phone;
         if (lockedPhoneChanged) await invalidateWhatsAppContact(tx, id);
-        return tx.update(usersTable).set({
+        const rows = await tx.update(usersTable).set({
           ...updates,
           ...(updates.role ? {
             secondaryRoles: JSON.stringify(canonicalSecondaryRoles(locked.secondaryRoles, primaryRole)),
@@ -332,10 +362,15 @@ router.put("/users/:id", authMiddleware, async (req, res): Promise<void> => {
             whatsappVerifiedAt: null,
             contactVersion: locked.contactVersion + 1,
           } : {}),
-        }).where(eq(usersTable.id, id)).returning();
+        }).where(and(eq(usersTable.id, id), ...(isSelf ? [eq(usersTable.sessionVersion, (req.user!.sessionVersion ?? 1))] : []))).returning();
+        if (rows.length === 1 && (updates.role || updates.isActive !== undefined)) await notifySessionRevocation(tx, id);
+        return rows;
       })
     : await db.update(usersTable).set(updates).where(eq(usersTable.id, id)).returning();
   if (!user) { res.status(404).json({ error: "Not found", message: "User not found" }); return; }
+  if (updates.role || updates.isActive === false) closeUserConnections(id);
+  if (updates.role) await securityAudit(req, "primary_role_changed", id, { role: updates.role });
+  if (phoneChanged) await securityAudit(req, "security_contact_changed", id, { contact: "phone" });
   const viewer = { role: requesterRole, userId: requesterId };
   res.json(sanitizeUser(user, viewer));
 });
@@ -356,6 +391,7 @@ router.post("/users/:id/reassign-role", authMiddleware, requireRoles("super_admi
   if (!validRoles.includes(role)) { res.status(400).json({ error: "Bad request", message: "Invalid role" }); return; }
 
   const result = await db.transaction(async tx => {
+    await lockSessionRevocation(tx, id);
     const target = await lockUserById(tx, id);
     if (!target) return { kind: "notFound" as const };
     const adminAllowed = ["parent", "teacher"];
@@ -374,6 +410,7 @@ router.post("/users/:id/reassign-role", authMiddleware, requireRoles("super_admi
     if (role === "teacher") {
       await tx.insert(teachersTable).values({ userId: id }).onConflictDoNothing();
     }
+    await notifySessionRevocation(tx, id);
     return { kind: "updated" as const, user: updated };
   });
   if (result.kind === "notFound") { res.status(404).json({ error: "Not found", message: "User not found" }); return; }
@@ -394,6 +431,7 @@ router.post("/users/:id/approve-role", authMiddleware, requireRoles("super_admin
   }
 
   const result = await db.transaction(async tx => {
+    await lockSessionRevocation(tx, id);
     const target = await lockUserById(tx, id);
     if (!target) return { kind: "notFound" as const };
     const pending = canonicalPendingRoles(target.pendingRoles);
@@ -411,6 +449,7 @@ router.post("/users/:id/approve-role", authMiddleware, requireRoles("super_admin
       await tx.insert(teachersTable).values({ userId: id }).onConflictDoNothing();
     }
     await createDecisionDelivery(tx, saved, role as UserRole, "approved", "role");
+    await notifySessionRevocation(tx, id);
     return { kind: "approved" as const, target, user: saved };
   });
   if (result.kind === "notFound") { res.status(404).json({ error: "Not found", message: "User not found" }); return; }
@@ -429,6 +468,7 @@ router.post("/users/:id/reject-role", authMiddleware, requireRoles("super_admin"
   if (!role) { res.status(400).json({ error: "Bad request", message: "role is required" }); return; }
 
   const result = await db.transaction(async tx => {
+    await lockSessionRevocation(tx, id);
     const target = await lockUserById(tx, id);
     if (!target) return { kind: "notFound" as const };
     const pending = canonicalPendingRoles(target.pendingRoles);
@@ -441,6 +481,7 @@ router.post("/users/:id/reject-role", authMiddleware, requireRoles("super_admin"
       .where(eq(usersTable.id, id))
       .returning();
     await createDecisionDelivery(tx, saved, role as UserRole, "rejected", "role");
+    await notifySessionRevocation(tx, id);
     return { kind: "rejected" as const, target, user: saved };
   });
   if (result.kind === "notFound") { res.status(404).json({ error: "Not found", message: "User not found" }); return; }
@@ -459,6 +500,7 @@ router.post("/users/:id/grant-role", authMiddleware, requireRoles("super_admin")
   }
 
   const result = await db.transaction(async tx => {
+    await lockSessionRevocation(tx, id);
     const target = await lockUserById(tx, id);
     if (!target) return { kind: "notFound" as const };
     if (target.role === role) return { kind: "primary" as const };
@@ -468,6 +510,7 @@ router.post("/users/:id/grant-role", authMiddleware, requireRoles("super_admin")
       secondaryRoles: JSON.stringify([...existing, role as UserRole]),
       pendingRoles: JSON.stringify(canonicalPendingRoles(target.pendingRoles)),
     }).where(eq(usersTable.id, id)).returning();
+    await notifySessionRevocation(tx, id);
     return { kind: "granted" as const, user: saved };
   });
   if (result.kind === "notFound") { res.status(404).json({ error: "Not found", message: "User not found" }); return; }
@@ -482,6 +525,7 @@ router.delete("/users/:id/grant-role/:role", authMiddleware, requireRoles("super
   if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
 
   const result = await db.transaction(async tx => {
+    await lockSessionRevocation(tx, id);
     const target = await lockUserById(tx, id);
     if (!target) return { kind: "notFound" as const };
     const existing = canonicalSecondaryRoles(target.secondaryRoles, target.role);
@@ -489,9 +533,12 @@ router.delete("/users/:id/grant-role/:role", authMiddleware, requireRoles("super
       secondaryRoles: JSON.stringify(existing.filter(entry => entry !== role)),
       pendingRoles: JSON.stringify(canonicalPendingRoles(target.pendingRoles)),
     }).where(eq(usersTable.id, id)).returning();
+    await notifySessionRevocation(tx, id);
     return { kind: "revoked" as const, user: saved };
   });
   if (result.kind === "notFound") { res.status(404).json({ error: "Not found", message: "User not found" }); return; }
+  closeUserConnections(id);
+  await securityAudit(req, "role_revoked", id, { role });
   res.json({ success: true, user: sanitizeUser(result.user), message: `Secondary role ${role} revoked` });
 });
 
@@ -510,6 +557,7 @@ router.delete("/users/:id", authMiddleware, requireRoles("super_admin", "admin")
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
+    await client.query("SELECT pg_advisory_xact_lock($1, $2)", [SESSION_REVOCATION_LOCK_NAMESPACE, id]);
     const stmts = [
       "UPDATE attendance SET checked_in_by = NULL WHERE checked_in_by = $1",
       "UPDATE attendance SET escorted_by = NULL WHERE escorted_by = $1",
@@ -556,6 +604,7 @@ router.delete("/users/:id", authMiddleware, requireRoles("super_admin", "admin")
       "DELETE FROM users WHERE id = $1",
     ];
     for (const stmt of stmts) await client.query(stmt, [id]);
+    await client.query("SELECT pg_notify('session_revocations', $1)", [JSON.stringify({ userId: id })]);
     await client.query("COMMIT");
   } catch (err) {
     await client.query("ROLLBACK");

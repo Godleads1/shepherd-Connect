@@ -9,6 +9,8 @@ export const otpSessionsTable = pgTable("otp_sessions", {
   pinId: text("pin_id").primaryKey(),
   otp: text("otp").notNull(),
   contact: text("contact").notNull(),
+  purpose: text("purpose").notNull().default("registration"),
+  channel: text("channel"),
   expiresAt: timestamp("expires_at").notNull(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   attemptCount: integer("attempt_count").notNull().default(0),

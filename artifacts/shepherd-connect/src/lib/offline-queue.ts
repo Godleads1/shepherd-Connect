@@ -21,6 +21,11 @@ export interface QueuedCheckIn {
   queuedAt: string;
   /** Set when this entry is one half of a deliberate both-services booking. */
   bothServices?: boolean;
+  /**
+   * The server rejected replay under the current bearer/role.  Keep the
+   * operation visible but never retry it automatically.
+   */
+  reconciliationRequired?: "unauthorized";
 }
 
 export type CheckInQueuePayload = Omit<
@@ -75,6 +80,18 @@ export function getQueue(userId: number): QueuedCheckIn[] {
 export function removeFromQueue(userId: number, eventId: string) {
   const queue = getQueue(userId).filter((item) => item.eventId !== eventId);
   localStorage.setItem(queueKey(userId), JSON.stringify(queue));
+}
+
+export function markForReconciliation(userId: number, eventId: string) {
+  const queue = getQueue(userId).map((item) =>
+    item.eventId === eventId ? { ...item, reconciliationRequired: "unauthorized" as const } : item,
+  );
+  localStorage.setItem(queueKey(userId), JSON.stringify(queue));
+}
+
+export function isAuthorizationReplayFailure(error: unknown): boolean {
+  const status = (error as { status?: unknown } | null)?.status;
+  return status === 401 || status === 403;
 }
 
 export function clearQueue(userId: number) {

@@ -12,6 +12,7 @@ import {
   persistCommandOperation,
   replayCommandResult,
 } from "../services/commandOperations";
+import { canReadSafeguardingTeacher } from "../lib/routeAuthorization";
 
 const router = Router();
 const SAFEGUARDING_CREATE_COMMAND = "safeguarding_record_create";
@@ -94,11 +95,10 @@ router.get("/safeguarding/expiring", authMiddleware, requireRoles("admin", "supe
   res.json(expiring);
 });
 
-router.get("/safeguarding/teacher/:teacherUserId", authMiddleware, async (req, res): Promise<void> => {
+router.get("/safeguarding/teacher/:teacherUserId", authMiddleware, requireRoles("teacher", "admin", "super_admin"), async (req, res): Promise<void> => {
   const teacherUserId = parseInt(req.params.teacherUserId as string, 10);
   if (isNaN(teacherUserId)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
-  const role = req.user!.role;
-  if (role === "teacher" && req.user!.userId !== teacherUserId) {
+  if (!canReadSafeguardingTeacher(req.user!, teacherUserId)) {
     res.status(403).json({ error: "Forbidden" }); return;
   }
   const records = await db.select().from(safeguardingRecordsTable)
