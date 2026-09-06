@@ -12,11 +12,6 @@ declare const self: ServiceWorkerGlobalScope;
 precacheAndRoute(self.__WB_MANIFEST);
 cleanupOutdatedCaches();
 
-// ── Lifecycle: take over immediately on new deploy ────────────────────────────
-self.addEventListener("install", (e) => {
-  e.waitUntil(self.skipWaiting());
-});
-
 self.addEventListener("activate", (e) => {
   // Versions before this one stored authenticated API responses in api-cache.
   // Remove those entries on every activation rather than trusting cache expiry.

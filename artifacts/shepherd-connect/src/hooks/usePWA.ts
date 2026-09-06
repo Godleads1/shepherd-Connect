@@ -9,7 +9,6 @@ export function usePWA() {
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [isInstalled, setIsInstalled] = useState(false);
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
-  const [updateAvailable, setUpdateAvailable] = useState(false);
 
   useEffect(() => {
     const onBeforeInstall = (e: Event) => {
@@ -35,13 +34,6 @@ export function usePWA() {
       setIsInstalled(true);
     }
 
-    // Listen for service-worker update messages
-    if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.addEventListener("controllerchange", () => {
-        setUpdateAvailable(true);
-      });
-    }
-
     return () => {
       window.removeEventListener("beforeinstallprompt", onBeforeInstall);
       window.removeEventListener("appinstalled", onAppInstalled);
@@ -58,9 +50,5 @@ export function usePWA() {
     return outcome === "accepted";
   };
 
-  const applyUpdate = () => {
-    window.location.reload();
-  };
-
-  return { installPrompt: !!installPrompt, isInstalled, isOffline, updateAvailable, promptInstall, applyUpdate };
+  return { installPrompt: !!installPrompt, isInstalled, isOffline, promptInstall };
 }
