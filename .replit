@@ -61,8 +61,6 @@ packages = ["freetype", "glibcLocales", "libreoffice"]
 [userenv]
 
 [userenv.shared]
-VAPID_PUBLIC_KEY = "BB88w2cfDxROolrF2bLW8YCOGSvVznTwntz3hWiXFWMmKTqT-qH1xIZIqHCdG7EB9YTWE6bTUS14vZ8APOc99lk"
-VAPID_PRIVATE_KEY = "lSODexy9HxnSfTRj2FkscGYBm215pzUmWTtSaxyTSfg"
 VAPID_SUBJECT = "mailto:admin@shepherd-connect.rccg"
 TWILIO_WHATSAPP_NUMBER = "whatsapp:+16206474312"
 
