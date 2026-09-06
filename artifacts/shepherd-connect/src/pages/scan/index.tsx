@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useLocation } from "wouter";
 import { useAuth } from "@/contexts/auth";
+import { resolveStaffScanRole } from "@/lib/staff-scan-role";
 import { apiPost, apiGet } from "@/lib/api-call";
 import { usePullToRefresh } from "@/hooks/usePullToRefresh";
 import { PullToRefreshIndicator } from "@/components/PullToRefreshIndicator";
@@ -53,7 +54,7 @@ function todayInLagos(): string {
 
 export default function ScanPage() {
   const [, navigate] = useLocation();
-  const { user, isLoading: authLoading } = useAuth();
+  const { user, isLoading: authLoading, login } = useAuth();
 
   // token + date can come from URL (physical QR scan) or in-app camera scan
   const urlParams = new URLSearchParams(window.location.search);
@@ -99,6 +100,16 @@ export default function ScanPage() {
     setScanError(null);
     setScanResult(null);
     try {
+      const staffRole = resolveStaffScanRole(user);
+      if (!staffRole) {
+        throw new Error("This account is not approved for staff attendance. Please sign in with a teacher account.");
+      }
+      if (user?.role !== staffRole) {
+        const switched = await apiPost<{ token: string; user: any }>("/auth/switch-role", {
+          role: staffRole,
+        });
+        login(switched.token, switched.user);
+      }
       // Refresh before selecting the explicit action so a reload or a second
       // device cannot accidentally request another check-in.
       const scans = await loadMyScans(dt);
@@ -119,7 +130,7 @@ export default function ScanPage() {
     } finally {
       setScanning(false);
     }
-  }, [loadMyScans]);
+  }, [loadMyScans, login, user]);
 
   const doEmergencyOut = async () => {
     setEmergencyLoading(true);
