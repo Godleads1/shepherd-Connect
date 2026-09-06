@@ -19,6 +19,7 @@ import WelcomeModal, { shouldShowWelcome } from "@/components/WelcomeModal";
 import CollectionNoticeModal from "@/components/CollectionNoticeModal";
 import AnnouncementBanner from "@/components/AnnouncementBanner";
 import { formatServiceDate, watServiceDateAt } from "@/lib/wat-date";
+import { familyQrValue } from "@/lib/family-custody-scan";
 
 function isBirthdayToday(dob: string): boolean {
   const d = new Date(dob);
@@ -130,7 +131,7 @@ function AttendanceHistory({ children }: { children: any[] }) {
 
 
 function FamilyQRModal({ family, open, onClose }: { family: any; open: boolean; onClose: () => void }) {
-  const qrValue = `QR:${family?.id}`;
+  const qrValue = familyQrValue(family?.familyCode);
   const handleDownload = () => {
     const svg = document.getElementById("family-qr-svg");
     if (!svg) return;
@@ -168,21 +169,23 @@ function FamilyQRModal({ family, open, onClose }: { family: any; open: boolean; 
         </DialogHeader>
         <div className="flex flex-col items-center gap-5 py-2">
           <div className="p-5 bg-white rounded-2xl border-2 border-[#1e3a8a]/10 shadow-inner">
-            <QRCodeSVG
-              id="family-qr-svg"
-              value={qrValue}
-              size={240}
-              level="H"
-              includeMargin
-              imageSettings={{
-                src: "/rccg-logo-new.png",
-                x: undefined,
-                y: undefined,
-                height: 40,
-                width: 40,
-                excavate: true,
-              }}
-            />
+            {qrValue && (
+              <QRCodeSVG
+                id="family-qr-svg"
+                value={qrValue}
+                size={240}
+                level="H"
+                includeMargin
+                imageSettings={{
+                  src: "/rccg-logo-new.png",
+                  x: undefined,
+                  y: undefined,
+                  height: 40,
+                  width: 40,
+                  excavate: true,
+                }}
+              />
+            )}
           </div>
           <div className="text-center">
             <p className="text-2xl font-bold font-mono tracking-widest" style={{ color: "#1e3a8a" }}>
@@ -650,7 +653,7 @@ export default function MyFamily() {
       </div>
 
       {/* Family QR Card */}
-      {family?.id && (
+      {familyQrValue(family?.familyCode) && (
         <div
           className="bg-white rounded-2xl p-5 border cursor-pointer transition-all hover:shadow-md active:scale-[0.99]"
           style={{ borderColor: "#1e3a8a20", boxShadow: "0 2px 12px rgba(30,58,138,.08)" }}
@@ -659,7 +662,7 @@ export default function MyFamily() {
           <div className="flex items-center gap-5">
             <div className="p-3 rounded-xl" style={{ background: "#eff6ff" }}>
               <QRCodeSVG
-                value={`QR:${family.id}`}
+                value={familyQrValue(family?.familyCode)!}
                 size={72}
                 level="M"
                 includeMargin={false}
@@ -671,7 +674,7 @@ export default function MyFamily() {
                 <p className="font-bold text-gray-900">Family Check-In QR</p>
               </div>
               <p className="text-sm text-gray-500">Show this at the kiosk to check in all your children at once</p>
-              <p className="font-mono text-sm font-bold mt-2" style={{ color: "#1e3a8a" }}>{family.familyCode}</p>
+              <p className="font-mono text-sm font-bold mt-2" style={{ color: "#1e3a8a" }}>{family?.familyCode}</p>
             </div>
             <div className="text-[#1e3a8a] font-semibold text-xs flex flex-col items-center gap-1">
               <span className="text-xl">›</span>

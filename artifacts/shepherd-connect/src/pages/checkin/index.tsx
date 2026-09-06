@@ -8,6 +8,7 @@ import QrCameraScanner from "@/components/QrCameraScanner";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import { enqueueCheckIn, getQueue, isAuthorizationReplayFailure, markForReconciliation, removeFromQueue } from "@/lib/offline-queue";
 import { useAuth } from "@/contexts/auth";
+import { findPendingCustodyEpisode } from "@/lib/family-custody-scan";
 import FamilyAssist from "./FamilyAssist";
 import LocationBanner from "@/components/LocationBanner";
 import { useGeneralSettings } from "@/components/AnnouncementBanner";
@@ -394,7 +395,9 @@ export default function CheckIn() {
   const handleCheckInAll = async () => {
     if (!scanResult?.children) return;
     const eligible = scanResult.children.filter(
-      (c: any) => c.currentClass && !isAlreadyCheckedIn(c.id)
+      (c: any) => c.currentClass &&
+        !isAlreadyCheckedIn(c.id) &&
+        !findPendingCustodyEpisode(pendingEpisodes, scanResult.family?.id, c.id)
     );
     if (eligible.length === 0) {
       toast({ title: "All children already checked in" });
@@ -513,7 +516,7 @@ export default function CheckIn() {
                   disabled={acceptCustodyMutation.isPending}
                   className="px-3 py-1.5 rounded-lg text-xs font-bold transition-all active:scale-95 disabled:opacity-60 bg-indigo-600 text-white hover:bg-indigo-700"
                 >
-                  Accept & Check In
+                  Accept & Confirm
                 </button>
               </div>
             ))}
@@ -756,7 +759,11 @@ export default function CheckIn() {
           )}
 
           {/* Check In All button */}
-          {scanResult.children.length > 1 && scanResult.children.some((c: any) => c.currentClass && !isAlreadyCheckedIn(c.id)) && (
+          {scanResult.children.length > 1 && scanResult.children.some((c: any) =>
+            c.currentClass &&
+            !isAlreadyCheckedIn(c.id) &&
+            !findPendingCustodyEpisode(pendingEpisodes, scanResult.family?.id, c.id)
+          ) && (
             <button
               onClick={handleCheckInAll}
               disabled={checkingInAll || checkInMutation.isPending}
@@ -765,7 +772,11 @@ export default function CheckIn() {
               <Users className="w-5 h-5" />
               {checkingInAll
                 ? "Checking in all children…"
-                : `Check In All ${scanResult.children.filter((c: any) => c.currentClass && !isAlreadyCheckedIn(c.id)).length} Children at Once`}
+                : `Check In All ${scanResult.children.filter((c: any) =>
+                    c.currentClass &&
+                    !isAlreadyCheckedIn(c.id) &&
+                    !findPendingCustodyEpisode(pendingEpisodes, scanResult.family?.id, c.id)
+                  ).length} Children at Once`}
             </button>
           )}
 
@@ -773,6 +784,11 @@ export default function CheckIn() {
             {scanResult.children.map((child: any) => {
               const alreadyIn = isAlreadyCheckedIn(child.id);
               const slot = getChildSlot(child);
+              const pendingCustody = findPendingCustodyEpisode(
+                pendingEpisodes,
+                scanResult.family?.id,
+                child.id,
+              );
               return (
                 <div key={child.id} className={`bg-white rounded-2xl overflow-hidden border shadow-sm flex flex-col transition-all ${alreadyIn ? "border-green-200 opacity-80" : "border-gray-100"}`}>
                   {alreadyIn && (
@@ -841,6 +857,18 @@ export default function CheckIn() {
                             <CheckCircle className="w-5 h-5" /> Picked Up Today
                           </div>
                         )
+                      ) : pendingCustody ? (
+                        <button
+                          onClick={() => handleAcceptCustody(pendingCustody.id, child.firstName)}
+                          disabled={acceptCustodyMutation.isPending}
+                          data-testid={`button-accept-custody-${child.id}`}
+                          className="flex-1 h-14 rounded-xl font-bold text-sm transition-all active:scale-95 disabled:opacity-60 flex flex-col items-center justify-center leading-tight bg-indigo-600 text-white hover:bg-indigo-700"
+                        >
+                          <span>Accept & Confirm</span>
+                          <span className="text-[10px] font-medium opacity-80 mt-0.5">
+                            Place directly in class
+                          </span>
+                        </button>
                       ) : (
                         <button
                           onClick={() => handleCheckIn(child)}
