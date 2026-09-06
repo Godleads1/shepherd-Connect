@@ -13,7 +13,7 @@ const serviceDate = new Date(Date.now() + 60 * 60 * 1000).toISOString().slice(0,
 let parentId = 0; let otherParentId = 0; let supportId = 0; let otherSupportId = 0; let adminId = 0;
 let teacherUserId = 0; let teacherId = 0;
 let familyId = 0; let childId = 0; let otherFamilyId = 0; let otherChildId = 0; let firstClassId = 0; let secondClassId = 0;
-const token = (id: number, role: "parent" | "support" | "admin") => `Bearer ${generateToken({ userId: id, email: `${prefix}-${id}@test`, role, firstName: "Test", lastName: "User" })}`;
+const token = (id: number, role: "parent" | "support" | "admin" | "teacher") => `Bearer ${generateToken({ userId: id, email: `${prefix}-${id}@test`, role, firstName: "Test", lastName: "User" })}`;
 const count = async (table: string, where: ReturnType<typeof sql>) => Number((await db.execute(sql`SELECT count(*)::int count FROM ${sql.identifier(table)} WHERE ${where}`)).rows[0].count);
 
 beforeAll(async () => {
@@ -38,6 +38,7 @@ beforeAll(async () => {
   teacherId = Number((await db.execute(sql`INSERT INTO teachers (user_id) VALUES (${teacherUserId}) RETURNING id`)).rows[0].id);
 });
 beforeEach(async () => {
+  await db.execute(sql`DELETE FROM teacher_allocations WHERE teacher_id=${teacherId}`);
   await db.execute(sql`DELETE FROM notification_outbox WHERE domain_type = 'attendance' AND domain_identifier IN (SELECT id::text FROM attendance WHERE child_id=${childId})`);
   await db.execute(sql`DELETE FROM attendance WHERE child_id=${childId}`);
   await db.execute(sql`DELETE FROM pickup_requests WHERE child_id=${childId}`);
@@ -70,6 +71,31 @@ databaseDescribe("custody handover PostgreSQL integrity", () => {
     const [first, replay] = await Promise.all([create("request-once"), create("request-once")]);
     expect([first.status, replay.status].sort()).toEqual([200, 201]);
     expect(await count("custody_episodes", sql`child_id=${childId}`)).toBe(1);
+  });
+
+  it("returns only a count of today's pending requests for the teacher's allocated class", async () => {
+    await db.execute(sql`
+      INSERT INTO teacher_allocations (teacher_id,class_id,service_date,service_slot,status)
+      VALUES (${teacherId},${firstClassId},${serviceDate},'7am','confirmed')
+    `);
+    await create("teacher-summary-request").expect(201);
+
+    const summary = await request(app)
+      .get(`/api/custody-episodes/my-class-summary?classId=${firstClassId}`)
+      .set("Authorization", token(teacherUserId, "teacher"))
+      .expect(200);
+
+    expect(summary.body).toEqual({ checkInRequests: 1 });
+    expect(Object.keys(summary.body)).toEqual(["checkInRequests"]);
+
+    await request(app)
+      .get(`/api/custody-episodes/my-class-summary?classId=${secondClassId}`)
+      .set("Authorization", token(teacherUserId, "teacher"))
+      .expect(403);
+    await request(app)
+      .get(`/api/custody-episodes/my-class-summary?classId=${firstClassId}`)
+      .set("Authorization", token(adminId, "admin"))
+      .expect(403);
   });
 
   it("notifies a teacher allocated to both divergent merge hosts exactly once", async () => {

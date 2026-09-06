@@ -16,6 +16,7 @@ import { apiGet, apiPost, apiPut, apiDelete } from "@/lib/api-call";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/auth";
 import { QueryError } from "@/components/QueryError";
+import { sortAllocationsCurrentFirst } from "@/lib/allocation-sort";
 
 type ServiceHour = {
   teacherId: number; teacherName: string;
@@ -225,7 +226,9 @@ export default function TeacherAllocations() {
     cancelled: "bg-red-100 text-red-800 border-red-200",
   };
 
-  const myAllocations = (allocations || []).filter((a: any) => a.teacher?.user?.id === user?.id);
+  const today = format(new Date(), "yyyy-MM-dd");
+  const sortedAllocations = sortAllocationsCurrentFirst((allocations || []) as Allocation[], today);
+  const myAllocations = sortedAllocations.filter((a: any) => a.teacher?.user?.id === user?.id);
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto">
@@ -321,13 +324,13 @@ export default function TeacherAllocations() {
                   Array(5).fill(0).map((_, i) => (
                     <TableRow key={i}><TableCell colSpan={isAdmin ? 6 : 5}><Skeleton className="h-10 w-full" /></TableCell></TableRow>
                   ))
-                ) : (allocations || []).length === 0 ? (
+                ) : sortedAllocations.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={isAdmin ? 6 : 5} className="text-center py-10 text-gray-400">
                       No allocations yet. Use "Assign Duty Roster" to schedule teachers for a Sunday.
                     </TableCell>
                   </TableRow>
-                ) : (allocations || []).map((alloc: any) => (
+                ) : sortedAllocations.map((alloc: any) => (
                   <TableRow key={alloc.id} className="hover:bg-gray-50">
                     <TableCell className="font-medium">{format(new Date(alloc.serviceDate), "MMM dd, yyyy")}</TableCell>
                     <TableCell>{alloc.serviceSlot}</TableCell>

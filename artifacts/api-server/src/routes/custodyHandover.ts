@@ -1,9 +1,10 @@
 import { Router } from "express";
 import { AcceptCustodyEpisodeBody, OverrideCustodyPickupBody, RequestCustodyEpisodeBody } from "@workspace/api-zod";
-import { and, eq, inArray, or } from "drizzle-orm";
-import { childrenTable, custodyEpisodesTable, db, familiesTable } from "@workspace/db";
+import { and, eq, inArray, ne, or, sql } from "drizzle-orm";
+import { childrenTable, custodyEpisodesTable, db, familiesTable, teacherAllocationsTable, teachersTable } from "@workspace/db";
 import { authMiddleware, requireRoles } from "../middlewares/auth";
 import { acceptPhysicalCustody, cancelCustodyRequest, CustodyHandoverError, releasePhysicalCustody, requestCustodyEpisode } from "../services/custodyHandover";
+import { serviceDateAt } from "../lib/serviceTime";
 
 const router = Router();
 
@@ -54,6 +55,48 @@ router.get("/custody-episodes/pending", authMiddleware, requireRoles("support", 
     child: { firstName: childFirstName, lastName: childLastName },
     family: { familyCode },
   })));
+});
+
+router.get("/custody-episodes/my-class-summary", authMiddleware, requireRoles("teacher"), async (req, res): Promise<void> => {
+  const classId = Number(req.query.classId);
+  if (!Number.isInteger(classId) || classId < 1) {
+    res.status(400).json({ error: "Bad request", message: "A valid classId is required" });
+    return;
+  }
+
+  const today = serviceDateAt();
+  const [teacher] = await db.select({ id: teachersTable.id })
+    .from(teachersTable)
+    .where(eq(teachersTable.userId, req.user!.userId))
+    .limit(1);
+  if (!teacher) {
+    res.status(403).json({ error: "Forbidden", message: "Teacher profile not found" });
+    return;
+  }
+
+  const [allocation] = await db.select({ id: teacherAllocationsTable.id })
+    .from(teacherAllocationsTable)
+    .where(and(
+      eq(teacherAllocationsTable.teacherId, teacher.id),
+      eq(teacherAllocationsTable.classId, classId),
+      eq(teacherAllocationsTable.serviceDate, today),
+      ne(teacherAllocationsTable.status, "cancelled"),
+    ))
+    .limit(1);
+  if (!allocation) {
+    res.status(403).json({ error: "Forbidden", message: "You are not allocated to this class today" });
+    return;
+  }
+
+  const [{ count }] = await db.select({ count: sql<number>`count(*)` })
+    .from(custodyEpisodesTable)
+    .innerJoin(childrenTable, eq(childrenTable.id, custodyEpisodesTable.childId))
+    .where(and(
+      eq(custodyEpisodesTable.serviceDate, today),
+      eq(custodyEpisodesTable.status, "requested"),
+      eq(childrenTable.currentClassId, classId),
+    ));
+  res.json({ checkInRequests: Number(count) });
 });
 
 router.post("/custody-episodes", authMiddleware, requireRoles("support"), async (req, res): Promise<void> => {
