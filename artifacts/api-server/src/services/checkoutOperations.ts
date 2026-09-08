@@ -48,9 +48,11 @@ export function serializeCheckoutResult(result: unknown) {
   const serialized = JSON.parse(JSON.stringify(result));
   if (serialized?.attendance && typeof serialized.attendance === "object") {
     // Child/class enrichment can include names, medical notes, photos, or
-    // biometric descriptors. None of it is needed to prove checkout success.
+    // biometric descriptors. The custody binding lives in its dedicated
+    // checkout_operations column. None of it belongs in the replay snapshot.
     delete serialized.attendance.child;
     delete serialized.attendance.class;
+    delete serialized.attendance.custodyEpisodeId;
   }
   return CheckOutResponse.parse(serialized);
 }

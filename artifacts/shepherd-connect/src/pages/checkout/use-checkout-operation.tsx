@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   CheckoutOperation,
+  type CheckoutSubmission,
   type CheckoutOperationState,
   type CheckoutOperationTransport,
 } from "./checkout-operation";
@@ -64,9 +65,9 @@ export function useCheckoutOperation({
     };
   }, [userId, transport, afterCommitted]);
 
-  const submit = useCallback(async (attendanceId: number) => {
+  const submit = useCallback(async (attendanceId: number, input?: CheckoutSubmission) => {
     if (!operationRef.current) throw new Error("Checkout is not ready");
-    return afterCommitted(await operationRef.current.submit(attendanceId));
+    return afterCommitted(await operationRef.current.submit(attendanceId, input));
   }, [afterCommitted]);
 
   const checkStatus = useCallback(async () => {
@@ -74,10 +75,10 @@ export function useCheckoutOperation({
     return afterCommitted(await operationRef.current.reconcile());
   }, [afterCommitted, state]);
 
-  const retry = useCallback(async () => {
+  const retry = useCallback(async (input?: CheckoutSubmission) => {
     const pending = operationRef.current?.state.pending;
     if (!pending) return operationRef.current?.state ?? state;
-    return submit(pending.attendanceId);
+    return submit(pending.attendanceId, input);
   }, [state, submit]);
 
   return { state, submit, checkStatus, retry };

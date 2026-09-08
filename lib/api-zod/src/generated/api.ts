@@ -917,6 +917,12 @@ export const GetFamilyTreeResponse = zod.object({
             checkedInBy: zod.number().nullish(),
             escortedBy: zod.number().nullish(),
             checkedOutBy: zod.number().nullish(),
+            custodyEpisodeId: zod
+              .number()
+              .nullish()
+              .describe(
+                "Custody episode governing release of this attendance record, when applicable.",
+              ),
             status: zod.enum([
               "dropped_off",
               "in_transit",
@@ -1742,6 +1748,12 @@ export const ListAttendanceResponseItem = zod.object({
   checkedInBy: zod.number().nullish(),
   escortedBy: zod.number().nullish(),
   checkedOutBy: zod.number().nullish(),
+  custodyEpisodeId: zod
+    .number()
+    .nullish()
+    .describe(
+      "Custody episode governing release of this attendance record, when applicable.",
+    ),
   status: zod.enum(["dropped_off", "in_transit", "in_class", "picked_up"]),
   child: zod
     .object({
@@ -1841,6 +1853,12 @@ export const CheckInResponse = zod.object({
   checkedInBy: zod.number().nullish(),
   escortedBy: zod.number().nullish(),
   checkedOutBy: zod.number().nullish(),
+  custodyEpisodeId: zod
+    .number()
+    .nullish()
+    .describe(
+      "Custody episode governing release of this attendance record, when applicable.",
+    ),
   status: zod.enum(["dropped_off", "in_transit", "in_class", "picked_up"]),
   child: zod
     .object({
@@ -1909,6 +1927,12 @@ export const MarkArrivedResponse = zod.object({
   checkedInBy: zod.number().nullish(),
   escortedBy: zod.number().nullish(),
   checkedOutBy: zod.number().nullish(),
+  custodyEpisodeId: zod
+    .number()
+    .nullish()
+    .describe(
+      "Custody episode governing release of this attendance record, when applicable.",
+    ),
   status: zod.enum(["dropped_off", "in_transit", "in_class", "picked_up"]),
   child: zod
     .object({
@@ -1965,12 +1989,22 @@ export const CheckOutParams = zod.object({
   id: zod.coerce.number(),
 });
 
+export const checkOutBodyOverrideReasonMax = 500;
+
 export const CheckOutBody = zod.object({
   operationId: zod
     .string()
     .uuid()
     .describe(
       "Stable client-generated identity for one logical checkout attempt.",
+    ),
+  overrideReason: zod
+    .string()
+    .min(1)
+    .max(checkOutBodyOverrideReasonMax)
+    .optional()
+    .describe(
+      "Required reason when an Admin or Super Admin releases custody-backed attendance.",
     ),
   notes: zod.string().nullish(),
 });
@@ -1990,6 +2024,12 @@ export const CheckOutResponse = zod.object({
     checkedInBy: zod.number().nullish(),
     escortedBy: zod.number().nullish(),
     checkedOutBy: zod.number().nullish(),
+    custodyEpisodeId: zod
+      .number()
+      .nullish()
+      .describe(
+        "Custody episode governing release of this attendance record, when applicable.",
+      ),
     status: zod.enum(["dropped_off", "in_transit", "in_class", "picked_up"]),
     child: zod
       .object({
@@ -2065,6 +2105,12 @@ export const GetCheckoutOperationResponse = zod.object({
     checkedInBy: zod.number().nullish(),
     escortedBy: zod.number().nullish(),
     checkedOutBy: zod.number().nullish(),
+    custodyEpisodeId: zod
+      .number()
+      .nullish()
+      .describe(
+        "Custody episode governing release of this attendance record, when applicable.",
+      ),
     status: zod.enum(["dropped_off", "in_transit", "in_class", "picked_up"]),
     child: zod
       .object({
@@ -2281,6 +2327,12 @@ export const ScanQrCodeResponse = zod.object({
             checkedInBy: zod.number().nullish(),
             escortedBy: zod.number().nullish(),
             checkedOutBy: zod.number().nullish(),
+            custodyEpisodeId: zod
+              .number()
+              .nullish()
+              .describe(
+                "Custody episode governing release of this attendance record, when applicable.",
+              ),
             status: zod.enum([
               "dropped_off",
               "in_transit",
@@ -2363,6 +2415,12 @@ export const EscortToClassResponse = zod.object({
   checkedInBy: zod.number().nullish(),
   escortedBy: zod.number().nullish(),
   checkedOutBy: zod.number().nullish(),
+  custodyEpisodeId: zod
+    .number()
+    .nullish()
+    .describe(
+      "Custody episode governing release of this attendance record, when applicable.",
+    ),
   status: zod.enum(["dropped_off", "in_transit", "in_class", "picked_up"]),
   child: zod
     .object({
@@ -2576,6 +2634,12 @@ export const ScanFaceResponse = zod.object({
             checkedInBy: zod.number().nullish(),
             escortedBy: zod.number().nullish(),
             checkedOutBy: zod.number().nullish(),
+            custodyEpisodeId: zod
+              .number()
+              .nullish()
+              .describe(
+                "Custody episode governing release of this attendance record, when applicable.",
+              ),
             status: zod.enum([
               "dropped_off",
               "in_transit",
@@ -3727,6 +3791,12 @@ export const GetLiveViewResponseItem = zod.object({
         checkedInBy: zod.number().nullish(),
         escortedBy: zod.number().nullish(),
         checkedOutBy: zod.number().nullish(),
+        custodyEpisodeId: zod
+          .number()
+          .nullish()
+          .describe(
+            "Custody episode governing release of this attendance record, when applicable.",
+          ),
         status: zod.enum([
           "dropped_off",
           "in_transit",
@@ -3890,6 +3960,12 @@ export const GetExceptionsResponse = zod.object({
       checkedInBy: zod.number().nullish(),
       escortedBy: zod.number().nullish(),
       checkedOutBy: zod.number().nullish(),
+      custodyEpisodeId: zod
+        .number()
+        .nullish()
+        .describe(
+          "Custody episode governing release of this attendance record, when applicable.",
+        ),
       status: zod.enum(["dropped_off", "in_transit", "in_class", "picked_up"]),
       child: zod
         .object({
@@ -4340,6 +4416,12 @@ export const CompleteCustodyPickupResponse = zod.object({
       checkedInBy: zod.number().nullish(),
       escortedBy: zod.number().nullish(),
       checkedOutBy: zod.number().nullish(),
+      custodyEpisodeId: zod
+        .number()
+        .nullish()
+        .describe(
+          "Custody episode governing release of this attendance record, when applicable.",
+        ),
       status: zod.enum(["dropped_off", "in_transit", "in_class", "picked_up"]),
       child: zod
         .object({
@@ -4442,6 +4524,12 @@ export const OverrideCustodyPickupResponse = zod.object({
       checkedInBy: zod.number().nullish(),
       escortedBy: zod.number().nullish(),
       checkedOutBy: zod.number().nullish(),
+      custodyEpisodeId: zod
+        .number()
+        .nullish()
+        .describe(
+          "Custody episode governing release of this attendance record, when applicable.",
+        ),
       status: zod.enum(["dropped_off", "in_transit", "in_class", "picked_up"]),
       child: zod
         .object({

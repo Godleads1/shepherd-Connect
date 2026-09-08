@@ -3711,6 +3711,10 @@ components:
         checkedOutBy:
           type: integer
           nullable: true
+        custodyEpisodeId:
+          type: integer
+          nullable: true
+          description: Custody episode governing release of this attendance record, when applicable.
         status:
           type: string
           enum: [dropped_off, in_transit, in_class, picked_up]
@@ -3777,6 +3781,11 @@ components:
           type: string
           format: uuid
           description: Stable client-generated identity for one logical checkout attempt.
+        overrideReason:
+          type: string
+          minLength: 1
+          maxLength: 500
+          description: Required reason when an Admin or Super Admin releases custody-backed attendance.
         notes:
           type: string
           nullable: true

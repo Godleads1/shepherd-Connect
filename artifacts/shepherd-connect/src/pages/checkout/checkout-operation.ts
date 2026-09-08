@@ -13,6 +13,7 @@ export type PendingCheckoutOperation = {
   operationId: string;
   attendanceId: number;
   createdAt: number;
+  requiresOverrideReason?: boolean;
 };
 
 export type CheckoutOperationState = {
@@ -23,8 +24,16 @@ export type CheckoutOperationState = {
 };
 
 export type CheckoutOperationTransport = {
-  submit: (attendanceId: number, operationId: string) => Promise<CheckoutResult>;
+  submit: (
+    attendanceId: number,
+    operationId: string,
+    input?: CheckoutSubmission,
+  ) => Promise<CheckoutResult>;
   reconcile: (attendanceId: number, operationId: string) => Promise<CheckoutResult>;
+};
+
+export type CheckoutSubmission = {
+  overrideReason?: string;
 };
 
 const storageKey = (userId: number | string) => `shepherd.checkout.pending.${userId}`;
@@ -35,12 +44,19 @@ export function readPendingCheckout(userId: number | string): PendingCheckoutOpe
     const value = sessionStorage.getItem(storageKey(userId));
     if (!value) return null;
     const pending = JSON.parse(value);
-    return typeof pending?.operationId === "string" &&
+    if (!(typeof pending?.operationId === "string" &&
       UUID_PATTERN.test(pending.operationId) &&
       Number.isFinite(pending?.attendanceId) &&
-      Number.isFinite(pending?.createdAt)
-      ? pending
-      : null;
+      Number.isFinite(pending?.createdAt) &&
+      (pending.requiresOverrideReason === undefined || typeof pending.requiresOverrideReason === "boolean"))) {
+      return null;
+    }
+    return {
+      operationId: pending.operationId,
+      attendanceId: pending.attendanceId,
+      createdAt: pending.createdAt,
+      ...(pending.requiresOverrideReason === true ? { requiresOverrideReason: true } : {}),
+    };
   } catch {
     return null;
   }
@@ -108,24 +124,39 @@ export class CheckoutOperation {
     this.set({ phase: "unknown", pending, error });
   }
 
-  private pendingFor(attendanceId: number) {
+  private pendingFor(attendanceId: number, requiresOverrideReason: boolean) {
     const current = this.state.pending;
     if (current && current.attendanceId === attendanceId) return current;
-    const pending = { attendanceId, operationId: this.newOperationId(), createdAt: Date.now() };
+    const pending = {
+      attendanceId,
+      operationId: this.newOperationId(),
+      createdAt: Date.now(),
+      ...(requiresOverrideReason ? { requiresOverrideReason: true } : {}),
+    };
     writePendingCheckout(this.userId, pending);
     return pending;
   }
 
-  async submit(attendanceId: number): Promise<CheckoutOperationState> {
+  async submit(attendanceId: number, input: CheckoutSubmission = {}): Promise<CheckoutOperationState> {
     // One persisted operation is deliberately locked until it is resolved.
     // Never overwrite an uncertain checkout with a different child's request.
     if (this.state.pending && this.state.pending.attendanceId !== attendanceId) {
       return this.state;
     }
-    const pending = this.pendingFor(attendanceId);
+    const overrideReason = input.overrideReason?.trim();
+    const requiresOverrideReason = input.overrideReason !== undefined;
+    const pending = this.pendingFor(attendanceId, requiresOverrideReason);
+    if (pending.requiresOverrideReason && !overrideReason) {
+      throw new Error("Enter a reason to retry this administrative custody override.");
+    }
+    if (!pending.requiresOverrideReason && requiresOverrideReason) {
+      throw new Error("Resolve the current checkout operation before changing its checkout mode.");
+    }
     this.set({ phase: "submitting", pending });
     try {
-      const result = await this.transport.submit(pending.attendanceId, pending.operationId);
+      const result = overrideReason
+        ? await this.transport.submit(pending.attendanceId, pending.operationId, { overrideReason })
+        : await this.transport.submit(pending.attendanceId, pending.operationId);
       this.complete(isAlreadyApplied(result) ? "already_applied" : "applied", result);
     } catch (error) {
       if (isDefinitiveCheckoutRejection(error)) this.rejected(error);

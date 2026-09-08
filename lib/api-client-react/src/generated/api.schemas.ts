@@ -267,6 +267,8 @@ export interface Attendance {
   checkedInBy?: number | null;
   escortedBy?: number | null;
   checkedOutBy?: number | null;
+  /** Custody episode governing release of this attendance record, when applicable. */
+  custodyEpisodeId?: number | null;
   status: AttendanceStatus;
   child?: Child | null;
   class?: Class | null;
@@ -723,6 +725,12 @@ export interface CheckInBody {
 export interface CheckOutBody {
   /** Stable client-generated identity for one logical checkout attempt. */
   operationId: string;
+  /**
+   * Required reason when an Admin or Super Admin releases custody-backed attendance.
+   * @minLength 1
+   * @maxLength 500
+   */
+  overrideReason?: string;
   notes?: string | null;
 }
 

@@ -10,10 +10,10 @@ import { acceptPhysicalCustody } from "../services/custodyHandover";
 const databaseDescribe = process.env.RUN_DATABASE_ATTENDANCE_TESTS === "true" ? describe : describe.skip;
 const prefix = `custody-${Date.now()}`;
 const serviceDate = new Date(Date.now() + 60 * 60 * 1000).toISOString().slice(0, 10);
-let parentId = 0; let otherParentId = 0; let supportId = 0; let otherSupportId = 0; let adminId = 0;
+let parentId = 0; let otherParentId = 0; let supportId = 0; let otherSupportId = 0; let adminId = 0; let superAdminId = 0;
 let teacherUserId = 0; let teacherId = 0;
 let familyId = 0; let childId = 0; let otherFamilyId = 0; let otherChildId = 0; let firstClassId = 0; let secondClassId = 0;
-const token = (id: number, role: "parent" | "support" | "admin" | "teacher") => `Bearer ${generateToken({ userId: id, email: `${prefix}-${id}@test`, role, firstName: "Test", lastName: "User" })}`;
+const token = (id: number, role: "parent" | "support" | "admin" | "super_admin" | "teacher" | "attendant") => `Bearer ${generateToken({ userId: id, email: `${prefix}-${id}@test`, role, firstName: "Test", lastName: "User" })}`;
 const count = async (table: string, where: ReturnType<typeof sql>) => Number((await db.execute(sql`SELECT count(*)::int count FROM ${sql.identifier(table)} WHERE ${where}`)).rows[0].count);
 
 beforeAll(async () => {
@@ -21,6 +21,7 @@ beforeAll(async () => {
     (${`${prefix}-parent@test`},'x','Parent','One','parent','active',true), (${`${prefix}-other@test`},'x','Parent','Other','parent','active',true),
     (${`${prefix}-support@test`},'x','Support','One','support','active',true), (${`${prefix}-support2@test`},'x','Support','Two','support','active',true),
     (${`${prefix}-admin@test`},'x','Admin','One','admin','active',true),
+    (${`${prefix}-super-admin@test`},'x','Super','Admin','super_admin','active',true),
     (${`${prefix}-teacher@test`},'x','Teacher','One','teacher','active',true) RETURNING id,role`);
   const rows = users.rows as Array<{ id: number; role: string }>;
   const parents = rows.filter(x => x.role === "parent");
@@ -28,6 +29,7 @@ beforeAll(async () => {
   parentId = Number(parents[0].id); otherParentId = Number(parents[1].id);
   supportId = Number(supports[0].id); otherSupportId = Number(supports[1].id);
   adminId = Number(rows.find(x => x.role === "admin")!.id);
+  superAdminId = Number(rows.find(x => x.role === "super_admin")!.id);
   teacherUserId = Number(rows.find(x => x.role === "teacher")!.id);
   familyId = Number((await db.execute(sql`INSERT INTO families (family_code,parent_1_id) VALUES (${`FAM-${prefix.slice(-6).toUpperCase()}`},${parentId}) RETURNING id`)).rows[0].id);
   otherFamilyId = Number((await db.execute(sql`INSERT INTO families (family_code,parent_1_id) VALUES (${`OTH-${prefix.slice(-6).toUpperCase()}`},${otherParentId}) RETURNING id`)).rows[0].id);
@@ -48,8 +50,8 @@ beforeEach(async () => {
   await db.execute(sql`DELETE FROM parent_feedback WHERE parent_id IN (${parentId},${otherParentId})`);
 });
 afterAll(async () => { for (const q of [
-  sql`DELETE FROM notification_outbox WHERE recipient_user_id IN (${parentId},${otherParentId},${supportId},${otherSupportId},${adminId},${teacherUserId})`,
-  sql`DELETE FROM notifications WHERE user_id IN (${parentId},${otherParentId},${supportId},${otherSupportId},${adminId},${teacherUserId})`,
+  sql`DELETE FROM notification_outbox WHERE recipient_user_id IN (${parentId},${otherParentId},${supportId},${otherSupportId},${adminId},${superAdminId},${teacherUserId})`,
+  sql`DELETE FROM notifications WHERE user_id IN (${parentId},${otherParentId},${supportId},${otherSupportId},${adminId},${superAdminId},${teacherUserId})`,
   sql`DELETE FROM teacher_allocations WHERE teacher_id=${teacherId}`,
   sql`DELETE FROM teachers WHERE id=${teacherId}`,
   sql`DELETE FROM class_merges WHERE source_class_id=${firstClassId} OR target_class_id IN (${firstClassId},${secondClassId})`,
@@ -252,6 +254,42 @@ databaseDescribe("custody handover PostgreSQL integrity", () => {
     expect(row.checkout_mode).toBe("admin_override");
     expect(row.override_reason).toBe("Verified parent identity at desk");
     expect(Number(row.overridden_by)).toBe(adminId);
+
+    const next = await create("super-admin-generic-override");
+    const nextEpisodeId = next.body.episode.id;
+    await request(app).post("/api/custody-episodes").set("Authorization", token(supportId, "support"))
+      .send({ episodeId: nextEpisodeId, eventId: "super-admin-generic-accept" }).expect(201);
+    await db.execute(sql`INSERT INTO pickup_requests
+      (child_id,class_id,service_date,requested_by,child_name,parent_name,class_name,status)
+      VALUES (${childId},${firstClassId},${serviceDate},${parentId},'Child One','Parent One',${prefix},'requested')`);
+    const attendance = (await db.execute(sql`SELECT id FROM attendance WHERE custody_episode_id=${nextEpisodeId} ORDER BY id LIMIT 1`)).rows[0] as any;
+    await request(app).put(`/api/attendance/${attendance.id}/checkout`).set("Authorization", token(superAdminId, "super_admin"))
+      .send({ operationId: randomUUID(), overrideReason: " " }).expect(400);
+    const operationId = randomUUID();
+    const override = await request(app).put(`/api/attendance/${attendance.id}/checkout`).set("Authorization", token(superAdminId, "super_admin"))
+      .send({ operationId, overrideReason: "Duty manager verified pickup at the desk" }).expect(200);
+    expect(override.body).toMatchObject({
+      operationId,
+      outcome: "applied",
+      alreadyApplied: false,
+      attendance: { id: Number(attendance.id), status: "picked_up", checkedOutBy: superAdminId },
+    });
+    expect(override.body.resolvedPickupRequestIds).toHaveLength(1);
+    const replay = await request(app).get(`/api/attendance/${attendance.id}/checkout-operations/${operationId}`)
+      .set("Authorization", token(superAdminId, "super_admin"))
+      .expect(200);
+    expect(replay.body).toEqual({
+      ...override.body,
+      outcome: "already_applied",
+      alreadyApplied: true,
+    });
+    const overridden = (await db.execute(sql`SELECT custodian_user_id,checkout_mode,override_reason,overridden_by FROM custody_episodes WHERE id=${nextEpisodeId}`)).rows[0] as any;
+    expect(Number(overridden.custodian_user_id)).toBe(supportId);
+    expect(overridden.checkout_mode).toBe("admin_override");
+    expect(overridden.override_reason).toBe("Duty manager verified pickup at the desk");
+    expect(Number(overridden.overridden_by)).toBe(superAdminId);
+    expect(await count("attendance", sql`custody_episode_id=${nextEpisodeId} AND status='picked_up'`)).toBe(2);
+    expect(await count("pickup_requests", sql`child_id=${childId} AND status='resolved'`)).toBe(1);
   });
 
   it("routes legacy attendance checkout through the custody episode rather than closing one row", async () => {
@@ -261,10 +299,16 @@ databaseDescribe("custody handover PostgreSQL integrity", () => {
       .send({ episodeId, eventId: "legacy-checkout-accept" }).expect(201);
     const attendance = (await db.execute(sql`SELECT id FROM attendance WHERE custody_episode_id=${episodeId} ORDER BY id LIMIT 1`)).rows[0] as any;
 
-    // The legacy endpoint cannot provide an override reason, so an admin is
-    // directed to the explicit custody override endpoint instead.
+    // Custody release is explicit even through the compatibility endpoint:
+    // administrators need a reason, attendants cannot release custody, and
+    // Support cannot submit an administrative reason.
     await request(app).put(`/api/attendance/${attendance.id}/checkout`).set("Authorization", token(adminId, "admin"))
-      .send({ operationId: randomUUID() }).expect(409);
+      .send({ operationId: randomUUID() }).expect(400);
+    const teacherDenied = await request(app).put(`/api/attendance/${attendance.id}/checkout`).set("Authorization", token(teacherUserId, "teacher"))
+      .send({ operationId: randomUUID() }).expect(403);
+    expect(teacherDenied.body.message).toBe("Insufficient permissions");
+    await request(app).put(`/api/attendance/${attendance.id}/checkout`).set("Authorization", token(supportId, "support"))
+      .send({ operationId: randomUUID(), overrideReason: "Not an administrator" }).expect(403);
     const operationId = randomUUID();
     const checkout = await request(app).put(`/api/attendance/${attendance.id}/checkout`).set("Authorization", token(supportId, "support"))
       .send({ operationId }).expect(200);

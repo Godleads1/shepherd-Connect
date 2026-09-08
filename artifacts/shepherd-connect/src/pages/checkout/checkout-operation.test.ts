@@ -4,13 +4,14 @@ import { CheckoutOperation } from "./checkout-operation";
 const stableUuid = "3bfcaa23-0a21-43f6-9a31-94fdd947ab1b";
 const result = { outcome: "applied", alreadyApplied: false };
 const apiError = (status: number) => ({ status, message: `HTTP ${status}` });
+let storageValues: Map<string, string>;
 
 beforeEach(() => {
-  const values = new Map<string, string>();
+  storageValues = new Map<string, string>();
   vi.stubGlobal("sessionStorage", {
-    getItem: (key: string) => values.get(key) ?? null,
-    setItem: (key: string, value: string) => values.set(key, value),
-    removeItem: (key: string) => values.delete(key),
+    getItem: (key: string) => storageValues.get(key) ?? null,
+    setItem: (key: string, value: string) => storageValues.set(key, value),
+    removeItem: (key: string) => storageValues.delete(key),
   });
 });
 
@@ -60,6 +61,35 @@ describe("checkout operation reliability", () => {
     expect(op.state.phase).toBe("idle");
     await op.submit(11);
     expect(submit.mock.calls).toEqual([[11, stableUuid], [11, stableUuid]]);
+    expect(uuid).toHaveBeenCalledOnce();
+  });
+
+  it("retries an admin override with the same UUID without persisting its reason", async () => {
+    const submit = vi.fn()
+      .mockRejectedValueOnce(new TypeError("timeout"))
+      .mockResolvedValueOnce(result);
+    const reconcile = vi.fn().mockRejectedValue(apiError(404));
+    const [op, uuid] = operation(submit, reconcile);
+
+    await op.submit(11, { overrideReason: "Duty manager verified the pickup" });
+    expect(op.state).toMatchObject({
+      phase: "idle",
+      pending: {
+        attendanceId: 11,
+        operationId: stableUuid,
+        requiresOverrideReason: true,
+      },
+    });
+    expect(storageValues.get("shepherd.checkout.pending.7")).not.toContain("Duty manager");
+
+    await expect(op.submit(11)).rejects.toThrow("Enter a reason to retry");
+    await op.submit(11, { overrideReason: "Identity rechecked at the desk" });
+
+    expect(submit.mock.calls).toEqual([
+      [11, stableUuid, { overrideReason: "Duty manager verified the pickup" }],
+      [11, stableUuid, { overrideReason: "Identity rechecked at the desk" }],
+    ]);
+    expect(op.state.phase).toBe("applied");
     expect(uuid).toHaveBeenCalledOnce();
   });
 

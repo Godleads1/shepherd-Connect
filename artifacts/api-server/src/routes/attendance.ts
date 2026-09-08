@@ -550,6 +550,7 @@ router.put("/attendance/:id/checkout", authMiddleware, requireRoles("super_admin
   if (!parsed.success) { res.status(400).json({ error: "Bad request", message: parsed.error.message }); return; }
   const { id } = params.data;
   const { operationId } = parsed.data;
+  const overrideReason = parsed.data.overrideReason?.trim();
   const actorUserId = req.user!.userId;
 
   try {
@@ -580,16 +581,32 @@ router.put("/attendance/:id/checkout", authMiddleware, requireRoles("super_admin
 
       let rawResult;
       if (existing.custodyEpisodeId) {
-        if (req.user!.role !== "support") {
+        const isAdminOverride = req.user!.role === "admin" || req.user!.role === "super_admin";
+        if (req.user!.role === "support" && overrideReason) {
           throw new CheckoutOperationRouteError(
-            409,
-            "Custody checkout requires canonical release",
-            "Custody-backed attendance may only be released by its accepting support custodian. Admin overrides require POST /custody-episodes/:id/override-pickup with a reason.",
+            403,
+            "Custody override not permitted",
+            "Support must use normal custody checkout. Administrative override reasons may only be submitted by an Admin or Super Admin.",
+          );
+        }
+        if (isAdminOverride && !overrideReason) {
+          throw new CheckoutOperationRouteError(
+            400,
+            "Custody override reason required",
+            "Enter a reason to record why this administrative custody override is necessary.",
+          );
+        }
+        if (req.user!.role !== "support" && !isAdminOverride) {
+          throw new CheckoutOperationRouteError(
+            403,
+            "Custody checkout not permitted",
+            "Custody-backed children can only be released by the accepting Support custodian or by an Admin or Super Admin with a recorded reason.",
           );
         }
         const outcome = await releasePhysicalCustody(tx, {
           episodeId: existing.custodyEpisodeId!,
           actorUserId,
+          ...(isAdminOverride ? { overrideReason } : {}),
         });
         const record = outcome.attendance.find((row: typeof attendanceTable.$inferSelect) => row.id === id)
           ?? (await tx.select().from(attendanceTable).where(eq(attendanceTable.id, id)))[0];
@@ -604,6 +621,13 @@ router.put("/attendance/:id/checkout", authMiddleware, requireRoles("super_admin
           alreadyApplied: outcome.duplicate,
         };
       } else {
+        if (overrideReason) {
+          throw new CheckoutOperationRouteError(
+            400,
+            "Custody override not applicable",
+            "An administrative custody override reason may only be used for custody-backed attendance.",
+          );
+        }
         const lockKey = Number(existing.serviceDate.replace(/-/g, ""));
         await tx.execute(sql`SELECT pg_advisory_xact_lock(${existing.childId}, ${lockKey})`);
         const result = await tx.update(attendanceTable).set({

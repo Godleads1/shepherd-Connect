@@ -13,6 +13,11 @@ import { useAuth } from "@/contexts/auth";
 import LocationBanner from "@/components/LocationBanner";
 import { type CheckoutOperationState } from "./checkout-operation";
 import { CheckoutRecoveryControls, useCheckoutOperation } from "./use-checkout-operation";
+import { getCheckoutAccess } from "./checkout-policy";
+import {
+  type CheckoutRecord,
+  useCustodyAwareCheckout,
+} from "./use-custody-aware-checkout";
 
 const SERVICE_CLOCK_KEY = "shepherd_service_end_time";
 
@@ -161,10 +166,12 @@ function PickupQueue({
   activeRecords,
   checkout,
   checkoutBlocked,
+  role,
 }: {
   activeRecords: any[];
-  checkout: (id: number) => Promise<CheckoutOperationState>;
+  checkout: (record: CheckoutRecord) => Promise<CheckoutOperationState | null>;
   checkoutBlocked: boolean;
+  role: string | null | undefined;
 }) {
   const [queue, setQueue] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -199,7 +206,8 @@ function PickupQueue({
         return;
       }
 
-      const state = await checkout(rec.id);
+      const state = await checkout(rec);
+      if (!state) return;
       if (state.phase !== "applied" && state.phase !== "already_applied") {
         toast({
           variant: "destructive",
@@ -260,7 +268,11 @@ function PickupQueue({
         </div>
       ) : (
         <div className="space-y-3">
-          {queue.map((item: any) => (
+          {queue.map((item: any) => {
+            const attendance = activeRecords.find((record: any) => record.childId === item.childId);
+            const access = getCheckoutAccess(role, attendance?.custodyEpisodeId);
+            const blockedMessage = access.kind === "blocked" ? access.message : null;
+            return (
             <Card key={item.id} className="border rounded-2xl overflow-hidden">
               <CardContent className="p-5">
                 <div className="flex items-start justify-between gap-4">
@@ -280,18 +292,30 @@ function PickupQueue({
                       <p className="text-xs text-gray-500 mt-1">Parent: <span className="font-medium">{item.parentName}</span></p>
                     </div>
                   </div>
-                  <Button
-                    size="sm"
-                    className="flex-shrink-0 gap-1.5 bg-green-600 hover:bg-green-700 text-white"
-                    onClick={() => handleHandOver(item)}
-                    disabled={checkoutBlocked || handingOver === item.id}>
-                    <LogOut className="w-3.5 h-3.5" />
-                    {handingOver === item.id ? "…" : "Hand Over"}
-                  </Button>
+                  <div className="flex flex-col items-end gap-1.5">
+                    <Button
+                      size="sm"
+                      className="flex-shrink-0 gap-1.5 bg-green-600 hover:bg-green-700 text-white"
+                      onClick={() => handleHandOver(item)}
+                      disabled={checkoutBlocked || handingOver === item.id || !attendance || !!blockedMessage}
+                      title={blockedMessage ?? undefined}>
+                      <LogOut className="w-3.5 h-3.5" />
+                      {handingOver === item.id
+                        ? "…"
+                        : blockedMessage
+                          ? "Not permitted"
+                          : access.kind === "admin_override"
+                            ? "Override & hand over"
+                            : "Hand Over"}
+                    </Button>
+                    {blockedMessage && (
+                      <p className="max-w-64 text-right text-xs text-red-600">{blockedMessage}</p>
+                    )}
+                  </div>
                 </div>
               </CardContent>
             </Card>
-          ))}
+          )})}
         </div>
       )}
     </div>
@@ -317,7 +341,8 @@ export default function Checkout() {
     if (result.error) throw result.error;
   }, [refetch]);
   const checkoutTransport = useMemo(() => ({
-    submit: (id: number, operationId: string) => checkOut(id, { operationId }),
+    submit: (id: number, operationId: string, input?: { overrideReason?: string }) =>
+      checkOut(id, { operationId, ...input }),
     reconcile: getCheckoutOperation,
   }), []);
   const refreshFailure = useCallback(() => {
@@ -334,10 +359,19 @@ export default function Checkout() {
     onCommitted: refreshAttendance,
     onRefreshFailure: refreshFailure,
   });
+  const {
+    requestCheckout,
+    overrideDialog,
+    promptOpen: custodyOverridePromptOpen,
+  } = useCustodyAwareCheckout({
+    role: user?.role,
+    submit: runCheckout,
+  });
 
-  const handleCheckout = async (attendanceId: number) => {
+  const handleCheckout = async (record: CheckoutRecord) => {
     try {
-      const state = await runCheckout(attendanceId);
+      const state = await requestCheckout(record);
+      if (!state) return;
       if (state.phase === "unknown") {
         toast({ variant: "destructive", title: "Checkout status is temporarily unknown" });
         return;
@@ -377,9 +411,10 @@ export default function Checkout() {
     }
   };
 
-  const handleOtpCheckout = async (attendanceId: number) => {
+  const handleOtpCheckout = async (record: CheckoutRecord) => {
     try {
-      const state = await runCheckout(attendanceId);
+      const state = await requestCheckout(record);
+      if (!state) return;
       if (state.phase === "unknown") {
         toast({ variant: "destructive", title: "Checkout status is temporarily unknown" });
         return;
@@ -490,7 +525,10 @@ export default function Checkout() {
               </div>
             )}
 
-            {filteredRecords.map((record: any) => (
+            {filteredRecords.map((record: any) => {
+              const access = getCheckoutAccess(user?.role, record.custodyEpisodeId);
+              const blockedMessage = access.kind === "blocked" ? access.message : null;
+              return (
               <Card key={record.id} className="border rounded-2xl overflow-hidden">
                 <CardContent className="flex items-center justify-between p-5">
                   <div className="flex items-center gap-4">
@@ -509,20 +547,30 @@ export default function Checkout() {
                       </div>
                     </div>
                   </div>
-                  <Button
-                    size="default"
-                    className="gap-2 flex-shrink-0"
-                    style={{ background: "linear-gradient(135deg, #1e3a8a, #1d4ed8)" }}
-                    onClick={() => handleCheckout(record.id)}
-                    disabled={checkoutState.phase === "submitting" || checkoutState.phase === "reconciling" || !!checkoutState.pending}
-                    data-testid={`btn-checkout-${record.id}`}
-                  >
-                    <LogOut className="w-4 h-4" />
-                    Check Out
-                  </Button>
+                  <div className="flex flex-col items-end gap-1.5">
+                    <Button
+                      size="default"
+                      className="gap-2 flex-shrink-0"
+                      style={{ background: "linear-gradient(135deg, #1e3a8a, #1d4ed8)" }}
+                      onClick={() => handleCheckout(record)}
+                      disabled={checkoutState.phase === "submitting" || checkoutState.phase === "reconciling" || !!checkoutState.pending || custodyOverridePromptOpen || !!blockedMessage}
+                      title={blockedMessage ?? undefined}
+                      data-testid={`btn-checkout-${record.id}`}
+                    >
+                      <LogOut className="w-4 h-4" />
+                      {blockedMessage
+                        ? "Not permitted"
+                        : access.kind === "admin_override"
+                          ? "Override & Check Out"
+                          : "Check Out"}
+                    </Button>
+                    {blockedMessage && (
+                      <p className="max-w-72 text-right text-xs text-red-600">{blockedMessage}</p>
+                    )}
+                  </div>
                 </CardContent>
               </Card>
-            ))}
+            )})}
           </div>
         </TabsContent>
 
@@ -629,22 +677,36 @@ export default function Checkout() {
                       const covered: any[] = otpResult.data?.children?.length
                         ? otpResult.data.children
                         : [otpResult.data?.child].filter(Boolean);
-                      const withRecords = covered.map((c: any) => ({
-                        child: c,
-                        rec: activeRecords.find((r: any) => r.childId === c.id),
-                      }));
+                       const withRecords = covered.map((c: any) => {
+                         const rec = activeRecords.find((r: any) => r.childId === c.id);
+                         return {
+                           child: c,
+                           rec,
+                           access: getCheckoutAccess(user?.role, rec?.custodyEpisodeId),
+                         };
+                       });
                       const anyCheckedIn = withRecords.some(w => w.rec);
                       return (
                         <div className="space-y-2">
-                          {withRecords.map(({ child, rec }) => rec ? (
-                            <Button
-                              key={child.id}
-                              className="w-full gap-2 bg-green-600 hover:bg-green-700 text-white"
-                              onClick={() => handleOtpCheckout(rec.id)}
-                              disabled={checkoutState.phase === "submitting" || checkoutState.phase === "reconciling" || !!checkoutState.pending}
-                            >
-                              <LogOut className="w-4 h-4" /> Confirm Checkout for {child.firstName}
-                            </Button>
+                           {withRecords.map(({ child, rec, access }) => rec ? (
+                             <div key={child.id} className="space-y-1.5">
+                               <Button
+                                 className="w-full gap-2 bg-green-600 hover:bg-green-700 text-white"
+                                 onClick={() => handleOtpCheckout(rec)}
+                                 disabled={checkoutState.phase === "submitting" || checkoutState.phase === "reconciling" || !!checkoutState.pending || custodyOverridePromptOpen || access.kind === "blocked"}
+                                 title={access.kind === "blocked" ? access.message : undefined}
+                               >
+                                 <LogOut className="w-4 h-4" />
+                                 {access.kind === "blocked"
+                                   ? `Checkout unavailable for ${child.firstName}`
+                                   : access.kind === "admin_override"
+                                     ? `Override & check out ${child.firstName}`
+                                     : `Confirm Checkout for ${child.firstName}`}
+                               </Button>
+                               {access.kind === "blocked" && (
+                                 <p className="text-xs text-red-600">{access.message}</p>
+                               )}
+                             </div>
                           ) : (
                             <p key={child.id} className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
                               {child.firstName} {child.lastName} is not currently checked in today.
@@ -674,8 +736,9 @@ export default function Checkout() {
         <TabsContent value="queue" className="mt-4">
           <PickupQueue
             activeRecords={activeRecords}
-            checkout={runCheckout}
-            checkoutBlocked={checkoutState.phase === "submitting" || checkoutState.phase === "reconciling" || !!checkoutState.pending}
+             checkout={requestCheckout}
+             checkoutBlocked={checkoutState.phase === "submitting" || checkoutState.phase === "reconciling" || !!checkoutState.pending || custodyOverridePromptOpen}
+             role={user?.role}
           />
         </TabsContent>
       </Tabs>
@@ -683,8 +746,20 @@ export default function Checkout() {
       <CheckoutRecoveryControls
         state={checkoutState}
         onCheckStatus={() => void checkCheckoutStatus()}
-        onRetry={() => void retryCheckout()}
+        onRetry={() => {
+          const pending = checkoutState.pending;
+          if (pending?.requiresOverrideReason) {
+            const record = activeRecords.find((item: any) => item.id === pending.attendanceId);
+            void requestCheckout(record ?? {
+              id: pending.attendanceId,
+              custodyEpisodeId: -1,
+            });
+          } else {
+            void retryCheckout();
+          }
+        }}
       />
+      {overrideDialog}
     </div>
   );
 }
