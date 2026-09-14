@@ -238,8 +238,8 @@ export function ClassTvMediaControl({
       )}
 
       <Dialog open={open} onOpenChange={(o) => !busy && setOpen(o)}>
-        <DialogContent className="sm:max-w-[480px] rounded-2xl border-none shadow-2xl">
-          <DialogHeader>
+        <DialogContent className="w-[calc(100%-2rem)] max-w-[480px] sm:max-w-[480px] grid-cols-[minmax(0,1fr)] max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-2xl border-none shadow-2xl">
+          <DialogHeader className="min-w-0 pr-6 [overflow-wrap:anywhere]">
             <DialogTitle style={{ fontFamily: "'Playfair Display', serif" }} className="text-xl">
               {className ? `${className} — TV Video` : "Classroom TV Video"}
             </DialogTitle>
@@ -255,11 +255,11 @@ export function ClassTvMediaControl({
               <Loader2 className="w-4 h-4 animate-spin" /> Checking what's on the TV…
             </div>
           ) : current ? (
-            <div className="flex items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3">
-              <div className="flex items-center gap-2.5 min-w-0">
+            <div className="min-w-0 flex items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3">
+              <div className="flex flex-1 items-center gap-2.5 min-w-0">
                 <CheckCircle2 className="w-5 h-5 text-emerald-600 flex-shrink-0" />
                 <div className="min-w-0">
-                  <p className="text-sm font-semibold text-emerald-900 truncate">
+                  <p className="text-sm font-semibold text-emerald-900 truncate" title={current.fileName || undefined}>
                     {current.kind === "youtube"
                       ? "YouTube video playing"
                       : current.fileName || "Uploaded file playing"}
@@ -286,7 +286,7 @@ export function ClassTvMediaControl({
           {/* PDF slide clicker — use the phone as a remote for the TV slides */}
           {isPdfActive && (
             <div className="rounded-xl border p-4" style={{ borderColor: `${GOLD}66`, background: `${GOLD}0d` }}>
-              <div className="flex items-center justify-between mb-3">
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
                 <p className="text-sm font-bold text-gray-800">Slide control</p>
                 <p className="text-xs font-semibold text-gray-500 tabular-nums">
                   {current!.pdfPage === null
@@ -294,7 +294,7 @@ export function ClassTvMediaControl({
                     : `Slide ${current!.pdfPage}${current!.pdfPageCount ? ` of ${current!.pdfPageCount}` : ""}`}
                 </p>
               </div>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
                   onClick={() => setPage.mutate(Math.max(1, (current!.pdfPage ?? 1) - 1))}
@@ -399,6 +399,16 @@ export function ClassTvMediaControl({
                 <div className="h-full rounded-full transition-all" style={{ width: `${uploadPct}%`, background: NAVY }} />
               </div>
             )}
+          </div>
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={() => setOpen(false)}
+              disabled={busy}
+              className="px-4 py-2.5 rounded-xl border border-gray-200 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+            >
+              Cancel
+            </button>
           </div>
         </DialogContent>
       </Dialog>
