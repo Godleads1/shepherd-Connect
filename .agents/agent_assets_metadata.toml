@@ -124,7 +124,7 @@ logical_id = "894afccd-9d08-4ee6-a6ba-4e7d41c63c48"
 [[outputs]]
 id = "eBwIDKLVVVwPWszu4sijZ"
 uri = "file://reports/shepherd-connect-security-reliability-audit-2026-08-22.html"
-type = "text"
+type = "html"
 title = "Shepherd Connect Security & Reliability Audit"
 description = "Read-only evidence report covering architecture, critical findings, security matrix, test gaps, safe-change protocol, fix order, and release verdict."
 logical_id = "ee9f85ab-f30b-4ecf-9b7c-5fdce6bf0454"
@@ -133,7 +133,7 @@ content_type = "text/html"
 [[outputs]]
 id = "DDme1Db70YxHNe9fdtbjp"
 uri = "file://reports/shepherd-connect-phases-1-5-security-reliability-report.html"
-type = "text"
+type = "html"
 title = "Shepherd Connect — Consolidated Phases 1–5 Report"
 description = "Complete implementation, safeguards, verification evidence, operational behavior, file inventory, and known limitations for Phases 1 through 5."
 logical_id = "8b942b06-13e9-4b40-8914-4e06871db973"
@@ -143,3 +143,17 @@ mtime_ms = 1788443419000
 storage_uri = "gcs://replit-rams-assets-kirk/rams/assets/repl:121eda0a-d7e2-4425-ab2e-aa06a7816154/8b942b06-13e9-4b40-8914-4e06871db973/e2804ca0-f8cd-47a9-9e75-7e391d6ba299"
 storage_version_token = "1788443518064808"
 content_type = "text/html"
+
+[[outputs]]
+id = "Q8Wkn_1MVXuk8R6UPdIfy"
+uri = "file://reports/shepherd_connect_chat_transcript_current_chat.pdf"
+type = "pdf"
+title = "Shepherd Connect — Current Chat Transcript"
+description = "PDF transcript of the visible user–assistant conversation in this chat, including referenced attachments and excluding system/tool logs."
+logical_id = "05fdcec1-dc92-4238-9971-2972f764b276"
+content_hash = "sha256:91063f44889613ff6126d75c75533e00ce7895efdc94112715f58353b433beb0"
+size = 23227
+mtime_ms = 1789725649202
+storage_uri = "gcs://replit-rams-assets-kirk/rams/assets/repl:121eda0a-d7e2-4425-ab2e-aa06a7816154/05fdcec1-dc92-4238-9971-2972f764b276/e5f35314-4fdc-46b0-8520-ce63f831eca4"
+storage_version_token = "1789725659528183"
+content_type = "application/pdf"
