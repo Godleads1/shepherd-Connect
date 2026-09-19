@@ -13,6 +13,7 @@ import { apiGet, apiPost } from "@/lib/api-call";
 import { useQuery } from "@tanstack/react-query";
 import { CheckoutRecoveryControls, useCheckoutOperation } from "../checkout/use-checkout-operation";
 import { formatServiceDate, formatWatTime, SERVICE_TIME_ZONE, watServiceDateAt } from "@/lib/wat-date";
+import { beginCustodyCheckout, submitCustodyOverride } from "./custody-checkout-operation";
 
 const STATUS_OPTS = [
   { value: "all", label: "All Statuses" },
@@ -108,17 +109,19 @@ export default function Attendance() {
   const handleCheckout = async (record: any) => {
     if (record.custodyEpisodeId) {
       try {
-        await completeCustodyMutation.mutateAsync({ id: record.custodyEpisodeId });
+        const outcome = await beginCustodyCheckout({
+          role: user?.role,
+          episodeId: record.custodyEpisodeId,
+          completeSupportPickup: (id) => completeCustodyMutation.mutateAsync({ id }),
+          openOverride: setOverrideEpisodeId,
+        });
+        if (outcome === "override_requested") return;
         toast({ title: "Checked out", description: "Custody handed over successfully." });
         refetch();
         refetchToday();
       } catch (e: any) {
         if (e?.message?.includes("Only the accepting support custodian")) {
-          if (isAdmin) {
-            setOverrideEpisodeId(record.custodyEpisodeId);
-          } else {
-            toast({ variant: "destructive", title: "Access Denied", description: "Only the custodian who accepted this child can check them out." });
-          }
+          toast({ variant: "destructive", title: "Access Denied", description: "Only the custodian who accepted this child can check them out." });
         } else {
           toast({ variant: "destructive", title: "Checkout Failed", description: e.message });
         }
@@ -146,12 +149,16 @@ export default function Attendance() {
   };
 
   const submitOverride = async () => {
-    if (!overrideEpisodeId || !overrideReason.trim()) return;
     try {
-      await overrideCustodyMutation.mutateAsync({
-        id: overrideEpisodeId,
-        data: { reason: overrideReason.trim() }
+      const submitted = await submitCustodyOverride({
+        episodeId: overrideEpisodeId,
+        reason: overrideReason,
+        overridePickup: (id, reason) => overrideCustodyMutation.mutateAsync({
+          id,
+          data: { reason }
+        }),
       });
+      if (!submitted) return;
       toast({ title: "Override Successful", description: "Child has been checked out." });
       setOverrideEpisodeId(null);
       setOverrideReason("");
