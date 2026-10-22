@@ -157,3 +157,17 @@ mtime_ms = 1789725649202
 storage_uri = "gcs://replit-rams-assets-kirk/rams/assets/repl:121eda0a-d7e2-4425-ab2e-aa06a7816154/05fdcec1-dc92-4238-9971-2972f764b276/e5f35314-4fdc-46b0-8520-ce63f831eca4"
 storage_version_token = "1789725659528183"
 content_type = "application/pdf"
+
+[[outputs]]
+id = "eCRwyhShanROXWOgFALco"
+uri = "file://.local/reports/Shepherd_Connect_Improvement_Report_2026-10-18.docx"
+type = "word_document"
+title = "Shepherd Connect — Improvement Report"
+description = "Editable Word report with cover page, executive summary and scope, progress achieved, operational findings, validation status, priorities and kiosk recommendations."
+logical_id = "4c66f485-7add-4409-9101-6cf5ad5eda67"
+content_hash = "sha256:ab4ce400140c5783dfab2cfdd8d28d9ea102bf37e38a4275e61c0038d28b48bb"
+size = 44388
+mtime_ms = 1792659884765
+storage_uri = "gcs://replit-rams-assets-kirk/rams/assets/repl:121eda0a-d7e2-4425-ab2e-aa06a7816154/4c66f485-7add-4409-9101-6cf5ad5eda67/040e99e9-d987-4242-8815-2396cec7060a"
+storage_version_token = "1792659896687063"
+content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
