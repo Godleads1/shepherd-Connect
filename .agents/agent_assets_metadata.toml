@@ -171,3 +171,17 @@ mtime_ms = 1792659884765
 storage_uri = "gcs://replit-rams-assets-kirk/rams/assets/repl:121eda0a-d7e2-4425-ab2e-aa06a7816154/4c66f485-7add-4409-9101-6cf5ad5eda67/040e99e9-d987-4242-8815-2396cec7060a"
 storage_version_token = "1792659896687063"
 content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
+[[outputs]]
+id = "DHSnmoYzeEQP0s6tPiPyS"
+uri = "file://.local/reports/Shepherd_Connect_Teacher_Attendance_10-17_October_2026.pdf"
+type = "pdf"
+title = "Teacher Attendance — 10–17 October 2026"
+description = "PDF with teacher clock-in and clock-out times in Lagos time, missing clock-outs, and a separate list of teacher accounts with no recorded scans in the period."
+logical_id = "4bb6d7ed-38fa-473e-a1db-f752aa215755"
+content_hash = "sha256:9c7545357fc7152964ec85715142ef0e1279b1242837f6d2a610d8176aa8a640"
+size = 9386
+mtime_ms = 1792861469280
+storage_uri = "gcs://replit-rams-assets-kirk/rams/assets/repl:121eda0a-d7e2-4425-ab2e-aa06a7816154/4bb6d7ed-38fa-473e-a1db-f752aa215755/d9a28124-8970-4e74-ad40-f0566b3c7566"
+storage_version_token = "1792861485393518"
+content_type = "application/pdf"
