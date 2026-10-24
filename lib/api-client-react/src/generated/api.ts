@@ -76,6 +76,7 @@ import type {
   GetNotPickedUpReportParams,
   GetReportSummary200,
   GetReportSummaryParams,
+  GetTeacherAttendanceReportParams,
   GetTeacherRatios200,
   GetTeacherRatiosParams,
   HealthStatus,
@@ -136,6 +137,7 @@ import type {
   SuccessResponse,
   Teacher,
   TeacherAllocation,
+  TeacherAttendanceReport,
   TriggerEmergencyResponse,
   UpdateClassAssignmentBody,
   UpdateEmergencyBody,
@@ -156,6 +158,115 @@ type AwaitedInput<T> = PromiseLike<T> | T;
 type Awaited<O> = O extends AwaitedInput<infer T> ? T : never;
 
 type SecondParameter<T extends (...args: never) => unknown> = Parameters<T>[1];
+
+/**
+ * @summary Teacher scan attendance for a Sunday, calendar month or year
+ */
+export const getGetTeacherAttendanceReportUrl = (
+  params: GetTeacherAttendanceReportParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/reports/teacher-attendance?${stringifiedParams}`
+    : `/api/reports/teacher-attendance`;
+};
+
+export const getTeacherAttendanceReport = async (
+  params: GetTeacherAttendanceReportParams,
+  options?: RequestInit,
+): Promise<TeacherAttendanceReport | Blob | string> => {
+  return customFetch<TeacherAttendanceReport | Blob | string>(
+    getGetTeacherAttendanceReportUrl(params),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getGetTeacherAttendanceReportQueryKey = (
+  params?: GetTeacherAttendanceReportParams,
+) => {
+  return [
+    `/api/reports/teacher-attendance`,
+    ...(params ? [params] : []),
+  ] as const;
+};
+
+export const getGetTeacherAttendanceReportQueryOptions = <
+  TData = Awaited<ReturnType<typeof getTeacherAttendanceReport>>,
+  TError = ErrorType<void>,
+>(
+  params: GetTeacherAttendanceReportParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getTeacherAttendanceReport>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetTeacherAttendanceReportQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getTeacherAttendanceReport>>
+  > = ({ signal }) =>
+    getTeacherAttendanceReport(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getTeacherAttendanceReport>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetTeacherAttendanceReportQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getTeacherAttendanceReport>>
+>;
+export type GetTeacherAttendanceReportQueryError = ErrorType<void>;
+
+/**
+ * @summary Teacher scan attendance for a Sunday, calendar month or year
+ */
+
+export function useGetTeacherAttendanceReport<
+  TData = Awaited<ReturnType<typeof getTeacherAttendanceReport>>,
+  TError = ErrorType<void>,
+>(
+  params: GetTeacherAttendanceReportParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getTeacherAttendanceReport>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetTeacherAttendanceReportQueryOptions(
+    params,
+    options,
+  );
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
 
 /**
  * @summary Request a presigned URL for file upload

@@ -5,6 +5,51 @@
  * Shepherd Connect - Children's Church Management Platform API
  * OpenAPI spec version: 0.1.0
  */
+export interface TeacherAttendanceRow {
+  /** User identifier */
+  teacherId: number;
+  teacherName: string;
+  date: string;
+  service: string;
+  /** @nullable */
+  clockIn: string | null;
+  /** @nullable */
+  clockOut: string | null;
+  /** @nullable */
+  emergencyOut: string | null;
+}
+
+export interface TeacherAttendanceSummaryRow {
+  teacherId: number;
+  teacherName: string;
+  services: number;
+  days: number;
+  checkIns: number;
+  clockOuts: number;
+  missingClockOuts: number;
+  emergencyExits: number;
+}
+
+export interface TeacherAttendanceTotals {
+  teachers: number;
+  teachersWithScans: number;
+  serviceRecords: number;
+  checkIns: number;
+  clockOuts: number;
+  missingClockOuts: number;
+  emergencyExits: number;
+}
+
+export interface TeacherAttendanceReport {
+  from: string;
+  to: string;
+  period: string;
+  label: string;
+  rows: TeacherAttendanceRow[];
+  teachers: TeacherAttendanceSummaryRow[];
+  summary: TeacherAttendanceTotals;
+}
+
 export type ParentRequestType =
   (typeof ParentRequestType)[keyof typeof ParentRequestType];
 
@@ -1476,6 +1521,42 @@ export type SafeguardingOperationResult = SafeguardingRecord & {
   operationId: string;
   outcome: SafeguardingOperationResultOutcome;
 };
+
+export type GetTeacherAttendanceReportParams = {
+  period: GetTeacherAttendanceReportPeriod;
+  /**
+   * Sunday YYYY-MM-DD, month YYYY-MM, or year YYYY (2000–2100).
+   */
+  value: string;
+  format?: GetTeacherAttendanceReportFormat;
+  view?: GetTeacherAttendanceReportView;
+};
+
+export type GetTeacherAttendanceReportPeriod =
+  (typeof GetTeacherAttendanceReportPeriod)[keyof typeof GetTeacherAttendanceReportPeriod];
+
+export const GetTeacherAttendanceReportPeriod = {
+  sunday: "sunday",
+  month: "month",
+  year: "year",
+} as const;
+
+export type GetTeacherAttendanceReportFormat =
+  (typeof GetTeacherAttendanceReportFormat)[keyof typeof GetTeacherAttendanceReportFormat];
+
+export const GetTeacherAttendanceReportFormat = {
+  json: "json",
+  csv: "csv",
+  pdf: "pdf",
+} as const;
+
+export type GetTeacherAttendanceReportView =
+  (typeof GetTeacherAttendanceReportView)[keyof typeof GetTeacherAttendanceReportView];
+
+export const GetTeacherAttendanceReportView = {
+  detail: "detail",
+  summary: "summary",
+} as const;
 
 export type ListUsersParams = {
   role?: string;

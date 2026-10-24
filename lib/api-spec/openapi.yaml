@@ -47,6 +47,30 @@ tags:
     description: Admin dashboard analytics
 
 paths:
+  /reports/teacher-attendance:
+    get:
+      operationId: getTeacherAttendanceReport
+      summary: Teacher scan attendance for a Sunday, calendar month or year
+      tags: [reports]
+      parameters:
+        - { name: period, in: query, required: true, schema: { type: string, enum: [sunday, month, year] } }
+        - { name: value, in: query, required: true, schema: { type: string }, description: "Sunday YYYY-MM-DD, month YYYY-MM, or year YYYY (2000–2100)." }
+        - { name: format, in: query, schema: { type: string, enum: [json, csv, pdf], default: json } }
+        - { name: view, in: query, schema: { type: string, enum: [detail, summary], default: detail } }
+      responses:
+        "200":
+          description: Teacher-only service scans and current-roster summary. Missing scans do not establish absence.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TeacherAttendanceReport" }
+            application/pdf:
+              schema: { type: string, format: binary }
+            text/csv:
+              schema: { type: string }
+        "400": { description: Invalid period or date }
+        "401": { description: Authentication required }
+        "403": { description: Administrator access required }
+        "422": { description: Report exceeds safe export size; choose a smaller period }
   /storage/uploads/request-url:
     post:
       tags: [Storage]
@@ -2692,6 +2716,55 @@ components:
       schema:
         type: integer
   schemas:
+    TeacherAttendanceReport:
+      type: object
+      required: [from, to, period, label, rows, teachers, summary]
+      properties:
+        from: { type: string }
+        to: { type: string }
+        period: { type: string }
+        label: { type: string }
+        rows:
+          type: array
+          items: { $ref: "#/components/schemas/TeacherAttendanceRow" }
+        teachers:
+          type: array
+          items: { $ref: "#/components/schemas/TeacherAttendanceSummaryRow" }
+        summary: { $ref: "#/components/schemas/TeacherAttendanceTotals" }
+    TeacherAttendanceRow:
+      type: object
+      required: [teacherId, teacherName, date, service, clockIn, clockOut, emergencyOut]
+      properties:
+        teacherId: { type: integer, description: User identifier }
+        teacherName: { type: string }
+        date: { type: string }
+        service: { type: string }
+        clockIn: { type: [string, "null"] }
+        clockOut: { type: [string, "null"] }
+        emergencyOut: { type: [string, "null"] }
+    TeacherAttendanceSummaryRow:
+      type: object
+      required: [teacherId, teacherName, services, days, checkIns, clockOuts, missingClockOuts, emergencyExits]
+      properties:
+        teacherId: { type: integer }
+        teacherName: { type: string }
+        services: { type: integer }
+        days: { type: integer }
+        checkIns: { type: integer }
+        clockOuts: { type: integer }
+        missingClockOuts: { type: integer }
+        emergencyExits: { type: integer }
+    TeacherAttendanceTotals:
+      type: object
+      required: [teachers, teachersWithScans, serviceRecords, checkIns, clockOuts, missingClockOuts, emergencyExits]
+      properties:
+        teachers: { type: integer }
+        teachersWithScans: { type: integer }
+        serviceRecords: { type: integer }
+        checkIns: { type: integer }
+        clockOuts: { type: integer }
+        missingClockOuts: { type: integer }
+        emergencyExits: { type: integer }
     ParentRequestType:
       type: string
       enum: [custody, pickup, delegate, class_change, concern, feedback]

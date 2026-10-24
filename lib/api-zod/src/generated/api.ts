@@ -8,6 +8,64 @@
 import * as zod from "zod";
 
 /**
+ * @summary Teacher scan attendance for a Sunday, calendar month or year
+ */
+export const getTeacherAttendanceReportQueryFormatDefault = `json`;
+export const getTeacherAttendanceReportQueryViewDefault = `detail`;
+
+export const GetTeacherAttendanceReportQueryParams = zod.object({
+  period: zod.enum(["sunday", "month", "year"]),
+  value: zod.coerce
+    .string()
+    .describe("Sunday YYYY-MM-DD, month YYYY-MM, or year YYYY (2000–2100)."),
+  format: zod
+    .enum(["json", "csv", "pdf"])
+    .default(getTeacherAttendanceReportQueryFormatDefault),
+  view: zod
+    .enum(["detail", "summary"])
+    .default(getTeacherAttendanceReportQueryViewDefault),
+});
+
+export const GetTeacherAttendanceReportResponse = zod.object({
+  from: zod.string(),
+  to: zod.string(),
+  period: zod.string(),
+  label: zod.string(),
+  rows: zod.array(
+    zod.object({
+      teacherId: zod.number().describe("User identifier"),
+      teacherName: zod.string(),
+      date: zod.string(),
+      service: zod.string(),
+      clockIn: zod.string().nullable(),
+      clockOut: zod.string().nullable(),
+      emergencyOut: zod.string().nullable(),
+    }),
+  ),
+  teachers: zod.array(
+    zod.object({
+      teacherId: zod.number(),
+      teacherName: zod.string(),
+      services: zod.number(),
+      days: zod.number(),
+      checkIns: zod.number(),
+      clockOuts: zod.number(),
+      missingClockOuts: zod.number(),
+      emergencyExits: zod.number(),
+    }),
+  ),
+  summary: zod.object({
+    teachers: zod.number(),
+    teachersWithScans: zod.number(),
+    serviceRecords: zod.number(),
+    checkIns: zod.number(),
+    clockOuts: zod.number(),
+    missingClockOuts: zod.number(),
+    emergencyExits: zod.number(),
+  }),
+});
+
+/**
  * @summary Request a presigned URL for file upload
  */
 

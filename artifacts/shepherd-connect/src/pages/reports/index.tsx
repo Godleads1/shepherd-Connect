@@ -12,10 +12,11 @@ import { useAnalyzeFeedbackSentiment } from "@workspace/api-client-react";
 import {
   Download, AlertTriangle, Clock, Users, BarChart3, FileText, Bell,
   Star, Printer, TrendingUp, BookOpen, Wand2, RefreshCw, Table2, Sparkles, SmilePlus, Meh, Frown,
-  MessageSquare, GraduationCap, Home, LayoutGrid,
+  MessageSquare, GraduationCap, Home, LayoutGrid, UserCheck,
 } from "lucide-react";
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend, BarChart, Bar, XAxis, YAxis, CartesianGrid, LineChart, Line } from "recharts";
 import { format } from "date-fns";
+import TeacherAttendanceReport from "./teacher-attendance";
 
 const BASE = "/api";
 function token() { return localStorage.getItem("token"); }
@@ -236,7 +237,7 @@ export default function Reports() {
   const [serviceSlot, setServiceSlot] = useState("");
   const [exportFrom, setExportFrom] = useState("");
   const [exportTo, setExportTo] = useState(today);
-  const [activeTab, setActiveTab] = useState<"live" | "exports" | "analytics" | "builder" | "heatmap" | "annual" | "trends">("live");
+  const [activeTab, setActiveTab] = useState<"live" | "exports" | "analytics" | "builder" | "heatmap" | "annual" | "trends" | "teacher-attendance">("live");
   const { toast } = useToast();
 
   const [reportType, setReportType]       = useState<ReportType>("attendance");
@@ -472,6 +473,7 @@ export default function Reports() {
     { key: "heatmap",  label: "Room Heatmap",    icon: LayoutGrid },
     { key: "builder",  label: "Custom Builder",  icon: Wand2 },
     { key: "annual",   label: "Annual Summary",  icon: GraduationCap },
+    { key: "teacher-attendance", label: "Teacher Attendance", icon: UserCheck },
   ] as const;
 
   return (
@@ -500,6 +502,8 @@ export default function Reports() {
           </button>
         ))}
       </div>
+
+      {activeTab === "teacher-attendance" && <TeacherAttendanceReport />}
 
       {/* ── Attendance Trends ── */}
       {activeTab === "trends" && (
