@@ -10,7 +10,7 @@ import {
 import { ObjectStorageService } from "../lib/objectStorage";
 import { bindObjectToResource, registerPendingObject } from "../lib/privateObjectAccess";
 import { convertPptxToPdf, looksLikePowerPoint, PptxBusyError, PptxConversionError, MAX_PPTX_BYTES } from "../lib/pptxToPdf";
-import { eq, and, gt, isNull, sql, inArray, type SQL } from "drizzle-orm";
+import { eq, and, isNull, sql, inArray, type SQL } from "drizzle-orm";
 import { getClassTeacherUserIds } from "../lib/notify";
 import { createNotificationDelivery } from "../services/notificationOutbox";
 import {
@@ -230,7 +230,6 @@ async function validateDisplayToken(token: string, classId: number): Promise<boo
       eq(classroomDisplayTokensTable.tokenHash, hashDisplayToken(token)),
       eq(classroomDisplayTokensTable.classId, classId),
       isNull(classroomDisplayTokensTable.revokedAt),
-      gt(classroomDisplayTokensTable.expiresAt, new Date()),
     ))
     .limit(1);
   return Boolean(credential);
@@ -350,7 +349,6 @@ router.get("/pickup-requests/stream/:classNumber", async (req, res): Promise<voi
           eq(classroomDisplayTokensTable.tokenHash, hashDisplayToken(displayToken)),
           eq(classroomDisplayTokensTable.classId, cls.id),
           isNull(classroomDisplayTokensTable.revokedAt),
-          gt(classroomDisplayTokensTable.expiresAt, new Date()),
         ))
         .limit(1);
       if (!credential) return false;
@@ -382,7 +380,7 @@ router.get("/pickup-requests/stream/:classNumber", async (req, res): Promise<voi
     return;
   }
   if (!registered) {
-    res.status(401).json({ error: "Unauthorized", message: "Invalid, expired, or revoked display credential" });
+    res.status(401).json({ error: "Unauthorized", message: "Invalid or revoked display credential" });
     return;
   }
 
@@ -393,7 +391,7 @@ router.get("/pickup-requests/stream/:classNumber", async (req, res): Promise<voi
         closed = true;
         clearInterval(ping);
         removeClassroomDisplayClient(cls.id, client);
-        res.write(`event: revoked\ndata: ${JSON.stringify({ reason: "Display credential expired or revoked" })}\n\n`);
+        res.write(`event: revoked\ndata: ${JSON.stringify({ reason: "Display credential revoked" })}\n\n`);
         res.end();
         return;
       }
@@ -432,7 +430,9 @@ router.post("/pickup-requests/display-credentials", authMiddleware, async (req, 
   }
 
   const token = randomBytes(32).toString("base64url");
-  const expiresAt = new Date(Date.now() + 12 * 60 * 60 * 1000);
+  // Preserve the existing NOT NULL storage column without a schema migration.
+  // Authorization is revocation-only; this legacy timestamp is not enforced.
+  const expiresAt = new Date("9999-12-31T23:59:59.999Z");
   await db.transaction(async (tx) => {
     await tx.execute(sql`select pg_advisory_xact_lock(68431, ${classId})`);
     await tx.update(classroomDisplayTokensTable)
@@ -450,7 +450,7 @@ router.post("/pickup-requests/display-credentials", authMiddleware, async (req, 
   });
   closeClassroomDisplayClients(classId, "A new classroom display link was issued");
 
-  res.status(201).json({ token, classId, className: cls.name, expiresAt });
+  res.status(201).json({ token, classId, className: cls.name, expiresAt: null });
 });
 
 router.delete("/pickup-requests/display-credentials/:classId", authMiddleware, async (req, res): Promise<void> => {
@@ -800,7 +800,7 @@ router.get("/pickup-requests/display-file/:classId", async (req, res): Promise<v
     return;
   }
   if (!(await validateDisplayToken(displayToken, classId))) {
-    res.status(401).json({ error: "Unauthorized", message: "Invalid, expired, or revoked display credential" });
+    res.status(401).json({ error: "Unauthorized", message: "Invalid or revoked display credential" });
     return;
   }
   const [row] = await db

@@ -3,7 +3,11 @@ name: Classroom display credentials
 description: Security model and revocation semantics for shared classroom pickup screens.
 ---
 
-Shared classroom screens must use a short-lived, revocable, read-only credential scoped to one class. Never place a normal staff JWT or full staff session on a shared TV or in its URL.
+Shared classroom screens must use a non-expiring, revocable, read-only credential scoped to one class. Never place a normal staff JWT or full staff session on a shared TV or in its URL.
+
+**Expiration policy:** The user explicitly requested deactivation of screen display link expiration. Existing and new links remain valid until revoked or replaced; historical expiry timestamps are not authorization boundaries.
+
+**Why:** The user wants screens to keep working without renewing links. Preserve class isolation and revocation rather than restoring automatic expiry.
 
 **Why:** The classroom display intentionally works without an interactive staff login, but it shows sensitive live pickup information. A normal staff token would expose broader APIs and remain usable if copied from the shared device.
 

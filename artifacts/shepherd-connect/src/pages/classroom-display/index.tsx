@@ -681,7 +681,7 @@ export default function ClassroomDisplay() {
 
   useEffect(() => {
     if (!classIdNum || !displayToken) {
-      setAccessError("This classroom display link is missing or has expired. Open a new display link from Classes or My Class.");
+      setAccessError("This classroom display link is missing. Open a display link from Classes or My Class.");
       return;
     }
     const base = (import.meta.env.BASE_URL ?? "/").replace(/\/$/, "");
@@ -754,7 +754,7 @@ export default function ClassroomDisplay() {
         clearTimeout(retryTimeout);
         setConnected(false);
         sessionStorage.removeItem(`${DISPLAY_TOKEN_KEY}-${classIdNum}`);
-        let reason = "This classroom display link is invalid, expired, or revoked.";
+        let reason = "This classroom display link is invalid or revoked.";
         try {
           const parsed = JSON.parse((event as MessageEvent).data);
           if (typeof parsed.reason === "string") reason = parsed.reason;
@@ -792,7 +792,7 @@ export default function ClassroomDisplay() {
             <h1 className="text-2xl font-bold">Classroom display access required</h1>
             <p className="mt-3 text-slate-300 leading-relaxed">
               {hasStaffSession
-                ? "This screen's display link has expired or been replaced."
+                ? "This screen's display link has been revoked or replaced."
                 : accessError}
             </p>
             {hasStaffSession && Number.isFinite(classIdNum) && (

@@ -6,6 +6,7 @@ import { sql } from "drizzle-orm";
 import app from "../app";
 import {
   addClassroomDisplayClient,
+  broadcastToClass,
   reconcileClassroomDisplayAuthoritativeState,
   removeClassroomDisplayClient,
   type ClassroomDisplayClient,
@@ -48,7 +49,7 @@ databaseDescribe("classroom display credential class isolation", () => {
     `)).rows[0].id);
     await db.execute(sql`
       INSERT INTO classroom_display_tokens (class_id,token_hash,issued_by,expires_at)
-      VALUES (${classA},${createHash("sha256").update(tokenA).digest("hex")},${userId},${new Date(Date.now() + 60_000)})
+      VALUES (${classA},${createHash("sha256").update(tokenA).digest("hex")},${userId},${new Date("2020-01-01T00:00:00Z")})
     `);
   });
   afterAll(async () => {
@@ -58,6 +59,37 @@ databaseDescribe("classroom display credential class isolation", () => {
     await db.execute(sql`DELETE FROM families WHERE id=${familyId}`);
     await db.execute(sql`DELETE FROM classes WHERE id IN (${classA},${classB})`);
     await db.execute(sql`DELETE FROM users WHERE id=${userId}`);
+  });
+
+  it("accepts an old unrevoked credential for file access despite its legacy expiry", async () => {
+    const response = await request(app)
+      .get(`/api/pickup-requests/display-file/${classA}`)
+      .query({ displayToken: tokenA })
+      .expect(404);
+    expect(response.body.message).toBe("No file is set for this classroom display");
+  });
+
+  it("still rejects revoked credentials for files and stream delivery", async () => {
+    const writes: string[] = [];
+    const client: ClassroomDisplayClient = {
+      displayToken: tokenA,
+      ready: true,
+      res: { write: (value: string) => writes.push(value), end: () => {} },
+    };
+    await db.execute(sql`UPDATE classroom_display_tokens SET revoked_at=now() WHERE class_id=${classA}`);
+    addClassroomDisplayClient(classA, client);
+    try {
+      await request(app).get(`/api/pickup-requests/display-file/${classA}`)
+        .query({ displayToken: tokenA }).expect(401);
+      await request(app).get(`/api/pickup-requests/stream/${classA}`)
+        .query({ displayToken: tokenA }).expect(401);
+      await broadcastToClass(classA, { type: "private-test-payload" });
+      expect(writes.join("")).toContain("event: revoked");
+      expect(writes.join("")).not.toContain("private-test-payload");
+    } finally {
+      removeClassroomDisplayClient(classA, client);
+      await db.execute(sql`UPDATE classroom_display_tokens SET revoked_at=null WHERE class_id=${classA}`);
+    }
   });
 
   it("denies a class-A token on class-B stream without opening SSE", async () => {

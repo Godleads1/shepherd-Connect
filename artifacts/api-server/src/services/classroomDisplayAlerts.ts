@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { and, eq, gt, isNull, or, sql, type SQL } from "drizzle-orm";
+import { and, eq, isNull, or, sql, type SQL } from "drizzle-orm";
 import {
   childrenTable,
   classMergesTable,
@@ -308,12 +308,11 @@ export async function broadcastToClass(classId: number, data: unknown) {
             eq(classroomDisplayTokensTable.tokenHash, hashDisplayToken(client.displayToken)),
             eq(classroomDisplayTokensTable.classId, classId),
             isNull(classroomDisplayTokensTable.revokedAt),
-            gt(classroomDisplayTokensTable.expiresAt, new Date()),
           ))
           .limit(1);
         if (!credential) {
           removeClassroomDisplayClient(classId, client);
-          client.res.write(`event: revoked\ndata: ${JSON.stringify({ reason: "Display credential expired or revoked" })}\n\n`);
+          client.res.write(`event: revoked\ndata: ${JSON.stringify({ reason: "Display credential revoked" })}\n\n`);
           client.res.end();
           return;
         }

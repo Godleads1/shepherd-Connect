@@ -3,7 +3,7 @@ import { apiPost } from "./api-call";
 interface DisplayCredential {
   token: string;
   classId: number;
-  expiresAt: string;
+  expiresAt: null;
 }
 
 export async function openClassroomDisplay(classId: number): Promise<void> {
