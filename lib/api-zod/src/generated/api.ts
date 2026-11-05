@@ -7,6 +7,170 @@
  */
 import * as zod from "zod";
 
+export const ListMeetingsResponseItem = zod.object({
+  id: zod.number(),
+  title: zod.string(),
+  startsAt: zod.string().datetime({}),
+  endsAt: zod.string().datetime({}),
+  isOpen: zod.boolean(),
+  activatedCount: zod.number(),
+  attendedCount: zod.number(),
+  signedInAt: zod.string().datetime({}).nullable(),
+});
+export const ListMeetingsResponse = zod.array(ListMeetingsResponseItem);
+
+export const createMeetingBodyTitleMax = 120;
+
+export const CreateMeetingBody = zod.object({
+  title: zod.string().min(1).max(createMeetingBodyTitleMax),
+  startsAt: zod.string().datetime({}),
+  endsAt: zod.string().datetime({}),
+});
+
+export const ListMeetingTeachersResponseItem = zod.object({
+  userId: zod.number(),
+  name: zod.string(),
+});
+export const ListMeetingTeachersResponse = zod.array(
+  ListMeetingTeachersResponseItem,
+);
+
+export const scanMeetingBodyTokenMin = 40;
+export const scanMeetingBodyTokenMax = 100;
+
+export const ScanMeetingBody = zod.object({
+  token: zod.string().min(scanMeetingBodyTokenMin).max(scanMeetingBodyTokenMax),
+});
+
+export const ScanMeetingResponse = zod.object({
+  meetingId: zod.number(),
+  title: zod.string(),
+  signedInAt: zod.string().datetime({}),
+  duplicate: zod.boolean(),
+});
+
+export const GetMeetingParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const GetMeetingResponse = zod.object({
+  meeting: zod.object({
+    id: zod.number(),
+    title: zod.string(),
+    startsAt: zod.string().datetime({}),
+    endsAt: zod.string().datetime({}),
+    isOpen: zod.boolean(),
+    activatedCount: zod.number(),
+    attendedCount: zod.number(),
+    signedInAt: zod.string().datetime({}).nullable(),
+  }),
+  participants: zod.array(
+    zod.object({
+      userId: zod.number(),
+      name: zod.string(),
+      active: zod.boolean(),
+      signedInAt: zod.string().datetime({}).nullable(),
+    }),
+  ),
+});
+
+export const UpdateMeetingParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const updateMeetingBodyTitleMax = 120;
+
+export const UpdateMeetingBody = zod.object({
+  title: zod.string().min(1).max(updateMeetingBodyTitleMax),
+  startsAt: zod.string().datetime({}),
+  endsAt: zod.string().datetime({}),
+});
+
+export const UpdateMeetingResponse = zod.object({
+  id: zod.number(),
+  title: zod.string(),
+  startsAt: zod.string().datetime({}),
+  endsAt: zod.string().datetime({}),
+  isOpen: zod.boolean(),
+  activatedCount: zod.number(),
+  attendedCount: zod.number(),
+  signedInAt: zod.string().datetime({}).nullable(),
+});
+
+export const SetMeetingParticipantsParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const setMeetingParticipantsBodyTeacherIdsMax = 2000;
+
+export const SetMeetingParticipantsBody = zod.object({
+  teacherIds: zod
+    .array(zod.number().min(1))
+    .max(setMeetingParticipantsBodyTeacherIdsMax),
+});
+
+export const SetMeetingParticipantsResponse = zod.object({
+  meeting: zod.object({
+    id: zod.number(),
+    title: zod.string(),
+    startsAt: zod.string().datetime({}),
+    endsAt: zod.string().datetime({}),
+    isOpen: zod.boolean(),
+    activatedCount: zod.number(),
+    attendedCount: zod.number(),
+    signedInAt: zod.string().datetime({}).nullable(),
+  }),
+  participants: zod.array(
+    zod.object({
+      userId: zod.number(),
+      name: zod.string(),
+      active: zod.boolean(),
+      signedInAt: zod.string().datetime({}).nullable(),
+    }),
+  ),
+});
+
+export const IssueMeetingQrParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const IssueMeetingQrResponse = zod.object({
+  token: zod.string(),
+  meeting: zod.object({
+    id: zod.number(),
+    title: zod.string(),
+    startsAt: zod.string().datetime({}),
+    endsAt: zod.string().datetime({}),
+    isOpen: zod.boolean(),
+    activatedCount: zod.number(),
+    attendedCount: zod.number(),
+    signedInAt: zod.string().datetime({}).nullable(),
+  }),
+});
+
+export const CloseMeetingParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const CloseMeetingResponse = zod.object({
+  id: zod.number(),
+  title: zod.string(),
+  startsAt: zod.string().datetime({}),
+  endsAt: zod.string().datetime({}),
+  isOpen: zod.boolean(),
+  activatedCount: zod.number(),
+  attendedCount: zod.number(),
+  signedInAt: zod.string().datetime({}).nullable(),
+});
+
+export const DownloadMeetingReportParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const DownloadMeetingReportQueryParams = zod.object({
+  format: zod.enum(["csv", "pdf"]),
+});
+
 /**
  * @summary Teacher scan attendance for a Sunday, calendar month or year
  */

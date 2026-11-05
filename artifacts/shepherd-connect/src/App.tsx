@@ -52,6 +52,7 @@ import MyIncidents from "@/pages/my-incidents/index";
 import SafeguardingCases from "@/pages/safeguarding-cases/index";
 import SundayAttendance from "@/pages/sunday-attendance/index";
 import ScanPage from "@/pages/scan/index";
+import MeetingAttendance from "@/pages/meeting-attendance/index";
 import RequestCenter from "@/pages/request-center/index";
 import FamilyEmergencyUpdates from "@/pages/family-emergency-updates";
 import { PWABanner } from "@/components/PWABanner";
@@ -76,6 +77,7 @@ function Router() {
       <Route path="/login" component={Login} />
       <Route path="/register" component={Register} />
       <Route path="/classroom-display/:classId" component={ClassroomDisplay} />
+      <Route path="/meeting-attendance" component={MeetingAttendance} />
       <Route path="/">
         <DefaultRedirect />
       </Route>

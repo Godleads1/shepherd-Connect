@@ -5,6 +5,71 @@
  * Shepherd Connect - Children's Church Management Platform API
  * OpenAPI spec version: 0.1.0
  */
+export interface MeetingInput {
+  /**
+   * @minLength 1
+   * @maxLength 120
+   */
+  title: string;
+  startsAt: string;
+  endsAt: string;
+}
+
+export interface Meeting {
+  id: number;
+  title: string;
+  startsAt: string;
+  endsAt: string;
+  isOpen: boolean;
+  activatedCount: number;
+  attendedCount: number;
+  /** @nullable */
+  signedInAt: string | null;
+}
+
+export interface MeetingTeacher {
+  userId: number;
+  name: string;
+}
+
+export interface MeetingParticipant {
+  userId: number;
+  name: string;
+  active: boolean;
+  /** @nullable */
+  signedInAt: string | null;
+}
+
+export interface MeetingDetail {
+  meeting: Meeting;
+  participants: MeetingParticipant[];
+}
+
+export interface MeetingParticipantsInput {
+  /** @maxItems 2000 */
+  teacherIds: number[];
+}
+
+export interface MeetingScanInput {
+  /**
+   * @minLength 40
+   * @maxLength 100
+   */
+  token: string;
+}
+
+export interface MeetingScanResult {
+  meetingId: number;
+  title: string;
+  signedInAt: string;
+  duplicate: boolean;
+}
+
+export interface MeetingQr {
+  token: string;
+  meeting: Meeting;
+}
+
 export interface TeacherAttendanceRow {
   /** User identifier */
   teacherId: number;
@@ -1521,6 +1586,18 @@ export type SafeguardingOperationResult = SafeguardingRecord & {
   operationId: string;
   outcome: SafeguardingOperationResultOutcome;
 };
+
+export type DownloadMeetingReportParams = {
+  format: DownloadMeetingReportFormat;
+};
+
+export type DownloadMeetingReportFormat =
+  (typeof DownloadMeetingReportFormat)[keyof typeof DownloadMeetingReportFormat];
+
+export const DownloadMeetingReportFormat = {
+  csv: "csv",
+  pdf: "pdf",
+} as const;
 
 export type GetTeacherAttendanceReportParams = {
   period: GetTeacherAttendanceReportPeriod;

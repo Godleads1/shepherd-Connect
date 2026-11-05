@@ -1,3 +1,5 @@
+export * from "./meetings";
+export * from "./meetingParticipants";
 export * from "./users";
 export * from "./families";
 export * from "./classes";

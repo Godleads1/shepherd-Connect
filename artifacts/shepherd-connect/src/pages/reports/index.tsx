@@ -17,6 +17,7 @@ import {
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend, BarChart, Bar, XAxis, YAxis, CartesianGrid, LineChart, Line } from "recharts";
 import { format } from "date-fns";
 import TeacherAttendanceReport from "./teacher-attendance";
+import { Link } from "wouter";
 
 const BASE = "/api";
 function token() { return localStorage.getItem("token"); }
@@ -503,6 +504,12 @@ export default function Reports() {
         ))}
       </div>
 
+      {activeTab === "teacher-attendance" && (
+        <Link href="/meeting-attendance" data-testid="link-meeting-attendance"
+          className="flex items-center gap-2 rounded-2xl border border-blue-100 bg-blue-50/60 px-4 py-3 text-sm text-blue-900 hover:bg-blue-50">
+          <Users className="h-4 w-4" /> <span className="flex-1">Staff meeting sign-ins are kept separately. Open Meeting Attendance for meeting reports.</span>
+        </Link>
+      )}
       {activeTab === "teacher-attendance" && <TeacherAttendanceReport />}
 
       {/* ── Attendance Trends ── */}

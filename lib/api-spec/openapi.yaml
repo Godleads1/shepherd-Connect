@@ -47,6 +47,140 @@ tags:
     description: Admin dashboard analytics
 
 paths:
+  /meetings:
+    get:
+      operationId: listMeetings
+      tags: [Meetings]
+      responses:
+        "200":
+          description: Meetings visible to the current user; teachers only see their invitations
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Meeting" }
+    post:
+      operationId: createMeeting
+      tags: [Meetings]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MeetingInput" }
+      responses:
+        "201":
+          description: Created, initially closed
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Meeting" }
+  /meetings/teachers:
+    get:
+      operationId: listMeetingTeachers
+      tags: [Meetings]
+      responses:
+        "200":
+          description: Active accounts holding the teacher role
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/MeetingTeacher" }
+  /meetings/scan:
+    post:
+      operationId: scanMeeting
+      tags: [Meetings]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MeetingScanInput" }
+      responses:
+        "200":
+          description: Sign-in confirmed or already recorded
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MeetingScanResult" }
+  /meetings/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: integer } }
+    get:
+      operationId: getMeeting
+      tags: [Meetings]
+      responses:
+        "200":
+          description: Admin meeting attendance details
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MeetingDetail" }
+    patch:
+      operationId: updateMeeting
+      tags: [Meetings]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MeetingInput" }
+      responses:
+        "200":
+          description: Updated; window changes close sign-in and revoke the previous QR
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Meeting" }
+  /meetings/{id}/participants:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: integer } }
+    put:
+      operationId: setMeetingParticipants
+      tags: [Meetings]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MeetingParticipantsInput" }
+      responses:
+        "200":
+          description: Activated teachers saved; historical sign-ins retained
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MeetingDetail" }
+  /meetings/{id}/qr:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: integer } }
+    post:
+      operationId: issueMeetingQr
+      tags: [Meetings]
+      responses:
+        "200":
+          description: Opens sign-in and replaces any previous QR; token returned once
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MeetingQr" }
+  /meetings/{id}/close:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: integer } }
+    post:
+      operationId: closeMeeting
+      tags: [Meetings]
+      responses:
+        "200":
+          description: Closed and QR revoked
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Meeting" }
+  /meetings/{id}/report:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: integer } }
+    get:
+      operationId: downloadMeetingReport
+      tags: [Meetings]
+      parameters:
+        - { name: format, in: query, required: true, schema: { type: string, enum: [csv, pdf] } }
+      responses:
+        "200":
+          description: Audited meeting attendance download
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
   /reports/teacher-attendance:
     get:
       operationId: getTeacherAttendanceReport
@@ -2716,6 +2850,74 @@ components:
       schema:
         type: integer
   schemas:
+    MeetingInput:
+      type: object
+      required: [title, startsAt, endsAt]
+      properties:
+        title: { type: string, minLength: 1, maxLength: 120 }
+        startsAt: { type: string, format: date-time }
+        endsAt: { type: string, format: date-time }
+    Meeting:
+      type: object
+      required: [id, title, startsAt, endsAt, isOpen, activatedCount, attendedCount, signedInAt]
+      properties:
+        id: { type: integer }
+        title: { type: string }
+        startsAt: { type: string, format: date-time }
+        endsAt: { type: string, format: date-time }
+        isOpen: { type: boolean }
+        activatedCount: { type: integer }
+        attendedCount: { type: integer }
+        signedInAt: { type: [string, "null"], format: date-time }
+    MeetingTeacher:
+      type: object
+      required: [userId, name]
+      properties:
+        userId: { type: integer }
+        name: { type: string }
+    MeetingParticipant:
+      type: object
+      required: [userId, name, active, signedInAt]
+      properties:
+        userId: { type: integer }
+        name: { type: string }
+        active: { type: boolean }
+        signedInAt: { type: [string, "null"], format: date-time }
+    MeetingDetail:
+      type: object
+      required: [meeting, participants]
+      properties:
+        meeting: { $ref: "#/components/schemas/Meeting" }
+        participants:
+          type: array
+          items: { $ref: "#/components/schemas/MeetingParticipant" }
+    MeetingParticipantsInput:
+      type: object
+      required: [teacherIds]
+      properties:
+        teacherIds:
+          type: array
+          maxItems: 2000
+          items: { type: integer, minimum: 1 }
+    MeetingScanInput:
+      type: object
+      required: [token]
+      properties:
+        token: { type: string, minLength: 40, maxLength: 100 }
+    MeetingScanResult:
+      type: object
+      required: [meetingId, title, signedInAt, duplicate]
+      properties:
+        meetingId: { type: integer }
+        title: { type: string }
+        signedInAt: { type: string, format: date-time }
+        duplicate: { type: boolean }
+    MeetingQr:
+      type: object
+      required: [token, meeting]
+      properties:
+        token: { type: string }
+        meeting: { $ref: "#/components/schemas/Meeting" }
     TeacherAttendanceReport:
       type: object
       required: [from, to, period, label, rows, teachers, summary]

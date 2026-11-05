@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiGet, apiPost } from "@/lib/api-call";
+import { clearPendingMeetingToken } from "@/lib/meeting-attendance";
 
 function SidebarLangSwitcher() {
   const { lang, setLang } = useLang();
@@ -263,6 +264,7 @@ export function Layout({ children }: { children: ReactNode }) {
 
   const handleLogout = async () => {
     const confirmed = await localLogout();
+    if (confirmed) clearPendingMeetingToken();
     if (!confirmed) {
       toast({
         variant: "destructive",
@@ -295,6 +297,7 @@ export function Layout({ children }: { children: ReactNode }) {
       items.push({ href: "/messages",              label: "Messages",            icon: MessageSquare, badge: msgUnreadCount });
       if (role === "super_admin") items.push({ href: "/users", label: t.nav.users, icon: ShieldCheck });
       if (role === "super_admin" || role === "admin") items.push({ href: "/sunday-attendance", label: "Service Attendance", icon: QrCode });
+      items.push({ href: "/meeting-attendance", label: "Meeting Attendance", icon: CalendarClock });
       if (role === "super_admin" || role === "admin") items.push({ href: "/settings", label: "Settings", icon: Grid3x3 });
     } else if (role === "parent") {
       items.push({ href: "/my-family",        label: t.nav.myFamily,   icon: Home });
@@ -315,6 +318,7 @@ export function Layout({ children }: { children: ReactNode }) {
       items.push({ href: "/my-incidents",          label: "Incident Reports",    icon: AlertTriangle });
       items.push({ href: "/messages",              label: "Messages",            icon: MessageSquare, badge: msgUnreadCount });
       items.push({ href: "/scan",                  label: "Service Attendance",  icon: QrCode });
+      items.push({ href: "/meeting-attendance",    label: "Meeting Attendance",  icon: CalendarClock });
     } else if (role === "support") {
       items.push({ href: "/checkin",  label: t.nav.checkin,  icon: ClipboardCheck });
       items.push({ href: "/checkout", label: t.nav.checkout, icon: CheckSquare });

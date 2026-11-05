@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { readPendingMeetingToken } from "@/lib/meeting-attendance";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -162,6 +163,7 @@ export default function Login() {
   };
 
   const navigateForRole = (role: string) => {
+    if (readPendingMeetingToken() && ["teacher", "admin", "super_admin"].includes(role)) { setLocation("/meeting-attendance"); return; }
     if (role === "parent") setLocation("/my-family");
     else if (role === "teacher") setLocation("/my-class");
     else if (role === "support") setLocation("/checkin");
