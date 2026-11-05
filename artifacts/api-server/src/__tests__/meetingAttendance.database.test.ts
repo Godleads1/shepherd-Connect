@@ -101,22 +101,22 @@ databaseDescribe("meeting attendance isolated from Sunday attendance", () => {
   it("revokes old QR codes on replacement, closure and edits", async () => {
     const id = await create(); await activate(id);
     const old = await issue(id), token = await issue(id);
-    await api("teacher").post("/api/meetings/scan", { token: old }).expect(403);
+    await api("teacher").post("/api/meetings/scan", { token: old }).expect(409);
     await api("admin").post(`/api/meetings/${id}/close`).expect(200);
-    await api("teacher").post("/api/meetings/scan", { token }).expect(403);
+    await api("teacher").post("/api/meetings/scan", { token }).expect(409);
     const reopened = await issue(id);
     await api("admin").patch(`/api/meetings/${id}`, { ...input(), title: "Updated meeting" }).expect(200);
-    await api("teacher").post("/api/meetings/scan", { token: reopened }).expect(403);
+    await api("teacher").post("/api/meetings/scan", { token: reopened }).expect(409);
   });
   it("rejects early and expired scans according to server time", async () => {
     const id = await create(); await activate(id);
     const token = await issue(id);
     await db.update(meetingsTable).set({ startsAt: new Date(Date.now() + 60_000) }).where(eq(meetingsTable.id, id));
-    await api("teacher").post("/api/meetings/scan", { token }).expect(403);
+    await api("teacher").post("/api/meetings/scan", { token }).expect(409);
     await db.update(meetingsTable).set({
       startsAt: new Date(Date.now() - 3600_000), endsAt: new Date(Date.now() - 1000),
     }).where(eq(meetingsTable.id, id));
-    await api("teacher").post("/api/meetings/scan", { token }).expect(403);
+    await api("teacher").post("/api/meetings/scan", { token }).expect(409);
     await api("admin").post(`/api/meetings/${id}/qr`).expect(409);
   });
   it("deactivation retains attendance and reports include actual sign-in times", async () => {

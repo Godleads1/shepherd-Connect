@@ -33,9 +33,9 @@ describe("meeting attendance policy", () => {
       createdBy: 1, createdAt: new Date(), isOpen: true, tokenHash: createHash("sha256").update(token).digest("hex"),
     };
     expect(() => assertMeetingAccess(meeting, token, meeting.startsAt)).not.toThrow();
-    expect(() => assertMeetingAccess(meeting, token, meeting.endsAt)).toThrow();
+    expect(() => assertMeetingAccess(meeting, token, meeting.endsAt)).toThrow(expect.objectContaining({ status: 409 }));
     expect(() => assertMeetingAccess(meeting, token, new Date("2026-11-10T07:59:59Z"))).toThrow();
-    expect(() => assertMeetingAccess({ ...meeting, isOpen: false }, token, meeting.startsAt)).toThrow();
+    expect(() => assertMeetingAccess({ ...meeting, isOpen: false }, token, meeting.startsAt)).toThrow(expect.objectContaining({ status: 409 }));
     expect(() => assertMeetingAccess({ ...meeting, tokenHash: null }, token, meeting.startsAt)).toThrow();
     expect(() => assertMeetingAccess(meeting, `1.${"b".repeat(43)}`, meeting.startsAt)).toThrow();
   });

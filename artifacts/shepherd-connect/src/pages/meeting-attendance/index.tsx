@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "wouter";
 import { useAuth } from "@/contexts/auth";
 import { ProtectedRoute } from "@/components/protected-route";
@@ -16,7 +16,18 @@ const ALLOWED = ["teacher", "admin", "super_admin"];
  * the global auth redirect would drop it, then defers to the normal guard.
  */
 export default function MeetingAttendanceEntry() {
-  const [token] = useState(() => captureMeetingTokenFromHash() ?? readPendingMeetingToken());
+  const [token, setToken] = useState(() => captureMeetingTokenFromHash() ?? readPendingMeetingToken());
+  // Opening a QR link while already on this page only changes the #fragment, which
+  // does not remount the route; capture it and remount the teacher view per scan.
+  const [scanSeq, setScanSeq] = useState(0);
+  useEffect(() => {
+    const onHash = () => {
+      const next = captureMeetingTokenFromHash();
+      if (next) { setToken(next); setScanSeq(n => n + 1); }
+    };
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, []);
   const { isAuthenticated, isLoading, token: bearer } = useAuth();
 
   if (!isLoading && !bearer && !isAuthenticated && token) {
@@ -35,12 +46,12 @@ export default function MeetingAttendanceEntry() {
 
   return (
     <ProtectedRoute>
-      <Layout><MeetingAttendancePage token={token} /></Layout>
+      <Layout><MeetingAttendancePage token={token} scanSeq={scanSeq} /></Layout>
     </ProtectedRoute>
   );
 }
 
-function MeetingAttendancePage({ token }: { token: string | null }) {
+function MeetingAttendancePage({ token, scanSeq }: { token: string | null; scanSeq: number }) {
   const { user } = useAuth();
   const role = user?.role ?? "";
   if (!ALLOWED.includes(role)) {
@@ -60,7 +71,7 @@ function MeetingAttendancePage({ token }: { token: string | null }) {
           A meeting code was opened on this device. Switch to your teacher role to confirm attendance.
         </p>
       )}
-      {isAdmin ? <AdminMeetingView /> : <TeacherMeetingView initialToken={token} />}
+      {isAdmin ? <AdminMeetingView /> : <TeacherMeetingView key={scanSeq} initialToken={token} />}
     </div>
   );
 }

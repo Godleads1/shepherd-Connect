@@ -36,9 +36,9 @@ export function assertMeetingAccess(meeting: Meeting, token: string, now: Date) 
   const digest = Buffer.from(hash(token), "hex");
   const expected = Buffer.from(meeting.tokenHash || "", "hex");
   if (!meeting.isOpen || expected.length !== digest.length || !timingSafeEqual(expected, digest))
-    throw new MeetingError(403, "This meeting QR code is closed, revoked or replaced.");
+    throw new MeetingError(409, "This meeting QR code is closed, revoked or replaced.");
   if (now < meeting.startsAt || now >= meeting.endsAt)
-    throw new MeetingError(403, "Meeting sign-in is outside its allowed time window.");
+    throw new MeetingError(409, "Meeting sign-in is outside its allowed time window.");
 }
 
 export async function meetingAudit(tx: Pick<typeof db, "insert">, actor: number, action: string, id: number, metadata: Record<string, unknown> = {}) {
@@ -61,15 +61,16 @@ export async function eligibleMeetingTeachers(reader: Reader = db) {
   return users.filter(isMeetingTeacher).map(u => ({ userId: u.userId, name: `${u.firstName} ${u.lastName}` }))
     .sort((a, b) => a.name.localeCompare(b.name));
 }
-const summaryFields = {
+// Built on use so importing this module never dereferences table objects at load time.
+const summaryFields = () => ({
   id: meetingsTable.id, title: meetingsTable.title,
   startsAt: meetingsTable.startsAt, endsAt: meetingsTable.endsAt, isOpen: meetingsTable.isOpen,
   activatedCount: sql<number>`(select count(*)::int from meeting_participants p where p.meeting_id = ${meetingsTable.id} and p.active)`,
   attendedCount: sql<number>`(select count(*)::int from meeting_participants p where p.meeting_id = ${meetingsTable.id} and p.signed_in_at is not null)`,
-};
+});
 export async function listMeetingsFor(userId: number, admin: boolean) {
   return db.select({
-    ...summaryFields,
+    ...summaryFields(),
     signedInAt: sql<string | null>`(select p.signed_in_at from meeting_participants p where p.meeting_id = ${meetingsTable.id} and p.user_id = ${userId})`,
   }).from(meetingsTable).where(admin ? undefined : sql`exists (
     select 1 from meeting_participants p where p.meeting_id = ${meetingsTable.id}
@@ -77,7 +78,7 @@ export async function listMeetingsFor(userId: number, admin: boolean) {
   )`).orderBy(desc(meetingsTable.startsAt), desc(meetingsTable.id));
 }
 export async function meetingDetail(id: number, reader: Reader = db) {
-  const [meeting] = await reader.select(summaryFields).from(meetingsTable).where(eq(meetingsTable.id, id));
+  const [meeting] = await reader.select(summaryFields()).from(meetingsTable).where(eq(meetingsTable.id, id));
   if (!meeting) throw new MeetingError(404, "Meeting not found.");
   const participants = await reader.select({
     userId: meetingParticipantsTable.userId,

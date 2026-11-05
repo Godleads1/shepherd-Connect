@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  buildMeetingQrUrl, extractMeetingToken, isoToWatInput, validateMeetingForm, watInputToIso, scanErrorCopy,
+  buildMeetingQrUrl, captureMeetingTokenFromHash, extractMeetingToken, readPendingMeetingToken, isoToWatInput, validateMeetingForm, watInputToIso, scanErrorCopy,
 } from "./meeting-attendance";
 
 const TOKEN = "42." + "aB_c-".repeat(8) + "xyz";
@@ -42,5 +42,28 @@ describe("meeting attendance helpers", () => {
     expect(scanErrorCopy(403, "x").title).toMatch(/not activated/);
     expect(scanErrorCopy(409, "x").title).toMatch(/not accepting/);
     expect(scanErrorCopy(404, "x").title).toMatch(/not valid/);
+  });
+
+  describe("re-opening a QR link on an already-open page", () => {
+    afterEach(() => vi.unstubAllGlobals());
+    it("captures the same token again from each new fragment and strips it", () => {
+      const store = new Map<string, string>();
+      const location = { hash: "", pathname: "/meeting-attendance", search: "" };
+      const replaceState = vi.fn(() => { location.hash = ""; });
+      vi.stubGlobal("sessionStorage", {
+        getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => store.set(k, v),
+        removeItem: (k: string) => store.delete(k),
+      });
+      vi.stubGlobal("window", { location, history: { state: null, replaceState } });
+      for (let i = 0; i < 2; i++) {
+        store.clear(); // a confirmed scan clears the pending token
+        location.hash = `#token=${TOKEN}`;
+        expect(captureMeetingTokenFromHash()).toBe(TOKEN);
+        expect(readPendingMeetingToken()).toBe(TOKEN);
+        expect(location.hash).toBe("");
+      }
+      expect(replaceState).toHaveBeenCalledTimes(2);
+      expect(captureMeetingTokenFromHash()).toBeNull();
+    });
   });
 });

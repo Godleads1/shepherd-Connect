@@ -115,6 +115,12 @@ The orval codegen had a duplicate export bug. Fix: in `lib/api-spec/orval.config
 - Checkout notifications name the authoritative attendance occurrence; a date-level pickup request never claims its own slot
 - If both attendance occurrences are active and a pickup command does not identify an occurrence, staff-assistance conflict handling applies rather than guessing
 
+### Meeting Attendance (`/meeting-attendance`)
+- Staff-meeting sign-in, deliberately separate from Sunday attendance: own tables (`meetings`, `meeting_participants`); never writes `staff_scans` or Sunday clock records
+- Admins/super admins create a meeting with a WAT sign-in window (max 7 days), activate specific teachers for that meeting only, issue a QR (`/meeting-attendance#token=…`), close it, and download CSV/PDF reports
+- Teachers scan, sign in if needed, then explicitly confirm; the server derives identity and time. Duplicate scans keep the first time
+- Issuing a new QR, closing, or editing revokes the old code (only its hash is stored); attendance is kept. Scan errors: 403 = not an activated teacher, 409 = code closed/replaced/outside window
+
 ### Admin Approval Workflow
 - Admin/teacher self-signup → `status=pending_approval`, blocked from login until approved
 - Super admin sees "Pending Approval" tab on Users page with approve/reject buttons
