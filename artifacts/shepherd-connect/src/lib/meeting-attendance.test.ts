@@ -13,6 +13,20 @@ describe("meeting attendance helpers", () => {
     expect(watInputToIso("garbage")).toBeNull();
   });
 
+  it("accepts browser values that include seconds or milliseconds", () => {
+    expect(watInputToIso("2025-03-04T18:30:00")).toBe("2025-03-04T17:30:00.000Z");
+    expect(watInputToIso("2025-03-04T18:30:45.000")).toBe("2025-03-04T17:30:45.000Z");
+    expect(watInputToIso("2025-03-04T24:00")).toBeNull();
+    expect(watInputToIso("2025-03-04T18:60:00")).toBeNull();
+    expect(validateMeetingForm("Prep", "2025-03-04T18:00:00", "2025-03-04T19:00:00")).toBeNull();
+  });
+
+  it("says which time is missing or incomplete", () => {
+    expect(validateMeetingForm("Prep", "", "2025-03-04T19:00")).toMatch(/start/i);
+    expect(validateMeetingForm("Prep", "", "2025-03-04T19:00")).not.toMatch(/end/i);
+    expect(validateMeetingForm("Prep", "2025-03-04T18:00", "")).toMatch(/end/i);
+  });
+
   it("round-trips instants into WAT input values", () => {
     expect(isoToWatInput("2025-03-03T23:15:00.000Z")).toBe("2025-03-04T00:15");
   });

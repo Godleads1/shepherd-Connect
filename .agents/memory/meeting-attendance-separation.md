@@ -11,3 +11,4 @@ Meeting attendance must never touch Sunday attendance data (staff_scans, clock r
 - Keep scan status codes distinct: 403 means the user isn't an activated teacher for the meeting, 409 means the code is closed, replaced, or outside its window. The teacher UI chooses its error message from the status code.
 - Modules imported by app.ts must not dereference Drizzle table objects at load time. api.smoke.test mocks @workspace/db with only usersTable, so a top-level `table.col` reference breaks that suite.
 - Opening a QR link while already on /meeting-attendance only changes the #fragment, so the route must listen for hashchange; on-mount capture alone misses repeat scans.
+- datetime-local values may include seconds/milliseconds on some (mobile) browsers, and a half-filled field reports "". Meeting time parsing must accept both shapes and say which field is incomplete.

@@ -11,14 +11,22 @@ export function isMeetingToken(value: string): boolean {
   return !!m && Number(m[1]) <= 2147483647;
 }
 
-/** "2025-03-04T18:30" (WAT wall clock) -> UTC ISO "2025-03-04T17:30:00.000Z". */
+/**
+ * "2025-03-04T18:30" (WAT wall clock) -> UTC ISO "2025-03-04T17:30:00.000Z".
+ * Some browsers (notably mobile) report datetime-local values with seconds or
+ * milliseconds, so those are accepted too.
+ */
 export function watInputToIso(value: string): string | null {
-  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(value.trim());
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?$/.exec(value.trim());
   if (!m) return null;
-  const [, y, mo, d, h, mi] = m.map(Number) as unknown as number[];
-  const check = new Date(Date.UTC(y, mo - 1, d, h, mi));
-  if (check.getUTCFullYear() !== y || check.getUTCMonth() !== mo - 1 || check.getUTCDate() !== d || h > 23 || mi > 59) return null;
-  return new Date(`${value.trim()}:00+01:00`).toISOString();
+  const [y, mo, d, h, mi] = m.slice(1, 6).map(Number);
+  const sec = m[6] ? Number(m[6]) : 0;
+  const ms = m[7] ? Number(m[7].padEnd(3, "0")) : 0;
+  if (h > 23 || mi > 59 || sec > 59) return null;
+  const check = new Date(Date.UTC(y, mo - 1, d));
+  if (check.getUTCFullYear() !== y || check.getUTCMonth() !== mo - 1 || check.getUTCDate() !== d) return null;
+  // WAT is a fixed UTC+01:00 with no daylight saving.
+  return new Date(Date.UTC(y, mo - 1, d, h - 1, mi, sec, ms)).toISOString();
 }
 
 function lagosParts(iso: string) {
@@ -56,8 +64,12 @@ export function validateMeetingForm(title: string, startsAt: string, endsAt: str
   const t = title.trim();
   if (!t) return "Enter a meeting title.";
   if (t.length > 120) return "Title must be 120 characters or fewer.";
+  // An incomplete datetime-local (e.g. date picked, time left blank) reports "".
+  if (!startsAt.trim()) return "Choose both a date and a time for when the meeting starts.";
+  if (!endsAt.trim()) return "Choose both a date and a time for when the meeting ends.";
   const s = watInputToIso(startsAt), e = watInputToIso(endsAt);
-  if (!s || !e) return "Enter a valid start and end time.";
+  if (!s) return "The start time is not valid. Please choose it again.";
+  if (!e) return "The end time is not valid. Please choose it again.";
   const span = new Date(e).getTime() - new Date(s).getTime();
   if (span <= 0) return "End time must be after start time.";
   if (span > MAX_WINDOW_MS) return "A meeting window can be at most seven days.";
