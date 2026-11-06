@@ -7,3 +7,4 @@
 - [Authoritative mutation reliability](authoritative-mutation-reliability.md) — command success is final; refresh failures stay secondary, and related races share a DB lock.
 - [Auth SSE revocation ordering](auth-sse-revocation-ordering.md) — serialize stream handshakes and writes with revocation; use transactional app notifications, not custom trigger DDL.
 - [Meeting attendance separation](meeting-attendance-separation.md) — meeting QR sign-in never touches Sunday data; 403 vs 409 scan codes; no load-time table refs.
+- [Attendance QR device-local display](qr-device-local-display.md) — QR codes persist only on the issuing device; server exposes a short code ID, never the code.

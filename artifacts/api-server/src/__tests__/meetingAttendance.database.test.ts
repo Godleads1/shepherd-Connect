@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { db, usersTable, meetingsTable, meetingParticipantsTable, auditLogsTable } from "@workspace/db";
@@ -100,9 +100,18 @@ databaseDescribe("meeting attendance isolated from Sunday attendance", () => {
   });
   it("revokes old QR codes on replacement, closure and edits", async () => {
     const id = await create(); await activate(id);
-    const old = await issue(id), token = await issue(id);
+    const fingerprint = async () => (await api("admin").get(`/api/meetings/${id}`).expect(200)).body.meeting.qrFingerprint;
+    const sha = (t: string) => createHash("sha256").update(t).digest("hex").slice(0, 16);
+    const old = await issue(id);
+    expect(await fingerprint()).toBe(sha(old));
+    const token = await issue(id);
+    // Admin devices use this to hide a saved code once it has been replaced elsewhere.
+    expect(await fingerprint()).toBe(sha(token));
+    expect(sha(token)).not.toBe(sha(old));
+    expect(JSON.stringify((await api("teacher").get("/api/meetings")).body)).not.toContain("qrFingerprint");
     await api("teacher").post("/api/meetings/scan", { token: old }).expect(409);
     await api("admin").post(`/api/meetings/${id}/close`).expect(200);
+    expect(await fingerprint()).toBeNull();
     await api("teacher").post("/api/meetings/scan", { token }).expect(409);
     const reopened = await issue(id);
     await api("admin").patch(`/api/meetings/${id}`, { ...input(), title: "Updated meeting" }).expect(200);

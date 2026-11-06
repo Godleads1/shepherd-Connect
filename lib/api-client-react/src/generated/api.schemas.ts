@@ -25,6 +25,11 @@ export interface Meeting {
   attendedCount: number;
   /** @nullable */
   signedInAt: string | null;
+  /**
+   * Short non-secret identifier of the active QR code (admin views only); lets a device tell if its saved code was replaced.
+   * @nullable
+   */
+  qrFingerprint?: string | null;
 }
 
 export interface MeetingTeacher {

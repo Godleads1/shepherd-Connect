@@ -1,6 +1,7 @@
-import { useState, useRef } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiGet, apiPost } from "@/lib/api-call";
+import { endOfLagosDay, readQrDisplay, saveQrDisplay, sundayQrKey } from "@/lib/qr-display-cache";
 import { SecurePhoto } from "@/components/PhotoUploader";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -35,11 +36,12 @@ type StaffRow = {
 type SummaryData = {
   date: string;
   hasQr: boolean;
+  qrFingerprint?: string | null;
   services: string[];
   staff: StaffRow[];
   stats: { total: number; present: number; absent: number; fullDay: number };
 };
-type QrData = { token: string; serviceDate: string; qrPng: string; existing: boolean };
+type QrData = { token: string; serviceDate: string; qrPng: string; existing: boolean; fingerprint?: string };
 
 function todayInLagos(): string {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -424,6 +426,7 @@ export default function SundayAttendancePage() {
   const qc = useQueryClient();
   const [date, setDate] = useState(todayInLagos);
   const [qrData, setQrData] = useState<QrData | null>(null);
+  const [now, setNow] = useState(() => Date.now());
   const printRef = useRef<HTMLDivElement>(null);
 
   const { data: summary, isLoading: summaryLoading, isError: summaryError, refetch: refetchSummary } = useQuery<SummaryData>({
@@ -436,21 +439,48 @@ export default function SundayAttendancePage() {
     mutationFn: ({ serviceDate, force }: { serviceDate: string; force?: boolean }) =>
       apiPost<QrData>("/sunday-attendance/qr/generate", { serviceDate, force: !!force }),
     onSuccess: (data: QrData) => {
+      // Keep the code on this device until its service date ends (Lagos time).
+      saveQrDisplay(sundayQrKey(data.serviceDate), data, data.fingerprint, endOfLagosDay(data.serviceDate) ?? 0);
       setQrData(data);
+      setNow(Date.now());
+      qc.setQueryData<SummaryData>(["sunday-attendance-summary", data.serviceDate],
+        old => (old ? { ...old, hasQr: true, qrFingerprint: data.fingerprint ?? null } : old));
       qc.invalidateQueries({ queryKey: ["sunday-attendance-summary", date] });
     },
   });
 
+  // Restore this device's saved code while it is still the server's active code for the date.
+  const serverFingerprint = summary && summary.date === date ? (summary.hasQr ? summary.qrFingerprint ?? null : null) : undefined;
+  useEffect(() => {
+    if (serverFingerprint === undefined) return;
+    if (!serverFingerprint) { setQrData(null); return; }
+    setQrData(cur => {
+      if (cur && cur.serviceDate === date && cur.fingerprint === serverFingerprint) return cur;
+      const saved = readQrDisplay<QrData>(sundayQrKey(date), serverFingerprint);
+      return saved && saved.serviceDate === date ? { ...saved, existing: true } : null;
+    });
+  }, [serverFingerprint, date]);
+
+  // Re-render when the service date ends so the code is hidden on time.
+  const dayEndsAt = endOfLagosDay(date) ?? 0;
+  useEffect(() => {
+    if (now >= dayEndsAt) return;
+    const t = setTimeout(() => setNow(Date.now()), Math.min(dayEndsAt - now + 250, 2_147_000_000));
+    return () => clearTimeout(t);
+  }, [dayEndsAt, now]);
+  const dayOver = now >= dayEndsAt;
+  const shownQr = qrData && qrData.serviceDate === date && !dayOver && qrData.fingerprint === serverFingerprint ? qrData : null;
+
   function handleDownload() {
-    if (!qrData) return;
+    if (!shownQr) return;
     const a = document.createElement("a");
-    a.href = qrData.qrPng;
+    a.href = shownQr.qrPng;
     a.download = `shepherd-connect-attendance-${date}.png`;
     a.click();
   }
 
   function handlePrint() {
-    if (!printRef.current || !qrData) return;
+    if (!printRef.current || !shownQr) return;
     const win = window.open("", "_blank");
     if (!win) return;
     win.document.write(`
@@ -460,7 +490,7 @@ export default function SundayAttendancePage() {
       <body>
         <h2>Shepherd Connect</h2>
         <p>Service Attendance — ${date}</p>
-        <img src="${qrData.qrPng}" />
+        <img src="${shownQr.qrPng}" />
         <p style="margin-top:12px;font-size:13px">Scan to record attendance</p>
       </body></html>
     `);
@@ -510,13 +540,14 @@ export default function SundayAttendancePage() {
 
           {/* QR display / generate */}
           <div className="flex flex-col items-center gap-4">
-            {qrData ? (
+            {shownQr ? (
               <>
                 <div ref={printRef} className="bg-white p-3 rounded-xl shadow-md">
-                  <img src={qrData.qrPng} alt="QR code" className="w-48 h-48 block" />
+                  <img src={shownQr.qrPng} alt="QR code" className="w-48 h-48 block" />
                 </div>
                 <p className="text-xs text-gray-500 text-center">
-                  {qrData.existing ? "Existing QR for this date" : "New QR generated"}
+                  {shownQr.existing ? "Existing QR for this date" : "New QR generated"}
+                  {" · "}Stays on this device until the end of {date} (Lagos time)
                 </p>
                 <div className="flex gap-2 flex-wrap justify-center">
                   <Button size="sm" variant="outline" onClick={handleDownload}>
@@ -536,6 +567,14 @@ export default function SundayAttendancePage() {
                 </div>
               </>
             ) : (
+              <>
+              {summary?.hasQr && summary.date === date && (
+                <p className="text-xs text-gray-500 text-center max-w-sm" data-testid="text-sunday-qr-elsewhere">
+                  {dayOver
+                    ? "This service date has ended, so its QR code no longer works."
+                    : "A QR for this date was issued on another device or browser. Rotating replaces it, and printed copies stop working."}
+                </p>
+              )}
               <Button
                 className="bg-blue-600 hover:bg-blue-700 text-white"
                 onClick={() => generateMutation.mutate({ serviceDate: date, force: !!summary?.hasQr })}
@@ -546,6 +585,7 @@ export default function SundayAttendancePage() {
                   : <QrCode className="w-4 h-4 mr-2" />}
                 {summary?.hasQr ? "Rotate & Show New QR" : "Generate QR Code"}
               </Button>
+              </>
             )}
           </div>
         </CardContent>

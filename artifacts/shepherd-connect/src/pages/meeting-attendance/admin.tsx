@@ -8,6 +8,7 @@ import {
   type MeetingDetail, type Meeting,
 } from "@workspace/api-client-react";
 import { apiGetBlob } from "@/lib/api-call";
+import { clearQrDisplay, meetingQrKey, readQrDisplay, saveQrDisplay } from "@/lib/qr-display-cache";
 import { buildMeetingQrUrl, formatWatDateTime, formatWatWindow, isoToWatInput, meetingErrorMessage, selectAllState, toggleSelectAll } from "@/lib/meeting-attendance";
 import { MeetingForm } from "./meeting-form";
 import { Button } from "@/components/ui/button";
@@ -138,7 +139,9 @@ function MeetingPanel({ id }: { id: number }) {
   const [editing, setEditing] = useState(false);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [filter, setFilter] = useState("");
-  const [qrUrl, setQrUrl] = useState<string | null>(null);
+  // The issued code stays visible on this device until the meeting ends (see qr-display-cache).
+  const [issued, setIssued] = useState<{ url: string; fingerprint: string } | null>(null);
+  const [now, setNow] = useState(() => Date.now());
   const qrCanvas = useRef<HTMLCanvasElement>(null);
   const downloadQr = () => {
     const canvas = qrCanvas.current;
@@ -165,8 +168,25 @@ function MeetingPanel({ id }: { id: number }) {
     }
   }, [detail.data, id]);
 
-  // A closed meeting has no valid QR; drop any displayed code.
-  useEffect(() => { if (detail.data && !detail.data.meeting.isOpen) setQrUrl(null); }, [detail.data]);
+  // Restore this device's saved code when it is still the server's active code.
+  const serverFingerprint = detail.data ? (detail.data.meeting.isOpen ? detail.data.meeting.qrFingerprint ?? null : null) : undefined;
+  useEffect(() => {
+    if (serverFingerprint === undefined) return;
+    if (!serverFingerprint) { setIssued(null); return; }
+    setIssued(cur => {
+      if (cur?.fingerprint === serverFingerprint) return cur;
+      const url = readQrDisplay<string>(meetingQrKey(id), serverFingerprint);
+      return url ? { url, fingerprint: serverFingerprint } : null;
+    });
+  }, [serverFingerprint, id]);
+
+  // Re-render when the sign-in window ends so the code is hidden on time.
+  const endsAtMs = detail.data ? Date.parse(detail.data.meeting.endsAt) : NaN;
+  useEffect(() => {
+    if (!Number.isFinite(endsAtMs) || now >= endsAtMs) return;
+    const t = setTimeout(() => setNow(Date.now()), Math.min(endsAtMs - now + 250, 2_147_000_000));
+    return () => clearTimeout(t);
+  }, [endsAtMs, now]);
 
   const dirty = [...selected].sort((a, b) => a - b).join(",") !== savedIds.current;
 
@@ -217,7 +237,11 @@ function MeetingPanel({ id }: { id: number }) {
 
   const generate = () => issueQr.mutate({ id }, {
     onSuccess: res => {
-      setQrUrl(buildMeetingQrUrl(window.location.origin, import.meta.env.BASE_URL, res.token));
+      const url = buildMeetingQrUrl(window.location.origin, import.meta.env.BASE_URL, res.token);
+      const fingerprint = res.meeting.qrFingerprint ?? null;
+      saveQrDisplay(meetingQrKey(id), url, fingerprint, Date.parse(res.meeting.endsAt));
+      setIssued(fingerprint ? { url, fingerprint } : null);
+      setNow(Date.now());
       patchMeeting(res.meeting);
       toast({ title: "Meeting QR is live", description: "Any previous code for this meeting no longer works." });
       refreshAll();
@@ -226,7 +250,7 @@ function MeetingPanel({ id }: { id: number }) {
   });
 
   const doClose = () => close.mutate({ id }, {
-    onSuccess: res => { setQrUrl(null); patchMeeting(res); toast({ title: "Meeting closed", description: "The QR code is revoked. Attendance is kept." }); refreshAll(); },
+    onSuccess: res => { clearQrDisplay(meetingQrKey(id)); setIssued(null); patchMeeting(res); toast({ title: "Meeting closed", description: "The QR code is revoked. Attendance is kept." }); refreshAll(); },
     onError: fail("Could not close meeting"),
   });
 
@@ -241,6 +265,8 @@ function MeetingPanel({ id }: { id: number }) {
   };
 
   const signedIn = d.participants.filter(p => p.signedInAt).length;
+  const windowOver = now >= Date.parse(m.endsAt);
+  const shownUrl = issued && m.isOpen && !windowOver && issued.fingerprint === m.qrFingerprint ? issued.url : null;
 
   return (
     <div className="space-y-4">
@@ -251,7 +277,7 @@ function MeetingPanel({ id }: { id: number }) {
             note="Saving closes the meeting and revokes its QR code. Recorded attendance is kept."
             onCancel={() => setEditing(false)}
             onSubmit={data => update.mutate({ id, data }, {
-              onSuccess: res => { setEditing(false); setQrUrl(null); patchMeeting(res); toast({ title: "Meeting updated", description: "Generate a new QR to reopen sign-in." }); refreshAll(); },
+              onSuccess: res => { setEditing(false); clearQrDisplay(meetingQrKey(id)); setIssued(null); patchMeeting(res); toast({ title: "Meeting updated", description: "Generate a new QR to reopen sign-in." }); refreshAll(); },
               onError: fail("Could not update meeting"),
             })} />
         ) : (
@@ -296,22 +322,24 @@ function MeetingPanel({ id }: { id: number }) {
           </div>
         </div>
         {(dirty || m.activatedCount === 0) && <p className="text-xs text-amber-700 mt-2">{dirty ? "Save teacher activations before generating a QR code." : "Activate at least one teacher first."}</p>}
-        {qrUrl && m.isOpen ? (
+        {shownUrl ? (
           <div className="mt-4 flex flex-col sm:flex-row items-center gap-5 rounded-xl bg-blue-50/60 border border-blue-100 p-4">
-            <div className="bg-white p-3 rounded-xl"><QRCodeSVG value={qrUrl} size={208} level="M" aria-label="Meeting sign-in QR code" data-testid="img-meeting-qr" /></div>
+            <div className="bg-white p-3 rounded-xl"><QRCodeSVG value={shownUrl} size={208} level="M" aria-label="Meeting sign-in QR code" data-testid="img-meeting-qr" /></div>
             <div className="text-sm text-gray-700 space-y-1">
               <p className="font-semibold">Display this for teachers to scan.</p>
               <p>Teachers scan with the app's meeting scanner or their phone camera, then confirm on their own account.</p>
-              <p className="text-xs text-gray-500">This code is shown only once. If you leave this page, use Replace QR to show a new one.</p>
+              <p className="text-xs text-gray-500">This code stays on this device until sign-in ends ({formatWatDateTime(m.endsAt)}). Other devices can't show it, so download it to share it.</p>
               <Button size="sm" variant="outline" className="mt-2" onClick={downloadQr} data-testid="button-download-meeting-qr">
                 <Download className="w-4 h-4 mr-1.5" /> Download QR
               </Button>
               {/* Off-screen high-resolution copy used only for the PNG download. */}
-              <QRCodeCanvas ref={qrCanvas} value={qrUrl} size={768} marginSize={4} level="M" className="hidden" aria-hidden="true" />
+              <QRCodeCanvas ref={qrCanvas} value={shownUrl} size={768} marginSize={4} level="M" className="hidden" aria-hidden="true" />
             </div>
           </div>
+        ) : m.isOpen && windowOver ? (
+          <p className="mt-4 text-sm text-gray-600 rounded-xl bg-gray-50 p-4" data-testid="text-meeting-window-ended">The sign-in window has ended, so the QR code no longer works. Close the meeting, or edit its time to reopen sign-in.</p>
         ) : m.isOpen ? (
-          <p className="mt-4 text-sm text-gray-600 rounded-xl bg-gray-50 p-4">Sign-in is open with a previously issued code. Replace the QR to display a new one here.</p>
+          <p className="mt-4 text-sm text-gray-600 rounded-xl bg-gray-50 p-4">Sign-in is open with a code issued on another device or browser. Use that device to show or download it, or Replace QR to show a new one here (the old code will stop working).</p>
         ) : null}
       </section>
 

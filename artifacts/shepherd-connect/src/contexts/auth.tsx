@@ -4,6 +4,7 @@ import { User, logout as revokeSession, useGetCurrentUser } from "@workspace/api
 import { clearQueue } from "@/lib/offline-queue";
 import { abortUserScopedRequests, purgeAuthenticatedApiCache } from "@/lib/api-call";
 import { bootstrapDisposition, logoutDisposition, makeAuthSyncSignal, reconcileRemoteAuth } from "@/lib/auth-session";
+import { clearAllQrDisplays } from "@/lib/qr-display-cache";
 
 const SESSION_TIMEOUT_MS = 30 * 60 * 1000;
 const WARNING_BEFORE_MS = 2 * 60 * 1000;
@@ -72,6 +73,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         queryClient.clear();
         void purgeAuthenticatedApiCache();
         if (user) clearQueue(user.id);
+        clearAllQrDisplays();
         localStorage.removeItem("token");
         setToken(null);
         setUser(null);
@@ -92,6 +94,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     void queryClient.cancelQueries();
     queryClient.clear();
     void purgeAuthenticatedApiCache();
+    clearAllQrDisplays();
     localStorage.removeItem("token");
     setToken(null);
     setUser(null);

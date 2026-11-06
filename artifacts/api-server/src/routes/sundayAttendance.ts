@@ -128,7 +128,8 @@ router.post("/sunday-attendance/qr/generate", authMiddleware, async (req, res): 
   }
   const qrPng = await generateQrPng(token, serviceDate);
   logger.info({ serviceDate, rotated: force }, "sunday-attendance: QR issued");
-  res.status(201).json({ token, serviceDate, qrPng, existing: false });
+  // Short non-secret identifier so an admin device can tell if its saved code was later replaced.
+  res.status(201).json({ token, serviceDate, qrPng, existing: false, fingerprint: hashStaffQrToken(token).slice(0, 16) });
 });
 
 // GET /sunday-attendance/qr?date= — admin sees QR for a date
@@ -505,6 +506,7 @@ router.get("/sunday-attendance/summary", authMiddleware, async (req, res): Promi
   res.json({
     date,
     hasQr: !!qr && qr.purpose === STAFF_QR_PURPOSE && !qr.revokedAt,
+    qrFingerprint: qr && qr.purpose === STAFF_QR_PURPOSE && !qr.revokedAt ? qr.tokenHash.slice(0, 16) : null,
     services: SERVICES,
     staff: staffRows,
     stats: {

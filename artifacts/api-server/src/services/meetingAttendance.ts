@@ -77,9 +77,16 @@ export async function listMeetingsFor(userId: number, admin: boolean) {
     and p.user_id = ${userId} and (p.active or p.signed_in_at is not null)
   )`).orderBy(desc(meetingsTable.startsAt), desc(meetingsTable.id));
 }
+/** First 16 hex chars of the stored digest: identifies the active code without revealing it. */
+export function qrFingerprint(tokenHash: string | null) {
+  return tokenHash ? tokenHash.slice(0, 16) : null;
+}
 export async function meetingDetail(id: number, reader: Reader = db) {
-  const [meeting] = await reader.select(summaryFields()).from(meetingsTable).where(eq(meetingsTable.id, id));
-  if (!meeting) throw new MeetingError(404, "Meeting not found.");
+  const [row] = await reader.select({ ...summaryFields(), tokenHash: meetingsTable.tokenHash })
+    .from(meetingsTable).where(eq(meetingsTable.id, id));
+  if (!row) throw new MeetingError(404, "Meeting not found.");
+  const { tokenHash, ...summary } = row;
+  const meeting = { ...summary, qrFingerprint: summary.isOpen ? qrFingerprint(tokenHash) : null };
   const participants = await reader.select({
     userId: meetingParticipantsTable.userId,
     name: sql<string>`${usersTable.firstName} || ' ' || ${usersTable.lastName}`,

@@ -16,6 +16,12 @@ export const ListMeetingsResponseItem = zod.object({
   activatedCount: zod.number(),
   attendedCount: zod.number(),
   signedInAt: zod.string().datetime({}).nullable(),
+  qrFingerprint: zod
+    .string()
+    .nullish()
+    .describe(
+      "Short non-secret identifier of the active QR code (admin views only); lets a device tell if its saved code was replaced.",
+    ),
 });
 export const ListMeetingsResponse = zod.array(ListMeetingsResponseItem);
 
@@ -63,6 +69,12 @@ export const GetMeetingResponse = zod.object({
     activatedCount: zod.number(),
     attendedCount: zod.number(),
     signedInAt: zod.string().datetime({}).nullable(),
+    qrFingerprint: zod
+      .string()
+      .nullish()
+      .describe(
+        "Short non-secret identifier of the active QR code (admin views only); lets a device tell if its saved code was replaced.",
+      ),
   }),
   participants: zod.array(
     zod.object({
@@ -95,6 +107,12 @@ export const UpdateMeetingResponse = zod.object({
   activatedCount: zod.number(),
   attendedCount: zod.number(),
   signedInAt: zod.string().datetime({}).nullable(),
+  qrFingerprint: zod
+    .string()
+    .nullish()
+    .describe(
+      "Short non-secret identifier of the active QR code (admin views only); lets a device tell if its saved code was replaced.",
+    ),
 });
 
 export const SetMeetingParticipantsParams = zod.object({
@@ -119,6 +137,12 @@ export const SetMeetingParticipantsResponse = zod.object({
     activatedCount: zod.number(),
     attendedCount: zod.number(),
     signedInAt: zod.string().datetime({}).nullable(),
+    qrFingerprint: zod
+      .string()
+      .nullish()
+      .describe(
+        "Short non-secret identifier of the active QR code (admin views only); lets a device tell if its saved code was replaced.",
+      ),
   }),
   participants: zod.array(
     zod.object({
@@ -145,6 +169,12 @@ export const IssueMeetingQrResponse = zod.object({
     activatedCount: zod.number(),
     attendedCount: zod.number(),
     signedInAt: zod.string().datetime({}).nullable(),
+    qrFingerprint: zod
+      .string()
+      .nullish()
+      .describe(
+        "Short non-secret identifier of the active QR code (admin views only); lets a device tell if its saved code was replaced.",
+      ),
   }),
 });
 
@@ -161,6 +191,12 @@ export const CloseMeetingResponse = zod.object({
   activatedCount: zod.number(),
   attendedCount: zod.number(),
   signedInAt: zod.string().datetime({}).nullable(),
+  qrFingerprint: zod
+    .string()
+    .nullish()
+    .describe(
+      "Short non-secret identifier of the active QR code (admin views only); lets a device tell if its saved code was replaced.",
+    ),
 });
 
 export const DownloadMeetingReportParams = zod.object({

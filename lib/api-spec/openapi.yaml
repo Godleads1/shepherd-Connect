@@ -2869,6 +2869,9 @@ components:
         activatedCount: { type: integer }
         attendedCount: { type: integer }
         signedInAt: { type: [string, "null"], format: date-time }
+        qrFingerprint:
+          type: [string, "null"]
+          description: Short non-secret identifier of the active QR code (admin views only); lets a device tell if its saved code was replaced.
     MeetingTeacher:
       type: object
       required: [userId, name]
