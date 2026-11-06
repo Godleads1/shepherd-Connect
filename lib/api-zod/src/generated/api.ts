@@ -115,6 +115,15 @@ export const UpdateMeetingResponse = zod.object({
     ),
 });
 
+export const DeleteMeetingParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const DeleteMeetingResponse = zod.object({
+  success: zod.boolean(),
+  message: zod.string().optional(),
+});
+
 export const SetMeetingParticipantsParams = zod.object({
   id: zod.coerce.number(),
 });

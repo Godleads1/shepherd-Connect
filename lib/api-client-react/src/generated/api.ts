@@ -626,6 +626,84 @@ export const useUpdateMeeting = <
   return useMutation(getUpdateMeetingMutationOptions(options));
 };
 
+export const getDeleteMeetingUrl = (id: number) => {
+  return `/api/meetings/${id}`;
+};
+
+export const deleteMeeting = async (
+  id: number,
+  options?: RequestInit,
+): Promise<SuccessResponse> => {
+  return customFetch<SuccessResponse>(getDeleteMeetingUrl(id), {
+    ...options,
+    method: "DELETE",
+  });
+};
+
+export const getDeleteMeetingMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteMeeting>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof deleteMeeting>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  const mutationKey = ["deleteMeeting"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof deleteMeeting>>,
+    { id: number }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return deleteMeeting(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DeleteMeetingMutationResult = NonNullable<
+  Awaited<ReturnType<typeof deleteMeeting>>
+>;
+
+export type DeleteMeetingMutationError = ErrorType<unknown>;
+
+export const useDeleteMeeting = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteMeeting>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof deleteMeeting>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  return useMutation(getDeleteMeetingMutationOptions(options));
+};
+
 export const getSetMeetingParticipantsUrl = (id: number) => {
   return `/api/meetings/${id}/participants`;
 };

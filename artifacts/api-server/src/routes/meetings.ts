@@ -3,7 +3,7 @@ import { CreateMeetingBody, ScanMeetingBody, SetMeetingParticipantsBody } from "
 import { db } from "@workspace/db";
 import { authMiddleware } from "../middlewares/auth";
 import {
-  MeetingError, closeMeetingSignIn, eligibleMeetingTeachers, issueMeetingToken, listMeetingsFor,
+  MeetingError, closeMeetingSignIn, deleteMeeting, eligibleMeetingTeachers, issueMeetingToken, listMeetingsFor,
   meetingAudit, meetingDetail, recordMeetingSignIn, saveMeeting, setMeetingTeachers,
 } from "../services/meetingAttendance";
 import { streamPdf, renderReportPdf } from "../lib/pdf";
@@ -63,6 +63,9 @@ router.patch("/meetings/:id", adminsOnly, wrap(async (req, res) => {
   const parsed = CreateMeetingBody.strict().safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: "Provide a title and valid sign-in start and end times." }); return; }
   res.json(await saveMeeting(req.user!.userId, parsed.data, idOf(req)));
+}));
+router.delete("/meetings/:id", adminsOnly, wrap(async (req, res) => {
+  res.json(await deleteMeeting(req.user!.userId, idOf(req)));
 }));
 router.put("/meetings/:id/participants", adminsOnly, wrap(async (req, res) => {
   const parsed = SetMeetingParticipantsBody.strict().safeParse(req.body);

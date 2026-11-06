@@ -126,6 +126,15 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Meeting" }
+    delete:
+      operationId: deleteMeeting
+      tags: [Meetings]
+      responses:
+        "200":
+          description: Meeting, its teacher activations and sign-in records permanently deleted; the deletion is audited
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SuccessResponse" }
   /meetings/{id}/participants:
     parameters:
       - { name: id, in: path, required: true, schema: { type: integer } }

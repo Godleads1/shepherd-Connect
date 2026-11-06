@@ -22,6 +22,7 @@ databaseDescribe("meeting attendance isolated from Sunday attendance", () => {
     post: (path: string, body = {}) => request(app).post(path).auth(tokens[role], { type: "bearer" }).send(body),
     put: (path: string, body = {}) => request(app).put(path).auth(tokens[role], { type: "bearer" }).send(body),
     patch: (path: string, body = {}) => request(app).patch(path).auth(tokens[role], { type: "bearer" }).send(body),
+    delete: (path: string) => request(app).delete(path).auth(tokens[role], { type: "bearer" }),
   });
   async function create() {
     const result = await api("admin").post("/api/meetings", input()).expect(201);
@@ -149,5 +150,25 @@ databaseDescribe("meeting attendance isolated from Sunday attendance", () => {
     await api("teacher").get(`/api/meetings/${id}`).expect(403);
     const audits = await db.select().from(auditLogsTable).where(and(eq(auditLogsTable.entityId, id), eq(auditLogsTable.action, "meeting_report_export")));
     expect(audits).toHaveLength(2);
+  });
+  it("lets only administrators delete a meeting, removing its records and leaving an audit entry", async () => {
+    const id = await create();
+    await activate(id, [userIds.teacher, userIds.teacher2]);
+    const token = await issue(id);
+    await api("teacher").post("/api/meetings/scan", { token }).expect(200);
+    for (const role of ["parent", "teacher", "support"]) await api(role).delete(`/api/meetings/${id}`).expect(403);
+    await api("admin").delete("/api/meetings/abc").expect(400);
+    await api("admin").delete(`/api/meetings/${id}`).expect(200, { success: true });
+    expect(await db.select().from(meetingsTable).where(eq(meetingsTable.id, id))).toHaveLength(0);
+    expect(await db.select().from(meetingParticipantsTable).where(eq(meetingParticipantsTable.meetingId, id))).toHaveLength(0);
+    // The deleted meeting's QR can no longer be used and it disappears from every list.
+    await api("teacher2").post("/api/meetings/scan", { token }).expect(404);
+    expect((await api("teacher").get("/api/meetings")).body.some((m: { id: number }) => m.id === id)).toBe(false);
+    await api("admin").get(`/api/meetings/${id}`).expect(404);
+    await api("super_admin").delete(`/api/meetings/${id}`).expect(404);
+    const [audit] = await db.select().from(auditLogsTable)
+      .where(and(eq(auditLogsTable.entityId, id), eq(auditLogsTable.action, "meeting_deleted")));
+    expect(audit.userId).toBe(userIds.admin);
+    expect(JSON.parse(audit.metadataJson!)).toMatchObject({ title: "Synthetic teacher meeting", activatedCount: 2, attendedCount: 1 });
   });
 });

@@ -148,6 +148,25 @@ export async function closeMeetingSignIn(actor: number, id: number) {
     return (await meetingDetail(id, tx)).meeting;
   });
 }
+/**
+ * Permanently removes a meeting together with its teacher activations and
+ * sign-in records (cascade). The audit trail keeps what was deleted.
+ */
+export async function deleteMeeting(actor: number, id: number) {
+  return db.transaction(async tx => {
+    const meeting = await lockMeeting(tx, id);
+    const [{ activatedCount, attendedCount }] = await tx.select({
+      activatedCount: sql<number>`count(*) filter (where ${meetingParticipantsTable.active})::int`,
+      attendedCount: sql<number>`count(*) filter (where ${meetingParticipantsTable.signedInAt} is not null)::int`,
+    }).from(meetingParticipantsTable).where(eq(meetingParticipantsTable.meetingId, id));
+    await tx.delete(meetingsTable).where(eq(meetingsTable.id, id));
+    await meetingAudit(tx, actor, "meeting_deleted", id, {
+      title: meeting.title, startsAt: meeting.startsAt.toISOString(), endsAt: meeting.endsAt.toISOString(),
+      activatedCount, attendedCount,
+    });
+    return { success: true };
+  });
+}
 export async function recordMeetingSignIn(userId: number, token: string) {
   const id = parseMeetingToken(token);
   // QR replacement, closure, participant activation and sign-ins all serialize on

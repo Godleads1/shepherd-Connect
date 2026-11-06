@@ -3,7 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { QRCodeCanvas, QRCodeSVG } from "qrcode.react";
 import {
   useListMeetings, useListMeetingTeachers, useCreateMeeting, useGetMeeting, useUpdateMeeting,
-  useSetMeetingParticipants, useIssueMeetingQr, useCloseMeeting,
+  useSetMeetingParticipants, useIssueMeetingQr, useCloseMeeting, useDeleteMeeting,
   getListMeetingsQueryKey, getGetMeetingQueryKey, getListMeetingTeachersQueryKey,
   type MeetingDetail, type Meeting,
 } from "@workspace/api-client-react";
@@ -20,7 +20,7 @@ import {
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
-import { AlertTriangle, CalendarPlus, Download, FileText, Lock, Pencil, QrCode, RefreshCw, Users } from "lucide-react";
+import { AlertTriangle, CalendarPlus, Download, FileText, Lock, Pencil, QrCode, RefreshCw, Trash2, Users } from "lucide-react";
 
 async function saveBlob(path: string, filename: string) {
   const blob = await apiGetBlob(path);
@@ -117,13 +117,13 @@ export default function AdminMeetingView() {
               <p className="text-gray-500 font-semibold">Select or create a meeting</p>
             </div>
           )
-        ) : <MeetingPanel key={selectedId} id={selectedId} />}
+        ) : <MeetingPanel key={selectedId} id={selectedId} onDeleted={() => setSelectedId(null)} />}
       </main>
     </div>
   );
 }
 
-function MeetingPanel({ id }: { id: number }) {
+function MeetingPanel({ id, onDeleted }: { id: number; onDeleted: () => void }) {
   const qc = useQueryClient();
   const { toast } = useToast();
   const detail = useGetMeeting(id, {
@@ -135,6 +135,7 @@ function MeetingPanel({ id }: { id: number }) {
   const setParticipants = useSetMeetingParticipants();
   const issueQr = useIssueMeetingQr();
   const close = useCloseMeeting();
+  const remove = useDeleteMeeting();
 
   const [editing, setEditing] = useState(false);
   const [selected, setSelected] = useState<Set<number>>(new Set());
@@ -153,7 +154,7 @@ function MeetingPanel({ id }: { id: number }) {
     document.body.appendChild(a);
     try { a.click(); } finally { a.remove(); }
   };
-  const [confirm, setConfirm] = useState<"replace" | "close" | null>(null);
+  const [confirm, setConfirm] = useState<"replace" | "close" | "delete" | null>(null);
   const [downloading, setDownloading] = useState<string | null>(null);
   const initFor = useRef<number | null>(null);
   const savedIds = useRef<string>("");
@@ -254,6 +255,18 @@ function MeetingPanel({ id }: { id: number }) {
     onError: fail("Could not close meeting"),
   });
 
+  const doDelete = () => remove.mutate({ id }, {
+    onSuccess: () => {
+      clearQrDisplay(meetingQrKey(id)); setIssued(null);
+      qc.removeQueries({ queryKey: getGetMeetingQueryKey(id) });
+      qc.setQueryData<Meeting[]>(getListMeetingsQueryKey(), old => old?.filter(x => x.id !== id));
+      void qc.invalidateQueries({ queryKey: getListMeetingsQueryKey() });
+      toast({ title: "Meeting deleted", description: m.title });
+      onDeleted();
+    },
+    onError: fail("Could not delete meeting"),
+  });
+
   const download = async (format: "csv" | "pdf") => {
     setDownloading(format);
     try {
@@ -295,6 +308,10 @@ function MeetingPanel({ id }: { id: number }) {
               </Button>
               <Button variant="outline" size="sm" disabled={!!downloading} onClick={() => void download("pdf")} data-testid="button-download-meeting-pdf">
                 <FileText className="w-4 h-4 mr-1.5" />{downloading === "pdf" ? "Preparing…" : "PDF"}
+              </Button>
+              <Button variant="outline" size="sm" className="text-red-700 border-red-200 hover:bg-red-50" disabled={remove.isPending}
+                onClick={() => setConfirm("delete")} data-testid="button-delete-meeting">
+                <Trash2 className="w-4 h-4 mr-1.5" />{remove.isPending ? "Deleting…" : "Delete"}
               </Button>
             </div>
           </div>
@@ -393,17 +410,21 @@ function MeetingPanel({ id }: { id: number }) {
       <AlertDialog open={confirm !== null} onOpenChange={o => { if (!o) setConfirm(null); }}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>{confirm === "replace" ? "Replace the meeting QR code?" : "Close this meeting?"}</AlertDialogTitle>
+            <AlertDialogTitle>{confirm === "replace" ? "Replace the meeting QR code?" : confirm === "delete" ? "Delete this meeting?" : "Close this meeting?"}</AlertDialogTitle>
             <AlertDialogDescription>
               {confirm === "replace"
                 ? "The current code will stop working immediately. Teachers who have not signed in must scan the new code."
-                : "The QR code will be revoked and no further sign-ins accepted. Attendance already recorded is kept."}
+                : confirm === "delete"
+                  ? `"${m.title}" will be permanently deleted, including its teacher activations and ${signedIn} recorded sign-in${signedIn === 1 ? "" : "s"}. Its QR code stops working. This cannot be undone — download the CSV or PDF first if you need the attendance.`
+                  : "The QR code will be revoked and no further sign-ins accepted. Attendance already recorded is kept."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction data-testid="button-confirm-dialog" onClick={() => { if (confirm === "replace") generate(); else doClose(); setConfirm(null); }}>
-              {confirm === "replace" ? "Replace QR" : "Close meeting"}
+            <AlertDialogAction data-testid="button-confirm-dialog"
+              className={confirm === "delete" ? "bg-red-600 hover:bg-red-700" : undefined}
+              onClick={() => { if (confirm === "replace") generate(); else if (confirm === "delete") doDelete(); else doClose(); setConfirm(null); }}>
+              {confirm === "replace" ? "Replace QR" : confirm === "delete" ? "Delete meeting" : "Close meeting"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
