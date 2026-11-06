@@ -1,3 +1,4 @@
+import { randomInt } from "node:crypto";
 import { Router } from "express";
 import { and, eq, ilike, inArray, or, sql } from "drizzle-orm";
 import { db, familiesTable, usersTable, childrenTable, classesTable, attendanceTable, childAppraisalsTable } from "@workspace/db";
@@ -32,8 +33,11 @@ async function assertCanReadFamily(req: import("express").Request, res: import("
 
 const router = Router();
 
+const FAMILY_CODE_ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 function generateFamilyCode(): string {
-  return "FAM-" + Math.random().toString(36).slice(2, 8).toUpperCase();
+  let code = "FAM-";
+  for (let i = 0; i < 6; i += 1) code += FAMILY_CODE_ALPHABET[randomInt(FAMILY_CODE_ALPHABET.length)];
+  return code;
 }
 
 export async function formatFamily(

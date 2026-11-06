@@ -39,7 +39,7 @@ function generateOTP(): string {
 }
 
 function generateGuestCode(): string {
-  return "G-" + Math.floor(1000 + Math.random() * 9000).toString();
+  return "G-" + randomInt(1000, 10000).toString();
 }
 
 export async function sendAssistedDelegateOtpAfterCommit(

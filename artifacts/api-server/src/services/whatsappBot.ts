@@ -36,7 +36,7 @@ import {
   emergenciesTable,
 } from "@workspace/db/schema";
 import { eq, or, desc, and, inArray, lt, sql } from "drizzle-orm";
-import { createHmac, randomBytes, timingSafeEqual } from "crypto";
+import { createHmac, randomBytes, randomInt, timingSafeEqual } from "crypto";
 import { logger } from "../lib/logger";
 import { CustodyHandoverError, releasePhysicalCustody, requestCustodyEpisode } from "./custodyHandover";
 import { createNotificationDelivery } from "./notificationOutbox";
@@ -466,7 +466,7 @@ async function getClassChildren(classId: number) {
 // ── Misc helpers ──────────────────────────────────────────────────────────────
 
 function generateRef(prefix = "SC-REQ"): string {
-  return `${prefix}-${new Date().getFullYear()}-${Math.floor(10000 + Math.random() * 90000)}`;
+  return `${prefix}-${new Date().getFullYear()}-${randomInt(10000, 100000)}`;
 }
 function todayDate() { return serviceDateAt(); }
 function todayLagos() { return serviceDateAt(); }

@@ -1,3 +1,4 @@
+import { randomInt } from "node:crypto";
 import { Router } from "express";
 import { db } from "@workspace/db";
 import { teacherIncidentsTable, usersTable, childrenTable } from "@workspace/db/schema";
@@ -8,7 +9,7 @@ const router = Router();
 
 function generateRef(): string {
   const year = new Date().getFullYear();
-  const rand = Math.floor(10000 + Math.random() * 90000);
+  const rand = randomInt(10000, 100000);
   return `INC-${year}-${rand}`;
 }
 

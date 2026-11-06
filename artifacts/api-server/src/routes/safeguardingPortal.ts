@@ -1,3 +1,4 @@
+import { randomInt } from "node:crypto";
 import { Router } from "express";
 import { db } from "@workspace/db";
 import {
@@ -58,7 +59,7 @@ router.post("/safeguarding-portal/ack", authMiddleware, async (req, res): Promis
 
 function generateRef(): string {
   const year = new Date().getFullYear();
-  const rand = Math.floor(10000 + Math.random() * 90000);
+  const rand = randomInt(10000, 100000);
   return `SC-${year}-${rand}`;
 }
 
