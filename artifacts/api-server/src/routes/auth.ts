@@ -734,7 +734,37 @@ router.get("/auth/mfa/status", authMiddleware, async (req, res): Promise<void> =
   res.json({ mfaEnabled: user?.mfaEnabled || false });
 });
 
-router.post("/auth/mfa/verify-login", async (req, res): Promise<void> => {
+// Second-step sign-in guesses are capped twice: per IP, and per account once
+// the signed challenge has been verified, so rotating IPs cannot multiply the
+// allowance. Successful attempts count too. The account key comes only from a
+// valid signed challenge, never from an unverified request body.
+function mfaChallengeUserId(body: unknown): number | null {
+  const mfaToken = (body as { mfaToken?: unknown } | undefined)?.mfaToken;
+  if (typeof mfaToken !== "string" || !mfaToken) return null;
+  try {
+    const payload = jwt.verify(mfaToken, JWT_SECRET!) as { mfaOnly?: unknown; userId?: unknown };
+    return payload.mfaOnly === true && Number.isSafeInteger(payload.userId) ? payload.userId as number : null;
+  } catch { return null; }
+}
+const MFA_LOGIN_LIMIT_MESSAGE = { error: "Too many attempts", message: "Too many authenticator code attempts. Please wait 15 minutes before trying again." };
+const mfaLoginIpLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: MFA_LOGIN_LIMIT_MESSAGE,
+});
+const mfaLoginAccountLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: MFA_LOGIN_LIMIT_MESSAGE,
+  skip: req => mfaChallengeUserId(req.body) === null,
+  keyGenerator: req => `mfa-login-user:${mfaChallengeUserId(req.body)}`,
+});
+
+router.post("/auth/mfa/verify-login", mfaLoginIpLimiter, mfaLoginAccountLimiter, async (req, res): Promise<void> => {
   const { mfaToken, totpCode } = req.body as { mfaToken: string; totpCode: string };
   if (!mfaToken || !totpCode) { res.status(400).json({ error: "Bad request", message: "mfaToken and totpCode are required" }); return; }
 

@@ -1,4 +1,5 @@
 import { Router, type Request, type Response } from "express";
+import { randomInt } from "node:crypto";
 import { eq, ilike, or, and, sql } from "drizzle-orm";
 import { db, familiesTable, usersTable, childrenTable, classesTable, attendanceTable, pickupDelegatesTable } from "@workspace/db";
 import { CreateFamilyAssistDelegateBody } from "@workspace/api-zod";
@@ -32,8 +33,9 @@ const FAMILY_ASSIST_DELEGATE_COMMAND = "family_assist_delegate_create";
 const FAMILY_ASSIST_DELEGATE_TARGET = "child";
 const OPERATION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+// Pickup codes help authorise a child's release, so they must be unpredictable.
 function generateOTP(): string {
-  return Math.floor(100000 + Math.random() * 900000).toString();
+  return randomInt(100000, 1000000).toString();
 }
 
 function generateGuestCode(): string {

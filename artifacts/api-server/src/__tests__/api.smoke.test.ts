@@ -346,3 +346,40 @@ describe("MFA pre-authentication boundary", () => {
     expect(switched.status).toBe(200);
   });
 });
+
+describe("second-step (MFA) sign-in attempt limits", () => {
+  function challenge(userId: number) {
+    return jwt.sign({ userId, email: "limit@test.com", role: "parent", firstName: "L", lastName: "T", sessionVersion: 1, mfaOnly: true },
+      process.env.SESSION_SECRET!, { expiresIn: "5m" });
+  }
+  const verify = (ip: string, body: object) => request(app).post("/api/auth/mfa/verify-login").set("X-Forwarded-For", ip).send(body);
+
+  it("returns 429 after 10 attempts from one IP, even with invalid challenges", async () => {
+    for (let i = 0; i < 10; i++) {
+      const res = await verify("203.0.113.10", { mfaToken: "not-a-token", totpCode: "000000" });
+      expect(res.status).toBe(401);
+    }
+    const blocked = await verify("203.0.113.10", { mfaToken: "not-a-token", totpCode: "000000" });
+    expect(blocked.status).toBe(429);
+    expect(blocked.body.message).toMatch(/Too many authenticator code attempts/);
+    // Another IP is unaffected.
+    expect((await verify("203.0.113.11", { mfaToken: "not-a-token", totpCode: "000000" })).status).toBe(401);
+  });
+
+  it("caps guesses per account across rotating IPs and does not reset on success", async () => {
+    const totp = new OTPAuth.TOTP({ secret: OTPAuth.Secret.fromBase32("JBSWY3DPEHPK3PXP"), algorithm: "SHA1", digits: 6, period: 30 });
+    const wrong = String((Number(totp.generate()) + 500000) % 1000000).padStart(6, "0");
+    const ok = await verify("198.51.100.1", { mfaToken: challenge(4242), totpCode: totp.generate() });
+    expect(ok.status).toBe(200);
+    for (let i = 2; i <= 10; i++) {
+      const res = await verify(`198.51.100.${i}`, { mfaToken: challenge(4242), totpCode: wrong });
+      expect(res.status).toBe(401);
+      expect(JSON.stringify(res.body)).not.toContain(wrong);
+    }
+    const blocked = await verify("198.51.100.50", { mfaToken: challenge(4242), totpCode: totp.generate() });
+    expect(blocked.status).toBe(429);
+    expect(blocked.body.token).toBeUndefined();
+    // A different account's challenge is still accepted from a fresh IP.
+    expect((await verify("198.51.100.51", { mfaToken: challenge(4343), totpCode: totp.generate() })).status).toBe(200);
+  });
+});

@@ -1,4 +1,5 @@
 import { Router, type Request, type Response } from "express";
+import { randomInt } from "node:crypto";
 import { eq, and, inArray, or } from "drizzle-orm";
 import rateLimit from "express-rate-limit";
 import { db, pickupDelegatesTable, childrenTable, familiesTable, usersTable, notificationsTable } from "@workspace/db";
@@ -47,8 +48,9 @@ const PICKUP_DELEGATE_TARGET = "child_set";
 const OPERATION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 class PickupDelegatePhotoBindingError extends Error {}
 
+// Pickup codes help authorise a child's release, so they must be unpredictable.
 function generateOTP(): string {
-  return Math.floor(100000 + Math.random() * 900000).toString();
+  return randomInt(100000, 1000000).toString();
 }
 
 export async function sendPickupDelegateOtpAfterCommit(
