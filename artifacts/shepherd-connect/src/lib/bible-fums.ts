@@ -9,9 +9,13 @@
 const FUMS_URL = "https://fums.api.bible/f3";
 const DEVICE_KEY = "bible-fums-device";
 
-function randomId(): string {
+/** 128-bit random hex ID from the browser's cryptographic generator
+ *  (crypto.getRandomValues, available on old smart-TV browsers too). */
+export function randomId(): string {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
   let out = "";
-  for (let i = 0; i < 4; i += 1) out += Math.random().toString(36).slice(2, 10);
+  for (let i = 0; i < bytes.length; i += 1) out += (bytes[i] < 16 ? "0" : "") + bytes[i].toString(16);
   return out;
 }
 
@@ -35,8 +39,8 @@ export function fumsReportUrl(token: string, device: string, session: string): s
 
 export function reportBibleView(token: string | null | undefined): void {
   if (!token || typeof Image === "undefined") return;
-  if (!sessionId) sessionId = randomId();
   try {
+    if (!sessionId) sessionId = randomId();
     const beacon = new Image();
     beacon.referrerPolicy = "no-referrer";
     beacon.src = fumsReportUrl(token, deviceId(), sessionId);
