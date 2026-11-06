@@ -130,4 +130,38 @@ describe("checkout operation reliability", () => {
     expect(submit).toHaveBeenCalledWith(21, stableUuid);
     expect(op.state.pending).toMatchObject({ attendanceId: 21, operationId: stableUuid });
   });
+
+  it("sends pickup proof, keeps it only in memory, and resends it on retry", async () => {
+    const proof = { method: "family_qr" as const, qrCode: "FAM-AB12CD" };
+    const submit = vi.fn()
+      .mockRejectedValueOnce(new TypeError("timeout"))
+      .mockResolvedValueOnce(result);
+    const reconcile = vi.fn().mockRejectedValue(apiError(404));
+    const [op] = operation(submit, reconcile);
+    await op.submit(11, { releaseProof: proof });
+    expect(submit).toHaveBeenLastCalledWith(11, stableUuid, { releaseProof: proof });
+    expect(op.state.phase).toBe("idle");
+    expect([...storageValues.values()].join("")).not.toContain("FAM-AB12CD");
+    expect(op.canRetryWithoutInput()).toBe(true);
+
+    await op.submit(11);
+    expect(submit).toHaveBeenLastCalledWith(11, stableUuid, { releaseProof: proof });
+    expect(op.state.phase).toBe("applied");
+    expect(op.canRetryWithoutInput()).toBe(false);
+  });
+
+  it("requires verifying again after a reload because proof is never restored", async () => {
+    const proof = { method: "delegate_otp" as const, otpCode: "123456" };
+    const [first] = operation(vi.fn().mockRejectedValue(new TypeError("offline")), vi.fn().mockRejectedValue(apiError(404)));
+    await first.submit(11, { releaseProof: proof });
+    expect(first.state.pending?.operationId).toBe(stableUuid);
+    expect([...storageValues.values()].join("")).not.toContain("123456");
+
+    const submit = vi.fn().mockResolvedValue(result);
+    const [reloaded] = operation(submit, vi.fn());
+    expect(reloaded.state.pending?.operationId).toBe(stableUuid);
+    expect(reloaded.canRetryWithoutInput()).toBe(false);
+    await reloaded.submit(11, { releaseProof: proof });
+    expect(submit).toHaveBeenCalledWith(11, stableUuid, { releaseProof: proof });
+  });
 });

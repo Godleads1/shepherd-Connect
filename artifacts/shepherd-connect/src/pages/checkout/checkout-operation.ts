@@ -191,4 +191,11 @@ export class CheckoutOperation {
   recover() {
     return this.reconcile(this.state.pending);
   }
+
+  /** True when the pending operation can be resent as-is: its pickup proof is
+   *  still in memory. After a reload, staff must verify pickup again. */
+  canRetryWithoutInput() {
+    const pending = this.state.pending;
+    return !!pending && !pending.requiresOverrideReason && this.lastProof?.operationId === pending.operationId;
+  }
 }

@@ -81,7 +81,12 @@ export function useCheckoutOperation({
     return submit(pending.attendanceId, input);
   }, [state, submit]);
 
-  return { state, submit, checkStatus, retry };
+  const canRetryWithoutInput = useCallback(
+    () => operationRef.current?.canRetryWithoutInput() ?? false,
+    [],
+  );
+
+  return { state, submit, checkStatus, retry, canRetryWithoutInput };
 }
 
 export function CheckoutRecoveryControls({

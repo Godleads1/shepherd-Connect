@@ -13,7 +13,8 @@ import { useAuth } from "@/contexts/auth";
 import LocationBanner from "@/components/LocationBanner";
 import { type CheckoutOperationState } from "./checkout-operation";
 import { CheckoutRecoveryControls, useCheckoutOperation } from "./use-checkout-operation";
-import { getCheckoutAccess } from "./checkout-policy";
+import { checkoutErrorMessage, getCheckoutAccess, helperCodeProof } from "./checkout-policy";
+import type { CheckoutReleaseProof } from "@workspace/api-client-react";
 import {
   type CheckoutRecord,
   useCustodyAwareCheckout,
@@ -233,7 +234,7 @@ function PickupQueue({
       toast({
         variant: "destructive",
         title: "Handover failed",
-        description: error?.message || "The checkout was not completed.",
+        description: checkoutErrorMessage(error),
       });
     } finally {
       setHandingOver(null);
@@ -304,9 +305,7 @@ function PickupQueue({
                         ? "…"
                         : blockedMessage
                           ? "Not permitted"
-                          : access.kind === "admin_override"
-                            ? "Override & hand over"
-                            : "Hand Over"}
+                          : "Hand Over"}
                     </Button>
                     {blockedMessage && (
                       <p className="max-w-64 text-right text-xs text-red-600">{blockedMessage}</p>
@@ -341,7 +340,7 @@ export default function Checkout() {
     if (result.error) throw result.error;
   }, [refetch]);
   const checkoutTransport = useMemo(() => ({
-    submit: (id: number, operationId: string, input?: { overrideReason?: string }) =>
+    submit: (id: number, operationId: string, input?: { overrideReason?: string; releaseProof?: CheckoutReleaseProof }) =>
       checkOut(id, { operationId, ...input }),
     reconcile: getCheckoutOperation,
   }), []);
@@ -353,6 +352,7 @@ export default function Checkout() {
     submit: runCheckout,
     checkStatus: checkCheckoutStatus,
     retry: retryCheckout,
+    canRetryWithoutInput,
   } = useCheckoutOperation({
     userId: user?.id,
     transport: checkoutTransport,
@@ -361,7 +361,7 @@ export default function Checkout() {
   });
   const {
     requestCheckout,
-    overrideDialog,
+    verifyDialog,
     promptOpen: custodyOverridePromptOpen,
   } = useCustodyAwareCheckout({
     role: user?.role,
@@ -387,7 +387,7 @@ export default function Checkout() {
       if (state.phase !== "applied" && state.phase !== "already_applied") throw state.error;
       toast({ title: state.phase === "already_applied" ? "Child was already checked out" : "Checked out successfully" });
     } catch (error: any) {
-      toast({ variant: "destructive", title: "Checkout failed", description: error?.message });
+      toast({ variant: "destructive", title: "Checkout failed", description: checkoutErrorMessage(error) });
     }
   };
 
@@ -401,7 +401,8 @@ export default function Checkout() {
     setApprovalState("idle");
     try {
       const res = await apiPost<any>("/pickup-delegates/verify-otp", { otpCode: otpInput.trim() });
-      setOtpResult({ success: true, data: res });
+      // Keep the verified code: the server checks it again at checkout.
+      setOtpResult({ success: true, data: res, otpCode: otpInput.trim() });
       toast({ title: "OTP verified! Delegate is authorised." });
     } catch (e: any) {
       setOtpResult({ success: false, message: e.message || "Invalid OTP" });
@@ -413,7 +414,9 @@ export default function Checkout() {
 
   const handleOtpCheckout = async (record: CheckoutRecord) => {
     try {
-      const state = await requestCheckout(record);
+      const otpCode = otpResult?.otpCode;
+      if (!otpCode) throw new Error("Verify the helper's code again before checking out.");
+      const state = await requestCheckout(record, helperCodeProof(otpCode));
       if (!state) return;
       if (state.phase === "unknown") {
         toast({ variant: "destructive", title: "Checkout status is temporarily unknown" });
@@ -431,7 +434,7 @@ export default function Checkout() {
       toast({ title: state.phase === "already_applied" ? "Child was already checked out" : "Child checked out via delegate OTP" });
       setOtpInput(""); setOtpResult(null);
     } catch (error: any) {
-      toast({ variant: "destructive", title: "Checkout failed", description: error?.message });
+      toast({ variant: "destructive", title: "Checkout failed", description: checkoutErrorMessage(error) });
     }
   };
 
@@ -560,9 +563,7 @@ export default function Checkout() {
                       <LogOut className="w-4 h-4" />
                       {blockedMessage
                         ? "Not permitted"
-                        : access.kind === "admin_override"
-                          ? "Override & Check Out"
-                          : "Check Out"}
+                        : "Check Out"}
                     </Button>
                     {blockedMessage && (
                       <p className="max-w-72 text-right text-xs text-red-600">{blockedMessage}</p>
@@ -699,9 +700,7 @@ export default function Checkout() {
                                  <LogOut className="w-4 h-4" />
                                  {access.kind === "blocked"
                                    ? `Checkout unavailable for ${child.firstName}`
-                                   : access.kind === "admin_override"
-                                     ? `Override & check out ${child.firstName}`
-                                     : `Confirm Checkout for ${child.firstName}`}
+                                   : `Confirm Checkout for ${child.firstName}`}
                                </Button>
                                {access.kind === "blocked" && (
                                  <p className="text-xs text-red-600">{access.message}</p>
@@ -748,18 +747,20 @@ export default function Checkout() {
         onCheckStatus={() => void checkCheckoutStatus()}
         onRetry={() => {
           const pending = checkoutState.pending;
-          if (pending?.requiresOverrideReason) {
+          if (pending && !canRetryWithoutInput()) {
+            // Pickup proof is never stored, so after a reload (or for an
+            // override) staff verify again on the same checkout operation.
             const record = activeRecords.find((item: any) => item.id === pending.attendanceId);
             void requestCheckout(record ?? {
               id: pending.attendanceId,
-              custodyEpisodeId: -1,
+              custodyEpisodeId: pending.requiresOverrideReason ? -1 : null,
             });
           } else {
             void retryCheckout();
           }
         }}
       />
-      {overrideDialog}
+      {verifyDialog}
     </div>
   );
 }

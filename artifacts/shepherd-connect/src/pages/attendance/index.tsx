@@ -1,19 +1,19 @@
 import { useState, useCallback, useMemo } from "react";
-import { useListAttendance, useListClasses, useCompleteCustodyPickup, useOverrideCustodyPickup, checkOut, getCheckoutOperation } from "@workspace/api-client-react";
+import { useListAttendance, useListClasses, checkOut, getCheckoutOperation, type CheckoutReleaseProof } from "@workspace/api-client-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Filter, X, Calendar, Download, CheckCircle2, ShieldAlert } from "lucide-react";
+import { Filter, X, Calendar, Download, CheckCircle2 } from "lucide-react";
 import { useAuth } from "@/contexts/auth";
 import { useToast } from "@/hooks/use-toast";
 import { apiGet, apiPost } from "@/lib/api-call";
 import { useQuery } from "@tanstack/react-query";
 import { CheckoutRecoveryControls, useCheckoutOperation } from "../checkout/use-checkout-operation";
 import { formatServiceDate, formatWatTime, SERVICE_TIME_ZONE, watServiceDateAt } from "@/lib/wat-date";
-import { beginCustodyCheckout, submitCustodyOverride } from "./custody-checkout-operation";
+import { useCustodyAwareCheckout } from "../checkout/use-custody-aware-checkout";
+import { checkoutErrorMessage } from "../checkout/checkout-policy";
 
 const STATUS_OPTS = [
   { value: "all", label: "All Statuses" },
@@ -71,7 +71,8 @@ export default function Attendance() {
     if (todayAttendance.error) throw todayAttendance.error;
   }, [refetch, refetchToday]);
   const checkoutTransport = useMemo(() => ({
-    submit: (id: number, operationId: string) => checkOut(id, { operationId }),
+    submit: (id: number, operationId: string, input?: { overrideReason?: string; releaseProof?: CheckoutReleaseProof }) =>
+      checkOut(id, { operationId, ...input }),
     reconcile: getCheckoutOperation,
   }), []);
   const checkoutRefreshFailure = useCallback(() => {
@@ -82,12 +83,21 @@ export default function Attendance() {
     submit: submitCheckout,
     checkStatus: checkCheckoutStatus,
     retry: retryCheckout,
+    canRetryWithoutInput,
   } = useCheckoutOperation({
     userId: user?.id,
     transport: checkoutTransport,
     onCommitted: refreshCheckout,
     onRefreshFailure: checkoutRefreshFailure,
   });
+  // Every release needs verified pickup proof (or an Admin/Super Admin
+  // override reason). Custody rows are released through their custody
+  // episode by the same server endpoint.
+  const {
+    requestCheckout,
+    verifyDialog,
+    promptOpen: verifyPromptOpen,
+  } = useCustodyAwareCheckout({ role: user?.role, submit: submitCheckout });
   const todayRecords: any[] = Array.isArray(todayRaw) ? todayRaw : ((todayRaw as any)?.data ?? []);
   const pendingToday = isParent ? [] : todayRecords.filter((r: any) => r.status === "in_transit" || r.status === "dropped_off");
 
@@ -101,67 +111,24 @@ export default function Attendance() {
   const staleRecords: any[] = Array.isArray(staleRaw) ? staleRaw : [];
   const [clearingStale, setClearingStale] = useState(false);
 
-  const completeCustodyMutation = useCompleteCustodyPickup();
-  const overrideCustodyMutation = useOverrideCustodyPickup();
-  const [overrideEpisodeId, setOverrideEpisodeId] = useState<number | null>(null);
-  const [overrideReason, setOverrideReason] = useState("");
-
   const handleCheckout = async (record: any) => {
-    if (record.custodyEpisodeId) {
-      try {
-        const outcome = await beginCustodyCheckout({
-          role: user?.role,
-          episodeId: record.custodyEpisodeId,
-          completeSupportPickup: (id) => completeCustodyMutation.mutateAsync({ id }),
-          openOverride: setOverrideEpisodeId,
-        });
-        if (outcome === "override_requested") return;
-        toast({ title: "Checked out", description: "Custody handed over successfully." });
-        refetch();
-        refetchToday();
-      } catch (e: any) {
-        toast({ variant: "destructive", title: "Checkout Failed", description: e.message });
-      }
-    } else {
-      // Legacy checkout
-      try {
-        const state = await submitCheckout(record.id);
-        if (!state || (state.phase !== "applied" && state.phase !== "already_applied")) {
-          if (state?.phase === "unknown") {
-            toast({ variant: "destructive", title: "Checkout status is temporarily unknown" });
-            return;
-          }
-          if (state?.pending) {
-            toast({ variant: "destructive", title: "Checkout was not confirmed", description: "Retry to reuse the same checkout operation." });
-            return;
-          }
-          throw state?.error || new Error("Checkout could not be completed");
-        }
-        toast({ title: "Checked out successfully" });
-      } catch (e: any) {
-        toast({ variant: "destructive", title: "Checkout Failed", description: e.message });
-      }
-    }
-  };
-
-  const submitOverride = async () => {
     try {
-      const submitted = await submitCustodyOverride({
-        episodeId: overrideEpisodeId,
-        reason: overrideReason,
-        overridePickup: (id, reason) => overrideCustodyMutation.mutateAsync({
-          id,
-          data: { reason }
-        }),
-      });
-      if (!submitted) return;
-      toast({ title: "Override Successful", description: "Child has been checked out." });
-      setOverrideEpisodeId(null);
-      setOverrideReason("");
-      refetch();
-      refetchToday();
+      const state = await requestCheckout(record);
+      if (!state) return;
+      if (state.phase !== "applied" && state.phase !== "already_applied") {
+        if (state.phase === "unknown") {
+          toast({ variant: "destructive", title: "Checkout status is temporarily unknown" });
+          return;
+        }
+        if (state.pending) {
+          toast({ variant: "destructive", title: "Checkout was not confirmed", description: "Retry to reuse the same checkout operation." });
+          return;
+        }
+        throw state.error || new Error("Checkout could not be completed");
+      }
+      toast({ title: state.phase === "already_applied" ? "Child was already checked out" : "Checked out successfully" });
     } catch (e: any) {
-      toast({ variant: "destructive", title: "Override Failed", description: e.message });
+      toast({ variant: "destructive", title: "Checkout Failed", description: checkoutErrorMessage(e) });
     }
   };
 
@@ -309,7 +276,20 @@ export default function Attendance() {
       <CheckoutRecoveryControls
         state={checkoutState}
         onCheckStatus={() => void checkCheckoutStatus()}
-        onRetry={() => void retryCheckout()}
+        onRetry={() => {
+          const pending = checkoutState.pending;
+          if (pending && !canRetryWithoutInput()) {
+            // Pickup proof is never stored; verify again on the same operation.
+            const record = [...todayRecords, ...records]
+              .find((item: any) => item.id === pending.attendanceId);
+            void requestCheckout(record ?? {
+              id: pending.attendanceId,
+              custodyEpisodeId: pending.requiresOverrideReason ? -1 : null,
+            });
+          } else {
+            void retryCheckout();
+          }
+        }}
       />
 
       {/* Filters */}
@@ -428,11 +408,12 @@ export default function Attendance() {
                             size="sm"
                             variant="outline"
                             onClick={() => handleCheckout(r)}
-                            disabled={!r.custodyEpisodeId && (
+                            disabled={
                               checkoutState.phase === "submitting"
                               || checkoutState.phase === "reconciling"
                               || !!checkoutState.pending
-                            )}
+                              || verifyPromptOpen
+                            }
                           >
                             Check Out
                           </Button>
@@ -447,32 +428,7 @@ export default function Attendance() {
         </div>
       </div>
 
-      <Dialog open={!!overrideEpisodeId} onOpenChange={(o) => !o && setOverrideEpisodeId(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-red-600">
-              <ShieldAlert className="w-5 h-5" /> Admin Checkout Override
-            </DialogTitle>
-          </DialogHeader>
-          <div className="py-4">
-            <p className="text-sm text-gray-600 mb-4">
-              You are overriding a custodian checkout. Please provide a reason (e.g., "Parent picked up directly", "Duty manager verified").
-            </p>
-            <Input
-              value={overrideReason}
-              onChange={(e) => setOverrideReason(e.target.value)}
-              placeholder="Reason for override..."
-              autoFocus
-            />
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setOverrideEpisodeId(null)}>Cancel</Button>
-            <Button variant="destructive" onClick={submitOverride} disabled={!overrideReason.trim() || overrideCustodyMutation.isPending}>
-              Override Checkout
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {verifyDialog}
     </div>
   );
 }

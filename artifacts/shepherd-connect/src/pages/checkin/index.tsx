@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
-import { useScanQrCode, useCheckIn, useEscortToClass, useScanFace, useListAttendance, useListPendingCustodyEpisodes, useAcceptCustodyEpisode, useAssistCustodyEpisode, getListPendingCustodyEpisodesQueryKey, checkOut, getCheckoutOperation } from "@workspace/api-client-react";
+import { useScanQrCode, useCheckIn, useEscortToClass, useScanFace, useListAttendance, useListPendingCustodyEpisodes, useAcceptCustodyEpisode, useAssistCustodyEpisode, getListPendingCustodyEpisodesQueryKey, checkOut, getCheckoutOperation, type CheckoutReleaseProof } from "@workspace/api-client-react";
 import { Input } from "@/components/ui/input";
 import { AlertTriangle, CheckCircle, QrCode, Scan, Truck, ShieldCheck, Users, Camera, WifiOff, Upload, HandHelping, Music, Send, Printer } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
@@ -16,6 +16,8 @@ import { apiGet, apiPost, apiDelete } from "@/lib/api-call";
 import { useQuery } from "@tanstack/react-query";
 import { watServiceDateAt } from "@/lib/wat-date";
 import { CheckoutRecoveryControls, useCheckoutOperation } from "../checkout/use-checkout-operation";
+import { useCustodyAwareCheckout } from "../checkout/use-custody-aware-checkout";
+import { checkoutErrorMessage, familyQrProof, parseFamilyQr } from "../checkout/checkout-policy";
 
 type Tab = "qr" | "face" | "assist";
 type SlotChoice = "7am" | "10:30am" | "both";
@@ -86,6 +88,9 @@ export default function CheckIn() {
       ]
     : DEFAULT_SLOT_OPTIONS;
   const [scanResult, setScanResult] = useState<any>(null);
+  // Family QR this device just scanned; proves the parent is present when the
+  // same family's child is checked out. Face matches never count as proof.
+  const [scannedFamilyQr, setScannedFamilyQr] = useState<string | null>(null);
   const [faceMatched, setFaceMatched] = useState(false);
   const [childSlots, setChildSlots] = useState<Record<number, SlotChoice>>({});
   const [cameraOpen, setCameraOpen] = useState(false);
@@ -117,7 +122,8 @@ export default function CheckIn() {
     if (result.error) throw result.error;
   }, [refetchAttendance]);
   const checkoutTransport = useMemo(() => ({
-    submit: (id: number, operationId: string) => checkOut(id, { operationId }),
+    submit: (id: number, operationId: string, input?: { overrideReason?: string; releaseProof?: CheckoutReleaseProof }) =>
+      checkOut(id, { operationId, ...input }),
     reconcile: getCheckoutOperation,
   }), []);
   const checkoutRefreshFailure = useCallback(() => {
@@ -128,12 +134,18 @@ export default function CheckIn() {
     submit: submitCheckout,
     checkStatus: checkCheckoutStatus,
     retry: retryCheckout,
+    canRetryWithoutInput,
   } = useCheckoutOperation({
     userId: user?.id,
     transport: checkoutTransport,
     onCommitted: refreshCheckout,
     onRefreshFailure: checkoutRefreshFailure,
   });
+  const {
+    requestCheckout,
+    verifyDialog,
+    promptOpen: verifyPromptOpen,
+  } = useCustodyAwareCheckout({ role: user?.role, submit: submitCheckout });
   const attendanceList: any[] = Array.isArray(todayAttendance) ? todayAttendance : [];
 
   // Hall session state — fetched once on mount and after bulk-escort clears it
@@ -193,6 +205,10 @@ export default function CheckIn() {
         data: { qrCode, serviceDate: today, serviceSlot: serviceSlot === "both" ? "7am" : serviceSlot }
       });
       setScanResult(result);
+      const scannedCode = parseFamilyQr(qrCode);
+      setScannedFamilyQr(
+        scannedCode && scannedCode === parseFamilyQr((result as any)?.family?.familyCode ?? "") ? scannedCode : null,
+      );
       setChildSlots({});
       setQrCode("");
       refetchAttendance();
@@ -213,6 +229,7 @@ export default function CheckIn() {
     try {
       const result = await scanFaceMutation.mutateAsync({ data: { descriptor } });
       setScanResult(result);
+      setScannedFamilyQr(null);
       setChildSlots({});
       setFaceMatched(true);
       refetchAttendance();
@@ -239,8 +256,14 @@ export default function CheckIn() {
     if (!record) return;
     setCheckingOut(child.id);
     try {
-      const state = await submitCheckout(record.id);
-      if (!state || (state.phase !== "applied" && state.phase !== "already_applied")) {
+      // The family QR scanned for this family is the pickup proof; otherwise
+      // (e.g. a face match) staff are asked to scan the parent's QR.
+      const proof = scannedFamilyQr && scanResult?.children?.some((c: any) => c.id === child.id)
+        ? familyQrProof(scannedFamilyQr)
+        : undefined;
+      const state = await requestCheckout({ ...record, child }, proof);
+      if (!state) return;
+      if (state.phase !== "applied" && state.phase !== "already_applied") {
         if (state?.phase === "unknown") {
           toast({ variant: "destructive", title: "Checkout status is temporarily unknown" });
           return;
@@ -253,7 +276,7 @@ export default function CheckIn() {
       }
       toast({ title: `${child.firstName} checked out`, description: "Parent and class teacher have been notified." });
     } catch (e: any) {
-      toast({ variant: "destructive", title: "Check out failed", description: e.message });
+      toast({ variant: "destructive", title: "Check out failed", description: checkoutErrorMessage(e) });
     } finally {
       setCheckingOut(null);
     }
@@ -460,7 +483,7 @@ export default function CheckIn() {
     }
   };
 
-  const clearScan = () => { setScanResult(null); setFaceMatched(false); setChildSlots({}); };
+  const clearScan = () => { setScanResult(null); setScannedFamilyQr(null); setFaceMatched(false); setChildSlots({}); };
 
   const printBadge = (child: any, familyCode?: string) => {
     const win = window.open("", "_blank", "width=400,height=300");
@@ -528,8 +551,21 @@ export default function CheckIn() {
       <CheckoutRecoveryControls
         state={checkoutState}
         onCheckStatus={() => void checkCheckoutStatus()}
-        onRetry={() => void retryCheckout()}
+        onRetry={() => {
+          const pending = checkoutState.pending;
+          if (pending && !canRetryWithoutInput()) {
+            // Pickup proof is never stored; verify again on the same operation.
+            const record = attendanceList.find((item: any) => item.id === pending.attendanceId);
+            void requestCheckout(record ?? {
+              id: pending.attendanceId,
+              custodyEpisodeId: pending.requiresOverrideReason ? -1 : null,
+            });
+          } else {
+            void retryCheckout();
+          }
+        }}
       />
+      {verifyDialog}
 
       {/* Pending Custody Requests */}
       {(pendingEpisodes && pendingEpisodes.length > 0) && (
@@ -874,6 +910,7 @@ export default function CheckIn() {
                                 || checkoutState.phase === "submitting"
                                 || checkoutState.phase === "reconciling"
                                 || !!checkoutState.pending
+                                || verifyPromptOpen
                               }
                               data-testid={`button-checkout-${child.id}`}
                               className="flex-1 h-14 rounded-xl font-bold text-sm transition-all active:scale-95 disabled:opacity-60 flex items-center justify-center gap-1.5"
