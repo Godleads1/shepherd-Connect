@@ -7,6 +7,8 @@ Shared classroom screens must use a non-expiring, revocable, read-only credentia
 
 **Expiration policy:** The user explicitly requested deactivation of screen display link expiration. Existing and new links remain valid until revoked or replaced; historical expiry timestamps are not authorization boundaries.
 
+The TV keeps its link in localStorage (not sessionStorage), so browser restarts/power cycles do not end the session; only revoke or a newly issued link does. The user asked (2026-11-06) that no TV session ever expires.
+
 **Why:** The user wants screens to keep working without renewing links. Preserve class isolation and revocation rather than restoring automatic expiry.
 
 **Why:** The classroom display intentionally works without an interactive staff login, but it shows sensitive live pickup information. A normal staff token would expose broader APIs and remain usable if copied from the shared device.

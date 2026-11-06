@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useParams } from "wouter";
 import { apiPost } from "../../lib/api-call";
-import { handleClassroomDisplayMessage, LatestRequest, reconnectDelay } from "../../lib/classroom-display-reliability";
+import {
+  forgetDisplayToken, handleClassroomDisplayMessage, LatestRequest, loadDisplayToken, reconnectDelay, saveDisplayToken,
+} from "../../lib/classroom-display-reliability";
 import {
   buildTickerAlerts,
   tickerPassSeconds,
@@ -622,7 +624,6 @@ function NotifBanner({ onRequest }: { onRequest: () => void }) {
 
 // ── Main component ───────────────────────────────────────────────────────────────
 const STORAGE_KEY = "classroom-display-yt-id";
-const DISPLAY_TOKEN_KEY = "classroom-display-token";
 
 export default function ClassroomDisplay() {
   const { classId } = useParams<{ classId: string }>();
@@ -638,11 +639,9 @@ export default function ClassroomDisplay() {
   const [reconcileGeneration, setReconcileGeneration] = useState(0);
   const [displayToken, setDisplayToken] = useState<string>(() => {
     if (!Number.isFinite(classIdNum)) return "";
-    const key = `${DISPLAY_TOKEN_KEY}-${classIdNum}`;
     const params = new URLSearchParams(window.location.search);
-    const token = params.get("display") ?? sessionStorage.getItem(key) ?? "";
+    const token = loadDisplayToken(classIdNum, params.get("display"), localStorage, sessionStorage);
     if (token) {
-      sessionStorage.setItem(key, token);
       if (params.has("display")) {
         params.delete("display");
         const query = params.toString();
@@ -704,7 +703,7 @@ export default function ClassroomDisplay() {
     setReconnectError(null);
     try {
       const cred = await apiPost<{ token: string }>("/pickup-requests/display-credentials", { classId: classIdNum });
-      sessionStorage.setItem(`${DISPLAY_TOKEN_KEY}-${classIdNum}`, cred.token);
+      saveDisplayToken(classIdNum, cred.token, localStorage, sessionStorage);
       setAccessError(null);
       setDisplayToken(cred.token); // SSE effect reconnects with the new token
     } catch (e) {
@@ -816,7 +815,7 @@ export default function ClassroomDisplay() {
         connection.close();
         clearTimeout(retryTimeout);
         setConnected(false);
-        sessionStorage.removeItem(`${DISPLAY_TOKEN_KEY}-${classIdNum}`);
+        forgetDisplayToken(classIdNum, localStorage, sessionStorage);
         let reason = "This classroom display link is invalid or revoked.";
         try {
           const parsed = JSON.parse((event as MessageEvent).data);

@@ -53,3 +53,36 @@ export class LatestRequest {
     this.controller?.abort();
   }
 }
+// ── Display link storage ─────────────────────────────────────────────────────
+// TV links never expire; only a revoke or a newly issued link ends them. The
+// link is kept in localStorage so it survives the TV browser being closed,
+// restarted or powered off. Older screens kept it in sessionStorage, which a
+// restart wiped — that is read once and moved across.
+type KeyValueStore = Pick<Storage, "getItem" | "setItem" | "removeItem">;
+const DISPLAY_TOKEN_KEY = "classroom-display-token";
+
+export function displayTokenKey(classId: number): string {
+  return `${DISPLAY_TOKEN_KEY}-${classId}`;
+}
+
+export function loadDisplayToken(
+  classId: number,
+  urlToken: string | null,
+  persistent: KeyValueStore,
+  legacy?: KeyValueStore,
+): string {
+  const key = displayTokenKey(classId);
+  const token = urlToken || persistent.getItem(key) || legacy?.getItem(key) || "";
+  if (token) saveDisplayToken(classId, token, persistent, legacy);
+  return token;
+}
+
+export function saveDisplayToken(classId: number, token: string, persistent: KeyValueStore, legacy?: KeyValueStore): void {
+  persistent.setItem(displayTokenKey(classId), token);
+  legacy?.removeItem(displayTokenKey(classId));
+}
+
+export function forgetDisplayToken(classId: number, persistent: KeyValueStore, legacy?: KeyValueStore): void {
+  persistent.removeItem(displayTokenKey(classId));
+  legacy?.removeItem(displayTokenKey(classId));
+}

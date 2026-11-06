@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   LatestRequest,
+  displayTokenKey,
+  forgetDisplayToken,
+  loadDisplayToken,
+  saveDisplayToken,
   isLegacyDisplayInvalidation,
   handleClassroomDisplayMessage,
   reconnectDelay,
@@ -78,4 +82,49 @@ describe("classroom display convergence controls", () => {
       expect(applyRefresh).not.toHaveBeenCalled();
     },
   );
+});
+function memoryStore(initial: Record<string, string> = {}) {
+  const data = new Map(Object.entries(initial));
+  return {
+    data,
+    getItem: (k: string) => data.get(k) ?? null,
+    setItem: (k: string, v: string) => { data.set(k, v); },
+    removeItem: (k: string) => { data.delete(k); },
+  };
+}
+
+describe("classroom display link storage", () => {
+  it("keeps a link from the URL in persistent storage so a TV restart does not lose it", () => {
+    const persistent = memoryStore();
+    const legacy = memoryStore();
+    expect(loadDisplayToken(7, "url-token", persistent, legacy)).toBe("url-token");
+    expect(persistent.data.get(displayTokenKey(7))).toBe("url-token");
+    // Simulate the browser being closed: tab-only storage is gone, no URL token.
+    expect(loadDisplayToken(7, null, persistent, memoryStore())).toBe("url-token");
+  });
+
+  it("moves a link saved by an older screen out of tab-only storage", () => {
+    const persistent = memoryStore();
+    const legacy = memoryStore({ [displayTokenKey(3)]: "old-token" });
+    expect(loadDisplayToken(3, null, persistent, legacy)).toBe("old-token");
+    expect(persistent.data.get(displayTokenKey(3))).toBe("old-token");
+    expect(legacy.data.has(displayTokenKey(3))).toBe(false);
+  });
+
+  it("prefers a newly opened URL link over a stored one", () => {
+    const persistent = memoryStore({ [displayTokenKey(5)]: "stored" });
+    expect(loadDisplayToken(5, "fresh", persistent)).toBe("fresh");
+    expect(persistent.data.get(displayTokenKey(5))).toBe("fresh");
+  });
+
+  it("keeps links per class and forgets only the revoked class", () => {
+    const persistent = memoryStore();
+    const legacy = memoryStore({ [displayTokenKey(1)]: "legacy-1" });
+    saveDisplayToken(1, "one", persistent, legacy);
+    saveDisplayToken(2, "two", persistent, legacy);
+    expect(legacy.data.size).toBe(0);
+    forgetDisplayToken(1, persistent, legacy);
+    expect(loadDisplayToken(1, null, persistent, legacy)).toBe("");
+    expect(loadDisplayToken(2, null, persistent, legacy)).toBe("two");
+  });
 });
