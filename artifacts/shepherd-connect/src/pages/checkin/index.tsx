@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
-import { useScanQrCode, useCheckIn, useEscortToClass, useScanFace, useListAttendance, useListPendingCustodyEpisodes, useAcceptCustodyEpisode, getListPendingCustodyEpisodesQueryKey, checkOut, getCheckoutOperation } from "@workspace/api-client-react";
+import { useScanQrCode, useCheckIn, useEscortToClass, useScanFace, useListAttendance, useListPendingCustodyEpisodes, useAcceptCustodyEpisode, useAssistCustodyEpisode, getListPendingCustodyEpisodesQueryKey, checkOut, getCheckoutOperation } from "@workspace/api-client-react";
 import { Input } from "@/components/ui/input";
 import { AlertTriangle, CheckCircle, QrCode, Scan, Truck, ShieldCheck, Users, Camera, WifiOff, Upload, HandHelping, Music, Send, Printer } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
@@ -63,6 +63,9 @@ function ChildSlotPicker({
 export default function CheckIn() {
   const { user } = useAuth();
   const canAssist = user?.role === "support" || user?.role === "admin" || user?.role === "super_admin";
+  // Support accepts children only after scanning the parent's QR code; the
+  // acceptance raises the "child is coming" alert on the class TV.
+  const canAcceptCustody = user?.role === "support";
   const [qrCode, setQrCode] = useState("");
   const [activeTab, setActiveTab] = useState<Tab>("qr");
   const [serviceSlot, setServiceSlot] = useState<SlotChoice>("7am");
@@ -266,13 +269,24 @@ export default function CheckIn() {
       await acceptCustodyMutation.mutateAsync({
         data: { episodeId, eventId: crypto.randomUUID() }
       });
-      toast({ title: `Accepted ${childName}`, description: "Child marked as in class." });
+      toast({ title: `Accepted ${childName}`, description: "Child marked as in class. The class TV has been alerted." });
       refetchPending();
       refetchAttendance();
     } catch (e: any) {
       toast({ variant: "destructive", title: "Failed to accept custody", description: e.message });
     }
   };
+
+  const assistCustodyMutation = useAssistCustodyEpisode();
+  /** Support accepts a scanned child the parent hadn't sent ahead, for the chosen service(s). */
+  const assistCustody = (childId: number, slot: SlotChoice) =>
+    assistCustodyMutation.mutateAsync({
+      data: {
+        childId,
+        requestedServices: slot === "both" ? "both" : slot === "7am" ? "first" : "second",
+        eventId: crypto.randomUUID(),
+      },
+    });
 
   const checkInForSlots = async (childId: number, classId: number, slots: SlotChoice) => {
     const slotsToBook: Array<"7am" | "10:30am"> =
@@ -382,6 +396,18 @@ export default function CheckIn() {
       return;
     }
 
+    if (canAcceptCustody) {
+      try {
+        await assistCustody(child.id, slot);
+        toast({ title: `Accepted ${child.firstName}`, description: "Child marked as in class. The class TV has been alerted." });
+        refetchAttendance();
+        refetchPending();
+      } catch (e: any) {
+        toast({ variant: "destructive", title: "Accept Failed", description: e?.data?.message ?? e?.message });
+      }
+      return;
+    }
+
     try {
       await checkInForSlots(child.id, child.currentClass.id, slot);
       const label = slot === "both" ? "both services" : slot === "7am" ? "1st service" : "2nd service";
@@ -404,16 +430,23 @@ export default function CheckIn() {
       return;
     }
     setCheckingInAll(true);
+    const acceptingOnline = canAcceptCustody && isOnline;
     let done = 0;
     for (const child of eligible) {
       const slot = getChildSlot(child);
       try {
-        await checkInForSlots(child.id, child.currentClass.id, slot);
+        if (acceptingOnline) await assistCustody(child.id, slot);
+        else await checkInForSlots(child.id, child.currentClass.id, slot);
         done++;
       } catch { /* skip individual failures */ }
     }
     refetchAttendance();
     setCheckingInAll(false);
+    if (acceptingOnline) {
+      refetchPending();
+      toast({ title: `${done} of ${eligible.length} children accepted`, description: "The class TVs have been alerted." });
+      return;
+    }
     toast({ title: `${done} of ${eligible.length} children checked in`, description: "Assign escorts to take them to their classes." });
   };
 
@@ -511,13 +544,9 @@ export default function CheckIn() {
                   <span className="font-semibold text-gray-800">{(ep as any).child?.firstName ? `${(ep as any).child.firstName} ${(ep as any).child.lastName}` : `Child #${ep.childId}`}</span>
                   <span className="text-xs text-gray-500 block">Family: {(ep as any).family?.familyCode || `#${ep.familyId}`} · Requested: {ep.requestedServices}</span>
                 </div>
-                <button
-                  onClick={() => handleAcceptCustody(ep.id, (ep as any).child?.firstName || `Child #${ep.childId}`)}
-                  disabled={acceptCustodyMutation.isPending}
-                  className="px-3 py-1.5 rounded-lg text-xs font-bold transition-all active:scale-95 disabled:opacity-60 bg-indigo-600 text-white hover:bg-indigo-700"
-                >
-                  Accept & Confirm
-                </button>
+                <span className="text-xs font-semibold text-indigo-700 text-right">
+                  Scan parent QR to accept
+                </span>
               </div>
             ))}
           </div>
@@ -766,13 +795,13 @@ export default function CheckIn() {
           ) && (
             <button
               onClick={handleCheckInAll}
-              disabled={checkingInAll || checkInMutation.isPending}
+              disabled={checkingInAll || checkInMutation.isPending || assistCustodyMutation.isPending}
               className="w-full h-14 rounded-2xl font-bold text-base transition-all active:scale-95 disabled:opacity-60 flex items-center justify-center gap-3 shadow-md"
               style={{ background: "linear-gradient(135deg, #1e3a8a, #1d4ed8)", color: "white" }}>
               <Users className="w-5 h-5" />
               {checkingInAll
-                ? "Checking in all children…"
-                : `Check In All ${scanResult.children.filter((c: any) =>
+                ? (canAcceptCustody && isOnline ? "Accepting all children…" : "Checking in all children…")
+                : `${canAcceptCustody && isOnline ? "Accept All" : "Check In All"} ${scanResult.children.filter((c: any) =>
                     c.currentClass &&
                     !isAlreadyCheckedIn(c.id) &&
                     !findPendingCustodyEpisode(pendingEpisodes, scanResult.family?.id, c.id)
@@ -824,7 +853,7 @@ export default function CheckIn() {
                     </div>
 
                     {/* Per-child service selector */}
-                    {!alreadyIn && child.currentClass && (
+                    {!alreadyIn && child.currentClass && !pendingCustody && (
                       <div>
                         <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">Service</p>
                         <ChildSlotPicker value={slot} onChange={v => setChildSlot(child.id, v)} slotOptions={slotOptions} />
@@ -872,11 +901,11 @@ export default function CheckIn() {
                       ) : (
                         <button
                           onClick={() => handleCheckIn(child)}
-                          disabled={!child.currentClass || checkInMutation.isPending || checkingInAll}
+                          disabled={!child.currentClass || checkInMutation.isPending || assistCustodyMutation.isPending || checkingInAll}
                           data-testid={`button-checkin-${child.id}`}
                           className="flex-1 h-14 rounded-xl font-bold text-base transition-all active:scale-95 disabled:opacity-50 flex flex-col items-center justify-center leading-tight"
                           style={{ background: "#1e3a8a", color: "white" }}>
-                          <span>Check In Child</span>
+                          <span>{canAcceptCustody && isOnline ? "Accept" : "Check In Child"}</span>
                           <span className="text-[10px] font-medium opacity-75 mt-0.5">
                             {slot === "both" ? "Both services" : slot === "7am" ? "1st service · 7 AM" : "2nd service · 10:30 AM"}
                           </span>

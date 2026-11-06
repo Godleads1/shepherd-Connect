@@ -22,7 +22,8 @@ describe("classroom TV alert ticker", () => {
     const alerts = buildTickerAlerts([{ id: "12", childName: "Tolu" }], [checkIn]);
     expect(alerts.map(a => a.key)).toEqual(["pickup:12", "checkin:7"]);
     expect(alerts[0].text).toContain("Tolu's parent is here for pickup");
-    expect(alerts[1].text).toContain("Ada is coming — checked in by Mrs Obi for the 7am service");
+    expect(alerts[1].text).toContain("Ada is coming — 7am service");
+    expect(alerts[1].text).not.toContain("Mrs Obi");
   });
 
   it("names merged classes and both-service check-ins", () => {

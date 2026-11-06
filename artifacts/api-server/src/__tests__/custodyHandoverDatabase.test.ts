@@ -6,6 +6,7 @@ import { sql } from "drizzle-orm";
 import app from "../app";
 import { generateToken } from "../middlewares/auth";
 import { acceptPhysicalCustody } from "../services/custodyHandover";
+import { getPendingCheckInAlertsForClass } from "../services/classroomDisplayAlerts";
 
 const databaseDescribe = process.env.RUN_DATABASE_ATTENDANCE_TESTS === "true" ? describe : describe.skip;
 const prefix = `custody-${Date.now()}`;
@@ -199,19 +200,20 @@ databaseDescribe("custody handover PostgreSQL integrity", () => {
     expect(new Set(attendance.rows.map((r: any) => r.custody_episode_id))).toEqual(new Set([episodeId]));
     const episode = (await db.execute(sql`SELECT custodian_user_id FROM custody_episodes WHERE id=${episodeId}`)).rows[0] as any;
     expect([supportId, otherSupportId]).toContain(Number(episode.custodian_user_id));
-    const wrongSupport = episode.custodian_user_id === supportId ? otherSupportId : supportId;
+    const winner = Number(episode.custodian_user_id);
+    const nonAcceptingSupport = winner === supportId ? otherSupportId : supportId;
     await db.execute(sql`INSERT INTO pickup_requests
       (child_id,class_id,service_date,requested_by,child_name,parent_name,class_name,status)
       VALUES (${childId},${firstClassId},${serviceDate},${parentId},'Child One','Parent One',${prefix},'requested')`);
-    expect((await request(app).post(`/api/custody-episodes/${episodeId}/pickup`).set("Authorization", token(wrongSupport, "support"))).status).toBe(403);
     expect(await count("pickup_requests", sql`child_id=${childId} AND status='requested'`)).toBe(1);
-    const winner = Number(episode.custodian_user_id);
+    // Any support worker may check the child out, not only the one who accepted.
     await Promise.all([
-      request(app).post(`/api/custody-episodes/${episodeId}/pickup`).set("Authorization", token(winner, "support")),
+      request(app).post(`/api/custody-episodes/${episodeId}/pickup`).set("Authorization", token(nonAcceptingSupport, "support")),
       request(app).post(`/api/custody-episodes/${episodeId}/override-pickup`).set("Authorization", token(adminId, "admin")).send({ reason: "Duty manager verified pickup" }),
     ]);
-    const closed = (await db.execute(sql`SELECT status,custodian_user_id,checkout_mode,override_reason FROM custody_episodes WHERE id=${episodeId}`)).rows[0] as any;
+    const closed = (await db.execute(sql`SELECT status,custodian_user_id,checkout_mode,override_reason,picked_up_by FROM custody_episodes WHERE id=${episodeId}`)).rows[0] as any;
     expect(closed.status).toBe("picked_up"); expect(Number(closed.custodian_user_id)).toBe(winner);
+    expect([nonAcceptingSupport, adminId]).toContain(Number(closed.picked_up_by));
     expect(await count("pickup_requests", sql`child_id=${childId} AND status='resolved'`)).toBe(1);
     expect(await count("notification_outbox", sql`domain_type='attendance' AND domain_identifier IN (SELECT id::text FROM attendance WHERE custody_episode_id=${episodeId})`)).toBe(12);
     const pickupMessages = (await db.execute(sql`
@@ -238,6 +240,61 @@ databaseDescribe("custody handover PostgreSQL integrity", () => {
       .send({ episodeId: next.body.episode.id, eventId: "return-acceptance" });
     expect(nextAcceptance.status).toBe(201);
     expect(await count("attendance", sql`custody_episode_id=${next.body.episode.id} AND status='in_class'`)).toBe(1);
+  });
+
+  it("only alerts the class TV after support accepts the parent's drop-off", async () => {
+    const requested = await createFor("first", "tv-after-accept");
+    const episodeId = requested.body.episode.id;
+    const ours = async () => (await getPendingCheckInAlertsForClass(firstClassId)).filter(a => a.childId === childId);
+    expect(await ours()).toEqual([]);
+    await request(app).post("/api/custody-episodes").set("Authorization", token(supportId, "support"))
+      .send({ episodeId, eventId: "tv-after-accept-accept" }).expect(201);
+    const alerts = await ours();
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0]).toMatchObject({ id: String(episodeId), childName: "Child One", requestedServices: "first" });
+    expect(alerts[0].acceptedAt).toEqual(expect.any(String));
+    await request(app).post(`/api/custody-episodes/${episodeId}/pickup`).set("Authorization", token(supportId, "support")).expect(200);
+    expect(await ours()).toEqual([]);
+  });
+
+  it("lets support start and accept a drop-off for a parent who hadn't started one", async () => {
+    const assist = (id: number, role: "support" | "admin" | "parent" | "attendant", body: Record<string, unknown>) =>
+      request(app).post("/api/custody-episodes/assist").set("Authorization", token(id, role)).send(body);
+    for (const [id, role] of [[adminId, "admin"], [parentId, "parent"]] as const) {
+      expect((await assist(id, role, { childId, requestedServices: "second", eventId: `denied-${role}` })).status).toBe(403);
+    }
+    expect((await assist(supportId, "support", { childId, requestedServices: "never", eventId: "bad" })).status).toBe(400);
+
+    const created = await assist(supportId, "support", { childId, requestedServices: "second", eventId: "assist-second" });
+    expect(created.status).toBe(201);
+    expect(created.body.episode).toMatchObject({ childId, status: "accepted", requestedServices: "second", requestedBy: supportId, custodianUserId: supportId });
+    expect(created.body.attendance.map((row: any) => [row.serviceSlot, row.status])).toEqual([["10:30am", "in_class"]]);
+    const replay = await assist(supportId, "support", { childId, requestedServices: "second", eventId: "assist-second" });
+    expect(replay.status).toBe(200);
+    expect(replay.body.episode.id).toBe(created.body.episode.id);
+    expect(await count("custody_episodes", sql`child_id=${childId}`)).toBe(1);
+    const again = await assist(otherSupportId, "support", { childId, requestedServices: "second", eventId: "assist-again" });
+    expect(again.status).toBe(409);
+    const alerts = (await getPendingCheckInAlertsForClass(firstClassId)).filter(a => a.childId === childId);
+    expect(alerts.map(a => a.id)).toEqual([String(created.body.episode.id)]);
+  });
+
+  it("accepts the parent's own service choice when support assists an already-started drop-off", async () => {
+    const requested = await createFor("both", "assist-parent-started");
+    const outcome = await request(app).post("/api/custody-episodes/assist").set("Authorization", token(supportId, "support"))
+      .send({ childId, requestedServices: "first", eventId: "assist-parent-started" });
+    expect(outcome.status).toBe(201);
+    expect(outcome.body.episode).toMatchObject({ id: requested.body.episode.id, status: "accepted", requestedBy: parentId, requestedServices: "both" });
+    expect(await count("attendance", sql`custody_episode_id=${requested.body.episode.id} AND status='in_class'`)).toBe(2);
+  });
+
+  it("refuses to assist a child already checked in through the legacy flow for that service", async () => {
+    await db.execute(sql`INSERT INTO attendance (child_id,class_id,service_date,service_slot,check_in_time,status)
+      VALUES (${childId},${firstClassId},${serviceDate},'7am',now(),'dropped_off')`);
+    const outcome = await request(app).post("/api/custody-episodes/assist").set("Authorization", token(supportId, "support"))
+      .send({ childId, requestedServices: "first", eventId: "assist-legacy-conflict" });
+    expect(outcome.status).toBe(409);
+    expect(await count("custody_episodes", sql`child_id=${childId}`)).toBe(0);
   });
 
   it("requires an admin reason and records an override without replacing the custodian", async () => {

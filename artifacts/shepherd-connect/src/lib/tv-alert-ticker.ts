@@ -1,5 +1,6 @@
 /**
- * Classroom TV alert bar: every alert (pickups and "child coming" check-ins)
+ * Classroom TV alert bar: every alert (pickups and "child is coming" alerts,
+ * raised once support accepts the child)
  * scrolls across the bottom of the TV. When a new alert arrives the bar
  * appears, scrolls the current alerts 3 times, then hides so the screen stays
  * clear for verses, slides and videos.
@@ -42,7 +43,7 @@ export function buildTickerAlerts(queue: TickerPickup[], checkIns: TickerCheckIn
     return {
       key: `checkin:${a.id}`,
       kind: "checkin" as const,
-      text: `👋  ${a.childName} is coming — checked in by ${a.parentName} for the ${service}${merged}`,
+      text: `👋  ${a.childName} is coming — ${service}${merged}`,
     };
   });
   return [...pickups, ...arrivals];
