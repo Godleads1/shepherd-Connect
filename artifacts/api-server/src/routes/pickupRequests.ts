@@ -32,6 +32,14 @@ import {
   type ClassroomDisplayClient,
 } from "../services/classroomDisplayAlerts";
 import { serviceDateAt } from "../lib/serviceTime";
+import { logger } from "../lib/logger";
+import {
+  BIBLE_ID_RE,
+  CHAPTER_ID_RE,
+  BibleServiceError,
+  getBibleChapter,
+  getBibleVersion,
+} from "../services/bibleText";
 
 const router = Router();
 
@@ -261,7 +269,72 @@ type ClientDisplayMedia =
       /** PDFs only: identifies the file so stale page events can be ignored. */
       v?: string;
     }
+  | {
+      kind: "bible";
+      /** e.g. "NKJV" — always shown right after the text (licence requirement). */
+      version: string;
+      /** e.g. "John 3:16" */
+      reference: string;
+      /** null when the Bible service couldn't be reached; `error` explains. */
+      text: string | null;
+      verse: number;
+      verseCount: number | null;
+      blanked: boolean;
+      copyright: string | null;
+      /** API.Bible Fair Use token the TV reports each time it shows the text. */
+      fumsToken: string | null;
+      error?: string;
+    }
   | null;
+
+const BIBLE_NO_FIELDS = {
+  bibleId: null,
+  bibleVersion: null,
+  bibleChapterId: null,
+  bibleVerseStart: null,
+  bibleVerseEnd: null,
+  bibleVerse: null,
+  bibleBlanked: false,
+};
+
+/**
+ * A Bible failure must never break the TV refresh — the same message also
+ * carries pickup and check-in alerts — so it degrades to an on-screen error.
+ */
+async function getClientBibleMedia(row: typeof classDisplayMediaTable.$inferSelect): Promise<ClientDisplayMedia> {
+  const verse = row.bibleVerse ?? row.bibleVerseStart ?? 1;
+  const version = row.bibleVersion ?? "";
+  const base = {
+    kind: "bible" as const,
+    version,
+    verse,
+    blanked: row.bibleBlanked,
+  };
+  try {
+    const chapter = await getBibleChapter(row.bibleId!, row.bibleChapterId!);
+    const found = chapter.verses.find(v => v.number === verse);
+    return {
+      ...base,
+      reference: `${chapter.reference}:${verse}`,
+      text: found?.text ?? null,
+      verseCount: chapter.verses.length ? chapter.verses[chapter.verses.length - 1].number : null,
+      copyright: chapter.copyright || null,
+      fumsToken: chapter.fumsToken,
+      ...(found ? {} : { error: "This verse isn't in this version." }),
+    };
+  } catch (error) {
+    logger.warn({ err: error, classId: row.classId }, "Bible text unavailable for classroom display");
+    return {
+      ...base,
+      reference: `${row.bibleChapterId}:${verse}`,
+      text: null,
+      verseCount: null,
+      copyright: null,
+      fumsToken: null,
+      error: error instanceof BibleServiceError ? error.message : "Bible text is unavailable right now.",
+    };
+  }
+}
 
 /**
  * Resolves the media a class TV should show right now. Uploaded files are
@@ -269,7 +342,7 @@ type ClientDisplayMedia =
  * display token, not a user session) can stream them directly with full
  * seeking support.
  */
-async function getClientDisplayMedia(classId: number): Promise<ClientDisplayMedia> {
+export async function getClientDisplayMedia(classId: number): Promise<ClientDisplayMedia> {
   const [row] = await db
     .select()
     .from(classDisplayMediaTable)
@@ -278,6 +351,9 @@ async function getClientDisplayMedia(classId: number): Promise<ClientDisplayMedi
   if (!row) return null;
   if (row.kind === "youtube" && row.youtubeVideoId) {
     return { kind: "youtube", videoId: row.youtubeVideoId };
+  }
+  if (row.kind === "bible" && row.bibleId && row.bibleChapterId) {
+    return getClientBibleMedia(row);
   }
   if (row.kind === "file" && row.objectPath) {
     const contentType = row.contentType ?? "application/octet-stream";
@@ -503,6 +579,13 @@ router.get("/pickup-requests/display-media/:classId", authMiddleware, async (req
           contentType: row.contentType,
           pdfPage: row.pdfPage,
           pdfPageCount: row.pdfPageCount,
+          bibleId: row.bibleId,
+          bibleVersion: row.bibleVersion,
+          bibleChapterId: row.bibleChapterId,
+          bibleVerseStart: row.bibleVerseStart,
+          bibleVerseEnd: row.bibleVerseEnd,
+          bibleVerse: row.bibleVerse,
+          bibleBlanked: row.bibleBlanked,
           updatedAt: row.updatedAt,
         }
       : null,
@@ -536,6 +619,10 @@ router.put("/pickup-requests/display-media/:classId", authMiddleware, async (req
     contentType?: string;
     fileName?: string;
     pdfPageCount?: number;
+    bibleId?: string;
+    chapterId?: string;
+    verseStart?: number;
+    verseEnd?: number;
   };
 
   let values: {
@@ -546,6 +633,13 @@ router.put("/pickup-requests/display-media/:classId", authMiddleware, async (req
     fileName: string | null;
     pdfPage: number | null;
     pdfPageCount: number | null;
+    bibleId: string | null;
+    bibleVersion: string | null;
+    bibleChapterId: string | null;
+    bibleVerseStart: number | null;
+    bibleVerseEnd: number | null;
+    bibleVerse: number | null;
+    bibleBlanked: boolean;
   };
 
   // Set when a PowerPoint is converted during this request. Conversion takes
@@ -566,6 +660,58 @@ router.put("/pickup-requests/display-media/:classId", authMiddleware, async (req
       fileName: null,
       pdfPage: null,
       pdfPageCount: null,
+      ...BIBLE_NO_FIELDS,
+    };
+  } else if (body.kind === "bible") {
+    const bibleId = typeof body.bibleId === "string" ? body.bibleId : "";
+    const chapterId = typeof body.chapterId === "string" ? body.chapterId : "";
+    const verseStart = body.verseStart;
+    const verseEnd = body.verseEnd ?? body.verseStart;
+    if (
+      !BIBLE_ID_RE.test(bibleId) || !CHAPTER_ID_RE.test(chapterId)
+      || !Number.isInteger(verseStart) || !Number.isInteger(verseEnd)
+      || verseStart! < 1 || verseEnd! < verseStart!
+    ) {
+      res.status(400).json({ error: "Bad request", message: "Choose a Bible version, chapter and verse range" });
+      return;
+    }
+    let version;
+    let chapter;
+    try {
+      version = await getBibleVersion(bibleId);
+      if (!version) {
+        res.status(400).json({ error: "Bad request", message: "That Bible version isn't available" });
+        return;
+      }
+      chapter = await getBibleChapter(bibleId, chapterId);
+    } catch (error) {
+      if (error instanceof BibleServiceError) {
+        res.status(error.statusCode).json({ error: "Bible service", message: error.message });
+        return;
+      }
+      throw error;
+    }
+    const numbers = new Set(chapter.verses.map(v => v.number));
+    const lastVerse = chapter.verses[chapter.verses.length - 1].number;
+    if (!numbers.has(verseStart!)) {
+      res.status(400).json({ error: "Bad request", message: `${chapter.reference} has no verse ${verseStart}` });
+      return;
+    }
+    values = {
+      kind: "bible",
+      youtubeVideoId: null,
+      objectPath: null,
+      contentType: null,
+      fileName: null,
+      pdfPage: null,
+      pdfPageCount: null,
+      bibleId,
+      bibleVersion: version.abbreviation,
+      bibleChapterId: chapterId,
+      bibleVerseStart: verseStart!,
+      bibleVerseEnd: Math.min(verseEnd!, lastVerse),
+      bibleVerse: verseStart!,
+      bibleBlanked: false,
     };
   } else if (body.kind === "file") {
     let objectPath = body.objectPath;
@@ -647,9 +793,10 @@ router.put("/pickup-requests/display-media/:classId", authMiddleware, async (req
       fileName,
       pdfPage: null, // new PDFs start in auto-play; the phone clicker can pin a page
       pdfPageCount: pageCount,
+      ...BIBLE_NO_FIELDS,
     };
   } else {
-    res.status(400).json({ error: "Bad request", message: "kind must be 'youtube' or 'file'" });
+    res.status(400).json({ error: "Bad request", message: "kind must be 'youtube', 'file' or 'bible'" });
     return;
   }
 
@@ -787,6 +934,77 @@ router.put("/pickup-requests/display-media/:classId/page", authMiddleware, async
     return;
   }
   res.json({ success: true, page });
+});
+
+// Phone remote for a projected Bible passage: move to a verse (Previous/Next
+// may go past the chosen range, within the chapter) and/or blank the TV while
+// keeping the passage. "Stop" is the normal DELETE above.
+router.put("/pickup-requests/display-media/:classId/bible", authMiddleware, async (req, res): Promise<void> => {
+  const classId = Number(req.params.classId);
+  if (!Number.isInteger(classId) || classId <= 0) {
+    res.status(400).json({ error: "Bad request", message: "Invalid class ID" });
+    return;
+  }
+  if (!(await canAccessClass(req.user!, classId, serviceDateAt()))) {
+    res.status(403).json({ error: "Forbidden", message: "You are not assigned to this class" });
+    return;
+  }
+  const body = (req.body ?? {}) as { bibleId?: unknown; chapterId?: unknown; verse?: unknown; blanked?: unknown };
+  const hasVerse = body.verse !== undefined;
+  const hasBlank = body.blanked !== undefined;
+  if (
+    typeof body.bibleId !== "string" || !BIBLE_ID_RE.test(body.bibleId)
+    || typeof body.chapterId !== "string" || !CHAPTER_ID_RE.test(body.chapterId)
+    || (!hasVerse && !hasBlank)
+    || (hasVerse && (!Number.isInteger(body.verse) || (body.verse as number) < 1))
+    || (hasBlank && typeof body.blanked !== "boolean")
+  ) {
+    res.status(400).json({ error: "Bad request", message: "Send the current passage with a verse number and/or blanked" });
+    return;
+  }
+  const bibleId = body.bibleId;
+  const chapterId = body.chapterId;
+  if (hasVerse) {
+    let chapter;
+    try {
+      chapter = await getBibleChapter(bibleId, chapterId);
+    } catch (error) {
+      if (error instanceof BibleServiceError) {
+        res.status(error.statusCode).json({ error: "Bible service", message: error.message });
+        return;
+      }
+      throw error;
+    }
+    if (!chapter.verses.some(v => v.number === body.verse)) {
+      res.status(400).json({ error: "Bad request", message: `${chapter.reference} has no verse ${body.verse}` });
+      return;
+    }
+  }
+  const patch: { bibleVerse?: number; bibleBlanked?: boolean } = {};
+  if (hasVerse) patch.bibleVerse = body.verse as number;
+  if (hasBlank) patch.bibleBlanked = body.blanked as boolean;
+  // Conditional on the passage the phone is looking at: if someone replaced
+  // the TV's content meanwhile, don't move or blank the replacement.
+  const updated = await db.transaction(async tx => {
+    await tx.execute(sql`select pg_advisory_xact_lock(68431, ${classId})`);
+    const changed = await tx
+      .update(classDisplayMediaTable)
+      .set({ ...patch, updatedBy: req.user!.userId, updatedAt: new Date() })
+      .where(and(
+        eq(classDisplayMediaTable.classId, classId),
+        eq(classDisplayMediaTable.kind, "bible"),
+        eq(classDisplayMediaTable.bibleId, bibleId),
+        eq(classDisplayMediaTable.bibleChapterId, chapterId),
+      ))
+      .returning({ verse: classDisplayMediaTable.bibleVerse, blanked: classDisplayMediaTable.bibleBlanked });
+    if (changed.length) await notifyClassRefresh(tx, [classId]);
+    return changed;
+  });
+  if (updated.length === 0) {
+    res.status(409).json({ error: "Conflict", message: "The TV isn't showing this passage any more — check what's on the TV and try again" });
+    return;
+  }
+  res.json({ success: true, verse: updated[0].verse, blanked: updated[0].blanked });
 });
 
 // Streams the class's uploaded display file to the TV. Authenticated by the

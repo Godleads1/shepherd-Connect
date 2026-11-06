@@ -4,12 +4,13 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { apiGet, apiPut, apiDelete } from "@/lib/api-call";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, Youtube, Upload, Trash2, MonitorPlay, CheckCircle2, ChevronLeft, ChevronRight, Play } from "lucide-react";
+import { BiblePicker, BibleRemote, type BibleMediaState } from "./BibleTvControl";
 
 const NAVY = "#1e3a8a";
 const GOLD = "#f59e0b";
 
-interface CurrentMedia {
-  kind: "youtube" | "file";
+interface CurrentMedia extends BibleMediaState {
+  kind: "youtube" | "file" | "bible";
   youtubeVideoId: string | null;
   fileName: string | null;
   contentType: string | null;
@@ -106,7 +107,7 @@ export function ClassTvMediaControl({
     mutationFn: () => apiDelete(`/pickup-requests/display-media/${classId}`),
     onSuccess: () => {
       invalidate();
-      toast({ title: "TV cleared", description: "The classroom screen returned to the welcome view." });
+      toast({ title: "TV cleared", description: "The classroom screen returned to its normal view." });
     },
     onError: (e: Error) =>
       toast({ variant: "destructive", title: "Could not clear the TV", description: e.message }),
@@ -213,6 +214,7 @@ export function ClassTvMediaControl({
 
   const busy = uploading || setYoutube.isPending || clearMedia.isPending;
   const isPdfActive = current?.kind === "file" && current.contentType === "application/pdf";
+  const isBibleActive = current?.kind === "bible";
 
   return (
     <>
@@ -262,7 +264,9 @@ export function ClassTvMediaControl({
                   <p className="text-sm font-semibold text-emerald-900 truncate" title={current.fileName || undefined}>
                     {current.kind === "youtube"
                       ? "YouTube video playing"
-                      : current.fileName || "Uploaded file playing"}
+                      : current.kind === "bible"
+                        ? `Bible passage (${current.bibleVersion ?? "Bible"})`
+                        : current.fileName || "Uploaded file playing"}
                   </p>
                   <p className="text-xs text-emerald-700/80">Currently on the TV</p>
                 </div>
@@ -332,6 +336,17 @@ export function ClassTvMediaControl({
               </p>
             </div>
           )}
+
+          {/* Bible — remote for the passage on the TV, then the passage picker */}
+          {isBibleActive && (
+            <BibleRemote
+              classId={classId}
+              current={current!}
+              onStop={() => clearMedia.mutate()}
+              stopping={clearMedia.isPending}
+            />
+          )}
+          {open && <BiblePicker classId={classId} disabled={busy} />}
 
           {/* YouTube */}
           <div className="rounded-xl border border-gray-100 p-4">

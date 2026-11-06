@@ -2,12 +2,21 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { useParams } from "wouter";
 import { apiPost } from "../../lib/api-call";
 import { handleClassroomDisplayMessage, LatestRequest, reconnectDelay } from "../../lib/classroom-display-reliability";
+import {
+  buildTickerAlerts,
+  tickerPassSeconds,
+  tickerRunMs,
+  unseenAlertKeys,
+  TICKER_PASSES,
+  type TickerAlert,
+} from "../../lib/tv-alert-ticker";
+import { reportBibleView } from "../../lib/bible-fums";
 
 const NAVY = "#1e3a8a";
 const GOLD = "#f59e0b";
 
-// Height of the lower-third news ticker. Slides and images render full-bleed
-// underneath it so they use the entire TV screen.
+// Height of the lower-third alert bar. It only appears while alerts are
+// scrolling, so all media renders full-screen underneath it.
 const NEWS_BAR_H = 80;
 
 interface PickupRequest {
@@ -39,18 +48,35 @@ type MediaSource =
   | { kind: "local-video"; url: string; name: string }
   | { kind: "local-image"; url: string; name: string }
   | { kind: "pdf"; url: string; name: string; page: number | null }
+  | BibleMedia
   | null;
+
+// A Bible verse projected from a teacher's phone (TV control → Bible).
+interface BibleMedia {
+  kind: "bible";
+  version: string;
+  reference: string;
+  text: string | null;
+  verse: number;
+  verseCount: number | null;
+  blanked: boolean;
+  copyright: string | null;
+  fumsToken: string | null;
+  error?: string;
+}
 
 // Media set remotely from a teacher's phone/laptop (My Class → TV Video).
 // Delivered over the live display connection; overrides anything set on the TV.
 type ServerMedia =
   | { kind: "youtube"; videoId: string }
   | { kind: "file"; url: string; contentType: string; name: string; page?: number | null; pageCount?: number | null; v?: string }
+  | BibleMedia
   | null;
 
 function serverToMediaSource(m: ServerMedia): MediaSource {
   if (!m) return null;
   if (m.kind === "youtube") return { kind: "youtube", videoId: m.videoId };
+  if (m.kind === "bible") return m;
   if (m.contentType === "application/pdf") return { kind: "pdf", url: m.url, name: m.name, page: m.page ?? null };
   return m.contentType.startsWith("video/")
     ? { kind: "local-video", url: m.url, name: m.name }
@@ -212,79 +238,154 @@ function Clock() {
   );
 }
 
-// ── TV-style lower-third news bar ──────────────────────────────────────────────
-function NewsBar({ queue, className, height = 72 }: { queue: PickupRequest[]; className: string; height?: number }) {
-  const hasPickups = queue.length > 0;
+// ── Bible verse ───────────────────────────────────────────────────────────────
+// One verse at a time in large type, with the reference and version right
+// after the text (API.Bible licence). Blank = black screen, passage kept.
+function bibleFontSize(text: string): string {
+  const n = text.length;
+  if (n < 90) return "5.4vw";
+  if (n < 180) return "4.4vw";
+  if (n < 300) return "3.6vw";
+  if (n < 450) return "3vw";
+  return "2.5vw";
+}
 
-  // Build ticker items — triplicate for seamless loop
-  const baseItems: string[] = hasPickups
-    ? queue.map(r => `📣  ${r.childName}'s parent is here for pickup`)
-    : [`Welcome to Children's Church  ·  ${className || "Shepherd Connect"}  ·  RCCG City of David`];
+function BibleVerseScreen({ media }: { media: BibleMedia }) {
+  // Fair Use report each time a verse becomes visible on the TV.
+  useEffect(() => {
+    if (!media.blanked && media.text) reportBibleView(media.fumsToken);
+  }, [media.blanked, media.text, media.reference, media.fumsToken]);
 
-  const items = [...baseItems, ...baseItems, ...baseItems];
-  const duration = Math.max(items.length * 6, 20);
+  if (media.blanked) {
+    return <div className="w-full h-full" style={{ background: "#000" }} data-testid="bible-blank" />;
+  }
+  return (
+    <div
+      className="w-full h-full flex flex-col items-center justify-center text-center select-none relative"
+      style={{ background: "radial-gradient(ellipse at center, #1e3a8a 0%, #0f172a 75%)", padding: "11vh 7vw 13vh" }}
+      data-testid="bible-verse"
+    >
+      {media.text ? (
+        <>
+          <p
+            className="text-white font-semibold"
+            style={{ fontFamily: "'Playfair Display', Georgia, serif", fontSize: bibleFontSize(media.text), lineHeight: 1.3 }}
+          >
+            {media.text}
+          </p>
+          <p className="mt-[4vh] font-extrabold tracking-wide" style={{ color: GOLD, fontSize: "2.6vw" }}>
+            {media.reference} <span className="font-bold opacity-80">{media.version}</span>
+          </p>
+        </>
+      ) : (
+        <>
+          <p className="font-extrabold" style={{ color: GOLD, fontSize: "3vw" }}>
+            {media.reference} {media.version}
+          </p>
+          <p className="mt-4 text-white/50" style={{ fontSize: "1.6vw" }}>
+            {media.error ?? "This verse couldn't be loaded."}
+          </p>
+        </>
+      )}
+      {media.copyright && (
+        <p className="absolute left-0 right-0 px-10 text-white/35" style={{ bottom: 14, fontSize: 12 }}>
+          {media.copyright}
+        </p>
+      )}
+    </div>
+  );
+}
+
+// ── Alert bar (lower third) ─────────────────────────────────────────────────────
+// Appears when a new pickup or check-in alert arrives, scrolls all current
+// alerts TICKER_PASSES times, then hides.
+function useAlertTicker(alerts: TickerAlert[]) {
+  const seen = useRef<Set<string>>(new Set());
+  const [runId, setRunId] = useState(0);
+  const [visible, setVisible] = useState(false);
+  const alertKeys = alerts.map(a => a.key).join("|");
+  const hasAlerts = alerts.length > 0;
+
+  useEffect(() => {
+    const fresh = unseenAlertKeys(seen.current, alerts);
+    // Forget resolved alerts so a repeat request for the same child is announced again.
+    const current = new Set(alerts.map(a => a.key));
+    seen.current.forEach(key => { if (!current.has(key)) seen.current.delete(key); });
+    fresh.forEach(key => seen.current.add(key));
+    if (fresh.length > 0) {
+      setRunId(id => id + 1);
+      setVisible(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [alertKeys]);
+
+  // Each run lasts exactly its passes; a timer (not animationend) ends it so
+  // it also works on old smart-TV browsers.
+  const runMs = tickerRunMs(alerts);
+  useEffect(() => {
+    if (!visible) return;
+    const t = setTimeout(() => setVisible(false), runMs);
+    return () => clearTimeout(t);
+    // Restart only for a new run, not when an alert is resolved mid-run.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible, runId]);
+
+  return { visible: visible && hasAlerts, runId };
+}
+
+function AlertBar({ alerts, runId, height }: { alerts: TickerAlert[]; runId: number; height: number }) {
+  const hasPickups = alerts.some(a => a.kind === "pickup");
+  const accent = hasPickups ? GOLD : "#0e7490";
+  const textColor = hasPickups ? NAVY : "white";
+  const passSeconds = tickerPassSeconds(alerts);
 
   return (
     <div
       className="absolute bottom-0 left-0 right-0 flex items-stretch z-20 select-none"
       style={{ height }}
+      data-testid="tv-alert-bar"
     >
-      {/* Left badge — "SHEPHERD NEWS" branding */}
       <div
         className="flex flex-col items-center justify-center flex-shrink-0 px-6 gap-0.5"
-        style={{
-          background: hasPickups ? GOLD : NAVY,
-          minWidth: 180,
-          transition: "background 0.6s ease",
-        }}
+        style={{ background: hasPickups ? NAVY : "#164e63", minWidth: 180 }}
       >
-        <span className="text-2xl leading-none">🐑</span>
-        <span
-          className="text-xs font-black tracking-widest uppercase leading-none"
-          style={{ color: hasPickups ? NAVY : GOLD, letterSpacing: "0.15em" }}
-        >
-          Shepherd
+        <span className="text-2xl leading-none">{hasPickups ? "📣" : "👋"}</span>
+        <span className="text-xs font-black tracking-widest uppercase leading-none" style={{ color: GOLD, letterSpacing: "0.15em" }}>
+          {hasPickups ? "Pickup" : "Check-in"}
         </span>
-        <span
-          className="text-xs font-black tracking-widest uppercase leading-none"
-          style={{ color: hasPickups ? NAVY : "white", letterSpacing: "0.15em" }}
-        >
-          News
+        <span className="text-xs font-black tracking-widest uppercase leading-none" style={{ color: "white", letterSpacing: "0.15em" }}>
+          Alert
         </span>
       </div>
 
-      {/* Scrolling ticker */}
-      <div
-        className="flex-1 overflow-hidden flex items-center"
-        style={{
-          background: hasPickups
-            ? "rgba(245,158,11,0.92)"
-            : "rgba(15,23,42,0.88)",
-          backdropFilter: "blur(4px)",
-        }}
-      >
+      <div className="flex-1 overflow-hidden flex items-center" style={{ background: accent }}>
         <div
-          key={hasPickups ? "pickups" : "idle"}
-          className="flex items-center whitespace-nowrap"
-          style={{ animation: `newsScroll ${duration}s linear infinite` }}
+          key={runId}
+          className="whitespace-nowrap"
+          style={{
+            display: "inline-block",
+            paddingLeft: "100%",
+            animation: `tvAlertScroll ${passSeconds}s linear ${TICKER_PASSES}`,
+            WebkitAnimation: `tvAlertScroll ${passSeconds}s linear ${TICKER_PASSES}`,
+          }}
         >
-          {items.map((text, i) => (
-            <span
-              key={i}
-              className="inline-flex items-center text-2xl font-bold tracking-wide px-12"
-              style={{ color: hasPickups ? NAVY : "rgba(255,255,255,0.6)" }}
-            >
-              {text}
-              <span className="mx-10 opacity-40">◆</span>
+          {alerts.map((alert, i) => (
+            <span key={alert.key} className="inline-block text-3xl font-extrabold tracking-wide" style={{ color: textColor }}>
+              {i > 0 && <span className="mx-10 opacity-40">◆</span>}
+              {alert.text}
             </span>
           ))}
         </div>
       </div>
 
       <style>{`
-        @keyframes newsScroll {
+        @keyframes tvAlertScroll {
           0%   { transform: translateX(0); }
-          100% { transform: translateX(-33.333%); }
+          100% { transform: translateX(-100%); }
+        }
+        @-webkit-keyframes tvAlertScroll {
+          0%   { -webkit-transform: translateX(0); }
+          100% { -webkit-transform: translateX(-100%); }
         }
       `}</style>
     </div>
@@ -519,44 +620,6 @@ function NotifBanner({ onRequest }: { onRequest: () => void }) {
   );
 }
 
-function ChildComingBanner({ alerts }: { alerts: CheckInAlert[] }) {
-  if (alerts.length === 0) return null;
-  const alert = alerts[0];
-  const services = alert.requestedServices === "both"
-    ? "7am & 10:30am services"
-    : alert.requestedServices === "first" ? "7am service" : "10:30am service";
-  return (
-    <div
-      className="absolute left-1/2 z-30 w-[min(760px,calc(100%-3rem))] rounded-2xl border-2 px-7 py-5 shadow-2xl"
-      style={{
-        top: 92,
-        transform: "translateX(-50%)",
-        background: "rgba(14,116,144,0.96)",
-        borderColor: "#67e8f9",
-        color: "white",
-      }}
-      data-testid="child-coming-banner"
-    >
-      <div className="flex items-center gap-5">
-        <span className="text-5xl" aria-hidden="true">👋</span>
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-black uppercase tracking-[0.18em] text-cyan-200">Child coming / check-in</p>
-          <p className="mt-1 text-3xl font-extrabold">{alert.childName}</p>
-          <p className="mt-1 text-lg text-cyan-50">
-            Requested by {alert.parentName} for the {services}
-            {alert.homeClassName ? ` · ${alert.homeClassName} merged into ${alert.className}` : ""}
-          </p>
-        </div>
-        {alerts.length > 1 && (
-          <div className="rounded-full bg-cyan-200 px-4 py-2 text-lg font-black text-cyan-900">
-            +{alerts.length - 1}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
 // ── Main component ───────────────────────────────────────────────────────────────
 const STORAGE_KEY = "classroom-display-yt-id";
 const DISPLAY_TOKEN_KEY = "classroom-display-token";
@@ -778,10 +841,10 @@ export default function ClassroomDisplay() {
   // Media pushed from a teacher's phone wins over anything set on the TV itself.
   const remoteMedia = serverToMediaSource(serverMedia);
   const activeMedia = remoteMedia ?? media;
-  // Slides and images use the whole screen (the news ticker overlays them);
-  // videos keep their own space above the ticker so playback controls stay
-  // reachable.
-  const fullBleed = activeMedia?.kind === "pdf" || activeMedia?.kind === "local-image";
+  // Pickup and check-in alerts scroll in the bottom bar only when a new one
+  // arrives (3 passes), then the bar hides and media has the whole screen.
+  const tickerAlerts = buildTickerAlerts(queue, checkInAlerts);
+  const ticker = useAlertTicker(tickerAlerts);
 
   return (
     <div className="h-screen w-screen overflow-hidden relative" style={{ background: "#0f172a", fontFamily: "Inter, sans-serif" }}>
@@ -817,8 +880,8 @@ export default function ClassroomDisplay() {
         </div>
       )}
 
-      {/* ── Media area — slides/images go full-screen; videos leave room for the news bar ── */}
-      <div className="absolute inset-0" style={{ bottom: fullBleed ? 0 : NEWS_BAR_H }}>
+      {/* ── Media area — full screen; the alert bar overlays it only while scrolling ── */}
+      <div className="absolute inset-0">
         {activeMedia?.kind === "youtube" && (
           <iframe
             key={activeMedia.videoId}
@@ -857,13 +920,17 @@ export default function ClassroomDisplay() {
             displayToken={displayToken}
           />
         )}
+        {activeMedia?.kind === "bible" && <BibleVerseScreen media={activeMedia} />}
         {!activeMedia && <IdleScreen />}
       </div>
 
-      {/* ── Top bar — gradient overlay so it floats above video ── */}
+      {/* ── Top bar — gradient overlay so it floats above video; hidden while a verse is blanked ── */}
       <div
         className="absolute top-0 left-0 right-0 flex items-center justify-between px-8 py-4 z-10"
-        style={{ background: "linear-gradient(to bottom, rgba(0,0,0,0.7) 0%, transparent 100%)" }}
+        style={{
+          background: "linear-gradient(to bottom, rgba(0,0,0,0.7) 0%, transparent 100%)",
+          display: activeMedia?.kind === "bible" && activeMedia.blanked ? "none" : undefined,
+        }}
       >
         <div className="flex items-center gap-4">
           <div className="w-11 h-11 rounded-xl flex items-center justify-center text-xl flex-shrink-0" style={{ background: GOLD }}>🐑</div>
@@ -886,10 +953,9 @@ export default function ClassroomDisplay() {
 
       {/* ── Notification permission banner ── */}
       {showNotifBanner && <NotifBanner onRequest={requestNotifPermission} />}
-      <ChildComingBanner alerts={checkInAlerts} />
 
       {/* ── Status dots above news bar ── */}
-      <div className="absolute z-30 flex items-center gap-3" style={{ bottom: NEWS_BAR_H + 8, left: 16 }}>
+      <div className="absolute z-30 flex items-center gap-3" style={{ bottom: (ticker.visible ? NEWS_BAR_H : 0) + 8, left: 16 }}>
         <div className="flex items-center gap-1.5">
           <div className={`w-2 h-2 rounded-full ${connected ? "bg-green-400 animate-pulse" : "bg-red-500"}`} />
           <span className="text-xs text-white/30">{connected ? "Live" : "Reconnecting…"}</span>
@@ -898,8 +964,8 @@ export default function ClassroomDisplay() {
         {notifPerm === "denied" && <span className="text-xs text-red-400/60">🔕 Alerts blocked</span>}
       </div>
 
-      {/* ── TV news lower-third bar ── */}
-      <NewsBar queue={queue} className={className} height={NEWS_BAR_H} />
+      {/* ── Alert bar: scrolls new pickup/check-in alerts 3 times, then hides ── */}
+      {ticker.visible && <AlertBar alerts={tickerAlerts} runId={ticker.runId} height={NEWS_BAR_H} />}
     </div>
   );
 }
