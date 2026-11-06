@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  buildMeetingQrUrl, captureMeetingTokenFromHash, extractMeetingToken, readPendingMeetingToken, isoToWatInput, validateMeetingForm, watInputToIso, scanErrorCopy,
+  buildMeetingQrUrl, captureMeetingTokenFromHash, selectAllState, toggleSelectAll, extractMeetingToken, readPendingMeetingToken, isoToWatInput, validateMeetingForm, watInputToIso, scanErrorCopy,
 } from "./meeting-attendance";
 
 const TOKEN = "42." + "aB_c-".repeat(8) + "xyz";
@@ -80,5 +80,16 @@ describe("meeting attendance helpers", () => {
       expect(replaceState).toHaveBeenCalledTimes(2);
       expect(captureMeetingTokenFromHash()).toBeNull();
     });
+  });
+
+  it("select all adds every shown teacher, then clears them, keeping hidden selections", () => {
+    const shown = [1, 2, 3];
+    expect(selectAllState(new Set(), shown)).toBe(false);
+    expect(selectAllState(new Set([2]), shown)).toBe("indeterminate");
+    const all = toggleSelectAll(new Set([2, 9]), shown);
+    expect([...all].sort()).toEqual([1, 2, 3, 9]);
+    expect(selectAllState(all, shown)).toBe(true);
+    expect([...toggleSelectAll(all, shown)]).toEqual([9]);
+    expect([...toggleSelectAll(new Set([9]), [])]).toEqual([9]);
   });
 });

@@ -8,7 +8,7 @@ import {
   type MeetingDetail, type Meeting,
 } from "@workspace/api-client-react";
 import { apiGetBlob } from "@/lib/api-call";
-import { buildMeetingQrUrl, formatWatDateTime, formatWatWindow, isoToWatInput, meetingErrorMessage } from "@/lib/meeting-attendance";
+import { buildMeetingQrUrl, formatWatDateTime, formatWatWindow, isoToWatInput, meetingErrorMessage, selectAllState, toggleSelectAll } from "@/lib/meeting-attendance";
 import { MeetingForm } from "./meeting-form";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -175,6 +175,11 @@ function MeetingPanel({ id }: { id: number }) {
       .filter(t => !q || t.name.toLowerCase().includes(q))
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [teachers.data, detail.data, filter]);
+  // Select all only covers shown rows that are still eligible; the server rejects others.
+  const selectableIds = useMemo(() => {
+    const eligible = new Set((teachers.data ?? []).map(t => t.userId));
+    return teacherRows.filter(t => eligible.has(t.userId)).map(t => t.userId);
+  }, [teachers.data, teacherRows]);
 
   if (detail.isLoading) return <div className="space-y-3"><Skeleton className="h-32 rounded-2xl" /><Skeleton className="h-72 rounded-2xl" /></div>;
   if (detail.isError && !detail.data) {
@@ -313,6 +318,16 @@ function MeetingPanel({ id }: { id: number }) {
           <p className="py-10 text-center text-sm text-gray-400">{filter ? "No teachers match this filter." : "No eligible teacher accounts found."}</p>
         ) : (
           <ul className="divide-y divide-gray-50 max-h-[520px] overflow-y-auto">
+            {selectableIds.length > 0 && (
+              <li className="flex items-center gap-3 px-4 py-2.5 bg-gray-50/70 sticky top-0 z-10" data-testid="row-select-all-teachers">
+                <Checkbox id="teacher-select-all" checked={selectAllState(selected, selectableIds)} data-testid="checkbox-select-all-teachers"
+                  onCheckedChange={() => setSelected(s => toggleSelectAll(s, selectableIds))} />
+                <label htmlFor="teacher-select-all" className="flex-1 text-sm font-semibold text-gray-700 cursor-pointer">
+                  {filter.trim() ? "Select all shown" : "Select all teachers"} ({selectableIds.length})
+                </label>
+                <span className="text-xs text-gray-500 tabular-nums">{selectableIds.filter(i => selected.has(i)).length} selected</span>
+              </li>
+            )}
             {teacherRows.map(t => {
               const p = d.participants.find(x => x.userId === t.userId);
               const checked = selected.has(t.userId);

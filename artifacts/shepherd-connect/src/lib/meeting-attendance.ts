@@ -131,3 +131,17 @@ export function scanErrorCopy(status: number | null, serverMessage: string): { t
   if (status === 401) return { title: "Please sign in again", body: serverMessage };
   return { title: "Sign-in could not be confirmed", body: serverMessage };
 }
+
+/** Header "select all" state for the given (visible, eligible) ids. */
+export function selectAllState(selected: ReadonlySet<number>, ids: readonly number[]): boolean | "indeterminate" {
+  const n = ids.filter(id => selected.has(id)).length;
+  return n === 0 ? false : n === ids.length ? true : "indeterminate";
+}
+
+/** Selects every id when any is unselected; otherwise clears them. Other selections are kept. */
+export function toggleSelectAll(selected: ReadonlySet<number>, ids: readonly number[]): Set<number> {
+  const next = new Set(selected);
+  const all = ids.length > 0 && ids.every(id => next.has(id));
+  ids.forEach(id => (all ? next.delete(id) : next.add(id)));
+  return next;
+}
