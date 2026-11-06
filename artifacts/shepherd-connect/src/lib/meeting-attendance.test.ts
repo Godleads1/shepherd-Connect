@@ -25,6 +25,7 @@ describe("meeting attendance helpers", () => {
     expect(validateMeetingForm("Prep", "", "2025-03-04T19:00")).toMatch(/start/i);
     expect(validateMeetingForm("Prep", "", "2025-03-04T19:00")).not.toMatch(/end/i);
     expect(validateMeetingForm("Prep", "2025-03-04T18:00", "")).toMatch(/end/i);
+    expect(validateMeetingForm("Prep", "", "2025-03-04T19:00")).toMatch(/AM or PM/);
   });
 
   it("round-trips instants into WAT input values", () => {

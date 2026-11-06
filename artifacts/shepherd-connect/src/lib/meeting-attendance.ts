@@ -65,8 +65,8 @@ export function validateMeetingForm(title: string, startsAt: string, endsAt: str
   if (!t) return "Enter a meeting title.";
   if (t.length > 120) return "Title must be 120 characters or fewer.";
   // An incomplete datetime-local (e.g. date picked, time left blank) reports "".
-  if (!startsAt.trim()) return "Choose both a date and a time for when the meeting starts.";
-  if (!endsAt.trim()) return "Choose both a date and a time for when the meeting ends.";
+  if (!startsAt.trim()) return "Choose the full date and time for when the meeting starts, including AM or PM if shown.";
+  if (!endsAt.trim()) return "Choose the full date and time for when the meeting ends, including AM or PM if shown.";
   const s = watInputToIso(startsAt), e = watInputToIso(endsAt);
   if (!s) return "The start time is not valid. Please choose it again.";
   if (!e) return "The end time is not valid. Please choose it again.";
