@@ -188,6 +188,55 @@ export async function acceptPhysicalCustody(tx: any, input: {
   return { episode, attendance, duplicate: false };
 }
 
+/**
+ * Support scanned a parent's QR code at church and is handing the child over
+ * for them. If the parent already started a drop-off for today it is accepted
+ * as-is; otherwise support starts it with the chosen service(s) and accepts it
+ * in the same transaction, which raises the class TV "child is coming" alert.
+ */
+export async function supportAssistedCustody(tx: any, input: {
+  childId: number; serviceDate: string; requestedServices: "first" | "second" | "both"; supportUserId: number; eventId?: string;
+}) {
+  const lockKey = Number(input.serviceDate.replace(/-/g, ""));
+  await tx.execute(sql`SELECT pg_advisory_xact_lock(${input.childId}, ${lockKey})`);
+  if (input.eventId) {
+    const [event] = await tx.select().from(custodyEpisodeEventsTable).where(and(
+      eq(custodyEpisodeEventsTable.userId, input.supportUserId), eq(custodyEpisodeEventsTable.eventId, input.eventId),
+      eq(custodyEpisodeEventsTable.operation, "assist"),
+    ));
+    if (event?.episodeId) {
+      const [episode] = await tx.select().from(custodyEpisodesTable).where(eq(custodyEpisodesTable.id, event.episodeId));
+      if (episode) return { episode, attendance: [], duplicate: true };
+    }
+  }
+  const [child] = await tx.select().from(childrenTable).where(eq(childrenTable.id, input.childId));
+  if (!child) throw new CustodyHandoverError(404, "Child not found");
+  const [open] = await tx.select().from(custodyEpisodesTable).where(and(
+    eq(custodyEpisodesTable.childId, input.childId), eq(custodyEpisodesTable.serviceDate, input.serviceDate),
+    inArray(custodyEpisodesTable.status, ["requested", "accepted"]),
+  ));
+  if (open?.status === "accepted") throw new CustodyHandoverError(409, "Child has already been accepted today");
+  let episodeId = open?.id as number | undefined;
+  if (!episodeId) {
+    const slots = slotsFor(input.requestedServices);
+    const existing = await tx.select({ serviceSlot: attendanceTable.serviceSlot }).from(attendanceTable).where(and(
+      eq(attendanceTable.childId, input.childId), eq(attendanceTable.serviceDate, input.serviceDate),
+      inArray(attendanceTable.serviceSlot, [...slots]),
+    ));
+    if (existing.length) throw new CustodyHandoverError(409, "Child is already checked in for the selected service");
+    const [created] = await tx.insert(custodyEpisodesTable).values({
+      childId: child.id, familyId: child.familyId, serviceDate: input.serviceDate,
+      requestedServices: input.requestedServices, requestedBy: input.supportUserId,
+    }).returning();
+    episodeId = created.id as number;
+  }
+  const outcome = await acceptPhysicalCustody(tx, { episodeId, custodianUserId: input.supportUserId });
+  if (input.eventId) await tx.insert(custodyEpisodeEventsTable).values({
+    userId: input.supportUserId, eventId: input.eventId, operation: "assist", episodeId,
+  });
+  return { ...outcome, duplicate: false };
+}
+
 export async function releasePhysicalCustody(tx: any, input: {
   episodeId: number; actorUserId: number; overrideReason?: string;
 }) {
@@ -199,9 +248,8 @@ export async function releasePhysicalCustody(tx: any, input: {
   if (!current) throw new CustodyHandoverError(404, "Custody episode not found");
   if (current.status === "picked_up") return { episode: current, attendance: [], resolvedPickupRequests: [], duplicate: true };
   if (current.status !== "accepted") throw new CustodyHandoverError(409, "Only accepted custody can be checked out");
-  if (!input.overrideReason && current.custodianUserId !== input.actorUserId) {
-    throw new CustodyHandoverError(403, "Only the accepting support custodian can complete normal checkout");
-  }
+  // Any support worker may complete normal checkout; the episode keeps the
+  // accepting custodian while pickedUpBy records who released the child.
   const now = new Date();
   const [released] = await tx.update(custodyEpisodesTable).set({
     status: "picked_up", pickedUpAt: now, pickedUpBy: input.actorUserId,

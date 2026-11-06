@@ -226,6 +226,26 @@ export interface CustodyAcceptanceInput {
   eventId?: string;
 }
 
+export type CustodyAssistInputRequestedServices =
+  (typeof CustodyAssistInputRequestedServices)[keyof typeof CustodyAssistInputRequestedServices];
+
+export const CustodyAssistInputRequestedServices = {
+  first: "first",
+  second: "second",
+  both: "both",
+} as const;
+
+export interface CustodyAssistInput {
+  /** @minimum 1 */
+  childId: number;
+  requestedServices: CustodyAssistInputRequestedServices;
+  /**
+   * @minLength 1
+   * @maxLength 128
+   */
+  eventId: string;
+}
+
 export type CustodyRequestInputRequestedServices =
   (typeof CustodyRequestInputRequestedServices)[keyof typeof CustodyRequestInputRequestedServices];
 

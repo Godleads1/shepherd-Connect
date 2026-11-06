@@ -46,6 +46,7 @@ import type {
   CreateTeacherBody,
   CreateUserBody,
   CustodyAcceptanceInput,
+  CustodyAssistInput,
   CustodyEpisode,
   CustodyEpisodeResult,
   CustodyOverrideInput,
@@ -10442,6 +10443,92 @@ export const useAcceptCustodyEpisode = <
 };
 
 /**
+ * @summary Support scans a parent's QR code and accepts a child, starting the drop-off for the parent if needed
+ */
+export const getAssistCustodyEpisodeUrl = () => {
+  return `/api/custody-episodes/assist`;
+};
+
+export const assistCustodyEpisode = async (
+  custodyAssistInput: CustodyAssistInput,
+  options?: RequestInit,
+): Promise<CustodyEpisodeResult> => {
+  return customFetch<CustodyEpisodeResult>(getAssistCustodyEpisodeUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(custodyAssistInput),
+  });
+};
+
+export const getAssistCustodyEpisodeMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof assistCustodyEpisode>>,
+    TError,
+    { data: BodyType<CustodyAssistInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof assistCustodyEpisode>>,
+  TError,
+  { data: BodyType<CustodyAssistInput> },
+  TContext
+> => {
+  const mutationKey = ["assistCustodyEpisode"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof assistCustodyEpisode>>,
+    { data: BodyType<CustodyAssistInput> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return assistCustodyEpisode(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type AssistCustodyEpisodeMutationResult = NonNullable<
+  Awaited<ReturnType<typeof assistCustodyEpisode>>
+>;
+export type AssistCustodyEpisodeMutationBody = BodyType<CustodyAssistInput>;
+export type AssistCustodyEpisodeMutationError = ErrorType<void>;
+
+/**
+ * @summary Support scans a parent's QR code and accepts a child, starting the drop-off for the parent if needed
+ */
+export const useAssistCustodyEpisode = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof assistCustodyEpisode>>,
+    TError,
+    { data: BodyType<CustodyAssistInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof assistCustodyEpisode>>,
+  TError,
+  { data: BodyType<CustodyAssistInput> },
+  TContext
+> => {
+  return useMutation(getAssistCustodyEpisodeMutationOptions(options));
+};
+
+/**
  * @summary List parent-requested custody episodes awaiting support acceptance
  */
 export const getListPendingCustodyEpisodesUrl = () => {
@@ -10763,7 +10850,7 @@ export const useCancelCustodyRequest = <
 };
 
 /**
- * @summary Accepting support custodian completes pickup
+ * @summary Any support worker completes custody pickup
  */
 export const getCompleteCustodyPickupUrl = (id: number) => {
   return `/api/custody-episodes/${id}/pickup`;
@@ -10824,7 +10911,7 @@ export type CompleteCustodyPickupMutationResult = NonNullable<
 export type CompleteCustodyPickupMutationError = ErrorType<unknown>;
 
 /**
- * @summary Accepting support custodian completes pickup
+ * @summary Any support worker completes custody pickup
  */
 export const useCompleteCustodyPickup = <
   TError = ErrorType<unknown>,

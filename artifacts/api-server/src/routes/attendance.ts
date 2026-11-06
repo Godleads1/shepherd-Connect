@@ -600,7 +600,7 @@ router.put("/attendance/:id/checkout", authMiddleware, requireRoles("super_admin
           throw new CheckoutOperationRouteError(
             403,
             "Custody checkout not permitted",
-            "Custody-backed children can only be released by the accepting Support custodian or by an Admin or Super Admin with a recorded reason.",
+            "Custody-backed children can only be released by Support or by an Admin or Super Admin with a recorded reason.",
           );
         }
         const outcome = await releasePhysicalCustody(tx, {
@@ -872,7 +872,7 @@ router.post(
     } : null,
   }));
   res.json({
-    family: { familyCode: family.familyCode, parent1 },
+    family: { id: family.id, familyCode: family.familyCode, parent1 },
     children: safeChildren,
     hasAlerts: alerts.length > 0,
     alerts,
@@ -958,7 +958,7 @@ router.post(
     } : null,
   }));
   res.json({
-    family: { familyCode: family.familyCode, parent1 },
+    family: { id: family.id, familyCode: family.familyCode, parent1 },
     children: safeChildren,
     hasAlerts: alerts.length > 0,
     alerts,

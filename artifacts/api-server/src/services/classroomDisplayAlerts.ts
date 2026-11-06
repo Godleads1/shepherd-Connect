@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { and, eq, isNull, or, sql, type SQL } from "drizzle-orm";
+import { and, eq, gte, isNull, or, sql, type SQL } from "drizzle-orm";
 import {
   childrenTable,
   classMergesTable,
@@ -31,6 +31,25 @@ export interface CheckInAlert {
   requestedServices: "first" | "second" | "both";
   serviceDate: string;
   requestedAt: string;
+  acceptedAt: string;
+}
+
+/**
+ * A "child is coming" TV alert is only raised once support has accepted the
+ * child (after scanning the parent's QR code). It stays in the display
+ * snapshot for this window so a TV that connects or refreshes shortly after
+ * acceptance still announces it; after that it drops off without needing any
+ * further event. The TV itself scrolls each new alert a fixed number of times.
+ */
+export const CHECK_IN_ALERT_WINDOW_MS = 10 * 60_000;
+
+export function isCheckInAlertActive(
+  episode: { status: string; acceptedAt: Date | null },
+  now: Date = new Date(),
+): boolean {
+  if (episode.status !== "accepted" || !episode.acceptedAt) return false;
+  const age = now.getTime() - episode.acceptedAt.getTime();
+  return age >= 0 && age <= CHECK_IN_ALERT_WINDOW_MS;
 }
 
 const classClients = new Map<number, Set<ClassroomDisplayClient>>();
@@ -404,7 +423,7 @@ export async function getCheckInAlerts(episodeId: number): Promise<CheckInAlert[
     .innerJoin(usersTable, eq(usersTable.id, custodyEpisodesTable.requestedBy))
     .where(eq(custodyEpisodesTable.id, episodeId))
     .limit(1);
-  if (!row || row.episode.status !== "requested") return [];
+  if (!row || !isCheckInAlertActive(row.episode)) return [];
   const services = row.episode.requestedServices === "both"
     ? ["first", "second"] as const : [row.episode.requestedServices];
   const alerts: Array<CheckInAlert | null> = await Promise.all(services.map(async requestedServices => {
@@ -421,6 +440,7 @@ export async function getCheckInAlerts(episodeId: number): Promise<CheckInAlert[
     requestedServices,
     serviceDate: row.episode.serviceDate,
     requestedAt: row.episode.requestedAt.toISOString(),
+    acceptedAt: row.episode.acceptedAt!.toISOString(),
     } as CheckInAlert;
   }));
   return alerts.filter((alert): alert is CheckInAlert => Boolean(alert))
@@ -441,14 +461,17 @@ export async function getCustodyAlertClassIds(episodeId: number): Promise<number
   return resolveCustodyClassIds(db, episode.childId, episode.serviceDate, episode.requestedServices);
 }
 
+/** "Child is coming" alerts for children support accepted within the alert window. */
 export async function getPendingCheckInAlertsForClass(classId: number): Promise<CheckInAlert[]> {
+  const since = new Date(Date.now() - CHECK_IN_ALERT_WINDOW_MS);
   const episodes = await db.select({ id: custodyEpisodesTable.id })
     .from(custodyEpisodesTable)
     .where(and(
-      eq(custodyEpisodesTable.status, "requested"),
+      eq(custodyEpisodesTable.status, "accepted"),
       eq(custodyEpisodesTable.serviceDate, todayWAT()),
+      gte(custodyEpisodesTable.acceptedAt, since),
     ))
-    .orderBy(custodyEpisodesTable.requestedAt);
+    .orderBy(custodyEpisodesTable.acceptedAt);
   const alerts = await Promise.all(episodes.map(({ id }) => getCheckInAlerts(id)));
   return alerts.flat().filter(alert => alert.classId === classId);
 }

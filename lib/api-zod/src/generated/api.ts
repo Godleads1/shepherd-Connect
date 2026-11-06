@@ -4524,6 +4524,18 @@ export const AcceptCustodyEpisodeBody = zod.object({
 });
 
 /**
+ * @summary Support scans a parent's QR code and accepts a child, starting the drop-off for the parent if needed
+ */
+
+export const assistCustodyEpisodeBodyEventIdMax = 128;
+
+export const AssistCustodyEpisodeBody = zod.object({
+  childId: zod.number().min(1),
+  requestedServices: zod.enum(["first", "second", "both"]),
+  eventId: zod.string().min(1).max(assistCustodyEpisodeBodyEventIdMax),
+});
+
+/**
  * @summary List parent-requested custody episodes awaiting support acceptance
  */
 export const ListPendingCustodyEpisodesResponseItem = zod.object({
@@ -4631,7 +4643,7 @@ export const CancelCustodyRequestResponse = zod.object({
 });
 
 /**
- * @summary Accepting support custodian completes pickup
+ * @summary Any support worker completes custody pickup
  */
 export const CompleteCustodyPickupParams = zod.object({
   id: zod.coerce.number(),

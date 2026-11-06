@@ -23,6 +23,6 @@ export function getCheckoutAccess(
 
   return {
     kind: "blocked",
-    message: "Custody-backed children can only be released by the accepting Support custodian or by an Admin or Super Admin with a recorded reason.",
+    message: "Custody-backed children can only be released by Support or by an Admin or Super Admin with a recorded reason.",
   };
 }

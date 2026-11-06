@@ -1,9 +1,9 @@
 import { Router } from "express";
-import { AcceptCustodyEpisodeBody, OverrideCustodyPickupBody, RequestCustodyEpisodeBody } from "@workspace/api-zod";
+import { AcceptCustodyEpisodeBody, AssistCustodyEpisodeBody, OverrideCustodyPickupBody, RequestCustodyEpisodeBody } from "@workspace/api-zod";
 import { and, eq, inArray, ne, or, sql } from "drizzle-orm";
 import { childrenTable, custodyEpisodesTable, db, familiesTable, teacherAllocationsTable, teachersTable } from "@workspace/db";
 import { authMiddleware, requireRoles } from "../middlewares/auth";
-import { acceptPhysicalCustody, cancelCustodyRequest, CustodyHandoverError, releasePhysicalCustody, requestCustodyEpisode } from "../services/custodyHandover";
+import { acceptPhysicalCustody, cancelCustodyRequest, CustodyHandoverError, releasePhysicalCustody, requestCustodyEpisode, supportAssistedCustody } from "../services/custodyHandover";
 import { serviceDateAt } from "../lib/serviceTime";
 
 const router = Router();
@@ -104,6 +104,20 @@ router.post("/custody-episodes", authMiddleware, requireRoles("support"), async 
   if (!parsed.success) { res.status(400).json({ error: "Bad request", message: parsed.error.message }); return; }
   try {
     const outcome = await db.transaction(tx => acceptPhysicalCustody(tx, { ...parsed.data, custodianUserId: req.user!.userId }));
+    res.status(outcome.duplicate ? 200 : 201).json(outcome);
+  } catch (error) {
+    if (error instanceof CustodyHandoverError) { res.status(error.statusCode).json({ error: "Custody handover rejected", message: error.message }); return; }
+    throw error;
+  }
+});
+
+router.post("/custody-episodes/assist", authMiddleware, requireRoles("support"), async (req, res): Promise<void> => {
+  const parsed = AssistCustodyEpisodeBody.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: "Bad request", message: parsed.error.message }); return; }
+  try {
+    const outcome = await db.transaction(tx => supportAssistedCustody(tx, {
+      ...parsed.data, serviceDate: serviceDateAt(), supportUserId: req.user!.userId,
+    }));
     res.status(outcome.duplicate ? 200 : 201).json(outcome);
   } catch (error) {
     if (error instanceof CustodyHandoverError) { res.status(error.statusCode).json({ error: "Custody handover rejected", message: error.message }); return; }

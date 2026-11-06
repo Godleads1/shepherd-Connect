@@ -16,7 +16,7 @@ describe("custody-aware checkout access", () => {
       const access = getCheckoutAccess(role, 41);
       expect(access.kind).toBe("blocked");
       if (access.kind === "blocked") {
-        expect(access.message).toContain("accepting Support custodian");
+        expect(access.message).toContain("released by Support");
       }
     },
   );

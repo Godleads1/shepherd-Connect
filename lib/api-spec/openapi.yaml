@@ -2612,6 +2612,28 @@ paths:
                 $ref: "#/components/schemas/CustodyEpisodeResult"
         "409":
           description: Child already has open custody
+  /custody-episodes/assist:
+    post:
+      operationId: assistCustodyEpisode
+      tags: [attendance]
+      summary: Support scans a parent's QR code and accepts a child, starting the drop-off for the parent if needed
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CustodyAssistInput"
+      responses:
+        "201":
+          description: Custody accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CustodyEpisodeResult"
+        "409":
+          description: Child already accepted or checked in
   /custody-episodes/pending:
     get:
       operationId: listPendingCustodyEpisodes
@@ -2683,7 +2705,7 @@ paths:
     post:
       operationId: completeCustodyPickup
       tags: [attendance]
-      summary: Accepting support custodian completes pickup
+      summary: Any support worker completes custody pickup
       security:
         - bearerAuth: []
       parameters:
@@ -3120,6 +3142,13 @@ components:
           type: string
           minLength: 1
           maxLength: 128
+    CustodyAssistInput:
+      type: object
+      required: [childId, requestedServices, eventId]
+      properties:
+        childId: { type: integer, minimum: 1 }
+        requestedServices: { type: string, enum: [first, second, both] }
+        eventId: { type: string, minLength: 1, maxLength: 128 }
     CustodyRequestInput:
       type: object
       required: [childId, serviceDate, requestedServices, eventId]

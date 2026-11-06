@@ -120,11 +120,7 @@ export default function Attendance() {
         refetch();
         refetchToday();
       } catch (e: any) {
-        if (e?.message?.includes("Only the accepting support custodian")) {
-          toast({ variant: "destructive", title: "Access Denied", description: "Only the custodian who accepted this child can check them out." });
-        } else {
-          toast({ variant: "destructive", title: "Checkout Failed", description: e.message });
-        }
+        toast({ variant: "destructive", title: "Checkout Failed", description: e.message });
       }
     } else {
       // Legacy checkout
