@@ -219,7 +219,8 @@ export function parseChapterVerses(content: unknown): Array<{ number: number; te
   walk(content);
   return [...parts.entries()]
     .sort((a, b) => a[0] - b[0])
-    .map(([number, texts]) => ({ number, text: texts.join("").replace(/\s+/g, " ").trim() }))
+    // A leading "¶" is the KJV's printed paragraph mark, not part of the verse.
+    .map(([number, texts]) => ({ number, text: texts.join("").replace(/\s+/g, " ").trim().replace(/^¶\s*/, "") }))
     .filter(verse => verse.text.length > 0);
 }
 

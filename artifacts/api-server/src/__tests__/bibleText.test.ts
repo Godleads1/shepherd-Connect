@@ -36,6 +36,11 @@ describe("API.Bible text service", () => {
     expect(parseChapterVerses(content)).toEqual([{ number: 4, text: "Bridged verse." }]);
   });
 
+  it("drops the KJV's leading paragraph mark", () => {
+    const content = [{ type: "text", text: "¶ For God so loved the world.", attrs: { verseId: "JHN.3.16" } }];
+    expect(parseChapterVerses(content)).toEqual([{ number: 16, text: "For God so loved the world." }]);
+  });
+
   it("normalises version abbreviations", () => {
     expect(normaliseAbbreviation("engKJV")).toBe("KJV");
     expect(normaliseAbbreviation("NIV11")).toBe("NIV");
