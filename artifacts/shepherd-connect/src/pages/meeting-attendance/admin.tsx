@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { QRCodeSVG } from "qrcode.react";
+import { QRCodeCanvas, QRCodeSVG } from "qrcode.react";
 import {
   useListMeetings, useListMeetingTeachers, useCreateMeeting, useGetMeeting, useUpdateMeeting,
   useSetMeetingParticipants, useIssueMeetingQr, useCloseMeeting,
@@ -139,6 +139,17 @@ function MeetingPanel({ id }: { id: number }) {
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [filter, setFilter] = useState("");
   const [qrUrl, setQrUrl] = useState<string | null>(null);
+  const qrCanvas = useRef<HTMLCanvasElement>(null);
+  const downloadQr = () => {
+    const canvas = qrCanvas.current;
+    if (!canvas) return;
+    const a = document.createElement("a");
+    a.href = canvas.toDataURL("image/png");
+    a.download = `meeting-${id}-sign-in-qr.png`;
+    a.style.display = "none";
+    document.body.appendChild(a);
+    try { a.click(); } finally { a.remove(); }
+  };
   const [confirm, setConfirm] = useState<"replace" | "close" | null>(null);
   const [downloading, setDownloading] = useState<string | null>(null);
   const initFor = useRef<number | null>(null);
@@ -292,6 +303,11 @@ function MeetingPanel({ id }: { id: number }) {
               <p className="font-semibold">Display this for teachers to scan.</p>
               <p>Teachers scan with the app's meeting scanner or their phone camera, then confirm on their own account.</p>
               <p className="text-xs text-gray-500">This code is shown only once. If you leave this page, use Replace QR to show a new one.</p>
+              <Button size="sm" variant="outline" className="mt-2" onClick={downloadQr} data-testid="button-download-meeting-qr">
+                <Download className="w-4 h-4 mr-1.5" /> Download QR
+              </Button>
+              {/* Off-screen high-resolution copy used only for the PNG download. */}
+              <QRCodeCanvas ref={qrCanvas} value={qrUrl} size={768} marginSize={4} level="M" className="hidden" aria-hidden="true" />
             </div>
           </div>
         ) : m.isOpen ? (
