@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { eq, and, ne, lt, inArray, sql } from "drizzle-orm";
-import { db, attendanceTable, attendanceEventsTable, childrenTable, classesTable, familiesTable, usersTable, notificationsTable, teachersTable, teacherAllocationsTable, hallSessionsTable, dropOffIntentsTable } from "@workspace/db";
+import { db, attendanceTable, attendanceEventsTable, childrenTable, classesTable, custodyEpisodesTable, familiesTable, usersTable, notificationsTable, teachersTable, teacherAllocationsTable, hallSessionsTable, dropOffIntentsTable } from "@workspace/db";
 import { CheckInBody, CheckOutBody, CheckOutParams, GetCheckoutOperationParams, ListAttendanceQueryParams, ScanQrCodeBody } from "@workspace/api-zod";
 import { authMiddleware, requireRoles } from "../middlewares/auth";
 import { notifyChildArrivedInClass, notifyChildPickedUp, notifyTeachersChildPickedUp, sendNotification } from "../lib/notify";
@@ -22,6 +22,16 @@ import {
   serializeCheckoutResult,
 } from "../services/checkoutOperations";
 import { serviceDateAt } from "../lib/serviceTime";
+import {
+  CheckoutReleaseError,
+  decideCheckoutAuthority,
+  familyCodeFromQr,
+  recordChildRelease,
+  verifyReleaseProof,
+  type VerifiedRelease,
+} from "../services/checkoutReleaseProof";
+
+export { familyCodeFromQr };
 
 async function getParentContacts(childId: number): Promise<{ phones: (string | null)[]; emails: (string | null)[]; parentIds: number[]; childName: string; className: string }> {
   const [child] = await db.select().from(childrenTable).where(eq(childrenTable.id, childId));
@@ -49,11 +59,6 @@ async function getParentContacts(childId: number): Promise<{ phones: (string | n
 }
 
 const router = Router();
-
-export function familyCodeFromQr(qrCode: string): string | null {
-  const normalized = qrCode.trim().toUpperCase();
-  return /^FAM-[A-Z0-9]{6}$/.test(normalized) ? normalized : null;
-}
 
 export function watServiceDateAt(date: Date): string {
   return serviceDateAt(date);
@@ -579,34 +584,31 @@ router.put("/attendance/:id/checkout", authMiddleware, requireRoles("super_admin
         throw new CheckoutOperationRouteError(404, "Not found", "Attendance record not found");
       }
 
+      // Release is authorised server-side: verified pickup proof (parent's
+      // family QR or a parent-approved helper code for this child), or an
+      // Admin/Super Admin override with a recorded reason.
+      const alreadyReleased = existing.custodyEpisodeId
+        ? (await tx.select({ status: custodyEpisodesTable.status }).from(custodyEpisodesTable)
+          .where(eq(custodyEpisodesTable.id, existing.custodyEpisodeId)))[0]?.status === "picked_up"
+        : existing.status === "picked_up";
+      const authority = decideCheckoutAuthority({
+        role: req.user!.role,
+        custodyBacked: !!existing.custodyEpisodeId,
+        alreadyReleased,
+        proof: parsed.data.releaseProof,
+        overrideReason,
+      });
+      let release: VerifiedRelease | null = null;
+      if (authority.kind === "verify_proof") release = await verifyReleaseProof(tx, existing.childId, authority.proof);
+      else if (authority.kind === "admin_override") release = { method: "admin_override", reason: authority.reason };
+      const custodyOverrideReason = release?.method === "admin_override" ? release.reason : undefined;
+
       let rawResult;
       if (existing.custodyEpisodeId) {
-        const isAdminOverride = req.user!.role === "admin" || req.user!.role === "super_admin";
-        if (req.user!.role === "support" && overrideReason) {
-          throw new CheckoutOperationRouteError(
-            403,
-            "Custody override not permitted",
-            "Support must use normal custody checkout. Administrative override reasons may only be submitted by an Admin or Super Admin.",
-          );
-        }
-        if (isAdminOverride && !overrideReason) {
-          throw new CheckoutOperationRouteError(
-            400,
-            "Custody override reason required",
-            "Enter a reason to record why this administrative custody override is necessary.",
-          );
-        }
-        if (req.user!.role !== "support" && !isAdminOverride) {
-          throw new CheckoutOperationRouteError(
-            403,
-            "Custody checkout not permitted",
-            "Custody-backed children can only be released by Support or by an Admin or Super Admin with a recorded reason.",
-          );
-        }
         const outcome = await releasePhysicalCustody(tx, {
           episodeId: existing.custodyEpisodeId!,
           actorUserId,
-          ...(isAdminOverride ? { overrideReason } : {}),
+          ...(custodyOverrideReason ? { overrideReason: custodyOverrideReason } : {}),
         });
         const record = outcome.attendance.find((row: typeof attendanceTable.$inferSelect) => row.id === id)
           ?? (await tx.select().from(attendanceTable).where(eq(attendanceTable.id, id)))[0];
@@ -621,13 +623,6 @@ router.put("/attendance/:id/checkout", authMiddleware, requireRoles("super_admin
           alreadyApplied: outcome.duplicate,
         };
       } else {
-        if (overrideReason) {
-          throw new CheckoutOperationRouteError(
-            400,
-            "Custody override not applicable",
-            "An administrative custody override reason may only be used for custody-backed attendance.",
-          );
-        }
         const lockKey = Number(existing.serviceDate.replace(/-/g, ""));
         await tx.execute(sql`SELECT pg_advisory_xact_lock(${existing.childId}, ${lockKey})`);
         const result = await tx.update(attendanceTable).set({
@@ -664,6 +659,18 @@ router.put("/attendance/:id/checkout", authMiddleware, requireRoles("super_admin
       }
 
       const authoritativeResult = serializeCheckoutResult(rawResult);
+      if (release && authoritativeResult.outcome === "applied") {
+        await recordChildRelease(tx, {
+          actorUserId,
+          childId: existing.childId,
+          attendanceId: id,
+          custodyEpisodeId: existing.custodyEpisodeId,
+          operationId,
+          release,
+          ipAddress: req.ip,
+          userAgent: req.headers["user-agent"] || null,
+        });
+      }
       await persistCheckoutOperation(tx, {
         operationId,
         actorUserId,
@@ -684,6 +691,10 @@ router.put("/attendance/:id/checkout", authMiddleware, requireRoles("super_admin
     res.json(checkout);
   } catch (error) {
     if (error instanceof CheckoutOperationRouteError) {
+      res.status(error.statusCode).json({ error: error.errorTitle, message: error.message });
+      return;
+    }
+    if (error instanceof CheckoutReleaseError) {
       res.status(error.statusCode).json({ error: error.errorTitle, message: error.message });
       return;
     }

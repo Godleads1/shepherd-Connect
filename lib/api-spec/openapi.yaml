@@ -2714,11 +2714,17 @@ paths:
     post:
       operationId: completeCustodyPickup
       tags: [attendance]
-      summary: Any support worker completes custody pickup
+      summary: Any support worker completes custody pickup after verifying the collector
       security:
         - bearerAuth: []
       parameters:
         - $ref: "#/components/parameters/CustodyEpisodeId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CustodyPickupInput"
       responses:
         "200":
           description: Pickup completed
@@ -4101,12 +4107,43 @@ components:
           type: string
           minLength: 1
           maxLength: 500
-          description: Required reason when an Admin or Super Admin releases custody-backed attendance.
+          description: Reason recorded when an Admin or Super Admin releases a child without pickup proof.
+        releaseProof:
+          $ref: "#/components/schemas/CheckoutReleaseProof"
         notes:
           type: string
           nullable: true
       required:
         - operationId
+
+    CustodyPickupInput:
+      type: object
+      properties:
+        releaseProof:
+          $ref: "#/components/schemas/CheckoutReleaseProof"
+      required:
+        - releaseProof
+
+    CheckoutReleaseProof:
+      type: object
+      description: >-
+        Proof that the person collecting the child is authorised. The server
+        verifies it before release: the parent's family QR must belong to the
+        child's family, or the helper code must be an unexpired, parent-approved
+        code for this child.
+      properties:
+        method:
+          type: string
+          enum: [family_qr, delegate_otp]
+        qrCode:
+          type: string
+          minLength: 1
+          maxLength: 64
+        otpCode:
+          type: string
+          pattern: "^[0-9]{6}$"
+      required:
+        - method
 
     CheckoutResult:
       type: object

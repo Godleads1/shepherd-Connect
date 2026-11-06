@@ -157,6 +157,7 @@ afterAll(async () => {
     sql`DELETE FROM notification_outbox WHERE domain_type = 'attendance' AND domain_identifier IN (SELECT id::text FROM attendance WHERE child_id = ${childId})`,
     sql`DELETE FROM notification_outbox WHERE domain_type = 'staff_scan' AND domain_identifier IN (SELECT id::text FROM staff_scans WHERE user_id IN (${adminId}, ${otherId}))`,
     sql`DELETE FROM attendance_events WHERE user_id IN (${adminId}, ${otherId})`,
+    sql`DELETE FROM audit_logs WHERE user_id IN (${adminId}, ${otherId}) AND action = 'child_released'`,
     sql`DELETE FROM drop_off_intents WHERE family_id = ${familyId}`,
     sql`DELETE FROM attendance WHERE child_id = ${childId}`,
     sql`DELETE FROM staff_scans WHERE user_id IN (${adminId}, ${otherId})`,
@@ -174,10 +175,10 @@ afterAll(async () => {
 databaseDescribe("attendance PostgreSQL concurrency integrity", () => {
   it("makes sequential and four-way checkout one transition with one timestamp and actor", async () => {
     const id = await seedAttendance();
-    const first = await request(app).put(`/api/attendance/${id}/checkout`).set("Authorization", authorization).send({ operationId: randomUUID() });
+    const first = await request(app).put(`/api/attendance/${id}/checkout`).set("Authorization", authorization).send({ operationId: randomUUID(), releaseProof: { method: "family_qr", qrCode: familyCode } });
     const firstTime = first.body.attendance.checkOutTime;
     const retries = await Promise.all(Array.from({ length: 4 }, () =>
-      request(app).put(`/api/attendance/${id}/checkout`).set("Authorization", authorization).send({ operationId: randomUUID() }),
+      request(app).put(`/api/attendance/${id}/checkout`).set("Authorization", authorization).send({ operationId: randomUUID(), releaseProof: { method: "family_qr", qrCode: familyCode } }),
     ));
     expect([first, ...retries].every(reply => reply.status === 200)).toBe(true);
     expect(retries.every(reply =>
@@ -288,7 +289,7 @@ databaseDescribe("attendance PostgreSQL concurrency integrity", () => {
   it("treats a genuinely new event after pickup as a fresh check-in", async () => {
     const first = await request(app).post("/api/attendance").set("Authorization", authorization)
       .send(eventBody(`${prefix}-event-before-pickup`));
-    await request(app).put(`/api/attendance/${first.body.id}/checkout`).set("Authorization", authorization).send({ operationId: randomUUID() });
+    await request(app).put(`/api/attendance/${first.body.id}/checkout`).set("Authorization", authorization).send({ operationId: randomUUID(), releaseProof: { method: "family_qr", qrCode: familyCode } });
     const fresh = await request(app).post("/api/attendance").set("Authorization", authorization)
       .send(eventBody(`${prefix}-event-after-pickup`));
     expect(fresh.status).toBe(200);
@@ -300,7 +301,7 @@ databaseDescribe("attendance PostgreSQL concurrency integrity", () => {
   it("replays a processed event before evaluating a newer opposing active slot", async () => {
     const originalBody = eventBody(`${prefix}-event-original-7am`);
     const original = await request(app).post("/api/attendance").set("Authorization", authorization).send(originalBody);
-    await request(app).put(`/api/attendance/${original.body.id}/checkout`).set("Authorization", authorization).send({ operationId: randomUUID() });
+    await request(app).put(`/api/attendance/${original.body.id}/checkout`).set("Authorization", authorization).send({ operationId: randomUUID(), releaseProof: { method: "family_qr", qrCode: familyCode } });
     const opposing = await request(app).post("/api/attendance").set("Authorization", authorization).send(
       eventBody(`${prefix}-event-new-1030`, { serviceSlot: "10:30am" }),
     );

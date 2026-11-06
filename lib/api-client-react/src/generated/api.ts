@@ -50,6 +50,7 @@ import type {
   CustodyEpisode,
   CustodyEpisodeResult,
   CustodyOverrideInput,
+  CustodyPickupInput,
   CustodyRequestInput,
   CustodyRequestResult,
   DashboardStats,
@@ -10928,7 +10929,7 @@ export const useCancelCustodyRequest = <
 };
 
 /**
- * @summary Any support worker completes custody pickup
+ * @summary Any support worker completes custody pickup after verifying the collector
  */
 export const getCompleteCustodyPickupUrl = (id: number) => {
   return `/api/custody-episodes/${id}/pickup`;
@@ -10936,11 +10937,14 @@ export const getCompleteCustodyPickupUrl = (id: number) => {
 
 export const completeCustodyPickup = async (
   id: number,
+  custodyPickupInput: CustodyPickupInput,
   options?: RequestInit,
 ): Promise<CustodyEpisodeResult> => {
   return customFetch<CustodyEpisodeResult>(getCompleteCustodyPickupUrl(id), {
     ...options,
     method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(custodyPickupInput),
   });
 };
 
@@ -10951,14 +10955,14 @@ export const getCompleteCustodyPickupMutationOptions = <
   mutation?: UseMutationOptions<
     Awaited<ReturnType<typeof completeCustodyPickup>>,
     TError,
-    { id: number },
+    { id: number; data: BodyType<CustodyPickupInput> },
     TContext
   >;
   request?: SecondParameter<typeof customFetch>;
 }): UseMutationOptions<
   Awaited<ReturnType<typeof completeCustodyPickup>>,
   TError,
-  { id: number },
+  { id: number; data: BodyType<CustodyPickupInput> },
   TContext
 > => {
   const mutationKey = ["completeCustodyPickup"];
@@ -10972,11 +10976,11 @@ export const getCompleteCustodyPickupMutationOptions = <
 
   const mutationFn: MutationFunction<
     Awaited<ReturnType<typeof completeCustodyPickup>>,
-    { id: number }
+    { id: number; data: BodyType<CustodyPickupInput> }
   > = (props) => {
-    const { id } = props ?? {};
+    const { id, data } = props ?? {};
 
-    return completeCustodyPickup(id, requestOptions);
+    return completeCustodyPickup(id, data, requestOptions);
   };
 
   return { mutationFn, ...mutationOptions };
@@ -10985,11 +10989,11 @@ export const getCompleteCustodyPickupMutationOptions = <
 export type CompleteCustodyPickupMutationResult = NonNullable<
   Awaited<ReturnType<typeof completeCustodyPickup>>
 >;
-
+export type CompleteCustodyPickupMutationBody = BodyType<CustodyPickupInput>;
 export type CompleteCustodyPickupMutationError = ErrorType<unknown>;
 
 /**
- * @summary Any support worker completes custody pickup
+ * @summary Any support worker completes custody pickup after verifying the collector
  */
 export const useCompleteCustodyPickup = <
   TError = ErrorType<unknown>,
@@ -10998,14 +11002,14 @@ export const useCompleteCustodyPickup = <
   mutation?: UseMutationOptions<
     Awaited<ReturnType<typeof completeCustodyPickup>>,
     TError,
-    { id: number },
+    { id: number; data: BodyType<CustodyPickupInput> },
     TContext
   >;
   request?: SecondParameter<typeof customFetch>;
 }): UseMutationResult<
   Awaited<ReturnType<typeof completeCustodyPickup>>,
   TError,
-  { id: number },
+  { id: number; data: BodyType<CustodyPickupInput> },
   TContext
 > => {
   return useMutation(getCompleteCustodyPickupMutationOptions(options));

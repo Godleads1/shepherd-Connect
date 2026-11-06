@@ -2258,6 +2258,10 @@ export const CheckOutParams = zod.object({
 
 export const checkOutBodyOverrideReasonMax = 500;
 
+export const checkOutBodyReleaseProofQrCodeMax = 64;
+
+export const checkOutBodyReleaseProofOtpCodeRegExp = new RegExp("^[0-9]{6}$");
+
 export const CheckOutBody = zod.object({
   operationId: zod
     .string()
@@ -2271,7 +2275,24 @@ export const CheckOutBody = zod.object({
     .max(checkOutBodyOverrideReasonMax)
     .optional()
     .describe(
-      "Required reason when an Admin or Super Admin releases custody-backed attendance.",
+      "Reason recorded when an Admin or Super Admin releases a child without pickup proof.",
+    ),
+  releaseProof: zod
+    .object({
+      method: zod.enum(["family_qr", "delegate_otp"]),
+      qrCode: zod
+        .string()
+        .min(1)
+        .max(checkOutBodyReleaseProofQrCodeMax)
+        .optional(),
+      otpCode: zod
+        .string()
+        .regex(checkOutBodyReleaseProofOtpCodeRegExp)
+        .optional(),
+    })
+    .optional()
+    .describe(
+      "Proof that the person collecting the child is authorised. The server verifies it before release: the parent's family QR must belong to the child's family, or the helper code must be an unexpired, parent-approved code for this child.",
     ),
   notes: zod.string().nullish(),
 });
@@ -4652,10 +4673,35 @@ export const CancelCustodyRequestResponse = zod.object({
 });
 
 /**
- * @summary Any support worker completes custody pickup
+ * @summary Any support worker completes custody pickup after verifying the collector
  */
 export const CompleteCustodyPickupParams = zod.object({
   id: zod.coerce.number(),
+});
+
+export const completeCustodyPickupBodyReleaseProofQrCodeMax = 64;
+
+export const completeCustodyPickupBodyReleaseProofOtpCodeRegExp = new RegExp(
+  "^[0-9]{6}$",
+);
+
+export const CompleteCustodyPickupBody = zod.object({
+  releaseProof: zod
+    .object({
+      method: zod.enum(["family_qr", "delegate_otp"]),
+      qrCode: zod
+        .string()
+        .min(1)
+        .max(completeCustodyPickupBodyReleaseProofQrCodeMax)
+        .optional(),
+      otpCode: zod
+        .string()
+        .regex(completeCustodyPickupBodyReleaseProofOtpCodeRegExp)
+        .optional(),
+    })
+    .describe(
+      "Proof that the person collecting the child is authorised. The server verifies it before release: the parent's family QR must belong to the child's family, or the helper code must be an unexpired, parent-approved code for this child.",
+    ),
 });
 
 export const CompleteCustodyPickupResponse = zod.object({

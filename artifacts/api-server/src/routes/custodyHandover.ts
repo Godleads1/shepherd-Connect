@@ -1,10 +1,11 @@
 import { Router } from "express";
-import { AcceptCustodyEpisodeBody, AssistCustodyEpisodeBody, OverrideCustodyPickupBody, RequestCustodyEpisodeBody } from "@workspace/api-zod";
+import { AcceptCustodyEpisodeBody, AssistCustodyEpisodeBody, CompleteCustodyPickupBody, OverrideCustodyPickupBody, RequestCustodyEpisodeBody } from "@workspace/api-zod";
 import { and, eq, inArray, ne, or, sql } from "drizzle-orm";
 import { childrenTable, custodyEpisodesTable, db, familiesTable, teacherAllocationsTable, teachersTable } from "@workspace/db";
 import { authMiddleware, requireRoles } from "../middlewares/auth";
 import { acceptPhysicalCustody, cancelCustodyRequest, CustodyHandoverError, releasePhysicalCustody, requestCustodyEpisode, supportAssistedCustody } from "../services/custodyHandover";
 import { serviceDateAt } from "../lib/serviceTime";
+import { CheckoutReleaseError, recordChildRelease, verifyReleaseProof } from "../services/checkoutReleaseProof";
 
 const router = Router();
 
@@ -128,10 +129,26 @@ router.post("/custody-episodes/assist", authMiddleware, requireRoles("support"),
 router.post("/custody-episodes/:id/pickup", authMiddleware, requireRoles("support"), async (req, res): Promise<void> => {
   const id = Number(req.params.id);
   if (!Number.isInteger(id) || id < 1) { res.status(400).json({ error: "Bad request", message: "Invalid episode ID" }); return; }
+  const parsed = CompleteCustodyPickupBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Pickup verification required", message: "Scan the parent's family QR or enter an approved helper code before releasing this child." });
+    return;
+  }
   try {
-    const outcome = await db.transaction(tx => releasePhysicalCustody(tx, { episodeId: id, actorUserId: req.user!.userId }));
+    const outcome = await db.transaction(async tx => {
+      const [episode] = await tx.select().from(custodyEpisodesTable).where(eq(custodyEpisodesTable.id, id));
+      if (!episode) throw new CustodyHandoverError(404, "Custody episode not found");
+      const release = await verifyReleaseProof(tx, episode.childId, parsed.data.releaseProof);
+      const result = await releasePhysicalCustody(tx, { episodeId: id, actorUserId: req.user!.userId });
+      if (!result.duplicate) await recordChildRelease(tx, {
+        actorUserId: req.user!.userId, childId: episode.childId, custodyEpisodeId: id, release,
+        ipAddress: req.ip, userAgent: req.headers["user-agent"] || null,
+      });
+      return result;
+    });
     res.json(outcome);
   } catch (error) {
+    if (error instanceof CheckoutReleaseError) { res.status(error.statusCode).json({ error: error.errorTitle, message: error.message }); return; }
     if (error instanceof CustodyHandoverError) { res.status(error.statusCode).json({ error: "Custody handover rejected", message: error.message }); return; }
     throw error;
   }
@@ -142,7 +159,15 @@ router.post("/custody-episodes/:id/override-pickup", authMiddleware, requireRole
   const parsed = OverrideCustodyPickupBody.safeParse(req.body);
   if (!Number.isInteger(id) || id < 1 || !parsed.success || !parsed.data.reason.trim()) { res.status(400).json({ error: "Bad request", message: parsed.success ? "A non-blank reason is required" : parsed.error.message }); return; }
   try {
-    const outcome = await db.transaction(tx => releasePhysicalCustody(tx, { episodeId: id, actorUserId: req.user!.userId, overrideReason: parsed.data.reason.trim() }));
+    const reason = parsed.data.reason.trim();
+    const outcome = await db.transaction(async tx => {
+      const result = await releasePhysicalCustody(tx, { episodeId: id, actorUserId: req.user!.userId, overrideReason: reason });
+      if (!result.duplicate) await recordChildRelease(tx, {
+        actorUserId: req.user!.userId, childId: result.episode.childId, custodyEpisodeId: id,
+        release: { method: "admin_override", reason }, ipAddress: req.ip, userAgent: req.headers["user-agent"] || null,
+      });
+      return result;
+    });
     res.json(outcome);
   } catch (error) {
     if (error instanceof CustodyHandoverError) { res.status(error.statusCode).json({ error: "Custody handover rejected", message: error.message }); return; }

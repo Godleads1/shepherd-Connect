@@ -58,18 +58,22 @@ describe("OTP Delegate System", () => {
     delegateId = res.body.id;
   });
 
-  it("verify-otp is a public endpoint (no auth required)", async () => {
-    const res = await api
+  it("verify-otp requires a signed-in checkout staff member", async () => {
+    await api
       .post("/api/pickup-delegates/verify-otp")
-      .send({ otpCode: "000000" });
-
-    expect(res.status).not.toBe(401);
-    expect(res.status).not.toBe(403);
+      .send({ otpCode: "000000" })
+      .expect(401);
+    await api
+      .post("/api/pickup-delegates/verify-otp")
+      .set("Authorization", `Bearer ${parentToken}`)
+      .send({ otpCode: "000000" })
+      .expect(403);
   });
 
   it("verifying a non-existent OTP returns valid: false", async () => {
     const res = await api
       .post("/api/pickup-delegates/verify-otp")
+      .set("Authorization", `Bearer ${attendantToken}`)
       .send({ otpCode: "000000" })
       .expect(200);
 
@@ -99,6 +103,7 @@ describe("OTP Delegate System", () => {
 
     const res = await api
       .post("/api/pickup-delegates/verify-otp")
+      .set("Authorization", `Bearer ${attendantToken}`)
       .send({ otpCode: createdOtpCode })
       .expect(200);
 

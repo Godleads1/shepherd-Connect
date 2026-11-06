@@ -1,4 +1,4 @@
-import type { CheckoutResult } from "@workspace/api-client-react";
+import type { CheckoutReleaseProof, CheckoutResult } from "@workspace/api-client-react";
 
 export type CheckoutPhase =
   | "idle"
@@ -34,6 +34,9 @@ export type CheckoutOperationTransport = {
 
 export type CheckoutSubmission = {
   overrideReason?: string;
+  /** Verified by the server before release. Kept in memory only (never
+   *  persisted) so a retry of the same operation can resend it. */
+  releaseProof?: CheckoutReleaseProof;
 };
 
 const storageKey = (userId: number | string) => `shepherd.checkout.pending.${userId}`;
@@ -90,6 +93,7 @@ function isAlreadyApplied(result: CheckoutResult) {
  */
 export class CheckoutOperation {
   state: CheckoutOperationState;
+  private lastProof: { operationId: string; proof: CheckoutReleaseProof } | null = null;
 
   constructor(
     private readonly userId: number | string,
@@ -152,11 +156,16 @@ export class CheckoutOperation {
     if (!pending.requiresOverrideReason && requiresOverrideReason) {
       throw new Error("Resolve the current checkout operation before changing its checkout mode.");
     }
+    if (input.releaseProof) this.lastProof = { operationId: pending.operationId, proof: input.releaseProof };
+    const releaseProof = input.releaseProof
+      ?? (this.lastProof?.operationId === pending.operationId ? this.lastProof.proof : undefined);
     this.set({ phase: "submitting", pending });
     try {
       const result = overrideReason
         ? await this.transport.submit(pending.attendanceId, pending.operationId, { overrideReason })
-        : await this.transport.submit(pending.attendanceId, pending.operationId);
+        : releaseProof
+          ? await this.transport.submit(pending.attendanceId, pending.operationId, { releaseProof })
+          : await this.transport.submit(pending.attendanceId, pending.operationId);
       this.complete(isAlreadyApplied(result) ? "already_applied" : "applied", result);
     } catch (error) {
       if (isDefinitiveCheckoutRejection(error)) this.rejected(error);

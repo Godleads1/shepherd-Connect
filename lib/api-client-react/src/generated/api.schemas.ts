@@ -857,16 +857,43 @@ export interface CheckInBody {
   queuedAt?: string;
 }
 
+export type CheckoutReleaseProofMethod =
+  (typeof CheckoutReleaseProofMethod)[keyof typeof CheckoutReleaseProofMethod];
+
+export const CheckoutReleaseProofMethod = {
+  family_qr: "family_qr",
+  delegate_otp: "delegate_otp",
+} as const;
+
+/**
+ * Proof that the person collecting the child is authorised. The server verifies it before release: the parent's family QR must belong to the child's family, or the helper code must be an unexpired, parent-approved code for this child.
+ */
+export interface CheckoutReleaseProof {
+  method: CheckoutReleaseProofMethod;
+  /**
+   * @minLength 1
+   * @maxLength 64
+   */
+  qrCode?: string;
+  /** @pattern ^[0-9]{6}$ */
+  otpCode?: string;
+}
+
 export interface CheckOutBody {
   /** Stable client-generated identity for one logical checkout attempt. */
   operationId: string;
   /**
-   * Required reason when an Admin or Super Admin releases custody-backed attendance.
+   * Reason recorded when an Admin or Super Admin releases a child without pickup proof.
    * @minLength 1
    * @maxLength 500
    */
   overrideReason?: string;
+  releaseProof?: CheckoutReleaseProof;
   notes?: string | null;
+}
+
+export interface CustodyPickupInput {
+  releaseProof: CheckoutReleaseProof;
 }
 
 export type CheckoutResultOutcome =

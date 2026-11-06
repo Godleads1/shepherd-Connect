@@ -15,6 +15,7 @@ let parentId = 0; let otherParentId = 0; let supportId = 0; let otherSupportId =
 let teacherUserId = 0; let teacherId = 0;
 let familyId = 0; let childId = 0; let otherFamilyId = 0; let otherChildId = 0; let firstClassId = 0; let secondClassId = 0;
 const token = (id: number, role: "parent" | "support" | "admin" | "super_admin" | "teacher" | "attendant") => `Bearer ${generateToken({ userId: id, email: `${prefix}-${id}@test`, role, firstName: "Test", lastName: "User" })}`;
+const familyQr = () => ({ method: "family_qr", qrCode: `FAM-${prefix.slice(-6).toUpperCase()}` });
 const count = async (table: string, where: ReturnType<typeof sql>) => Number((await db.execute(sql`SELECT count(*)::int count FROM ${sql.identifier(table)} WHERE ${where}`)).rows[0].count);
 
 beforeAll(async () => {
@@ -47,10 +48,13 @@ beforeEach(async () => {
   await db.execute(sql`DELETE FROM pickup_requests WHERE child_id=${childId}`);
   await db.execute(sql`DELETE FROM custody_episode_events WHERE episode_id IN (SELECT id FROM custody_episodes WHERE child_id=${childId})`);
   await db.execute(sql`DELETE FROM custody_episodes WHERE child_id=${childId}`);
+  await db.execute(sql`DELETE FROM pickup_delegates WHERE child_id IN (${childId},${otherChildId})`);
   await db.execute(sql`DELETE FROM class_change_requests WHERE child_id IN (${childId},${otherChildId})`);
   await db.execute(sql`DELETE FROM parent_feedback WHERE parent_id IN (${parentId},${otherParentId})`);
 });
 afterAll(async () => { for (const q of [
+  sql`DELETE FROM audit_logs WHERE user_id IN (${supportId},${otherSupportId},${adminId},${superAdminId})`,
+  sql`DELETE FROM pickup_delegates WHERE child_id IN (${childId},${otherChildId})`,
   sql`DELETE FROM notification_outbox WHERE recipient_user_id IN (${parentId},${otherParentId},${supportId},${otherSupportId},${adminId},${superAdminId},${teacherUserId})`,
   sql`DELETE FROM notifications WHERE user_id IN (${parentId},${otherParentId},${supportId},${otherSupportId},${adminId},${superAdminId},${teacherUserId})`,
   sql`DELETE FROM teacher_allocations WHERE teacher_id=${teacherId}`,
@@ -168,6 +172,7 @@ databaseDescribe("custody handover PostgreSQL integrity", () => {
 
     await request(app).post(`/api/custody-episodes/${episodeId}/pickup`)
       .set("Authorization", token(supportId, "support"))
+      .send({ releaseProof: familyQr() })
       .expect(200);
     expect(await count("attendance", sql`custody_episode_id=${episodeId} AND service_slot=${serviceSlot} AND status='picked_up'`)).toBe(1);
     expect(await count("attendance", sql`custody_episode_id=${episodeId}`)).toBe(1);
@@ -213,7 +218,7 @@ databaseDescribe("custody handover PostgreSQL integrity", () => {
     expect(await count("pickup_requests", sql`child_id=${childId} AND status='requested'`)).toBe(1);
     // Any support worker may check the child out, not only the one who accepted.
     await Promise.all([
-      request(app).post(`/api/custody-episodes/${episodeId}/pickup`).set("Authorization", token(nonAcceptingSupport, "support")),
+      request(app).post(`/api/custody-episodes/${episodeId}/pickup`).set("Authorization", token(nonAcceptingSupport, "support")).send({ releaseProof: familyQr() }),
       request(app).post(`/api/custody-episodes/${episodeId}/override-pickup`).set("Authorization", token(adminId, "admin")).send({ reason: "Duty manager verified pickup" }),
     ]);
     const closed = (await db.execute(sql`SELECT status,custodian_user_id,checkout_mode,override_reason,picked_up_by FROM custody_episodes WHERE id=${episodeId}`)).rows[0] as any;
@@ -258,7 +263,7 @@ databaseDescribe("custody handover PostgreSQL integrity", () => {
     expect(alerts).toHaveLength(1);
     expect(alerts[0]).toMatchObject({ id: String(episodeId), childName: "Child One", requestedServices: "first" });
     expect(alerts[0].acceptedAt).toEqual(expect.any(String));
-    await request(app).post(`/api/custody-episodes/${episodeId}/pickup`).set("Authorization", token(supportId, "support")).expect(200);
+    await request(app).post(`/api/custody-episodes/${episodeId}/pickup`).set("Authorization", token(supportId, "support")).send({ releaseProof: familyQr() }).expect(200);
     expect(await ours()).toEqual([]);
   });
 
@@ -373,7 +378,8 @@ databaseDescribe("custody handover PostgreSQL integrity", () => {
       .send({ operationId: randomUUID(), overrideReason: "Not an administrator" }).expect(403);
     const operationId = randomUUID();
     const checkout = await request(app).put(`/api/attendance/${attendance.id}/checkout`).set("Authorization", token(supportId, "support"))
-      .send({ operationId }).expect(200);
+      .send({ operationId, releaseProof: familyQr() }).expect(200);
+    // A retry of the committed operation replays even without resending proof.
     const replay = await request(app).put(`/api/attendance/${attendance.id}/checkout`).set("Authorization", token(supportId, "support"))
       .send({ operationId }).expect(200);
 
@@ -399,5 +405,105 @@ databaseDescribe("custody handover PostgreSQL integrity", () => {
     expect(episode.checkout_mode).toBe("normal");
     expect(Number(episode.picked_up_by)).toBe(supportId);
     expect(await count("attendance", sql`custody_episode_id=${episodeId} AND status='picked_up'`)).toBe(2);
+  });
+
+  it("refuses to release a child without verified pickup proof", async () => {
+    const requested = await create("proof-required");
+    const episodeId = requested.body.episode.id;
+    await request(app).post("/api/custody-episodes").set("Authorization", token(supportId, "support"))
+      .send({ episodeId, eventId: "proof-required-accept" }).expect(201);
+    const attendance = (await db.execute(sql`SELECT id FROM attendance WHERE custody_episode_id=${episodeId} ORDER BY id LIMIT 1`)).rows[0] as any;
+    const checkout = (body: Record<string, unknown>) => request(app).put(`/api/attendance/${attendance.id}/checkout`)
+      .set("Authorization", token(supportId, "support")).send({ operationId: randomUUID(), ...body });
+
+    expect((await checkout({})).status).toBe(400);
+    expect((await checkout({ releaseProof: { method: "family_qr", qrCode: "not a family code" } })).status).toBe(400);
+    const wrongFamily = await checkout({ releaseProof: { method: "family_qr", qrCode: "FAM-ZZZZZZ" } });
+    expect(wrongFamily.status).toBe(403);
+    expect(wrongFamily.body.message).toContain("does not belong to this child's family");
+    expect((await checkout({ releaseProof: { method: "family_qr", qrCode: "FAM-ZZZZZZ" }, overrideReason: "x" })).status).toBe(403);
+    await request(app).post(`/api/custody-episodes/${episodeId}/pickup`).set("Authorization", token(supportId, "support"))
+      .send({}).expect(400);
+    await request(app).post(`/api/custody-episodes/${episodeId}/pickup`).set("Authorization", token(supportId, "support"))
+      .send({ releaseProof: { method: "family_qr", qrCode: "FAM-ZZZZZZ" } }).expect(403);
+    expect(await count("custody_episodes", sql`id=${episodeId} AND status='accepted'`)).toBe(1);
+    expect(await count("attendance", sql`custody_episode_id=${episodeId} AND status='picked_up'`)).toBe(0);
+    expect(await count("audit_logs", sql`action='child_released' AND metadata_json::jsonb->>'custodyEpisodeId'=${String(episodeId)}`)).toBe(0);
+
+    // Lowercase / padded scans of the right family QR are accepted.
+    const released = await checkout({ releaseProof: { method: "family_qr", qrCode: ` ${familyQr().qrCode.toLowerCase()} ` } });
+    expect(released.status).toBe(200);
+    expect(released.body.outcome).toBe("applied");
+    const audit = (await db.execute(sql`SELECT user_id,metadata_json FROM audit_logs
+      WHERE action='child_released' AND metadata_json::jsonb->>'custodyEpisodeId'=${String(episodeId)}`)).rows as any[];
+    expect(audit).toHaveLength(1);
+    expect(Number(audit[0].user_id)).toBe(supportId);
+    expect(JSON.parse(audit[0].metadata_json)).toMatchObject({ method: "family_qr", childId });
+    expect(audit[0].metadata_json).not.toContain("FAM-");
+  });
+
+  it("accepts only an unexpired, parent-approved helper code for this child", async () => {
+    const requested = await create("helper-code");
+    const episodeId = requested.body.episode.id;
+    await request(app).post("/api/custody-episodes").set("Authorization", token(supportId, "support"))
+      .send({ episodeId, eventId: "helper-code-accept" }).expect(201);
+    const attendance = (await db.execute(sql`SELECT id FROM attendance WHERE custody_episode_id=${episodeId} ORDER BY id LIMIT 1`)).rows[0] as any;
+    const future = new Date(Date.now() + 60 * 60 * 1000); const past = new Date(Date.now() - 60 * 1000);
+    await db.execute(sql`INSERT INTO pickup_delegates (child_id,name,phone,otp_code,otp_expires_at,parent_approved,approval_status) VALUES
+      (${childId},'Pending Helper','+2348000000001','111111',${future},false,'pending'),
+      (${childId},'Expired Helper','+2348000000002','222222',${past},true,'approved'),
+      (${otherChildId},'Other Family Helper','+2348000000003','333333',${future},true,'approved'),
+      (${childId},'Denied Helper','+2348000000005','555555',${future},false,'denied')`);
+    const approved = (await db.execute(sql`INSERT INTO pickup_delegates (child_id,name,phone,otp_code,otp_expires_at,parent_approved,approval_status)
+      VALUES (${childId},'Approved Helper','+2348000000004','444444',${future},true,'approved') RETURNING id`)).rows[0] as any;
+    const checkout = (otpCode: string) => request(app).put(`/api/attendance/${attendance.id}/checkout`)
+      .set("Authorization", token(supportId, "support"))
+      .send({ operationId: randomUUID(), releaseProof: { method: "delegate_otp", otpCode } });
+
+    expect((await checkout("111111")).body.message).toContain("not approved");
+    expect((await checkout("222222")).body.message).toContain("expired");
+    expect((await checkout("333333")).body.message).toContain("not valid for this child");
+    expect((await checkout("555555")).body.message).toContain("denied");
+    expect((await checkout("999999")).status).toBe(403);
+    expect(await count("attendance", sql`custody_episode_id=${episodeId} AND status='picked_up'`)).toBe(0);
+
+    const released = await checkout("444444");
+    expect(released.status).toBe(200);
+    const audit = (await db.execute(sql`SELECT metadata_json FROM audit_logs
+      WHERE action='child_released' AND metadata_json::jsonb->>'custodyEpisodeId'=${String(episodeId)}`)).rows as any[];
+    expect(audit).toHaveLength(1);
+    expect(JSON.parse(audit[0].metadata_json)).toMatchObject({ method: "delegate_otp", delegateId: Number(approved.id) });
+    expect(audit[0].metadata_json).not.toContain("444444");
+  });
+
+  it("lets an admin release with verified proof as a normal checkout, and audits overrides", async () => {
+    const requested = await create("admin-with-proof");
+    const episodeId = requested.body.episode.id;
+    await request(app).post("/api/custody-episodes").set("Authorization", token(supportId, "support"))
+      .send({ episodeId, eventId: "admin-with-proof-accept" }).expect(201);
+    const attendance = (await db.execute(sql`SELECT id FROM attendance WHERE custody_episode_id=${episodeId} ORDER BY id LIMIT 1`)).rows[0] as any;
+    await request(app).put(`/api/attendance/${attendance.id}/checkout`).set("Authorization", token(adminId, "admin"))
+      .send({ operationId: randomUUID(), releaseProof: familyQr() }).expect(200);
+    const episode = (await db.execute(sql`SELECT checkout_mode,override_reason FROM custody_episodes WHERE id=${episodeId}`)).rows[0] as any;
+    expect(episode.checkout_mode).toBe("normal");
+    expect(episode.override_reason).toBeNull();
+
+    // A legacy (non-custody) row: Support needs proof; an admin may override with a reason.
+    const legacy = (await db.execute(sql`INSERT INTO attendance (child_id,class_id,service_date,service_slot,status)
+      VALUES (${childId},${firstClassId},${serviceDate},'both','in_class') RETURNING id`)).rows[0] as any;
+    await request(app).put(`/api/attendance/${legacy.id}/checkout`).set("Authorization", token(supportId, "support"))
+      .send({ operationId: randomUUID() }).expect(400);
+    await request(app).put(`/api/attendance/${legacy.id}/checkout`).set("Authorization", token(supportId, "support"))
+      .send({ operationId: randomUUID(), overrideReason: "Parent forgot phone" }).expect(403);
+    await request(app).put(`/api/attendance/${legacy.id}/checkout`).set("Authorization", token(adminId, "admin"))
+      .send({ operationId: randomUUID() }).expect(400);
+    await request(app).put(`/api/attendance/${legacy.id}/checkout`).set("Authorization", token(adminId, "admin"))
+      .send({ operationId: randomUUID(), overrideReason: "Duty manager confirmed the parent's ID" }).expect(200);
+    const audit = (await db.execute(sql`SELECT metadata_json FROM audit_logs
+      WHERE action='child_released' AND entity_id=${Number(legacy.id)}`)).rows as any[];
+    expect(audit).toHaveLength(1);
+    expect(JSON.parse(audit[0].metadata_json)).toMatchObject({
+      method: "admin_override", overrideReason: "Duty manager confirmed the parent's ID", custodyEpisodeId: null,
+    });
   });
 });

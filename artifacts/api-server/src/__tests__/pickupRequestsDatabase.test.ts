@@ -8,6 +8,9 @@ import { generateToken } from "../middlewares/auth";
 
 const databaseDescribe = process.env.RUN_DATABASE_ATTENDANCE_TESTS === "true" ? describe : describe.skip;
 const prefix = `pickup-db-${Date.now()}`;
+const familyCode = `FAM-P${prefix.slice(-5)}`;
+// Checkout now requires verified pickup proof; the parent's family QR suffices.
+const releaseProof = { method: "family_qr", qrCode: familyCode };
 let parentId = 0; let otherParentId = 0; let supportId = 0; let otherSupportId = 0; let familyId = 0; let otherFamilyId = 0;
 let childId = 0; let otherChildId = 0; let classId = 0;
 const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Lagos", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
@@ -23,7 +26,7 @@ beforeAll(async () => {
   parentId = Number(users.rows[0].id); otherParentId = Number(users.rows[1].id);
   supportId = Number(users.rows[2].id);
   otherSupportId = Number(users.rows[3].id);
-  familyId = Number((await db.execute(sql`INSERT INTO families (family_code,parent_1_id) VALUES (${`PK-${prefix.slice(-6)}`},${parentId}) RETURNING id`)).rows[0].id);
+  familyId = Number((await db.execute(sql`INSERT INTO families (family_code,parent_1_id) VALUES (${familyCode},${parentId}) RETURNING id`)).rows[0].id);
   otherFamilyId = Number((await db.execute(sql`INSERT INTO families (family_code,parent_1_id) VALUES (${`PO-${prefix.slice(-6)}`},${otherParentId}) RETURNING id`)).rows[0].id);
   classId = Number((await db.execute(sql`INSERT INTO classes (name,age_min,age_max,capacity,room_location,service_slot) VALUES (${prefix},1,12,30,'Room','7am') RETURNING id`)).rows[0].id);
   childId = Number((await db.execute(sql`INSERT INTO children (family_id,first_name,last_name,dob,gender,current_class_id) VALUES (${familyId},'Owned','Child','2020-01-01','female',${classId}) RETURNING id`)).rows[0].id);
@@ -39,6 +42,7 @@ beforeEach(async () => {
 
 afterAll(async () => {
   for (const query of [
+    sql`DELETE FROM audit_logs WHERE user_id IN (${supportId},${otherSupportId}) AND action = 'child_released'`,
     sql`DELETE FROM pickup_requests WHERE child_id IN (${childId},${otherChildId})`,
     sql`DELETE FROM attendance WHERE child_id IN (${childId},${otherChildId})`,
     sql`DELETE FROM custody_episodes WHERE child_id IN (${childId},${otherChildId})`,
@@ -80,7 +84,7 @@ databaseDescribe("pickup request PostgreSQL persistence", () => {
     `)).rows[0] as { id: number };
     await request(app).put(`/api/attendance/${second.id}/checkout`)
       .set("Authorization", token(supportId, "support"))
-      .send({ operationId: randomUUID() })
+      .send({ operationId: randomUUID(), releaseProof })
       .expect(200);
     const statuses = await db.execute(sql`
       SELECT service_slot,status FROM attendance
@@ -120,7 +124,7 @@ databaseDescribe("pickup request PostgreSQL persistence", () => {
     `)).rows[0] as { id: number };
     const checkout = await request(app).put(`/api/attendance/${first.id}/checkout`)
       .set("Authorization", token(supportId, "support"))
-      .send({ operationId: randomUUID() })
+      .send({ operationId: randomUUID(), releaseProof })
       .expect(200);
 
     expect(checkout.body.attendance).toMatchObject({
@@ -176,7 +180,7 @@ databaseDescribe("pickup request PostgreSQL persistence", () => {
 
     const checkout = await request(app).put(`/api/attendance/${attendance.id}/checkout`)
       .set("Authorization", token(supportId, "support"))
-      .send({ operationId: randomUUID() })
+      .send({ operationId: randomUUID(), releaseProof })
       .expect(200);
 
     expect(checkout.body).toMatchObject({
@@ -197,7 +201,7 @@ databaseDescribe("pickup request PostgreSQL persistence", () => {
     `)).rows[0] as { id: number };
     const checkout = () => request(app).put(`/api/attendance/${attendance.id}/checkout`)
       .set("Authorization", token(supportId, "support"))
-      .send({ operationId: randomUUID() });
+      .send({ operationId: randomUUID(), releaseProof });
 
     const first = await checkout().expect(200);
     const second = await checkout().expect(200);
@@ -230,7 +234,7 @@ databaseDescribe("pickup request PostgreSQL persistence", () => {
       await new Promise(resolve => setTimeout(resolve, attempt + 1));
       const checkout = request(app).put(`/api/attendance/${attendance.id}/checkout`)
         .set("Authorization", token(supportId, "support"))
-        .send({ operationId: randomUUID() });
+        .send({ operationId: randomUUID(), releaseProof });
 
       const [pickupReply, checkoutReply] = await Promise.all([pickup, checkout]);
       expect([200, 400]).toContain(pickupReply.status);
@@ -258,7 +262,7 @@ databaseDescribe("pickup request PostgreSQL persistence", () => {
     // after the server committed the transaction.
     await request(app).put(`/api/attendance/${attendance.id}/checkout`)
       .set("Authorization", token(supportId, "support"))
-      .send({ operationId })
+      .send({ operationId, releaseProof })
       .expect(200);
     const committed = (await db.execute(sql`
       SELECT check_out_time,checked_out_by FROM attendance WHERE id=${attendance.id}
@@ -274,7 +278,7 @@ databaseDescribe("pickup request PostgreSQL persistence", () => {
       .expect(200);
     const retried = await request(app).put(`/api/attendance/${attendance.id}/checkout`)
       .set("Authorization", token(supportId, "support"))
-      .send({ operationId })
+      .send({ operationId, releaseProof })
       .expect(200);
 
     for (const recovered of [reconciled, retried]) {
@@ -344,7 +348,7 @@ databaseDescribe("pickup request PostgreSQL persistence", () => {
     const operationId = randomUUID();
     const checkout = () => request(app).put(`/api/attendance/${attendance.id}/checkout`)
       .set("Authorization", token(supportId, "support"))
-      .send({ operationId });
+      .send({ operationId, releaseProof });
 
     const replies = await Promise.all([checkout(), checkout(), checkout(), checkout()]);
     expect(replies.every(reply => reply.status === 200)).toBe(true);
@@ -368,11 +372,11 @@ databaseDescribe("pickup request PostgreSQL persistence", () => {
     const secondOperationId = randomUUID();
     const first = await request(app).put(`/api/attendance/${attendance.id}/checkout`)
       .set("Authorization", token(supportId, "support"))
-      .send({ operationId: firstOperationId })
+      .send({ operationId: firstOperationId, releaseProof })
       .expect(200);
     const second = await request(app).put(`/api/attendance/${attendance.id}/checkout`)
       .set("Authorization", token(supportId, "support"))
-      .send({ operationId: secondOperationId })
+      .send({ operationId: secondOperationId, releaseProof })
       .expect(200);
 
     expect(first.body.outcome).toBe("applied");
@@ -403,12 +407,12 @@ databaseDescribe("pickup request PostgreSQL persistence", () => {
     const operationId = randomUUID();
     await request(app).put(`/api/attendance/${firstAttendance.id}/checkout`)
       .set("Authorization", token(supportId, "support"))
-      .send({ operationId })
+      .send({ operationId, releaseProof })
       .expect(200);
 
     const collision = await request(app).put(`/api/attendance/${secondAttendance.id}/checkout`)
       .set("Authorization", token(supportId, "support"))
-      .send({ operationId })
+      .send({ operationId, releaseProof })
       .expect(409);
     expect(JSON.stringify(collision.body)).not.toContain(String(firstAttendance.id));
     await request(app)
@@ -417,7 +421,7 @@ databaseDescribe("pickup request PostgreSQL persistence", () => {
       .expect(404);
     const otherActorCollision = await request(app).put(`/api/attendance/${firstAttendance.id}/checkout`)
       .set("Authorization", token(otherSupportId, "support"))
-      .send({ operationId })
+      .send({ operationId, releaseProof })
       .expect(409);
     expect(JSON.stringify(otherActorCollision.body)).not.toContain(String(supportId));
   });
@@ -436,7 +440,7 @@ databaseDescribe("pickup request PostgreSQL persistence", () => {
       .expect(400);
     await request(app).put(`/api/attendance/${attendance.id}/checkout`)
       .set("Authorization", token(supportId, "support"))
-      .send({ operationId: "not-a-uuid" })
+      .send({ operationId: "not-a-uuid", releaseProof })
       .expect(400);
   });
 

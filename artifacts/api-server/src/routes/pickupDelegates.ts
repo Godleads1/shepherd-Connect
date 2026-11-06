@@ -203,7 +203,9 @@ router.get("/pickup-delegates/operations/:operationId", authMiddleware, pickupDe
     childIds: result.childIds, operationId, outcome: "already_applied" });
 });
 
-router.post("/pickup-delegates/verify-otp", verifyOtpLimiter, async (req, res): Promise<void> => {
+// Staff-only: a helper code reveals the helper's and child's details, so only
+// signed-in checkout staff may check one.
+router.post("/pickup-delegates/verify-otp", authMiddleware, requireRoles("super_admin", "admin", "support", "attendant"), verifyOtpLimiter, async (req, res): Promise<void> => {
   const parsed = VerifyDelegateOtpBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: "Bad request", message: parsed.error.message }); return; }
   const { otpCode } = parsed.data;
