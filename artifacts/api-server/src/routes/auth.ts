@@ -159,7 +159,39 @@ async function createRegistrationDelivery(
   }
 }
 
-router.post("/auth/login", async (req, res): Promise<void> => {
+// Password-guessing limits count only failed sign-ins (status >= 400), so many
+// families signing in successfully over shared church Wi-Fi are unaffected.
+// The per-account key is an HMAC of the normalised email (never the raw
+// address) and applies equally to unknown emails, so it reveals nothing about
+// which accounts exist. Blocks expire after the window; there is no permanent
+// lockout.
+const LOGIN_LIMIT_MESSAGE = { error: "Too many attempts", message: "Too many sign-in attempts. Please wait 15 minutes before trying again." };
+const LOGIN_ATTEMPT_KEY = createHmac("sha256", JWT_SECRET).update("login-attempt").digest();
+function loginAttemptAccountKey(body: unknown): string | null {
+  const email = (body as { email?: unknown } | undefined)?.email;
+  if (typeof email !== "string" || !email.trim()) return null;
+  return "login-account:" + createHmac("sha256", LOGIN_ATTEMPT_KEY).update(email.trim().toLowerCase()).digest("hex");
+}
+const loginIpFailureLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  skipSuccessfulRequests: true,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: LOGIN_LIMIT_MESSAGE,
+});
+const loginAccountFailureLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  skipSuccessfulRequests: true,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: LOGIN_LIMIT_MESSAGE,
+  skip: req => loginAttemptAccountKey(req.body) === null,
+  keyGenerator: req => loginAttemptAccountKey(req.body)!,
+});
+
+router.post("/auth/login", loginIpFailureLimiter, loginAccountFailureLimiter, async (req, res): Promise<void> => {
   const parsed = LoginBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "Bad request", message: parsed.error.message });

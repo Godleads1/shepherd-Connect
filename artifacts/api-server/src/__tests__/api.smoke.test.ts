@@ -383,3 +383,40 @@ describe("second-step (MFA) sign-in attempt limits", () => {
     expect((await verify("198.51.100.51", { mfaToken: challenge(4343), totpCode: totp.generate() })).status).toBe(200);
   });
 });
+
+describe("password sign-in guessing limits", () => {
+  const login = (ip: string, body: object) => request(app).post("/api/auth/login").set("X-Forwarded-For", ip).send(body);
+  beforeAll(async () => { smokeUser.passwordHash = await bcrypt.hash("correct-password", 4); });
+
+  it("does not count successful sign-ins from a shared IP", async () => {
+    for (let i = 0; i < 35; i++) {
+      const res = await login("192.0.2.200", { email: `family${i}@test.com`, password: "correct-password" });
+      expect(res.status).toBe(200);
+    }
+  });
+
+  it("blocks an account after 10 failures across rotating IPs, without a permanent lockout or leaking the email", async () => {
+    for (let i = 1; i <= 10; i++) {
+      const res = await login(`192.0.2.${i}`, { email: "victim@test.com", password: `wrong-${i}` });
+      expect(res.status).toBe(401);
+      expect(res.body.message).toBe("Invalid credentials");
+    }
+    const blocked = await login("192.0.2.99", { email: "victim@test.com", password: "correct-password" });
+    expect(blocked.status).toBe(429);
+    expect(blocked.body).toEqual({ error: "Too many attempts", message: "Too many sign-in attempts. Please wait 15 minutes before trying again." });
+    expect(blocked.body.token).toBeUndefined();
+    expect(blocked.headers["ratelimit-reset"]).toBeDefined();
+    // Case and whitespace variants of the same address share the counter.
+    expect((await login("192.0.2.98", { email: " VICTIM@test.com ", password: "correct-password" })).status).toBe(429);
+    // Other accounts are unaffected.
+    expect((await login("192.0.2.97", { email: "someone-else@test.com", password: "correct-password" })).status).toBe(200);
+  });
+
+  it("blocks one IP after 30 failures spread across many accounts", async () => {
+    for (let i = 0; i < 30; i++) {
+      expect((await login("192.0.2.150", { email: `guess${i}@test.com`, password: "wrong" })).status).toBe(401);
+    }
+    expect((await login("192.0.2.150", { email: "fresh@test.com", password: "correct-password" })).status).toBe(429);
+    expect((await login("192.0.2.151", { email: "fresh@test.com", password: "correct-password" })).status).toBe(200);
+  });
+});
