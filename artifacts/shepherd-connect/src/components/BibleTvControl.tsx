@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { apiGet, apiPut } from "@/lib/api-call";
+import { apiGet, apiPost, apiPut } from "@/lib/api-call";
 import { useToast } from "@/hooks/use-toast";
 import { reportBibleView } from "@/lib/bible-fums";
 import { adjacentVerse, isOutsideChosenRange, verseRangeLabel } from "@/lib/bible-navigation";
-import { BookOpen, ChevronLeft, ChevronRight, EyeOff, Eye, Loader2, Square } from "lucide-react";
+import { BookOpen, ChevronLeft, ChevronRight, EyeOff, Eye, Loader2, Plus, Square } from "lucide-react";
 
 const NAVY = "#1e3a8a";
 const GOLD = "#f59e0b";
@@ -159,7 +159,7 @@ export function BibleRemote({
   );
 }
 
-/** Choose version, book, chapter and verses, then put the first verse on the TV. */
+/** Choose version, book, chapter and verses, then add the passage to today's TV list. */
 export function BiblePicker({ classId, disabled }: { classId: number; disabled: boolean }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -200,7 +200,7 @@ export function BiblePicker({ classId, disabled }: { classId: number; disabled: 
 
   const show = useMutation({
     mutationFn: () =>
-      apiPut(`/pickup-requests/display-media/${classId}`, {
+      apiPost(`/pickup-requests/display-media/${classId}/playlist`, {
         kind: "bible",
         bibleId,
         chapterId,
@@ -209,15 +209,15 @@ export function BiblePicker({ classId, disabled }: { classId: number; disabled: 
       }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["display-media", classId] });
-      toast({ title: "Verse on the TV", description: "Use Previous and Next here to move through the passage." });
+      toast({ title: "Added to the TV list", description: "Press Play on it to show the passage on the TV." });
     },
-    onError: (e: Error) => toast({ variant: "destructive", title: "Could not show the verse", description: e.message }),
+    onError: (e: Error) => toast({ variant: "destructive", title: "Could not add the passage", description: e.message }),
   });
 
   const header = (
     <>
       <p className="text-sm font-bold text-gray-800 flex items-center gap-2 mb-1">
-        <BookOpen className="w-4 h-4" style={{ color: NAVY }} /> Show a Bible passage
+        <BookOpen className="w-4 h-4" style={{ color: NAVY }} /> Add a Bible passage
       </p>
       <p className="text-xs text-gray-400 mb-3">The TV shows one verse at a time in large type.</p>
     </>
@@ -291,8 +291,8 @@ export function BiblePicker({ classId, disabled }: { classId: number; disabled: 
         className="w-full mt-3 py-3 rounded-xl font-bold text-sm flex items-center justify-center gap-1.5 disabled:opacity-50"
         style={{ background: GOLD, color: NAVY }}
       >
-        {show.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <BookOpen className="w-4 h-4" />}
-        {chapter.data && from ? `Show ${verseRangeLabel(chapter.data.reference, from, Math.max(from, to))} on TV` : "Show on TV"}
+        {show.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+        {chapter.data && from ? `Add ${verseRangeLabel(chapter.data.reference, from, Math.max(from, to))} to list` : "Add to list"}
       </button>
       {chapter.data?.copyright && <p className="text-[10px] text-gray-400 mt-2 leading-snug">{chapter.data.copyright}</p>}
     </div>

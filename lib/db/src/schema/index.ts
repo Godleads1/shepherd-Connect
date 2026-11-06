@@ -51,5 +51,6 @@ export * from "./hallSessions";
 export * from "./whatsappBroadcasts";
 export * from "./classroomDisplayTokens";
 export * from "./classDisplayMedia";
+export * from "./classDisplayPlaylist";
 export * from "./privateObjectBindings";
 export * from "./sseTickets";

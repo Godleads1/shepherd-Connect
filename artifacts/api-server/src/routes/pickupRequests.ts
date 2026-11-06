@@ -8,8 +8,6 @@ import {
   classMergesTable, classroomDisplayTokensTable, classDisplayMediaTable, pickupRequestsTable,
 } from "@workspace/db/schema";
 import { ObjectStorageService } from "../lib/objectStorage";
-import { bindObjectToResource, registerPendingObject } from "../lib/privateObjectAccess";
-import { convertPptxToPdf, looksLikePowerPoint, PptxBusyError, PptxConversionError, MAX_PPTX_BYTES } from "../lib/pptxToPdf";
 import { eq, and, isNull, sql, inArray, type SQL } from "drizzle-orm";
 import { getClassTeacherUserIds } from "../lib/notify";
 import { createNotificationDelivery } from "../services/notificationOutbox";
@@ -38,8 +36,8 @@ import {
   CHAPTER_ID_RE,
   BibleServiceError,
   getBibleChapter,
-  getBibleVersion,
 } from "../services/bibleText";
+import { resolveDisplayMediaInput, type DisplayMediaInputBody } from "../services/classDisplayMediaInput";
 
 const router = Router();
 
@@ -245,7 +243,6 @@ async function validateDisplayToken(token: string, classId: number): Promise<boo
 
 // ── Classroom display media (set remotely from a teacher's phone) ────────────
 const objectStorage = new ObjectStorageService();
-const YOUTUBE_ID_RE = /^[a-zA-Z0-9_-]{11}$/;
 
 /**
  * Stable version tag for an uploaded display file. Changes when the file is
@@ -286,16 +283,6 @@ type ClientDisplayMedia =
       error?: string;
     }
   | null;
-
-const BIBLE_NO_FIELDS = {
-  bibleId: null,
-  bibleVersion: null,
-  bibleChapterId: null,
-  bibleVerseStart: null,
-  bibleVerseEnd: null,
-  bibleVerse: null,
-  bibleBlanked: false,
-};
 
 /**
  * A Bible failure must never break the TV refresh — the same message also
@@ -612,195 +599,35 @@ router.put("/pickup-requests/display-media/:classId", authMiddleware, async (req
     return;
   }
 
-  const body = (req.body ?? {}) as {
-    kind?: string;
-    youtubeVideoId?: string;
-    objectPath?: string;
-    contentType?: string;
-    fileName?: string;
-    pdfPageCount?: number;
-    bibleId?: string;
-    chapterId?: string;
-    verseStart?: number;
-    verseEnd?: number;
-  };
-
-  let values: {
-    kind: string;
-    youtubeVideoId: string | null;
-    objectPath: string | null;
-    contentType: string | null;
-    fileName: string | null;
-    pdfPage: number | null;
-    pdfPageCount: number | null;
-    bibleId: string | null;
-    bibleVersion: string | null;
-    bibleChapterId: string | null;
-    bibleVerseStart: number | null;
-    bibleVerseEnd: number | null;
-    bibleVerse: number | null;
-    bibleBlanked: boolean;
-  };
-
   // Set when a PowerPoint is converted during this request. Conversion takes
   // seconds, so the final write must not clobber media someone else set while
   // we were converting — it's guarded against this snapshot of the row.
   let conversionGuard: { prev: { kind: string; objectPath: string | null } | null } | null = null;
 
-  if (body.kind === "youtube") {
-    if (typeof body.youtubeVideoId !== "string" || !YOUTUBE_ID_RE.test(body.youtubeVideoId)) {
-      res.status(400).json({ error: "Bad request", message: "A valid YouTube video ID is required" });
-      return;
-    }
-    values = {
-      kind: "youtube",
-      youtubeVideoId: body.youtubeVideoId,
-      objectPath: null,
-      contentType: null,
-      fileName: null,
-      pdfPage: null,
-      pdfPageCount: null,
-      ...BIBLE_NO_FIELDS,
-    };
-  } else if (body.kind === "bible") {
-    const bibleId = typeof body.bibleId === "string" ? body.bibleId : "";
-    const chapterId = typeof body.chapterId === "string" ? body.chapterId : "";
-    const verseStart = body.verseStart;
-    const verseEnd = body.verseEnd ?? body.verseStart;
-    if (
-      !BIBLE_ID_RE.test(bibleId) || !CHAPTER_ID_RE.test(chapterId)
-      || !Number.isInteger(verseStart) || !Number.isInteger(verseEnd)
-      || verseStart! < 1 || verseEnd! < verseStart!
-    ) {
-      res.status(400).json({ error: "Bad request", message: "Choose a Bible version, chapter and verse range" });
-      return;
-    }
-    let version;
-    let chapter;
-    try {
-      version = await getBibleVersion(bibleId);
-      if (!version) {
-        res.status(400).json({ error: "Bad request", message: "That Bible version isn't available" });
-        return;
-      }
-      chapter = await getBibleChapter(bibleId, chapterId);
-    } catch (error) {
-      if (error instanceof BibleServiceError) {
-        res.status(error.statusCode).json({ error: "Bible service", message: error.message });
-        return;
-      }
-      throw error;
-    }
-    const numbers = new Set(chapter.verses.map(v => v.number));
-    const lastVerse = chapter.verses[chapter.verses.length - 1].number;
-    if (!numbers.has(verseStart!)) {
-      res.status(400).json({ error: "Bad request", message: `${chapter.reference} has no verse ${verseStart}` });
-      return;
-    }
-    values = {
-      kind: "bible",
-      youtubeVideoId: null,
-      objectPath: null,
-      contentType: null,
-      fileName: null,
-      pdfPage: null,
-      pdfPageCount: null,
-      bibleId,
-      bibleVersion: version.abbreviation,
-      bibleChapterId: chapterId,
-      bibleVerseStart: verseStart!,
-      bibleVerseEnd: Math.min(verseEnd!, lastVerse),
-      bibleVerse: verseStart!,
-      bibleBlanked: false,
-    };
-  } else if (body.kind === "file") {
-    let objectPath = body.objectPath;
-    let contentType = body.contentType ?? "";
-    const fileName = typeof body.fileName === "string" ? body.fileName.slice(0, 200) : "media";
-    if (typeof objectPath !== "string" || !objectPath.startsWith("/objects/")) {
-      res.status(400).json({ error: "Bad request", message: "A valid uploaded file is required" });
-      return;
-    }
-    let isPdf = contentType === "application/pdf";
-    const isPpt = !isPdf && looksLikePowerPoint(contentType, fileName);
-    if (!contentType.startsWith("video/") && !contentType.startsWith("image/") && !isPdf && !isPpt) {
-      res.status(400).json({ error: "Bad request", message: "Only video, image, PDF, or PowerPoint files can be shown on the TV" });
-      return;
-    }
-    const bound = await bindObjectToResource(objectPath, "class_display", classId, req.user!);
-    if (!bound) {
-      res.status(400).json({ error: "Bad request", message: "The uploaded file could not be verified. Please upload it again." });
-      return;
-    }
-    let pageCount =
-      isPdf && Number.isInteger(body.pdfPageCount) && body.pdfPageCount! >= 1 && body.pdfPageCount! <= 5000
-        ? body.pdfPageCount!
-        : null;
-
-    if (isPpt) {
-      // PowerPoint can't be rendered by the TV directly — convert it to PDF
-      // here, store the PDF, and from this point on it behaves exactly like an
-      // uploaded PDF (slideshow + phone clicker).
-      try {
-        // Snapshot what's on the TV before the (slow) conversion starts.
-        const [prevRow] = await db
-          .select({ kind: classDisplayMediaTable.kind, objectPath: classDisplayMediaTable.objectPath })
-          .from(classDisplayMediaTable)
-          .where(eq(classDisplayMediaTable.classId, classId))
-          .limit(1);
-        const file = await objectStorage.getObjectEntityFile(objectPath);
-        const [meta] = await file.getMetadata();
-        if (Number(meta.size ?? 0) > MAX_PPTX_BYTES) {
-          res.status(400).json({ error: "Bad request", message: "That PowerPoint is too large (max 50 MB). Export it as PDF and upload that instead." });
-          return;
-        }
-        const [pptxBytes] = await file.download();
-        const { pdf, pageCount: convertedPages } = await convertPptxToPdf(pptxBytes);
-        const pdfPath = await objectStorage.uploadObjectEntityFromBuffer(pdf, "application/pdf");
-        // Register + bind the server-generated PDF the same way a normal
-        // upload would be, so staff access checks keep working for it.
-        await registerPendingObject(pdfPath, req.user!.userId);
-        if (!(await bindObjectToResource(pdfPath, "class_display", classId, req.user!))) {
-          throw new Error("Could not bind the converted PDF to the class display");
-        }
-        objectPath = pdfPath;
-        contentType = "application/pdf";
-        isPdf = true;
-        pageCount = convertedPages;
-        conversionGuard = { prev: prevRow ?? null };
-      } catch (error) {
-        if (error instanceof PptxBusyError) {
-          res.status(503).json({
-            error: "Busy",
-            message: "Other slides are being prepared right now — please try again in a minute.",
-          });
-          return;
-        }
-        req.log.error({ err: error, classId }, "PowerPoint → PDF conversion failed");
-        res.status(error instanceof PptxConversionError ? 400 : 500).json({
-          error: "Conversion failed",
-          message: "We couldn't convert this PowerPoint. Try exporting it as PDF (File → Save As → PDF) and uploading that instead.",
-        });
-        return;
-      }
-    }
-
-    values = {
-      kind: "file",
-      youtubeVideoId: null,
-      objectPath,
-      contentType,
-      fileName,
-      pdfPage: null, // new PDFs start in auto-play; the phone clicker can pin a page
-      pdfPageCount: pageCount,
-      ...BIBLE_NO_FIELDS,
-    };
-  } else {
-    res.status(400).json({ error: "Bad request", message: "kind must be 'youtube', 'file' or 'bible'" });
+  const resolved = await resolveDisplayMediaInput({
+    classId,
+    user: req.user!,
+    body: (req.body ?? {}) as DisplayMediaInputBody,
+    log: req.log,
+    beforeConversion: async () => {
+      // Snapshot what's on the TV before the (slow) conversion starts.
+      const [prevRow] = await db
+        .select({ kind: classDisplayMediaTable.kind, objectPath: classDisplayMediaTable.objectPath })
+        .from(classDisplayMediaTable)
+        .where(eq(classDisplayMediaTable.classId, classId))
+        .limit(1);
+      conversionGuard = { prev: prevRow ?? null };
+    },
+  });
+  if (!resolved.ok) {
+    res.status(resolved.status).json(resolved.body);
     return;
   }
+  const values = resolved.values;
+  if (!resolved.converted) conversionGuard = null;
 
-  if (conversionGuard) {
+  const guard = conversionGuard as { prev: { kind: string; objectPath: string | null } | null } | null;
+  if (guard) {
     // Guarded write: only land the converted PDF if the TV's media is still
     // exactly what it was when the conversion started. Uploads always get
     // fresh object paths, so (kind, objectPath) identifies the row's content.
@@ -808,15 +635,15 @@ router.put("/pickup-requests/display-media/:classId", authMiddleware, async (req
     wrote = await db.transaction(async tx => {
       await tx.execute(sql`select pg_advisory_xact_lock(68431, ${classId})`);
       let changed = false;
-      if (conversionGuard.prev) {
+      if (guard.prev) {
         const updated = await tx
           .update(classDisplayMediaTable)
           .set({ ...values, updatedBy: req.user!.userId, updatedAt: new Date() })
           .where(and(
             eq(classDisplayMediaTable.classId, classId),
-            eq(classDisplayMediaTable.kind, conversionGuard.prev.kind),
-            conversionGuard.prev.objectPath
-              ? eq(classDisplayMediaTable.objectPath, conversionGuard.prev.objectPath)
+            eq(classDisplayMediaTable.kind, guard.prev.kind),
+            guard.prev.objectPath
+              ? eq(classDisplayMediaTable.objectPath, guard.prev.objectPath)
               : isNull(classDisplayMediaTable.objectPath),
           ))
           .returning({ id: classDisplayMediaTable.id });

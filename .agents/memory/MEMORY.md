@@ -10,3 +10,4 @@
 - [Attendance QR device-local display](qr-device-local-display.md) — QR codes persist only on the issuing device; server exposes a short code ID, never the code.
 - [Bible projection licensing](bible-projection-licensing.md) — API.Bible copyright/abbreviation/FUMS rules and 3-version free-plan limit for TV verses.
 - [Checkout release proof](checkout-release-proof.md) — every release needs family QR/approved helper code or admin-only override; never store codes.
+- [Classroom TV list](tv-playlist.md) — add never changes the TV; Play copies into current media and restarts; list clears daily, 30 max.

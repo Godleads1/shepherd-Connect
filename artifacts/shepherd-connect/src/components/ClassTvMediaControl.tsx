@@ -1,10 +1,11 @@
 import { useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { apiGet, apiPut, apiDelete } from "@/lib/api-call";
+import { apiGet, apiPost, apiPut, apiDelete } from "@/lib/api-call";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Youtube, Upload, Trash2, MonitorPlay, CheckCircle2, ChevronLeft, ChevronRight, Play } from "lucide-react";
+import { Loader2, Youtube, Upload, Trash2, MonitorPlay, CheckCircle2, ChevronLeft, ChevronRight, Play, Plus } from "lucide-react";
 import { BiblePicker, BibleRemote, type BibleMediaState } from "./BibleTvControl";
+import { ClassTvPlaylist, type PlaylistResponse } from "./ClassTvPlaylist";
 
 const NAVY = "#1e3a8a";
 const GOLD = "#f59e0b";
@@ -89,18 +90,27 @@ export function ClassTvMediaControl({
   });
   const current = data?.media ?? null;
 
+  // Today's list of items teachers can play; cleared automatically each day.
+  const playlist = useQuery({
+    queryKey: ["display-media", classId, "playlist"],
+    queryFn: () => apiGet<PlaylistResponse>(`/pickup-requests/display-media/${classId}/playlist`),
+    enabled: open,
+  });
+  const listFull = (playlist.data?.items.length ?? 0) >= (playlist.data?.limit ?? Infinity);
+
+  // Invalidates both what's on the TV and today's list (shared key prefix).
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ["display-media", classId] });
 
-  const setYoutube = useMutation({
+  const addYoutube = useMutation({
     mutationFn: (videoId: string) =>
-      apiPut(`/pickup-requests/display-media/${classId}`, { kind: "youtube", youtubeVideoId: videoId }),
+      apiPost(`/pickup-requests/display-media/${classId}/playlist`, { kind: "youtube", youtubeVideoId: videoId }),
     onSuccess: () => {
       invalidate();
       setYtInput("");
-      toast({ title: "TV updated", description: "The classroom screen is now playing your YouTube video." });
+      toast({ title: "Added to the TV list", description: "Press Play on it when you're ready to show it." });
     },
     onError: (e: Error) =>
-      toast({ variant: "destructive", title: "Could not update the TV", description: e.message }),
+      toast({ variant: "destructive", title: "Could not add the video", description: e.message }),
   });
 
   const clearMedia = useMutation({
@@ -120,7 +130,7 @@ export function ClassTvMediaControl({
       return;
     }
     setYtError("");
-    setYoutube.mutate(id);
+    addYoutube.mutate(id);
   };
 
   const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -179,7 +189,7 @@ export function ClassTvMediaControl({
       setUploadPct(95);
 
       if (isPpt) setConverting(true);
-      await apiPut(`/pickup-requests/display-media/${classId}`, {
+      await apiPost(`/pickup-requests/display-media/${classId}/playlist`, {
         kind: "file",
         objectPath,
         contentType,
@@ -189,10 +199,8 @@ export function ClassTvMediaControl({
       setUploadPct(100);
       invalidate();
       toast({
-        title: "TV updated",
-        description: isPdf || isPpt
-          ? `“${file.name}” is now playing as slides on the TV — use the controls here to advance pages.`
-          : `The classroom screen is now showing “${file.name}”.`,
+        title: "Added to the TV list",
+        description: `“${file.name}” is ready — press Play on it to show it on the TV.`,
       });
     } catch (err: any) {
       toast({ variant: "destructive", title: "Upload failed", description: err.message || "Please try again." });
@@ -212,7 +220,7 @@ export function ClassTvMediaControl({
       toast({ variant: "destructive", title: "Could not change the slide", description: e.message }),
   });
 
-  const busy = uploading || setYoutube.isPending || clearMedia.isPending;
+  const busy = uploading || addYoutube.isPending || clearMedia.isPending;
   const isPdfActive = current?.kind === "file" && current.contentType === "application/pdf";
   const isBibleActive = current?.kind === "bible";
 
@@ -248,7 +256,8 @@ export function ClassTvMediaControl({
           </DialogHeader>
 
           <p className="text-sm text-gray-500 -mt-2">
-            Whatever you set here plays on the classroom TV instantly — no typing on the TV needed.
+            Build today's list below, then press Play on any item to show it on the classroom TV. Press Play on an
+            earlier item to go back to it.
           </p>
 
           {/* Current media */}
@@ -278,7 +287,7 @@ export function ClassTvMediaControl({
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-red-600 border border-red-200 hover:bg-red-50 transition-colors flex-shrink-0 disabled:opacity-50"
               >
                 {clearMedia.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
-                Clear
+                Clear TV
               </button>
             </div>
           ) : (
@@ -346,12 +355,20 @@ export function ClassTvMediaControl({
               stopping={clearMedia.isPending}
             />
           )}
-          {open && <BiblePicker classId={classId} disabled={busy} />}
+          <ClassTvPlaylist classId={classId} query={playlist} disabled={busy} />
+
+          <p className="text-xs font-bold uppercase tracking-wide text-gray-400 pt-1">Add to today's list</p>
+          {listFull && (
+            <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
+              Today's list is full. Remove an item before adding another.
+            </p>
+          )}
+          {open && <BiblePicker classId={classId} disabled={busy || listFull} />}
 
           {/* YouTube */}
           <div className="rounded-xl border border-gray-100 p-4">
             <p className="text-sm font-bold text-gray-800 flex items-center gap-2 mb-1">
-              <Youtube className="w-4 h-4 text-red-600" /> Play a YouTube video
+              <Youtube className="w-4 h-4 text-red-600" /> Add a YouTube video
             </p>
             <p className="text-xs text-gray-400 mb-3">
               Share the link from the YouTube app, or copy the URL and paste it below.
@@ -362,17 +379,17 @@ export function ClassTvMediaControl({
                 placeholder="https://youtube.com/watch?v=…"
                 value={ytInput}
                 onChange={(e) => { setYtInput(e.target.value); setYtError(""); }}
-                onKeyDown={(e) => e.key === "Enter" && !busy && ytInput.trim() && applyYouTube()}
-                disabled={busy}
+                onKeyDown={(e) => e.key === "Enter" && !busy && !listFull && ytInput.trim() && applyYouTube()}
+                disabled={busy || listFull}
               />
               <button
                 type="button"
                 onClick={applyYouTube}
-                disabled={busy || !ytInput.trim()}
+                disabled={busy || listFull || !ytInput.trim()}
                 className="px-4 py-2.5 rounded-xl font-bold text-sm flex items-center gap-1.5 disabled:opacity-50 flex-shrink-0"
                 style={{ background: GOLD, color: NAVY }}
               >
-                {setYoutube.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "▶"} Play
+                {addYoutube.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />} Add
               </button>
             </div>
             {ytError && <p className="text-red-500 text-xs mt-2">{ytError}</p>}
@@ -381,7 +398,7 @@ export function ClassTvMediaControl({
           {/* Upload */}
           <div className="rounded-xl border border-gray-100 p-4">
             <p className="text-sm font-bold text-gray-800 flex items-center gap-2 mb-1">
-              <Upload className="w-4 h-4 text-blue-600" /> Upload a video, image, or slides
+              <Upload className="w-4 h-4 text-blue-600" /> Add a video, image, document or slides
             </p>
             <p className="text-xs text-gray-400 mb-3">
               MP4, MOV, WebM, JPG, PNG, PDF or PowerPoint (PPTX) from this device. PDFs and PowerPoints play as
@@ -397,7 +414,7 @@ export function ClassTvMediaControl({
             <button
               type="button"
               onClick={() => fileRef.current?.click()}
-              disabled={busy}
+              disabled={busy || listFull}
               className="w-full py-3 rounded-xl border-2 border-dashed border-gray-200 text-sm font-semibold text-gray-500 hover:border-blue-400 hover:text-blue-600 transition-colors disabled:opacity-50"
             >
               {uploading ? (
@@ -406,7 +423,7 @@ export function ClassTvMediaControl({
                   {converting ? "Preparing slides for the TV…" : `Uploading… ${uploadPct}%`}
                 </span>
               ) : (
-                "Choose a file from this device"
+                "Choose a file to add"
               )}
             </button>
             {uploading && (
