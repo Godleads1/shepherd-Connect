@@ -111,15 +111,20 @@ databaseDescribe("custody handover PostgreSQL integrity", () => {
     const response = await create("dual-host-notification");
     expect(response.status).toBe(201);
     const episodeId = response.body.episode.id;
+    // Teachers are not told while the drop-off is only requested.
+    expect(await count("notification_outbox", sql`domain_type='custody_request' AND domain_identifier=${String(episodeId)}`)).toBe(0);
+    await request(app).post("/api/custody-episodes").set("Authorization", token(supportId, "support"))
+      .send({ episodeId, eventId: "dual-host-accept" }).expect(201);
     const outbox = await db.execute(sql`SELECT logical_dedup_key FROM notification_outbox
       WHERE domain_type='custody_request' AND domain_identifier=${String(episodeId)} AND recipient_user_id=${teacherUserId}`);
     expect(outbox.rows).toHaveLength(1);
     expect(outbox.rows[0]).toMatchObject({
       logical_dedup_key: `custody-request:${episodeId}:teacher:${teacherUserId}:whatsapp`,
     });
-    const notifications = await db.execute(sql`SELECT count(*)::int count FROM notifications
+    const notifications = await db.execute(sql`SELECT message FROM notifications
       WHERE user_id=${teacherUserId} AND metadata_json::jsonb->>'episodeId'=${String(episodeId)}`);
-    expect(Number(notifications.rows[0].count)).toBe(1);
+    expect(notifications.rows).toHaveLength(1);
+    expect(String(notifications.rows[0].message)).toContain("Child One has been accepted by Support One and is coming to class");
     await db.execute(sql`DELETE FROM teacher_allocations WHERE teacher_id=${teacherId} AND service_date=${serviceDate}`);
     await db.execute(sql`DELETE FROM class_merges WHERE source_class_id=${firstClassId} AND service_date=${serviceDate}`);
   });

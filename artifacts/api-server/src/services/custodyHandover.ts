@@ -11,10 +11,12 @@ export class CustodyHandoverError extends Error {
   constructor(public statusCode: number, message: string) { super(message); }
 }
 
-async function createCustodyRequestTeacherIntents(tx: any, episode: typeof custodyEpisodesTable.$inferSelect, child: typeof childrenTable.$inferSelect) {
+// Teachers hear "Child Coming to Class" only once support has accepted the
+// child, at the same moment the class TV is alerted.
+async function createCustodyAcceptedTeacherIntents(tx: any, episode: typeof custodyEpisodesTable.$inferSelect, child: typeof childrenTable.$inferSelect) {
   if (!child.currentClassId) return [];
-  const [parent] = await tx.select({ firstName: usersTable.firstName, lastName: usersTable.lastName })
-    .from(usersTable).where(eq(usersTable.id, episode.requestedBy));
+  const [support] = await tx.select({ firstName: usersTable.firstName, lastName: usersTable.lastName })
+    .from(usersTable).where(eq(usersTable.id, episode.custodianUserId ?? episode.requestedBy));
   const [home] = await tx.select({ name: classesTable.name }).from(classesTable)
     .where(eq(classesTable.id, child.currentClassId));
   const services = episode.requestedServices === "both" ? ["first", "second"] as const : [episode.requestedServices];
@@ -29,7 +31,7 @@ async function createCustodyRequestTeacherIntents(tx: any, episode: typeof custo
     destinations.set(classId, { name: target?.name ?? home?.name ?? "Classroom", ...(merge ? { homeName: home?.name ?? "Assigned class" } : {}) });
   }
   const childName = `${child.firstName} ${child.lastName}`;
-  const parentName = parent ? `${parent.firstName} ${parent.lastName}` : "A parent";
+  const supportName = support ? `${support.firstName} ${support.lastName}` : "Support";
   const serviceText = episode.requestedServices === "both" ? "7am and 10:30am services" : episode.requestedServices === "first" ? "7am service" : "10:30am service";
   const teacherDestinations = new Map<number, Array<{ classId: number; name: string; homeName?: string }>>();
   for (const [classId, destination] of destinations) {
@@ -52,7 +54,7 @@ async function createCustodyRequestTeacherIntents(tx: any, episode: typeof custo
       domainIdentifier: String(episode.id),
       projection: {
         userId, type: "custody_checkin_request", title: "Child Coming to Class",
-        message: `${childName} is being checked in by ${parentName} for the ${serviceText}. Destination${contexts.length === 1 ? "" : "s"}: ${contexts.join("; ")}.`,
+        message: `${childName} has been accepted by ${supportName} and is coming to class for the ${serviceText}. Destination${contexts.length === 1 ? "" : "s"}: ${contexts.join("; ")}.`,
         metadata: {
           episodeId: episode.id,
           childId: child.id,
@@ -104,8 +106,9 @@ export async function requestCustodyEpisode(tx: any, input: {
     childId: child.id, familyId: child.familyId, serviceDate: input.serviceDate,
     requestedServices: input.requestedServices, requestedBy: input.requestedBy,
   }).returning();
-  const classIds = await createCustodyRequestTeacherIntents(tx, episode, child);
-  await notifyClassRefresh(tx, classIds);
+  await notifyClassRefresh(tx, await resolveCustodyClassIds(
+    tx, episode.childId, episode.serviceDate, episode.requestedServices,
+  ));
   if (input.eventId) await tx.insert(custodyEpisodeEventsTable).values({
     userId: input.requestedBy, eventId: input.eventId, operation: "request", episodeId: episode.id,
   });
@@ -168,6 +171,7 @@ export async function acceptPhysicalCustody(tx: any, input: {
     status: "accepted", custodianUserId: input.custodianUserId, acceptedAt,
   }).where(and(eq(custodyEpisodesTable.id, requested.id), eq(custodyEpisodesTable.status, "requested"))).returning();
   if (!episode) throw new CustodyHandoverError(409, "Custody episode is no longer awaiting acceptance");
+  await createCustodyAcceptedTeacherIntents(tx, episode, child);
   await notifyClassRefresh(tx, await resolveCustodyClassIds(
     tx, requested.childId, requested.serviceDate, requested.requestedServices,
   ));
