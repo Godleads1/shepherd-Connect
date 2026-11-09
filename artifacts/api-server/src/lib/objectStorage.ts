@@ -177,9 +177,16 @@ class S3StoredObject implements StoredObject {
 const KNOWN_METADATA_KEYS = ["custom:aclPolicy"];
 
 function s3Backend(): StorageBackend {
-  const endpoint = process.env.S3_ENDPOINT?.trim();
+  let endpoint = process.env.S3_ENDPOINT?.trim() || undefined;
+  if (endpoint) {
+    try { new URL(endpoint); } catch {
+      // A bad storage setting must only break file features, not the whole app.
+      console.error(`S3_ENDPOINT is not a valid URL (${JSON.stringify(endpoint)}); file storage will fail until it is fixed`);
+      endpoint = "https://invalid-s3-endpoint.invalid";
+    }
+  }
   const client = new S3Client({
-    endpoint: endpoint || undefined,
+    endpoint,
     region: process.env.S3_REGION?.trim() || "auto",
     // Path-style URLs ("https://endpoint/bucket/key") work across R2, B2,
     // MinIO and AWS, and keep the bucket visible in signed upload URLs.
