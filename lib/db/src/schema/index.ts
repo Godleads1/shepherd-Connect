@@ -53,3 +53,4 @@ export * from "./classDisplayMedia";
 export * from "./classDisplayPlaylist";
 export * from "./privateObjectBindings";
 export * from "./sseTickets";
+export * from "./whatsappAuth";

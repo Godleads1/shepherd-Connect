@@ -156,10 +156,16 @@ export async function claimNotifications(executor: OutboxExecutor, options: {
   leaseMs?: number;
   /** Optional operational/test partition; production workers intentionally omit it. */
   logicalDedupKeyPrefix?: string;
+  /** Channels this worker must not claim (e.g. WhatsApp on an instance that does not own the connection). */
+  excludeChannels?: OutboxChannel[];
 } = {}): Promise<ClaimedNotification[]> {
   const limit = Math.max(1, Math.min(100, Math.floor(options.limit ?? 20)));
   const leaseMs = Math.max(5_000, Math.min(5 * 60_000, Math.floor(options.leaseMs ?? 30_000)));
   const logicalDedupKeyPrefix = options.logicalDedupKeyPrefix ?? null;
+  const excluded = (options.excludeChannels ?? []).filter(c => ["whatsapp", "sms", "email"].includes(c));
+  const excludeClause = excluded.length
+    ? sql`AND channel NOT IN (${sql.join(excluded.map(c => sql`${c}`), sql`, `)})`
+    : sql``;
   const claimToken = randomUUID();
   const result = await executor.execute(sql`
     WITH exhausted AS (
@@ -169,6 +175,7 @@ export async function claimNotifications(executor: OutboxExecutor, options: {
     ), candidates AS (
       SELECT id FROM notification_outbox WHERE attempts < ${OUTBOX_MAX_ATTEMPTS}
       AND (${logicalDedupKeyPrefix}::text IS NULL OR logical_dedup_key LIKE ${logicalDedupKeyPrefix})
+      ${excludeClause}
       AND (
         (status IN ('pending', 'retryable') AND next_attempt_at <= now()) OR
         (status = 'processing' AND lease_expires_at <= now())
