@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { eq, and, isNull, ilike, or, sql, asc, inArray } from "drizzle-orm";
-import { db, childrenTable, classesTable, attendanceTable, classAssignmentsTable, pickupDelegatesTable, childAppraisalsTable, classChangeRequestsTable, classWaitlistTable, emergenciesTable, familiesTable, usersTable } from "@workspace/db";
+import { db, childrenTable, classesTable, attendanceTable, classAssignmentsTable, pickupDelegatesTable, childAppraisalsTable, classChangeRequestsTable, emergenciesTable, familiesTable, usersTable } from "@workspace/db";
 import { CreateChildBody, ListChildrenQueryParams } from "@workspace/api-zod";
 import { authMiddleware, requireRoles } from "../middlewares/auth";
 import { getParentFamilyIds, parentOwnsChild, parentOwnsFamily } from "../lib/parentScope";
@@ -337,7 +337,13 @@ router.delete("/children/:id", authMiddleware, async (req, res): Promise<void> =
     await db.delete(pickupDelegatesTable).where(eq(pickupDelegatesTable.childId, id));
     await db.delete(childAppraisalsTable).where(eq(childAppraisalsTable.childId, id));
     await db.delete(classChangeRequestsTable).where(eq(classChangeRequestsTable.childId, id));
-    await db.delete(classWaitlistTable).where(eq(classWaitlistTable.childId, id));
+    // The class waitlist feature was removed. Until migration
+    // 0002_remove_class_waitlist.sql has run, old waitlist rows would block
+    // deleting the child, so clear them if the legacy table still exists.
+    const legacy = await db.execute(sql`SELECT to_regclass('public.class_waitlist') IS NOT NULL AS present`);
+    if ((legacy.rows[0] as { present?: boolean } | undefined)?.present) {
+      await db.execute(sql`DELETE FROM class_waitlist WHERE child_id = ${id}`);
+    }
     await db.update(emergenciesTable).set({ childId: null }).where(eq(emergenciesTable.childId, id));
     await db.delete(childrenTable).where(eq(childrenTable.id, id));
     res.json({ success: true, message: "Child deleted" });

@@ -51,14 +51,11 @@ beforeAll(async () => {
   await db.execute(sql`
     INSERT INTO class_assignments (child_id, class_id, assigned_by, status)
     VALUES (${ids.ownChild}, ${ids.classA}, ${ids.admin}, 'active'), (${ids.otherChild}, ${ids.classB}, ${ids.admin}, 'active')`);
-  ids.otherWaitlist = Number((await db.execute(sql`
-    INSERT INTO class_waitlist (child_id, class_id, family_id, status) VALUES (${ids.otherChild}, ${ids.classA}, ${ids.otherFamily}, 'waiting') RETURNING id`)).rows[0]!.id);
 });
 
 afterAll(async () => {
   if (process.env.RUN_DATABASE_ATTENDANCE_TESTS !== "true") return;
   for (const q of [
-    sql`DELETE FROM class_waitlist WHERE class_id IN (${ids.classA}, ${ids.classB})`,
     sql`DELETE FROM class_assignments WHERE class_id IN (${ids.classA}, ${ids.classB})`,
     sql`DELETE FROM children WHERE id IN (${ids.ownChild}, ${ids.otherChild})`,
     sql`DELETE FROM families WHERE id IN (${ids.ownFamily}, ${ids.otherFamily})`,
@@ -91,29 +88,20 @@ databaseDescribe("class assignments are scoped like children", () => {
   });
 });
 
-databaseDescribe("class waitlist", () => {
-  it("is an admin-only list without raw child or family rows", async () => {
-    await request(app).get(`/api/classes/${ids.classA}/waitlist`).set("Authorization", auth("parent")).expect(403);
-    const res = await request(app).get(`/api/classes/${ids.classA}/waitlist`).set("Authorization", auth("admin")).expect(200);
-    const entry = res.body.find((e: any) => e.id === ids.otherWaitlist);
-    expect(entry).toMatchObject({ childName: "Other Child", parentName: "Other Parent" });
-    const text = JSON.stringify(res.body);
-    for (const leaked of ["epipen", "staff only", "2 Other St", "faceDescriptor"]) expect(text).not.toContain(leaked);
+databaseDescribe("class waitlist has been removed", () => {
+  it.each([
+    ["get", () => `/api/classes/${ids.classA}/waitlist`],
+    ["post", () => `/api/classes/${ids.classA}/waitlist`],
+    ["get", () => `/api/classes/waitlist?familyId=${ids.ownFamily}`],
+    ["post", () => `/api/classes/${ids.classA}/notify-waitlist`],
+  ])("%s waitlist endpoint is gone", async (method, path) => {
+    const res = await (request(app) as any)[method](path()).set("Authorization", auth("admin")).send({});
+    expect([400, 404]).toContain(res.status);
   });
 
-  it("parents can only add or cancel their own children", async () => {
-    await request(app).post(`/api/classes/${ids.classA}/waitlist`).set("Authorization", auth("parent"))
-      .send({ childId: ids.otherChild, familyId: ids.otherFamily }).expect(403);
-    await request(app).post(`/api/classes/${ids.classA}/waitlist`).set("Authorization", auth("parent"))
-      .send({ childId: ids.otherChild, familyId: ids.ownFamily }).expect(400);
-    await request(app).delete(`/api/classes/${ids.classA}/waitlist/${ids.otherWaitlist}`).set("Authorization", auth("parent")).expect(403);
-    await request(app).post(`/api/classes/${ids.classB}/waitlist`).set("Authorization", auth("parent"))
-      .send({ childId: ids.ownChild, familyId: ids.ownFamily }).expect(201);
-  });
-
-  it("a parent cannot read another family's waitlist entries", async () => {
-    await request(app).get(`/api/classes/waitlist?familyId=${ids.otherFamily}`).set("Authorization", auth("parent")).expect(403);
-    await request(app).get(`/api/classes/waitlist?familyId=${ids.ownFamily}`).set("Authorization", auth("parent")).expect(200);
+  it("class responses no longer carry a waitlist count", async () => {
+    const res = await request(app).get(`/api/classes/${ids.classA}`).set("Authorization", auth("admin")).expect(200);
+    expect(res.body.waitlistCount).toBeUndefined();
   });
 });
 

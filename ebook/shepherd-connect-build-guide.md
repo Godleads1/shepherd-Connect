@@ -1560,46 +1560,6 @@ function NotificationBell() {
 
 # Chapter 13: Advanced Features
 
-## Waitlist Management
-
-When a class is at capacity, a child goes on the waitlist. Admins can promote or reject entries.
-
-```typescript
-router.post("/class-assignments/waitlist/:id/promote",
-  authMiddleware, requireRoles("admin", "super_admin"),
-  async (req, res): Promise<void> => {
-    const id = parseInt(req.params.id, 10);
-    
-    const [entry] = await db
-      .select()
-      .from(classAssignmentsTable)
-      .where(eq(classAssignmentsTable.id, id));
-    
-    if (!entry || entry.status !== "waitlisted") {
-      res.status(404).json({ error: "Waitlist entry not found" });
-      return;
-    }
-    
-    // Promote: change status to active
-    const [updated] = await db
-      .update(classAssignmentsTable)
-      .set({ status: "active", updatedAt: new Date() })
-      .where(eq(classAssignmentsTable.id, id))
-      .returning();
-    
-    // Notify parents
-    await sendNotification({
-      userId: entry.parentId,
-      type: "waitlist_promoted",
-      title: "Waitlist Update",
-      message: `Your child has been promoted off the waitlist and assigned to a class.`,
-    });
-    
-    res.json(updated);
-  }
-);
-```
-
 ## Class Change Requests
 
 ```typescript
@@ -2650,7 +2610,6 @@ users (id) ← audit_logs (userId)
 | `schedule_published` | Auto-schedule run | All teachers |
 | `schedule_swap` | Substitute assigned | Old + new teacher |
 | `class_change_request` | Request submitted | All admins |
-| `waitlist_promoted` | Waitlist approved | Child's parent |
 | `broadcast` | Admin broadcast | Target role |
 
 ---

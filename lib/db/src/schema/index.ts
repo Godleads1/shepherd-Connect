@@ -22,7 +22,6 @@ export * from "./emergencies";
 export * from "./auditLogs";
 export * from "./classChangeRequests";
 export * from "./emergencyUpdates";
-export * from "./classWaitlist";
 export * from "./consentForms";
 export * from "./safeguardingRecords";
 export * from "./substituteRequests";
