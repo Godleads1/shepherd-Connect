@@ -1,4 +1,4 @@
-import { File } from "@google-cloud/storage";
+import type { StoredObject as File } from "./objectStorage";
 
 const ACL_POLICY_METADATA_KEY = "custom:aclPolicy";
 
