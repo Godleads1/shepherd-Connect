@@ -350,6 +350,7 @@ export default function Users() {
         toast({ title: "User updated successfully" });
       } else {
         if (!data.password) { form.setError("password", { message: "Password required for new users" }); return; }
+        if (data.password.length < 8) { form.setError("password", { message: "Minimum 8 characters" }); return; }
         await createMutation.mutateAsync({ data: data as any });
         toast({ title: "User created successfully" });
       }
@@ -548,14 +549,14 @@ export default function Users() {
             </p>
             <Input
               type="password"
-              placeholder="New password (min 6 characters)"
+              placeholder="New password (min 8 characters)"
               value={resetPassword}
               onChange={e => setResetPassword(e.target.value)}
               onKeyDown={e => e.key === "Enter" && handleResetPassword()}
             />
             <div className="flex justify-end gap-2 pt-2">
               <Button variant="outline" onClick={() => { setResetTarget(null); setResetPassword(""); }}>Cancel</Button>
-              <Button onClick={handleResetPassword} disabled={resetLoading || resetPassword.length < 6}>
+              <Button onClick={handleResetPassword} disabled={resetLoading || resetPassword.length < 8}>
                 {resetLoading ? "Resetting…" : "Reset Password"}
               </Button>
             </div>

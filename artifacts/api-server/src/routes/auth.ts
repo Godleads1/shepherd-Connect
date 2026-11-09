@@ -315,7 +315,11 @@ router.post("/auth/register", async (req, res): Promise<void> => {
   }
   const parsed = RegisterBody.safeParse(req.body);
   if (!parsed.success) {
-    res.status(400).json({ error: "Bad request", message: parsed.error.message });
+    const passwordIssue = parsed.error.issues.find(issue => issue.path[0] === "password");
+    res.status(400).json({
+      error: "Bad request",
+      message: passwordIssue ? "Password must be 8 to 128 characters" : parsed.error.message,
+    });
     return;
   }
   const { email, password, firstName, lastName, phone, role, otpPinId } = parsed.data;
@@ -476,8 +480,8 @@ router.post("/auth/change-password", authMiddleware, async (req, res): Promise<v
     res.status(400).json({ error: "Bad request", message: "currentPassword and newPassword are required" });
     return;
   }
-  if (newPassword.length < 6) {
-    res.status(400).json({ error: "Bad request", message: "New password must be at least 6 characters" });
+  if (newPassword.length < 8 || newPassword.length > 128) {
+    res.status(400).json({ error: "Bad request", message: "New password must be 8 to 128 characters" });
     return;
   }
   const [user] = await db.select().from(usersTable).where(eq(usersTable.id, req.user!.userId));
@@ -541,8 +545,8 @@ router.post("/auth/reset-password", resetPasswordLimiter, async (req, res): Prom
     res.status(400).json({ error: "Bad request", message: "email, code, and newPassword are required" });
     return;
   }
-  if (newPassword.length < 6) {
-    res.status(400).json({ error: "Bad request", message: "Password must be at least 6 characters" });
+  if (newPassword.length < 8 || newPassword.length > 128) {
+    res.status(400).json({ error: "Bad request", message: "Password must be 8 to 128 characters" });
     return;
   }
   const [user] = await db.select().from(usersTable).where(eq(usersTable.email, email.trim().toLowerCase()));

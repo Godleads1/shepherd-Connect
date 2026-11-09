@@ -152,3 +152,23 @@ databaseDescribe("bad input gets 4xx, not 500", () => {
     expect(res.status).toBeLessThan(500);
   });
 });
+
+databaseDescribe("minimum password length", () => {
+  it("rejects new passwords shorter than 8 but still signs in existing 6-character passwords", async () => {
+    const bcrypt = (await import("bcryptjs")).default;
+    const email = `${prefix}-legacy-pw@example.com`;
+    await db.execute(sql`
+      INSERT INTO users (email, password_hash, first_name, last_name, role, status, is_active)
+      VALUES (${email}, ${await bcrypt.hash("abc123", 4)}, 'Legacy', 'Password', 'parent', 'active', true)`);
+    const [{ id }] = (await db.execute(sql`SELECT id FROM users WHERE email = ${email}`)).rows as Array<{ id: number }>;
+
+    const login = await request(app).post("/api/auth/login").set("x-forwarded-for", "203.0.113.80")
+      .send({ email, password: "abc123" });
+    expect(login.status).toBe(200);
+    const tooShort = await request(app).put(`/api/users/${id}/reset-password`).set("Authorization", auth("super_admin"))
+      .send({ password: "short12" });
+    expect(tooShort.status).toBe(400);
+    await request(app).put(`/api/users/${id}/reset-password`).set("Authorization", auth("super_admin"))
+      .send({ password: "longer-pass" }).expect(200);
+  });
+});

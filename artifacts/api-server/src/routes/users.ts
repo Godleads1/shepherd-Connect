@@ -269,8 +269,8 @@ router.put("/users/:id/reset-password", authMiddleware, requireRoles("super_admi
     res.status(400).json({ error: "Bad request", message: "Use change password for your own account" }); return;
   }
   const { password } = req.body as { password?: string };
-  if (!password || password.length < 6) {
-    res.status(400).json({ error: "Bad request", message: "Password must be at least 6 characters" }); return;
+  if (!password || password.length < 8 || password.length > 128) {
+    res.status(400).json({ error: "Bad request", message: "Password must be 8 to 128 characters" }); return;
   }
   const passwordHash = await bcrypt.hash(password, 12);
   const outcome = await db.transaction(async tx => {

@@ -36,7 +36,7 @@ const step1Schema = z.object({
     v => typeof v === "string" ? normalizePhone(v.trim()) : v,
     z.string().regex(PHONE_RE, phoneMsg)
   ),
-  password:  z.string().min(6, "Minimum 6 characters"),
+  password:  z.string().min(8, "Minimum 8 characters").max(128, "Maximum 128 characters"),
 });
 
 const step2Schema = z.object({
@@ -484,7 +484,7 @@ export default function Register() {
               <input
                 {...form1.register("password")}
                 type={showPw ? "text" : "password"}
-                placeholder="Create password (min. 6 characters)"
+                placeholder="Create password (min. 8 characters)"
                 style={iIcon}
                 onFocus={focusIn}
                 onBlur={focusOut}

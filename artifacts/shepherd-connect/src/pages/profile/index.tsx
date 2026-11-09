@@ -317,8 +317,8 @@ function ChangePasswordSection() {
     if (!currentPw || !newPw || !confirmPw) {
       toast({ variant: "destructive", title: "All fields are required" }); return;
     }
-    if (newPw.length < 6) {
-      toast({ variant: "destructive", title: "New password must be at least 6 characters" }); return;
+    if (newPw.length < 8) {
+      toast({ variant: "destructive", title: "New password must be at least 8 characters" }); return;
     }
     if (newPw !== confirmPw) {
       toast({ variant: "destructive", title: "New passwords do not match" }); return;
@@ -358,7 +358,7 @@ function ChangePasswordSection() {
           <div>
             <label className="text-xs font-semibold text-gray-600 block mb-1">New Password</label>
             <Input type="password" value={newPw} onChange={e => setNewPw(e.target.value)}
-              placeholder="At least 6 characters" />
+              placeholder="At least 8 characters" />
           </div>
           <div>
             <label className="text-xs font-semibold text-gray-600 block mb-1">Confirm New Password</label>

@@ -455,6 +455,10 @@ export interface RegisterBody {
   lastName: string;
   email: string;
   phone?: string;
+  /**
+   * @minLength 8
+   * @maxLength 128
+   */
   password: string;
   role: RegisterBodyRole;
   /** @minLength 1 */
@@ -503,19 +507,28 @@ export interface AuthResponse {
 
 export interface PasswordChangeInput {
   currentPassword: string;
-  /** @minLength 6 */
+  /**
+   * @minLength 8
+   * @maxLength 128
+   */
   newPassword: string;
 }
 
 export interface PasswordResetInput {
   email: string;
   code: string;
-  /** @minLength 6 */
+  /**
+   * @minLength 8
+   * @maxLength 128
+   */
   newPassword: string;
 }
 
 export interface AdminPasswordResetInput {
-  /** @minLength 6 */
+  /**
+   * @minLength 8
+   * @maxLength 128
+   */
   password: string;
 }
 
@@ -585,6 +598,10 @@ export interface CreateUserBody {
   lastName: string;
   email: string;
   phone?: string;
+  /**
+   * @minLength 8
+   * @maxLength 128
+   */
   password: string;
   role: string;
 }
