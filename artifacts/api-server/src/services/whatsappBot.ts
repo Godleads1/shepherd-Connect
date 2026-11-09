@@ -857,7 +857,7 @@ async function processInboundMessage(
         // account's real WhatsApp number and require it to be echoed here.
         // The reply is identical whether or not the number exists, so this
         // step cannot be used to discover who is registered.
-        const genericReply = `📲 If that number is registered, we've sent a 6-digit code to its WhatsApp chat.\n\n_Type the code here to finish verifying (valid 10 minutes). Type *0* to start over._`;
+        const genericReply = `📲 If that number is registered, we've sent a 6-digit code to it by WhatsApp (or by SMS if WhatsApp is busy).\n\n_Type the code here to finish verifying (valid 10 minutes). Type *0* to start over._`;
         let targetJid: string | null = null;
         try { targetJid = matches[0]?.phone ? phoneToWaJid(matches[0].phone) : null; } catch { targetJid = null; }
         if (!targetJid || matches.some(match => match.whatsappVerified === false)) {
@@ -866,8 +866,16 @@ async function processInboundMessage(
         }
         const { code, challenge } = issueLidChallenge(STEP_UP_KEY, fromJid, matches.map(u => u.id));
         const { sendWhatsAppToJid } = await import("./whatsapp");
-        await sendWhatsAppToJid(targetJid,
-          `🔐 *Shepherd Connect* verification code: *${code}*\n\nSomeone asked to link a WhatsApp chat to your account. If this wasn't you, ignore this message and do not share the code.`);
+        const sentOnWhatsApp = await sendWhatsAppToJid(targetJid,
+          `🔐 *Shepherd Connect* verification code: *${code}*\n\nSomeone asked to link a WhatsApp chat to your account. If this wasn't you, ignore this message and do not share the code.`)
+          .catch(() => false);
+        // Baileys can drop mid-conversation. The code must still reach the
+        // account's own phone, so fall back to SMS to that same number.
+        if (!sentOnWhatsApp) {
+          const { smsWhatsAppLinkCode } = await import("./sms");
+          const sentBySms = await smsWhatsAppLinkCode(matches[0]!.phone, code).catch(() => false);
+          if (!sentBySms) logger.warn("WhatsApp link code could not be delivered by WhatsApp or SMS");
+        }
         await saveSession(fromJid, { step: "lid_verify_code", data: { ...challenge, lidSends: String(sends + 1) } });
         await reply(genericReply);
         return;
