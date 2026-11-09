@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { eq, and, isNull, ilike, or, sql, asc, inArray } from "drizzle-orm";
-import { db, childrenTable, classesTable, attendanceTable, classAssignmentsTable, pickupDelegatesTable, childAppraisalsTable, classChangeRequestsTable, classWaitlistTable, emergenciesTable, familiesTable, usersTable } from "@workspace/db";
+import { db, childrenTable, classesTable, attendanceTable, classAssignmentsTable, pickupDelegatesTable, childAppraisalsTable, classChangeRequestsTable, emergenciesTable, familiesTable, usersTable } from "@workspace/db";
 import { CreateChildBody, ListChildrenQueryParams } from "@workspace/api-zod";
 import { authMiddleware, requireRoles } from "../middlewares/auth";
 import { getParentFamilyIds, parentOwnsChild, parentOwnsFamily } from "../lib/parentScope";
@@ -13,6 +13,7 @@ import {
   isFamilyChildOperationalRole,
   teacherCanReadChild,
 } from "../lib/routeAuthorization";
+import { sendRouteError } from "../lib/httpErrors";
 
 const router = Router();
 
@@ -89,7 +90,7 @@ router.get("/children", authMiddleware, async (req, res): Promise<void> => {
     res.json({ data: formatted, total: Number(count), page, limit });
   } catch (err) {
     req.log.error({ err }, "Failed to list children");
-    res.status(500).json({ error: "Failed to list children" });
+    sendRouteError(req, res, err, "Failed to list children");
   }
 });
 
@@ -136,7 +137,7 @@ router.get("/children/my-class-roster", authMiddleware, requireRoles("teacher"),
     res.json({ data, total: data.length, class: assignedClass });
   } catch (err) {
     req.log.error({ err }, "Failed to list teacher class roster");
-    res.status(500).json({ error: "Failed to list class roster" });
+    sendRouteError(req, res, err, "Failed to list class roster");
   }
 });
 
@@ -174,7 +175,7 @@ router.post("/children", authMiddleware, async (req, res): Promise<void> => {
     res.status(201).json(response);
   } catch (err) {
     req.log.error({ err }, "Failed to create child");
-    res.status(500).json({ error: "Failed to create child" });
+    sendRouteError(req, res, err, "Failed to create child");
   }
 });
 
@@ -188,7 +189,7 @@ router.get("/children/:id", authMiddleware, async (req, res): Promise<void> => {
     res.json(await formatChild(child));
   } catch (err) {
     req.log.error({ err }, "Failed to get child");
-    res.status(500).json({ error: "Failed to get child" });
+    sendRouteError(req, res, err, "Failed to get child");
   }
 });
 
@@ -240,7 +241,7 @@ router.put("/children/:id", authMiddleware, async (req, res): Promise<void> => {
     res.json(outcome.response);
   } catch (err) {
     req.log.error({ err }, "Failed to update child");
-    res.status(500).json({ error: "Failed to update child" });
+    sendRouteError(req, res, err, "Failed to update child");
   }
 });
 
@@ -263,7 +264,7 @@ router.get("/children/:id/qr-code", authMiddleware, async (req, res): Promise<vo
     res.json({ qrCode: familyCode, familyCode, childId: child.id });
   } catch (err) {
     req.log.error({ err }, "Failed to get child QR code");
-    res.status(500).json({ error: "Failed to get QR code" });
+    sendRouteError(req, res, err, "Failed to get QR code");
   }
 });
 
@@ -306,7 +307,7 @@ router.put("/children/:id/face-descriptor", authMiddleware, async (req, res): Pr
     res.json(response);
   } catch (err) {
     req.log.error({ err }, "Failed to update face descriptor");
-    res.status(500).json({ error: "Failed to update face descriptor" });
+    sendRouteError(req, res, err, "Failed to update face descriptor");
   }
 });
 
@@ -336,13 +337,19 @@ router.delete("/children/:id", authMiddleware, async (req, res): Promise<void> =
     await db.delete(pickupDelegatesTable).where(eq(pickupDelegatesTable.childId, id));
     await db.delete(childAppraisalsTable).where(eq(childAppraisalsTable.childId, id));
     await db.delete(classChangeRequestsTable).where(eq(classChangeRequestsTable.childId, id));
-    await db.delete(classWaitlistTable).where(eq(classWaitlistTable.childId, id));
+    // The class waitlist feature was removed. Until migration
+    // 0002_remove_class_waitlist.sql has run, old waitlist rows would block
+    // deleting the child, so clear them if the legacy table still exists.
+    const legacy = await db.execute(sql`SELECT to_regclass('public.class_waitlist') IS NOT NULL AS present`);
+    if ((legacy.rows[0] as { present?: boolean } | undefined)?.present) {
+      await db.execute(sql`DELETE FROM class_waitlist WHERE child_id = ${id}`);
+    }
     await db.update(emergenciesTable).set({ childId: null }).where(eq(emergenciesTable.childId, id));
     await db.delete(childrenTable).where(eq(childrenTable.id, id));
     res.json({ success: true, message: "Child deleted" });
   } catch (err) {
     req.log.error({ err }, "Failed to delete child");
-    res.status(500).json({ error: "Failed to delete child" });
+    sendRouteError(req, res, err, "Failed to delete child");
   }
 });
 
@@ -367,7 +374,7 @@ router.get("/children/age-out", authMiddleware, requireRoles("super_admin", "adm
     res.json({ total: agedOut.length, children: agedOut });
   } catch (err) {
     req.log.error({ err }, "Failed to get aged-out children");
-    res.status(500).json({ error: "Failed to get aged-out children" });
+    sendRouteError(req, res, err, "Failed to get aged-out children");
   }
 });
 
@@ -391,7 +398,7 @@ router.post("/children/auto-promote", authMiddleware, requireRoles("super_admin"
     res.json({ promoted: results.length, results });
   } catch (err) {
     req.log.error({ err }, "Failed to auto-promote children");
-    res.status(500).json({ error: "Failed to auto-promote children" });
+    sendRouteError(req, res, err, "Failed to auto-promote children");
   }
 });
 
@@ -421,7 +428,7 @@ router.post("/children/bulk-import", authMiddleware, requireRoles("super_admin",
     res.json({ inserted: inserted.length, errors });
   } catch (err) {
     req.log.error({ err }, "Failed to bulk import children");
-    res.status(500).json({ error: "Failed to bulk import children" });
+    sendRouteError(req, res, err, "Failed to bulk import children");
   }
 });
 
@@ -443,7 +450,7 @@ router.delete("/children/:id/face-descriptor", authMiddleware, async (req, res):
     res.json({ success: true });
   } catch (err) {
     req.log.error({ err }, "Failed to delete face descriptor");
-    res.status(500).json({ error: "Failed to delete face descriptor" });
+    sendRouteError(req, res, err, "Failed to delete face descriptor");
   }
 });
 

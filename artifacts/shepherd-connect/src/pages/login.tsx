@@ -114,7 +114,7 @@ export default function Login() {
   };
 
   const handleForgotReset = async () => {
-    if (forgotNewPw.length < 6) { setForgotError("Password must be at least 6 characters."); return; }
+    if (forgotNewPw.length < 8) { setForgotError("Password must be at least 8 characters."); return; }
     if (forgotNewPw !== forgotConfirmPw) { setForgotError("Passwords do not match."); return; }
     if (!forgotCode.trim()) { setForgotError("Please enter the reset code."); return; }
     setForgotLoading(true);
@@ -391,7 +391,7 @@ export default function Login() {
                   <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                   <input
                     type={showForgotPw ? "text" : "password"}
-                    placeholder="New password (min 6 chars)"
+                    placeholder="New password (min 8 chars)"
                     value={forgotNewPw}
                     onChange={e => { setForgotNewPw(e.target.value); setForgotError(""); }}
                     className="w-full rounded-xl pl-10 pr-10 py-3 text-sm focus:outline-none transition-all"

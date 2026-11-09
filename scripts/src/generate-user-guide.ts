@@ -238,8 +238,7 @@ function tableOfContents() {
     ["3.6", "Emergencies",                        true,  "10"],
     ["3.7", "Safeguarding & DBS",                 true,  "10"],
     ["3.8", "Substitute Requests",               true,  "11"],
-    ["3.9", "Waitlist",                           true,  "11"],
-    ["3.10","Reports & Analytics",               true,  "12"],
+    ["3.9", "Reports & Analytics",               true,  "12"],
     ["4.",  "Teacher",                            false, "13"],
     ["4.1", "My Class",                          true,  "13"],
     ["4.2", "Attendance & Arrivals",             true,  "14"],
@@ -635,16 +634,7 @@ function section3() {
   step(ctx, 7, "Once the substitute confirms attendance, click \"Confirm\" to finalise.");
   callout(ctx, "tip", "A pending count badge on the header shows how many requests need attention. Check this each week before the service date.");
 
-  subSection(ctx, "3.9", "Waitlist");
-  para(ctx, "The Waitlist manages children whose preferred class is at capacity. Admins can view, approve, reject, or promote children from the waitlist to the class.");
-  bullet(ctx, [
-    "Each entry shows the child's name, preferred class, family, and date added.",
-    "\"Promote\" moves the child off the waitlist and into a Class Assignment.",
-    "\"Reject\" removes the child from the waitlist and sends a parent notification.",
-    "The waitlist is sorted by date added — oldest requests first (first in, first out).",
-  ]);
-
-  subSection(ctx, "3.10", "Reports & Analytics");
+  subSection(ctx, "3.9", "Reports & Analytics");
   para(ctx, "The Reports module is the most powerful section of the platform, providing six different reporting views:");
   bullet(ctx, [
     "Live Reports — Real-time view of who is in church, who hasn't been collected, and teacher-to-child ratios for the current service day.",

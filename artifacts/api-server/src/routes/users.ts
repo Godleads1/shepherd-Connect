@@ -201,6 +201,18 @@ router.get("/users/:id", authMiddleware, async (req, res): Promise<void> => {
   res.json({ ...sanitizeUser(user, viewer), primaryClass });
 });
 
+/**
+ * Admins manage parents, teachers and support staff. Only a Super Admin may
+ * approve, reject, reset or delete an Admin or Super Admin account (including
+ * one that holds either role as a secondary role); otherwise any of the
+ * admins could reset a Super Admin's password and sign in as them.
+ */
+function adminMayManageTarget(requesterRole: string, target: { role: string; secondaryRoles?: string | null }): boolean {
+  if (requesterRole === "super_admin") return true;
+  const roles = [target.role, ...canonicalSecondaryRoles(target.secondaryRoles ?? null, target.role as Parameters<typeof canonicalSecondaryRoles>[1])];
+  return !roles.some(r => r === "admin" || r === "super_admin");
+}
+
 router.put("/users/:id/approve", authMiddleware, requireRoles("super_admin", "admin"), async (req, res): Promise<void> => {
   const id = parseInt(req.params.id as string, 10);
   if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
@@ -208,6 +220,7 @@ router.put("/users/:id/approve", authMiddleware, requireRoles("super_admin", "ad
     await lockSessionRevocation(tx, id);
     const target = await lockUserById(tx, id);
     if (!target) return undefined;
+    if (!adminMayManageTarget(req.user!.role, target)) return "forbidden" as const;
     const [approved] = await tx.update(usersTable)
       .set({ status: "active", isActive: true })
       .where(eq(usersTable.id, id))
@@ -220,6 +233,7 @@ router.put("/users/:id/approve", authMiddleware, requireRoles("super_admin", "ad
     return approved;
   });
   if (!user) { res.status(404).json({ error: "Not found", message: "User not found" }); return; }
+  if (user === "forbidden") { res.status(403).json({ error: "Forbidden", message: "Only a Super Admin can approve an admin account" }); return; }
   const viewer = { role: req.user!.role, userId: req.user!.userId };
   res.json({ success: true, message: "User approved", user: sanitizeUser(user, viewer) });
 });
@@ -231,6 +245,7 @@ router.put("/users/:id/reject", authMiddleware, requireRoles("super_admin", "adm
     await lockSessionRevocation(tx, id);
     const target = await lockUserById(tx, id);
     if (!target) return undefined;
+    if (!adminMayManageTarget(req.user!.role, target)) return "forbidden" as const;
     const [rejected] = await tx.update(usersTable)
       .set({ status: "suspended", isActive: false })
       .where(eq(usersTable.id, id))
@@ -240,6 +255,7 @@ router.put("/users/:id/reject", authMiddleware, requireRoles("super_admin", "adm
     return rejected;
   });
   if (!user) { res.status(404).json({ error: "Not found", message: "User not found" }); return; }
+  if (user === "forbidden") { res.status(403).json({ error: "Forbidden", message: "Only a Super Admin can reject an admin account" }); return; }
   closeUserConnections(id);
   await securityAudit(req, "account_rejected", id);
   const viewer = { role: req.user!.role, userId: req.user!.userId };
@@ -253,18 +269,25 @@ router.put("/users/:id/reset-password", authMiddleware, requireRoles("super_admi
     res.status(400).json({ error: "Bad request", message: "Use change password for your own account" }); return;
   }
   const { password } = req.body as { password?: string };
-  if (!password || password.length < 6) {
-    res.status(400).json({ error: "Bad request", message: "Password must be at least 6 characters" }); return;
+  if (!password || password.length < 8 || password.length > 128) {
+    res.status(400).json({ error: "Bad request", message: "Password must be 8 to 128 characters" }); return;
   }
   const passwordHash = await bcrypt.hash(password, 12);
-  const [user] = await db.transaction(async tx => {
+  const outcome = await db.transaction(async tx => {
     await lockSessionRevocation(tx, id);
+    const target = await lockUserById(tx, id);
+    if (!target) return "missing" as const;
+    if (!adminMayManageTarget(req.user!.role, target)) return "forbidden" as const;
     const rows = await tx.update(usersTable).set({ passwordHash, sessionVersion: sql`${usersTable.sessionVersion} + 1` })
       .where(eq(usersTable.id, id)).returning();
     if (rows.length === 1) await notifySessionRevocation(tx, id);
-    return rows;
+    return rows.length === 1 ? "reset" as const : "missing" as const;
   });
-  if (!user) { res.status(404).json({ error: "Not found", message: "User not found" }); return; }
+  if (outcome === "missing") { res.status(404).json({ error: "Not found", message: "User not found" }); return; }
+  if (outcome === "forbidden") {
+    await securityAudit(req, "admin_password_reset_denied", id, { administratorId: req.user!.userId });
+    res.status(403).json({ error: "Forbidden", message: "Only a Super Admin can reset an admin account's password" }); return;
+  }
   closeUserConnections(id);
   await securityAudit(req, "admin_password_reset", id, { administratorId: req.user!.userId });
   res.json({ success: true, message: "Password reset successfully" });
@@ -550,7 +573,7 @@ router.delete("/users/:id", authMiddleware, requireRoles("super_admin", "admin")
   if (requesterId === id) { res.status(400).json({ error: "Bad request", message: "Cannot delete your own account" }); return; }
   const [target] = await db.select().from(usersTable).where(eq(usersTable.id, id));
   if (!target) { res.status(404).json({ error: "Not found", message: "User not found" }); return; }
-  if (requesterRole === "admin" && (target.role === "super_admin" || target.role === "admin")) {
+  if (!adminMayManageTarget(requesterRole, target)) {
     res.status(403).json({ error: "Forbidden", message: "Admins cannot delete super admins or other admins" }); return;
   }
   // Permanently delete the user and nullify / remove all FK references.

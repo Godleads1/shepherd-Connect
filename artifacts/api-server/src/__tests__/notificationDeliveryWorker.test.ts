@@ -120,11 +120,51 @@ describe("notification delivery worker (no provider traffic)", () => {
     }));
   });
 
+  it("sends safety and pickup alerts by SMS when WhatsApp is down", async () => {
+    mocks.state.mockReturnValue({ connected: false, leader: true });
+    mocks.claim.mockResolvedValue([claimed({ notificationType: "emergency_alert", logicalDedupKey: "emergency:1:whatsapp" })]);
+    mocks.execute
+      .mockResolvedValueOnce({ rows: [recipient] }) // recipient lookup
+      .mockResolvedValueOnce({ rows: [] });         // no separate SMS copy exists
+    await pollNotificationOutbox();
+    expect(mocks.send).not.toHaveBeenCalled();
+    expect(mocks.sms).toHaveBeenCalledWith("08012345678", "Title\n\nBody", expect.anything());
+    expect(mocks.finalize).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ outcome: "accepted", provider: "termii" }));
+  });
+
+  it("does not double-send by SMS when the alert already has its own SMS copy", async () => {
+    mocks.state.mockReturnValue({ connected: false, leader: true });
+    mocks.claim.mockResolvedValue([claimed({ notificationType: "emergency_alert", logicalDedupKey: "emergency:1:whatsapp" })]);
+    mocks.execute
+      .mockResolvedValueOnce({ rows: [recipient] })
+      .mockResolvedValueOnce({ rows: [{ "?column?": 1 }] });
+    await pollNotificationOutbox();
+    expect(mocks.sms).not.toHaveBeenCalled();
+    expect(mocks.finalize).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ outcome: "retryable", failureClassification: "provider_unavailable" }));
+  });
+
+  it("keeps ordinary messages waiting for WhatsApp instead of using SMS", async () => {
+    mocks.state.mockReturnValue({ connected: false, leader: true });
+    await pollNotificationOutbox();
+    expect(mocks.sms).not.toHaveBeenCalled();
+    expect(mocks.finalize).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ outcome: "retryable" }));
+  });
+
+  it("does not claim WhatsApp rows on an instance that does not own the connection", async () => {
+    mocks.state.mockReturnValue({ connected: false, leader: false });
+    mocks.claim.mockResolvedValue([]);
+    await pollNotificationOutbox();
+    expect(mocks.claim).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ excludeChannels: ["whatsapp"] }));
+    mocks.state.mockReturnValue({ connected: true, leader: true });
+    await pollNotificationOutbox();
+    expect(mocks.claim).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({ excludeChannels: [] }));
+  });
+
   it("does not overlap polls and can poll again after a completed/restarted pass", async () => {
     let release!: () => void;
     mocks.claim.mockImplementationOnce(() => new Promise(resolve => { release = () => resolve([claimed()]); }));
     const first = pollNotificationOutbox();
-    await Promise.resolve();
+    await vi.waitFor(() => expect(mocks.claim).toHaveBeenCalledTimes(1));
     await pollNotificationOutbox();
     expect(mocks.claim).toHaveBeenCalledTimes(1);
     release();

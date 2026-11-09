@@ -3,7 +3,7 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import * as OTPAuth from "otpauth";
 import { createHmac, randomInt, randomUUID } from "node:crypto";
-import rateLimit from "express-rate-limit";
+import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { and, eq, sql } from "drizzle-orm";
 import { db, usersTable, otpSessionsTable } from "@workspace/db";
 import { LoginBody, RegisterBody } from "@workspace/api-zod";
@@ -172,18 +172,39 @@ function loginAttemptAccountKey(body: unknown): string | null {
   if (typeof email !== "string" || !email.trim()) return null;
   return "login-account:" + createHmac("sha256", LOGIN_ATTEMPT_KEY).update(email.trim().toLowerCase()).digest("hex");
 }
+// Only a wrong password (401) counts as a failure. Previously every non-2xx
+// counted, so a short database outage (500s) or the limiter's own 429s locked
+// people out for 15 minutes even with the right password.
+const onlyWrongPasswordFails = (_req: unknown, res: { statusCode: number }) => res.statusCode !== 401;
 const loginIpFailureLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 30,
   skipSuccessfulRequests: true,
+  requestWasSuccessful: onlyWrongPasswordFails,
   standardHeaders: true,
   legacyHeaders: false,
   message: LOGIN_LIMIT_MESSAGE,
 });
-const loginAccountFailureLimiter = rateLimit({
+// Per account *and* IP: guessing one account from one network is capped at 10,
+// but a stranger can no longer lock a parent or attendant out from elsewhere.
+const loginAccountIpFailureLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 10,
   skipSuccessfulRequests: true,
+  requestWasSuccessful: onlyWrongPasswordFails,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: LOGIN_LIMIT_MESSAGE,
+  skip: req => loginAttemptAccountKey(req.body) === null,
+  keyGenerator: req => `${loginAttemptAccountKey(req.body)!}:${ipKeyGenerator(req.ip ?? "")}`,
+});
+// Distributed guessing against one account is still capped, at a level an
+// attacker must work much harder to reach.
+const loginAccountFailureLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 50,
+  skipSuccessfulRequests: true,
+  requestWasSuccessful: onlyWrongPasswordFails,
   standardHeaders: true,
   legacyHeaders: false,
   message: LOGIN_LIMIT_MESSAGE,
@@ -191,7 +212,26 @@ const loginAccountFailureLimiter = rateLimit({
   keyGenerator: req => loginAttemptAccountKey(req.body)!,
 });
 
-router.post("/auth/login", loginIpFailureLimiter, loginAccountFailureLimiter, async (req, res): Promise<void> => {
+// Password-reset codes go out by SMS/email; cap requests per network and per
+// account so the endpoint cannot be used to flood someone or run up SMS costs.
+const forgotPasswordIpLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many requests", message: "Too many reset requests. Please wait 15 minutes and try again." },
+});
+const forgotPasswordAccountLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 3,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many requests", message: "Too many reset requests. Please wait an hour and try again." },
+  skip: req => loginAttemptAccountKey(req.body) === null,
+  keyGenerator: req => "forgot:" + loginAttemptAccountKey(req.body)!,
+});
+
+router.post("/auth/login", loginIpFailureLimiter, loginAccountIpFailureLimiter, loginAccountFailureLimiter, async (req, res): Promise<void> => {
   const parsed = LoginBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "Bad request", message: parsed.error.message });
@@ -275,7 +315,11 @@ router.post("/auth/register", async (req, res): Promise<void> => {
   }
   const parsed = RegisterBody.safeParse(req.body);
   if (!parsed.success) {
-    res.status(400).json({ error: "Bad request", message: parsed.error.message });
+    const passwordIssue = parsed.error.issues.find(issue => issue.path[0] === "password");
+    res.status(400).json({
+      error: "Bad request",
+      message: passwordIssue ? "Password must be 8 to 128 characters" : parsed.error.message,
+    });
     return;
   }
   const { email, password, firstName, lastName, phone, role, otpPinId } = parsed.data;
@@ -436,8 +480,8 @@ router.post("/auth/change-password", authMiddleware, async (req, res): Promise<v
     res.status(400).json({ error: "Bad request", message: "currentPassword and newPassword are required" });
     return;
   }
-  if (newPassword.length < 6) {
-    res.status(400).json({ error: "Bad request", message: "New password must be at least 6 characters" });
+  if (newPassword.length < 8 || newPassword.length > 128) {
+    res.status(400).json({ error: "Bad request", message: "New password must be 8 to 128 characters" });
     return;
   }
   const [user] = await db.select().from(usersTable).where(eq(usersTable.id, req.user!.userId));
@@ -468,7 +512,7 @@ router.post("/auth/change-password", authMiddleware, async (req, res): Promise<v
   res.json({ success: true, message: "Password changed successfully", token });
 });
 
-router.post("/auth/forgot-password", async (req, res): Promise<void> => {
+router.post("/auth/forgot-password", forgotPasswordIpLimiter, forgotPasswordAccountLimiter, async (req, res): Promise<void> => {
   const { email } = req.body as { email?: string };
   if (!email || typeof email !== "string") {
     res.status(400).json({ error: "Bad request", message: "Email is required" });
@@ -501,8 +545,8 @@ router.post("/auth/reset-password", resetPasswordLimiter, async (req, res): Prom
     res.status(400).json({ error: "Bad request", message: "email, code, and newPassword are required" });
     return;
   }
-  if (newPassword.length < 6) {
-    res.status(400).json({ error: "Bad request", message: "Password must be at least 6 characters" });
+  if (newPassword.length < 8 || newPassword.length > 128) {
+    res.status(400).json({ error: "Bad request", message: "Password must be 8 to 128 characters" });
     return;
   }
   const [user] = await db.select().from(usersTable).where(eq(usersTable.email, email.trim().toLowerCase()));

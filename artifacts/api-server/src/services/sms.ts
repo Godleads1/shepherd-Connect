@@ -540,6 +540,12 @@ export async function smsAccountRejected(phone: string | null | undefined, first
   await send(phone, `Hi ${firstName}, your Shepherd Connect account application was not approved. Contact the church admin for more info. — RCCG City of David`, "dnd", logger);
 }
 
+/** Fallback delivery for the WhatsApp chat-linking code when Baileys cannot send. */
+export async function smsWhatsAppLinkCode(phone: string | null | undefined, code: string, logger?: Logger): Promise<boolean> {
+  if (!phone) return false;
+  return send(phone, `Your Shepherd Connect WhatsApp verification code is ${code}. If you did not request this, ignore it and do not share it.`, "dnd", logger);
+}
+
 export async function smsPasswordResetCode(phone: string | null | undefined, code: string, logger?: Logger) {
   if (!phone) return;
   await send(phone, `Your Shepherd Connect Verification Pin is ${code} for Shepherd Connect app. It expires in 15 minutes.`, "dnd", logger);

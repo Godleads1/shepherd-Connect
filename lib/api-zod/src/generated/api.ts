@@ -334,13 +334,18 @@ export const LoginResponse = zod.object({
 /**
  * @summary Register new user
  */
+export const registerBodyPasswordMin = 8;
+export const registerBodyPasswordMax = 128;
 
 export const RegisterBody = zod.object({
   firstName: zod.string(),
   lastName: zod.string(),
   email: zod.string().email(),
   phone: zod.string().optional(),
-  password: zod.string(),
+  password: zod
+    .string()
+    .min(registerBodyPasswordMin)
+    .max(registerBodyPasswordMax),
   role: zod.enum(["super_admin", "admin", "teacher", "support", "parent"]),
   otpPinId: zod.string().min(1),
 });
@@ -376,11 +381,15 @@ export const LogoutResponse = zod.object({
 /**
  * @summary Change the current user's password and replace the current session
  */
-export const changePasswordBodyNewPasswordMin = 6;
+export const changePasswordBodyNewPasswordMin = 8;
+export const changePasswordBodyNewPasswordMax = 128;
 
 export const ChangePasswordBody = zod.object({
   currentPassword: zod.string(),
-  newPassword: zod.string().min(changePasswordBodyNewPasswordMin),
+  newPassword: zod
+    .string()
+    .min(changePasswordBodyNewPasswordMin)
+    .max(changePasswordBodyNewPasswordMax),
 });
 
 export const ChangePasswordResponse = zod.object({
@@ -396,12 +405,16 @@ export const ChangePasswordResponse = zod.object({
 /**
  * @summary Reset a password using a delivered reset code
  */
-export const resetPasswordBodyNewPasswordMin = 6;
+export const resetPasswordBodyNewPasswordMin = 8;
+export const resetPasswordBodyNewPasswordMax = 128;
 
 export const ResetPasswordBody = zod.object({
   email: zod.string().email(),
   code: zod.string(),
-  newPassword: zod.string().min(resetPasswordBodyNewPasswordMin),
+  newPassword: zod
+    .string()
+    .min(resetPasswordBodyNewPasswordMin)
+    .max(resetPasswordBodyNewPasswordMax),
 });
 
 export const ResetPasswordResponse = zod.object({
@@ -532,12 +545,18 @@ export const ListUsersResponse = zod.object({
 /**
  * @summary Create user
  */
+export const createUserBodyPasswordMin = 8;
+export const createUserBodyPasswordMax = 128;
+
 export const CreateUserBody = zod.object({
   firstName: zod.string(),
   lastName: zod.string(),
   email: zod.string().email(),
   phone: zod.string().optional(),
-  password: zod.string(),
+  password: zod
+    .string()
+    .min(createUserBodyPasswordMin)
+    .max(createUserBodyPasswordMax),
   role: zod.string(),
 });
 
@@ -662,10 +681,14 @@ export const AdminResetUserPasswordParams = zod.object({
   id: zod.coerce.number(),
 });
 
-export const adminResetUserPasswordBodyPasswordMin = 6;
+export const adminResetUserPasswordBodyPasswordMin = 8;
+export const adminResetUserPasswordBodyPasswordMax = 128;
 
 export const AdminResetUserPasswordBody = zod.object({
-  password: zod.string().min(adminResetUserPasswordBodyPasswordMin),
+  password: zod
+    .string()
+    .min(adminResetUserPasswordBodyPasswordMin)
+    .max(adminResetUserPasswordBodyPasswordMax),
 });
 
 export const AdminResetUserPasswordResponse = zod.object({

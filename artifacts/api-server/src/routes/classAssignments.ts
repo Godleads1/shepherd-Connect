@@ -1,8 +1,12 @@
 import { Router } from "express";
-import { eq, and } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
 import { db, classAssignmentsTable, childrenTable, classesTable } from "@workspace/db";
 import { CreateClassAssignmentBody, UpdateClassAssignmentBody, ListClassAssignmentsQueryParams } from "@workspace/api-zod";
 import { authMiddleware, requireRoles } from "../middlewares/auth";
+import { sendRouteError } from "../lib/httpErrors";
+import { toSafeChildResponse } from "../lib/childResponse";
+import { getParentChildIds } from "../lib/parentScope";
+import { getTeacherClassIds, isFamilyChildOperationalRole, teacherCanReadChild } from "../lib/routeAuthorization";
 
 const router = Router();
 
@@ -11,7 +15,27 @@ router.get("/class-assignments", authMiddleware, async (req, res): Promise<void>
     const params = ListClassAssignmentsQueryParams.safeParse(req.query);
     if (!params.success) { res.status(400).json({ error: "Bad request", message: params.error.message }); return; }
     const { classId, childId, status } = params.data;
+    const { userId, role } = req.user!;
     const conditions = [];
+    // Assignments embed child records, so they follow the same read scope as
+    // children: operational staff see all, parents only their own children,
+    // teachers only children in their classes.
+    if (!isFamilyChildOperationalRole(role)) {
+      if (role === "parent") {
+        const own = await getParentChildIds(userId);
+        if (childId !== undefined && !own.includes(childId)) { res.status(403).json({ error: "Forbidden", message: "Access denied" }); return; }
+        if (!own.length) { res.json([]); return; }
+        conditions.push(inArray(classAssignmentsTable.childId, own));
+      } else if (role === "teacher") {
+        const classIds = await getTeacherClassIds(userId);
+        if (classId !== undefined && !classIds.includes(classId)) { res.status(403).json({ error: "Forbidden", message: "Access denied" }); return; }
+        if (childId !== undefined && !(await teacherCanReadChild(userId, childId))) { res.status(403).json({ error: "Forbidden", message: "Access denied" }); return; }
+        if (!classIds.length) { res.json([]); return; }
+        conditions.push(inArray(classAssignmentsTable.classId, classIds));
+      } else {
+        res.status(403).json({ error: "Forbidden", message: "Access denied" }); return;
+      }
+    }
     if (classId) conditions.push(eq(classAssignmentsTable.classId, classId));
     if (childId) conditions.push(eq(classAssignmentsTable.childId, childId));
     if (status) conditions.push(eq(classAssignmentsTable.status, status as "active" | "pending" | "inactive"));
@@ -20,12 +44,12 @@ router.get("/class-assignments", authMiddleware, async (req, res): Promise<void>
     const withDetails = await Promise.all(assignments.map(async (a) => {
       const [child] = await db.select().from(childrenTable).where(eq(childrenTable.id, a.childId));
       const [cls] = await db.select().from(classesTable).where(eq(classesTable.id, a.classId));
-      return { ...a, child: child || null, class: cls || null };
+      return { ...a, child: child ? toSafeChildResponse(child) : null, class: cls || null };
     }));
     res.json(withDetails);
   } catch (err) {
     req.log.error({ err }, "Failed to list class assignments");
-    res.status(500).json({ error: "Failed to load class assignments" });
+    sendRouteError(req, res, err, "Failed to load class assignments");
   }
 });
 
@@ -48,7 +72,7 @@ router.post("/class-assignments", authMiddleware, requireRoles("super_admin", "a
     res.status(201).json(assignment);
   } catch (err) {
     req.log.error({ err }, "Failed to create class assignment");
-    res.status(500).json({ error: "Failed to create class assignment" });
+    sendRouteError(req, res, err, "Failed to create class assignment");
   }
 });
 
@@ -66,7 +90,7 @@ router.put("/class-assignments/:id", authMiddleware, requireRoles("super_admin",
     res.json(assignment);
   } catch (err) {
     req.log.error({ err }, "Failed to update class assignment");
-    res.status(500).json({ error: "Failed to update class assignment" });
+    sendRouteError(req, res, err, "Failed to update class assignment");
   }
 });
 

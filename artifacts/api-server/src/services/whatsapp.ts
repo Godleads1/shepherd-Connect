@@ -1,5 +1,4 @@
 import makeWASocket, {
-  useMultiFileAuthState,
   DisconnectReason,
   fetchLatestBaileysVersion,
   downloadMediaMessage,
@@ -10,7 +9,15 @@ import QRCode from "qrcode";
 import path from "path";
 import fs from "fs";
 import { logger } from "../lib/logger";
+import {
+  clearStoredWhatsAppSession, hasStoredWhatsAppSession, importDiskWhatsAppSession, useDatabaseAuthState,
+} from "./whatsappAuthStore";
+import {
+  claimWhatsAppLeadership, isWhatsAppLeader, startWhatsAppLeaderElection, stopWhatsAppLeaderElection,
+} from "./whatsappLeader";
 
+// Legacy file-based session location. Only read once, to import an already
+// paired session into the database; the login is no longer kept on disk.
 const AUTH_DIR =
   process.env.WHATSAPP_AUTH_DIR ??
   path.resolve(process.cwd(), "../../.whatsapp-auth");
@@ -32,20 +39,41 @@ export function getWhatsAppState() {
     qr: qrBase64,
     pairingCode: _pairingCode,
     connected: _status === "connected",
+    /** False on a second API instance: another instance owns the connection. */
+    leader: isWhatsAppLeader(),
   };
 }
 
-/** Called on server boot — only resumes if a saved session already exists. */
+export class WhatsAppNotLeaderError extends Error {
+  constructor() { super("Another server instance is handling the WhatsApp connection. Try again in a minute."); }
+}
+
+/**
+ * Called on server boot. Joins the single-owner election; whichever instance
+ * owns the lease resumes the saved session (if one exists).
+ */
 export async function initWhatsApp(): Promise<void> {
-  const hasSession =
-    fs.existsSync(AUTH_DIR) && fs.readdirSync(AUTH_DIR).length > 0;
-  if (!hasSession) return;
-  _shouldReconnect = true;
-  await _connect();
+  await importDiskWhatsAppSession(AUTH_DIR).catch(err =>
+    logger.warn({ err: String(err) }, "Could not import the old on-disk WhatsApp session"));
+  startWhatsAppLeaderElection({
+    onBecomeLeader: () => {
+      hasStoredWhatsAppSession().then(saved => {
+        if (!saved || !isWhatsAppLeader()) return;
+        _shouldReconnect = true;
+        _scheduleReconnect(0);
+      }).catch(err => logger.error({ err: String(err) }, "Could not check for a saved WhatsApp session"));
+    },
+    onLoseLeader: () => {
+      _shouldReconnect = false;
+      if (_reconnectTimer) { clearTimeout(_reconnectTimer); _reconnectTimer = null; }
+      _endSocket();
+    },
+  });
 }
 
 /** QR-code connection mode (original). */
 export async function connectWhatsApp(): Promise<void> {
+  if (!(await claimWhatsAppLeadership())) throw new WhatsAppNotLeaderError();
   if (_status !== "disconnected") return;
   _phoneNumber = null;
   _shouldReconnect = true;
@@ -56,6 +84,7 @@ export async function connectWhatsApp(): Promise<void> {
 
 /** Phone-number pairing mode — no QR scan needed. */
 export async function connectWithPhone(rawPhone: string): Promise<void> {
+  if (!(await claimWhatsAppLeadership())) throw new WhatsAppNotLeaderError();
   if (_status !== "disconnected") return;
   _phoneNumber = _normalizePhone(rawPhone);
   _shouldReconnect = true;
@@ -72,10 +101,31 @@ function _normalizePhone(phone: string): string {
   return digits;
 }
 
-async function _connect(): Promise<void> {
-  if (!fs.existsSync(AUTH_DIR)) fs.mkdirSync(AUTH_DIR, { recursive: true });
+// A reconnect that itself fails (network blip while fetching the Baileys
+// version, auth files briefly unreadable) used to be an unhandled rejection
+// that either crashed the API or left the bot silently offline until an admin
+// reconnected it. Retry with capped backoff instead.
+let _reconnectAttempt = 0;
+let _reconnectTimer: NodeJS.Timeout | null = null;
+function _scheduleReconnect(delayMs: number): void {
+  if (_reconnectTimer) return;
+  _reconnectTimer = setTimeout(() => {
+    _reconnectTimer = null;
+    _connect().then(() => { _reconnectAttempt = 0; }).catch(err => {
+      _reconnectAttempt += 1;
+      _status = "disconnected";
+      const next = Math.min(5_000 * 2 ** Math.min(_reconnectAttempt, 6), 5 * 60_000);
+      logger.error({ err: String(err), attempt: _reconnectAttempt, nextInMs: next }, "WhatsApp reconnect failed — retrying");
+      if (_shouldReconnect && isWhatsAppLeader()) _scheduleReconnect(next);
+    });
+  }, delayMs);
+  _reconnectTimer.unref();
+}
 
-  const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
+async function _connect(): Promise<void> {
+  if (!isWhatsAppLeader()) throw new WhatsAppNotLeaderError();
+
+  const { state, saveCreds } = await useDatabaseAuthState();
   const { version } = await fetchLatestBaileysVersion();
 
   _status = "connecting";
@@ -103,7 +153,7 @@ async function _connect(): Promise<void> {
 
   sock.ev.on("creds.update", () => {
     _credsSaved = true;
-    void saveCreds();
+    saveCreds().catch(err => logger.error({ err: String(err) }, "Failed to save WhatsApp login to the database"));
   });
 
   // Request pairing code once WS handshake is in progress (phone mode only).
@@ -155,7 +205,8 @@ async function _connect(): Promise<void> {
 
       if (!text.trim() && !imageBuffer) continue;
 
-      logger.info({ from: fromJid, text, isImage }, "WhatsApp inbound message");
+      // Message text is not logged: it can contain phone numbers, codes and safeguarding concerns.
+      logger.info({ from: fromJid, length: text.length, isImage }, "WhatsApp inbound message");
 
       const capturedSock = sock;
 
@@ -219,15 +270,15 @@ async function _connect(): Promise<void> {
       if (loggedOut) {
         logger.info("WhatsApp logged out — clearing session");
         _shouldReconnect = false;
-        _clearSession();
+        _clearSession().catch(err => logger.error({ err: String(err) }, "Failed to clear WhatsApp session"));
         _resetState();
       } else if (qrTimedOutNoScan) {
         logger.info("WhatsApp QR expired — waiting for manual reconnect");
         _shouldReconnect = false;
         _resetState();
-      } else if (_shouldReconnect) {
+      } else if (_shouldReconnect && isWhatsAppLeader()) {
         logger.info({ code }, "WhatsApp reconnecting in 5 s");
-        setTimeout(_connect, 5000);
+        _scheduleReconnect(5000);
       }
 
       if (!_shouldReconnect) sock = null;
@@ -296,16 +347,27 @@ export async function sendWhatsAppImageToJid(
  * Clean socket close WITHOUT clearing the session — called on server shutdown
  * so WhatsApp sees a normal disconnect rather than a TCP drop.
  */
-export async function closeWhatsAppClean(): Promise<void> {
-  _shouldReconnect = false;
+function _endSocket(): void {
   if (sock) {
     try { sock.end(undefined); } catch { /* ignore */ }
     sock = null;
   }
   _status = "disconnected";
+  qrBase64 = null;
+}
+
+export async function closeWhatsAppClean(): Promise<void> {
+  _shouldReconnect = false;
+  _endSocket();
+  // Release ownership so the next instance (e.g. a new deploy) takes over at
+  // once instead of both briefly sharing the login.
+  await stopWhatsAppLeaderElection();
 }
 
 export async function disconnectWhatsApp(): Promise<void> {
+  // Only the owning instance may clear the login; otherwise a second instance
+  // would wipe the session the owner is actively using.
+  if (!(await claimWhatsAppLeadership())) throw new WhatsAppNotLeaderError();
   _shouldReconnect = false;
   if (sock) {
     try { await sock.logout(); } catch { /* ignore */ }
@@ -313,12 +375,14 @@ export async function disconnectWhatsApp(): Promise<void> {
   }
   _status = "disconnected";
   qrBase64 = null;
-  _clearSession();
+  await _clearSession();
   _resetState();
   logger.info("WhatsApp session cleared");
 }
 
-function _clearSession() {
+async function _clearSession(): Promise<void> {
+  await clearStoredWhatsAppSession();
+  // Also remove any legacy on-disk copy so it can never be re-imported.
   if (fs.existsSync(AUTH_DIR)) {
     fs.rmSync(AUTH_DIR, { recursive: true, force: true });
   }

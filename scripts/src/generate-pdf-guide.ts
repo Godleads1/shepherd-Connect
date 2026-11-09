@@ -268,7 +268,7 @@ const toc = [
   { section: "3.10", title: "  Notifications & Broadcasts", page: 12 },
   { section: "3.11", title: "  User Management (Super Admin)", page: 12 },
   { section: "3.12", title: "  Audit Logs", page: 13 },
-  { section: "3.13", title: "  Waitlist & Substitute Requests", page: 13 },
+  { section: "3.13", title: "  Substitute Requests", page: 13 },
   { section: "4", title: "Teacher Guide", page: 14 },
   { section: "4.1", title: "  My Class & Schedule", page: 14 },
   { section: "4.2", title: "  Child Appraisals", page: 15 },
@@ -628,16 +628,8 @@ bullet("By Date Range: set a start and end date to focus on a specific period");
 warn("Audit logs are read-only. They cannot be edited, filtered out, or deleted by anyone — including Super Admins.");
 
 doc.moveDown(0.5);
-h2("3.13 Waitlist & Substitute Requests", BLUE);
+h2("3.13 Substitute Requests", BLUE);
 
-h3("Waitlist");
-body("The Waitlist tracks families waiting for a space in a full class.");
-bullet("Add to waitlist: Waitlist page → + Add to Waitlist → select child and class");
-bullet("Enrol from waitlist: Click 'Enrol' when a space opens in the class");
-bullet("Remove: Click 'Remove' if the family no longer needs a space");
-
-doc.moveDown(0.3);
-h3("Substitute Requests");
 body("Substitute Requests manage teacher cover when a scheduled teacher cannot attend.");
 bullet("Raise a request: Substitute Requests → + New Request → select class, date, slot, and reason");
 bullet("Assign a substitute: Click 'Assign' on a pending request → select an available teacher from the list");

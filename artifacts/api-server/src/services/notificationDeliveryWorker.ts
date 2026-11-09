@@ -33,6 +33,23 @@ export function isRequiredSafetyOrCustodyNotification(notificationType: string):
   ].some(prefix => notificationType.startsWith(prefix));
 }
 
+/** Alerts that must still reach the parent/staff phone when WhatsApp is down. */
+export function needsSmsWhenWhatsAppDown(notificationType: string): boolean {
+  return isRequiredSafetyOrCustodyNotification(notificationType) || [
+    "pre_dismissal",
+    "late_pickup_reminder",
+    "child_picked_up",
+    "staff_emergency_out",
+  ].includes(notificationType);
+}
+
+async function hasSiblingSmsDelivery(logicalDedupKey: string): Promise<boolean> {
+  if (!logicalDedupKey?.endsWith(":whatsapp")) return false;
+  const smsKey = `${logicalDedupKey.slice(0, -":whatsapp".length)}:sms`;
+  const result = await db.execute(sql`SELECT 1 FROM notification_outbox WHERE logical_dedup_key = ${smsKey} LIMIT 1`);
+  return result.rows.length > 0;
+}
+
 function escapeEmailHtml(value: string): string {
   return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
@@ -90,6 +107,15 @@ async function process(row: ClaimedNotification): Promise<void> {
   // confirms acceptance; it cannot establish handset delivery.
   const { getWhatsAppState, sendWhatsAppMessage } = await import("./whatsapp");
   if (!getWhatsAppState().connected) {
+    // Baileys drops often. Safety and pickup alerts can't wait hours for it to
+    // come back (or be dropped after 5 retries), so send those by SMS to the
+    // same phone — unless this notification already has its own SMS copy.
+    if (needsSmsWhenWhatsAppDown(row.notificationType) && !(await hasSiblingSmsDelivery(row.logicalDedupKey))) {
+      const result = await deliverOutboxSms(contact, `${delivery.title}\n\n${delivery.message}`, logger);
+      logger.info({ outboxId: row.id, type: row.notificationType, outcome: result.outcome }, "WhatsApp down — alert sent by SMS instead");
+      await finalizeProviderOutcome(row, result);
+      return;
+    }
     await finalizeNotification(db, { ...row, outcome: "retryable", failureClassification: "provider_unavailable", failureDetail: "WhatsApp is not connected", provider: "baileys" });
     return;
   }
@@ -138,13 +164,22 @@ export async function pollNotificationOutbox(): Promise<void> {
   if (running) return;
   running = true;
   try {
-    const claimed = await claimNotifications(db, { limit: BATCH_SIZE });
+    // Only the instance that owns the WhatsApp connection may claim WhatsApp
+    // rows; on any other instance they would just burn their 5 retries.
+    const { getWhatsAppState } = await import("./whatsapp");
+    const ownsWhatsApp = getWhatsAppState().leader !== false;
+    const claimed = await claimNotifications(db, { limit: BATCH_SIZE, excludeChannels: ownsWhatsApp ? [] : ["whatsapp"] });
     for (const row of claimed) {
       try { await process(row); } catch (error) {
         logger.error({ outboxId: row.id, error }, "notification outbox worker failed to finalize claimed row");
         await finalizeNotification(db, { ...row, outcome: "retryable", failureClassification: "worker_error", failureDetail: error }).catch(() => {});
       }
     }
+  } catch (error) {
+    // This runs from a timer every few seconds. An uncaught rejection here
+    // (e.g. the database briefly unreachable) used to crash the whole API.
+    // Claimed rows keep their lease and are retried on the next poll.
+    logger.warn({ err: error }, "notification outbox poll failed; will retry");
   } finally {
     running = false;
   }

@@ -676,7 +676,6 @@ export default function Reports() {
                         <div className="flex justify-between text-xs text-gray-400 mt-2">
                           <span>{room.inClass} in class</span>
                           <span>{room.pickedUp} picked up</span>
-                          {room.waitlist > 0 && <span className="text-amber-600 font-medium">{room.waitlist} on waitlist</span>}
                         </div>
                       </div>
                     </div>

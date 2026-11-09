@@ -6,7 +6,14 @@ import {
   connectWhatsApp,
   connectWithPhone,
   disconnectWhatsApp,
+  WhatsAppNotLeaderError,
 } from "../services/whatsapp";
+
+function sendNotLeader(res: import("express").Response, err: unknown): boolean {
+  if (!(err instanceof WhatsAppNotLeaderError)) return false;
+  res.status(409).json({ error: "Conflict", message: err.message });
+  return true;
+}
 
 const router = Router();
 
@@ -27,12 +34,16 @@ router.post(
     const body = z.object({ phone: z.string().optional() }).safeParse(req.body);
     if (!body.success) { res.status(400).json({ error: "Invalid body" }); return; }
 
-    if (body.data.phone) {
-      await connectWithPhone(body.data.phone);
-      res.json({ success: true, mode: "phone", message: "Requesting pairing code — check status" });
-    } else {
-      await connectWhatsApp();
-      res.json({ success: true, mode: "qr", message: "QR code generating — check status" });
+    try {
+      if (body.data.phone) {
+        await connectWithPhone(body.data.phone);
+        res.json({ success: true, mode: "phone", message: "Requesting pairing code — check status" });
+      } else {
+        await connectWhatsApp();
+        res.json({ success: true, mode: "qr", message: "QR code generating — check status" });
+      }
+    } catch (err) {
+      if (!sendNotLeader(res, err)) throw err;
     }
   },
 );
@@ -42,8 +53,12 @@ router.delete(
   authMiddleware,
   requireRoles("super_admin"),
   async (_req, res): Promise<void> => {
-    await disconnectWhatsApp();
-    res.json({ success: true, message: "WhatsApp session cleared" });
+    try {
+      await disconnectWhatsApp();
+      res.json({ success: true, message: "WhatsApp session cleared" });
+    } catch (err) {
+      if (!sendNotLeader(res, err)) throw err;
+    }
   },
 );
 

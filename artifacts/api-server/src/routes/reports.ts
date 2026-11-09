@@ -5,6 +5,8 @@ import { db, attendanceTable, childrenTable, classesTable, familiesTable, usersT
 import { authMiddleware, requireRoles } from "../middlewares/auth";
 import { streamPdf, renderReportPdf } from "../lib/pdf";
 import { SERVICE_TIME_ZONE, formatServiceDate, formatServiceDateTime, formatServiceTime, serviceDateAt } from "../lib/serviceTime";
+import { sendRouteError } from "../lib/httpErrors";
+import { toSafeChildResponse } from "../lib/childResponse";
 
 const router = Router();
 
@@ -123,7 +125,7 @@ router.get("/reports/not-picked-up", authMiddleware, requireRoles("super_admin",
     res.json({ date: today, serviceSlot: serviceSlot || "all", total: enriched.length, children: enriched });
   } catch (err) {
     req.log.error({ err }, "Failed to load not-picked-up report");
-    res.status(500).json({ error: "Failed to load report" });
+    sendRouteError(req, res, err, "Failed to load report");
   }
 });
 
@@ -165,7 +167,7 @@ router.get("/reports/attendance-export", authMiddleware, requireRoles("super_adm
     res.json({ total: filtered.length, from, to, serviceSlot: serviceSlot || "all", data: filtered });
   } catch (err) {
     req.log.error({ err }, "Failed to export attendance");
-    res.status(500).json({ error: "Failed to export attendance" });
+    sendRouteError(req, res, err, "Failed to export attendance");
   }
 });
 
@@ -249,7 +251,7 @@ router.get("/reports/class-list", authMiddleware, requireRoles("super_admin", "a
     res.json({ classId: classIdNum, className: cls.name, serviceSlot: cls.serviceSlot, total: enriched.length, children: enriched });
   } catch (err) {
     req.log.error({ err }, "Failed to load class list");
-    res.status(500).json({ error: "Failed to load class list" });
+    sendRouteError(req, res, err, "Failed to load class list");
   }
 });
 
@@ -268,7 +270,7 @@ router.get("/reports/family-registry", authMiddleware, requireRoles("super_admin
     res.json({ total: enriched.length, families: enriched });
   } catch (err) {
     req.log.error({ err }, "Failed to load family registry");
-    res.status(500).json({ error: "Failed to load family registry" });
+    sendRouteError(req, res, err, "Failed to load family registry");
   }
 });
 
@@ -283,7 +285,7 @@ router.get("/reports/families-export", authMiddleware, requireRoles("super_admin
     res.send(csv([headers, ...rows]));
   } catch (err) {
     req.log.error({ err }, "Failed to export families");
-    res.status(500).json({ error: "Failed to export families" });
+    sendRouteError(req, res, err, "Failed to export families");
   }
 });
 
@@ -313,7 +315,7 @@ router.get("/reports/emergency-log", authMiddleware, requireRoles("super_admin",
     res.json({ total: enriched.length, data: enriched });
   } catch (err) {
     req.log.error({ err }, "Failed to load emergency log");
-    res.status(500).json({ error: "Failed to load emergency log" });
+    sendRouteError(req, res, err, "Failed to load emergency log");
   }
 });
 
@@ -336,7 +338,7 @@ router.get("/reports/teacher-ratios", authMiddleware, requireRoles("super_admin"
     res.json({ date: today, serviceSlot: serviceSlot || "all", classes: ratios });
   } catch (err) {
     req.log.error({ err }, "Failed to load teacher ratios");
-    res.status(500).json({ error: "Failed to load teacher ratios" });
+    sendRouteError(req, res, err, "Failed to load teacher ratios");
   }
 });
 
@@ -353,7 +355,7 @@ router.get("/reports/summary", authMiddleware, requireRoles("super_admin", "admi
     res.json({ date: today, totalCheckedIn, stillPresent, pickedUp, pendingDelegateApprovals: delegates.length, pendingUserApprovals: pendingApprovals.length });
   } catch (err) {
     req.log.error({ err }, "Failed to load report summary");
-    res.status(500).json({ error: "Failed to load summary" });
+    sendRouteError(req, res, err, "Failed to load summary");
   }
 });
 
@@ -383,7 +385,7 @@ router.get("/reports/teacher-schedule", authMiddleware, requireRoles("super_admi
     res.json({ total: enriched.length, data: enriched });
   } catch (err) {
     req.log.error({ err }, "Failed to load teacher schedule");
-    res.status(500).json({ error: "Failed to load teacher schedule" });
+    sendRouteError(req, res, err, "Failed to load teacher schedule");
   }
 });
 
@@ -406,7 +408,7 @@ router.get("/reports/teacher-hours", authMiddleware, requireRoles("super_admin",
     res.json({ from: from || "all", to: to || "all", teachers: result });
   } catch (err) {
     req.log.error({ err }, "Failed to load teacher hours");
-    res.status(500).json({ error: "Failed to load teacher hours" });
+    sendRouteError(req, res, err, "Failed to load teacher hours");
   }
 });
 
@@ -432,7 +434,7 @@ router.get("/reports/feedback-summary", authMiddleware, requireRoles("super_admi
     res.json({ totalFeedback: filtered.length, averageRating: avgRating, totalAppraisals: filteredAppraisals.length, ratingDistribution: { 5: ratings.filter(r => r === 5).length, 4: ratings.filter(r => r === 4).length, 3: ratings.filter(r => r === 3).length, 2: ratings.filter(r => r === 2).length, 1: ratings.filter(r => r === 1).length } });
   } catch (err) {
     req.log.error({ err }, "Failed to load feedback summary");
-    res.status(500).json({ error: "Failed to load feedback summary" });
+    sendRouteError(req, res, err, "Failed to load feedback summary");
   }
 });
 
@@ -451,7 +453,7 @@ router.get("/reports/class-utilization", authMiddleware, requireRoles("super_adm
     res.json({ classes: result, averageUtilization: avgUtil, atCapacityCount, totalClasses: result.length });
   } catch (err) {
     req.log.error({ err }, "Failed to load class utilization");
-    res.status(500).json({ error: "Failed to load class utilization" });
+    sendRouteError(req, res, err, "Failed to load class utilization");
   }
 });
 
@@ -694,7 +696,7 @@ router.get("/reports/custom-builder", authMiddleware, requireRoles("super_admin"
     res.status(400).json({ error: "Unknown report type", validTypes: ["attendance", "arrivals", "not-picked-up", "appraisals", "teacher-schedule", "family-registry", "feedback"] });
   } catch (err) {
     req.log.error({ err }, "Failed to build custom report");
-    res.status(500).json({ error: "Failed to build report" });
+    sendRouteError(req, res, err, "Failed to build report");
   }
 });
 
@@ -713,7 +715,7 @@ router.get("/reports/birthdays", authMiddleware, requireRoles("super_admin", "ad
       if (birthday < today) birthday = new Date(today.getFullYear() + 1, dob.getMonth(), dob.getDate());
       const daysUntil = Math.floor((birthday.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
       const age = today.getFullYear() - dob.getFullYear() - (today < new Date(today.getFullYear(), dob.getMonth(), dob.getDate()) ? 1 : 0);
-      return { ...child, birthdayDate: birthday.toISOString().split("T")[0], daysUntil, turningAge: age + 1 };
+      return { ...toSafeChildResponse(child), birthdayDate: birthday.toISOString().split("T")[0], daysUntil, turningAge: age + 1 };
     }).filter(c => c.daysUntil <= daysAhead).sort((a, b) => a.daysUntil - b.daysUntil);
 
     const enriched = await Promise.all(upcoming.map(async (child) => {
@@ -728,7 +730,7 @@ router.get("/reports/birthdays", authMiddleware, requireRoles("super_admin", "ad
     res.json({ total: enriched.length, daysAhead, children: enriched });
   } catch (err) {
     req.log.error({ err }, "Failed to load birthdays");
-    res.status(500).json({ error: "Failed to load birthdays" });
+    sendRouteError(req, res, err, "Failed to load birthdays");
   }
 });
 
@@ -772,7 +774,7 @@ router.get("/reports/absence-alerts", authMiddleware, requireRoles("super_admin"
     res.json({ total: alerts.length, missedWeeks: weeks, children: alerts });
   } catch (err) {
     req.log.error({ err }, "Failed to load absence alerts");
-    res.status(500).json({ error: "Failed to load absence alerts" });
+    sendRouteError(req, res, err, "Failed to load absence alerts");
   }
 });
 
@@ -809,7 +811,7 @@ router.get("/reports/room-occupancy", authMiddleware, requireRoles("super_admin"
     res.json({ dates, slots, classes: grid });
   } catch (err) {
     req.log.error({ err }, "Failed to load room occupancy");
-    res.status(500).json({ error: "Failed to load room occupancy" });
+    sendRouteError(req, res, err, "Failed to load room occupancy");
   }
 });
 
@@ -853,7 +855,7 @@ router.get("/reports/staff-attendance", authMiddleware, requireRoles("super_admi
       return;
     }
     res.json({ total: data.length, data });
-  } catch (err) { req.log.error({ err }, "Failed to generate staff attendance report"); res.status(500).json({ error: "Failed to generate staff attendance report" }); }
+  } catch (err) { req.log.error({ err }, "Failed to generate staff attendance report"); sendRouteError(req, res, err, "Failed to generate staff attendance report"); }
 });
 
 router.get("/reports/child-custody", authMiddleware, requireRoles("super_admin", "admin"), async (req, res): Promise<void> => {
@@ -887,7 +889,7 @@ router.get("/reports/child-custody", authMiddleware, requireRoles("super_admin",
     if (query.format === "csv") { await auditReportExport(req, "child_custody", "csv", query, rows.length, "restricted"); res.type("text/csv").attachment("child-custody.csv").send(csv([["Date", "Service", "Child", "Class", "Status", "Check-in", "Check-out", "Custodian", "Checkout actor", "Checkout mode", "Override reason"], ...rows])); return; }
     if (query.format === "pdf") { await auditReportExport(req, "child_custody", "pdf", query, rows.length, "restricted"); streamPdf(res, "child-custody.pdf", doc => renderReportPdf(doc, { title: "Child Custody Report", subtitle: `${rows.length} attendance records`, columns: [{ label: "Date", width: 55 }, { label: "Service", width: 45 }, { label: "Child", width: 80 }, { label: "Class", width: 65 }, { label: "Status", width: 55 }, { label: "Custodian", width: 75 }, { label: "Checkout actor", width: 75 }, { label: "Mode", width: 55 }], rows: rows.map(row => row.slice(0, 5).concat(row.slice(7, 10))), summaryStats: [{ label: "Records", value: String(rows.length) }, { label: "Class/service totals", value: String(classServiceTotals.length) }] })); return; }
     res.json({ total: data.length, classServiceTotals, data });
-  } catch (err) { req.log.error({ err }, "Failed to generate child custody report"); res.status(500).json({ error: "Failed to generate child custody report" }); }
+  } catch (err) { req.log.error({ err }, "Failed to generate child custody report"); sendRouteError(req, res, err, "Failed to generate child custody report"); }
 });
 
 // ─── PDF Export Routes ────────────────────────────────────────────────────────
@@ -956,7 +958,7 @@ router.get("/reports/pdf/attendance", authMiddleware, requireRoles("super_admin"
     });
   } catch (err) {
     req.log.error({ err }, "Failed to generate attendance PDF");
-    if (!res.headersSent) res.status(500).json({ error: "Failed to generate PDF" });
+    sendRouteError(req, res, err, "Failed to generate PDF");
   }
 });
 
@@ -1023,7 +1025,7 @@ router.get("/reports/pdf/feedback", authMiddleware, requireRoles("super_admin", 
     });
   } catch (err) {
     req.log.error({ err }, "Failed to generate feedback PDF");
-    if (!res.headersSent) res.status(500).json({ error: "Failed to generate PDF" });
+    sendRouteError(req, res, err, "Failed to generate PDF");
   }
 });
 
@@ -1079,7 +1081,7 @@ router.get("/reports/pdf/emergency-log", authMiddleware, requireRoles("super_adm
     });
   } catch (err) {
     req.log.error({ err }, "Failed to generate emergency log PDF");
-    if (!res.headersSent) res.status(500).json({ error: "Failed to generate PDF" });
+    sendRouteError(req, res, err, "Failed to generate PDF");
   }
 });
 
@@ -1155,7 +1157,7 @@ router.get("/reports/annual-summary", authMiddleware, requireRoles("super_admin"
     });
   } catch (err) {
     req.log.error({ err }, "Failed to load annual summary");
-    res.status(500).json({ error: "Failed to load annual summary" });
+    sendRouteError(req, res, err, "Failed to load annual summary");
   }
 });
 

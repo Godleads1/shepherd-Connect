@@ -91,7 +91,6 @@ vi.mock("@workspace/db", () => {
     attendanceTable: table,
     familiesTable: table,
     classesTable: table,
-    classWaitlistTable: table,
     classChangeRequestsTable: table,
     messagesTable: table,
     teachersTable: table,
@@ -281,27 +280,27 @@ const cases: RouteCase[] = [
     name: "POST /classes", method: "post", path: "/classes", body: classBody,
     arrangeFailure: () => {
       state.txMutation.push([cls]);
-      state.txSelect.push(enrichmentError(), [{ waitCount: 0 }]);
+      state.txSelect.push(enrichmentError());
     },
     arrangeSuccess: () => {
       state.txMutation.push([cls]);
-      state.txSelect.push([{ count: 0 }], [{ waitCount: 0 }]);
+      state.txSelect.push([{ count: 0 }]);
     },
     expectedStatus: 201,
-    assertResponse: body => expect(body).toMatchObject({ id: 20, enrollmentCount: 0, waitlistCount: 0, isAtCapacity: false }),
+    assertResponse: body => expect(body).toMatchObject({ id: 20, enrollmentCount: 0, isAtCapacity: false }),
   },
   {
     name: "PUT /classes/:id", method: "put", path: "/classes/20", body: classBody,
     arrangeFailure: () => {
       state.txMutation.push([cls]);
-      state.txSelect.push(enrichmentError(), [{ waitCount: 0 }]);
+      state.txSelect.push(enrichmentError());
     },
     arrangeSuccess: () => {
       state.txMutation.push([cls]);
-      state.txSelect.push([{ count: 0 }], [{ waitCount: 0 }]);
+      state.txSelect.push([{ count: 0 }]);
     },
     expectedStatus: 200,
-    assertResponse: body => expect(body).toMatchObject({ id: 20, utilizationPercent: 0, waitlistCount: 0 }),
+    assertResponse: body => expect(body).toMatchObject({ id: 20, utilizationPercent: 0 }),
   },
   {
     name: "POST /class-change-requests", method: "post", path: "/class-change-requests",

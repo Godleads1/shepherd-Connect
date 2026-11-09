@@ -2,6 +2,7 @@ import { Router } from "express";
 import { eq, and, sql } from "drizzle-orm";
 import { db, attendanceTable, classesTable, childrenTable, parentFeedbackTable, emergenciesTable, pickupDelegatesTable, teacherAllocationsTable } from "@workspace/db";
 import { authMiddleware, requireRoles } from "../middlewares/auth";
+import { sendRouteError } from "../lib/httpErrors";
 
 const router = Router();
 
@@ -42,7 +43,7 @@ router.get("/dashboard/stats", authMiddleware, requireRoles("super_admin", "admi
     });
   } catch (err) {
     req.log.error({ err }, "Failed to load dashboard stats");
-    res.status(500).json({ error: "Failed to load dashboard stats" });
+    sendRouteError(req, res, err, "Failed to load dashboard stats");
   }
 });
 
@@ -77,7 +78,7 @@ router.get("/dashboard/live-view", authMiddleware, requireRoles("super_admin", "
     res.json(liveViews);
   } catch (err) {
     req.log.error({ err }, "Failed to load live view");
-    res.status(500).json({ error: "Failed to load live view" });
+    sendRouteError(req, res, err, "Failed to load live view");
   }
 });
 
@@ -102,7 +103,7 @@ router.get("/dashboard/attendance-trends", authMiddleware, requireRoles("super_a
     res.json(trends);
   } catch (err) {
     req.log.error({ err }, "Failed to load attendance trends");
-    res.status(500).json({ error: "Failed to load attendance trends" });
+    sendRouteError(req, res, err, "Failed to load attendance trends");
   }
 });
 
@@ -124,7 +125,7 @@ router.get("/dashboard/class-utilization", authMiddleware, requireRoles("super_a
     res.json(utilization);
   } catch (err) {
     req.log.error({ err }, "Failed to load class utilization");
-    res.status(500).json({ error: "Failed to load class utilization" });
+    sendRouteError(req, res, err, "Failed to load class utilization");
   }
 });
 
@@ -174,7 +175,7 @@ router.get("/dashboard/feedback-analytics", authMiddleware, requireRoles("super_
     });
   } catch (err) {
     req.log.error({ err }, "Failed to load feedback analytics");
-    res.status(500).json({ error: "Failed to load feedback analytics" });
+    sendRouteError(req, res, err, "Failed to load feedback analytics");
   }
 });
 
@@ -200,7 +201,7 @@ router.get("/dashboard/exceptions", authMiddleware, requireRoles("super_admin", 
     });
   } catch (err) {
     req.log.error({ err }, "Failed to load dashboard exceptions");
-    res.status(500).json({ error: "Failed to load dashboard exceptions" });
+    sendRouteError(req, res, err, "Failed to load dashboard exceptions");
   }
 });
 

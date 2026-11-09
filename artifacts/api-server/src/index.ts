@@ -1,3 +1,4 @@
+import "./lib/forceUtc";
 import app from "./app";
 import { logger } from "./lib/logger";
 import { startScheduler } from "./lib/scheduler";
@@ -22,17 +23,33 @@ if (Number.isNaN(port) || port <= 0) {
 
 // Gracefully close the WhatsApp socket on shutdown so WhatsApp sees a clean
 // disconnect (not an abrupt TCP drop which triggers session invalidation / 401).
-const _shutdown = () => {
+let shuttingDown = false;
+const _shutdown = (code = 0) => {
+  if (shuttingDown) return;
+  shuttingDown = true;
   stopNotificationDeliveryWorker();
   logger.info("Graceful shutdown — closing WhatsApp socket");
   closeWhatsAppClean()
     .catch(() => { /* ignore */ })
-    .finally(() => process.exit(0));
+    .finally(() => process.exit(code));
   // Force exit after 3 s if cleanup stalls
-  setTimeout(() => process.exit(0), 3000).unref();
+  setTimeout(() => process.exit(code), 3000).unref();
 };
-process.on("SIGTERM", _shutdown);
-process.on("SIGINT", _shutdown);
+process.on("SIGTERM", () => _shutdown(0));
+process.on("SIGINT", () => _shutdown(0));
+
+// A stray rejected promise in a background task (timer, socket event) must not
+// take every family's session down with it. Log it loudly and keep serving.
+process.on("unhandledRejection", (reason) => {
+  logger.error({ err: reason }, "Unhandled promise rejection (process kept running)");
+});
+// A synchronous uncaught exception leaves the process in an unknown state, so
+// exit — but cleanly, so WhatsApp gets a proper disconnect, and let the host
+// restart it.
+process.on("uncaughtException", (err) => {
+  logger.fatal({ err }, "Uncaught exception — shutting down");
+  _shutdown(1);
+});
 
 app.listen(port, async (err) => {
   if (err) {
@@ -45,7 +62,13 @@ app.listen(port, async (err) => {
   initWhatsApp().catch(() => { /* no session yet — admin will connect via Settings */ });
   // No outbox polling may begin until every legacy pending recipient has an
   // idempotent outbox representation (or startup fails loudly).
-  await migrateLegacyWhatsAppQueue();
-  await backfillLegacyPhoneIdentities();
+  try {
+    await migrateLegacyWhatsAppQueue();
+    await backfillLegacyPhoneIdentities();
+  } catch (startupError) {
+    logger.fatal({ err: startupError }, "Startup migration failed — exiting so the host can retry");
+    _shutdown(1);
+    return;
+  }
   startNotificationDeliveryWorker();
 });

@@ -395,21 +395,45 @@ describe("password sign-in guessing limits", () => {
     }
   });
 
-  it("blocks an account after 10 failures across rotating IPs, without a permanent lockout or leaking the email", async () => {
+  it("blocks an account from one network after 10 failures, without a permanent lockout or leaking the email", async () => {
     for (let i = 1; i <= 10; i++) {
-      const res = await login(`192.0.2.${i}`, { email: "victim@test.com", password: `wrong-${i}` });
+      const res = await login("192.0.2.10", { email: "victim@test.com", password: `wrong-${i}` });
       expect(res.status).toBe(401);
       expect(res.body.message).toBe("Invalid credentials");
     }
-    const blocked = await login("192.0.2.99", { email: "victim@test.com", password: "correct-password" });
+    const blocked = await login("192.0.2.10", { email: "victim@test.com", password: "correct-password" });
     expect(blocked.status).toBe(429);
     expect(blocked.body).toEqual({ error: "Too many attempts", message: "Too many sign-in attempts. Please wait 15 minutes before trying again." });
     expect(blocked.body.token).toBeUndefined();
     expect(blocked.headers["ratelimit-reset"]).toBeDefined();
     // Case and whitespace variants of the same address share the counter.
-    expect((await login("192.0.2.98", { email: " VICTIM@test.com ", password: "correct-password" })).status).toBe(429);
+    expect((await login("192.0.2.10", { email: " VICTIM@test.com ", password: "correct-password" })).status).toBe(429);
+    // A stranger's failures elsewhere do not lock the real user out of their own network.
+    expect((await login("192.0.2.11", { email: "victim@test.com", password: "correct-password" })).status).toBe(200);
     // Other accounts are unaffected.
-    expect((await login("192.0.2.97", { email: "someone-else@test.com", password: "correct-password" })).status).toBe(200);
+    expect((await login("192.0.2.10", { email: "someone-else@test.com", password: "correct-password" })).status).toBe(200);
+  });
+
+  it("still caps distributed guessing against one account at 50 failures across rotating IPs", async () => {
+    for (let i = 1; i <= 50; i++) {
+      expect((await login(`198.18.${Math.floor(i / 250)}.${i % 250}`, { email: "spread@test.com", password: `wrong-${i}` })).status).toBe(401);
+    }
+    expect((await login("198.18.9.9", { email: "spread@test.com", password: "correct-password" })).status).toBe(429);
+  });
+
+  it("does not count server errors or blocked attempts as wrong passwords", async () => {
+    const original = smokeUser.passwordHash;
+    try {
+      // 12 sign-ins that fail with 500 (simulating a database outage)…
+      smokeUser.passwordHash = null as any;
+      for (let i = 0; i < 12; i++) {
+        expect((await login("192.0.2.60", { email: "outage@test.com", password: "correct-password" })).status).toBeGreaterThanOrEqual(500);
+      }
+    } finally {
+      smokeUser.passwordHash = original;
+    }
+    // …must not lock the user out once the database is back.
+    expect((await login("192.0.2.60", { email: "outage@test.com", password: "correct-password" })).status).toBe(200);
   });
 
   it("blocks one IP after 30 failures spread across many accounts", async () => {

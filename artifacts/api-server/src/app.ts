@@ -5,6 +5,7 @@ import rateLimit from "express-rate-limit";
 import router from "./routes";
 import { logger } from "./lib/logger";
 import { errorMonitorMiddleware } from "./middleware/errorMonitor";
+import { defaultEmptyBody, rejectInvalidNumericPathSegments } from "./lib/httpErrors";
 
 const app: Express = express();
 
@@ -57,6 +58,7 @@ app.use(
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use(defaultEmptyBody);
 
 // Authenticated API data is mutable and user-scoped. Prevent browser/proxy
 // revalidation from restoring an obsolete response after a mutation.
@@ -64,6 +66,7 @@ app.use("/api", (_req, res, next) => {
   res.set("Cache-Control", "no-store");
   next();
 });
+app.use("/api", rejectInvalidNumericPathSegments);
 
 app.use("/api", router);
 

@@ -167,8 +167,7 @@ function toc() {
     ['3.6','Emergencies',true,'10'],
     ['3.7','Safeguarding & DBS',true,'10'],
     ['3.8','Substitute Requests',true,'11'],
-    ['3.9','Waitlist',true,'11'],
-    ['3.10','Reports & Analytics',true,'12'],
+    ['3.9','Reports & Analytics',true,'12'],
     ['4.','Teacher',false,'13'],
     ['4.1','My Class',true,'13'],
     ['4.2','Attendance & Arrivals',true,'14'],
@@ -480,10 +479,7 @@ function s3() {
   step(6,'Once the substitute confirms attendance, click "Confirm" to finalise.');
   callout('tip','A pending count badge on the page header shows how many requests need attention. Check this each week before the service date.');
 
-  sub('3.9','Waitlist');
-  para('The Waitlist manages children whose preferred class is at capacity. Admins can promote children from the waitlist into a Class Assignment, or reject their request with a parent notification. The list is sorted first-in-first-out by date added.');
-
-  sub('3.10','Reports & Analytics');
+  sub('3.9','Reports & Analytics');
   para('The Reports module has six views:');
   bullets([
     'Live Reports: Real-time view of who is in church, who has not been collected, and teacher-to-child ratios.',

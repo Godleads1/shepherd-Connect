@@ -3274,6 +3274,8 @@ components:
           type: string
         password:
           type: string
+          minLength: 8
+          maxLength: 128
         role:
           type: string
           enum: [super_admin, admin, teacher, support, parent]
@@ -3307,7 +3309,8 @@ components:
           type: string
         newPassword:
           type: string
-          minLength: 6
+          minLength: 8
+          maxLength: 128
       required: [currentPassword, newPassword]
 
     PasswordResetInput:
@@ -3321,7 +3324,8 @@ components:
           type: string
         newPassword:
           type: string
-          minLength: 6
+          minLength: 8
+          maxLength: 128
       required: [email, code, newPassword]
 
     AdminPasswordResetInput:
@@ -3330,7 +3334,8 @@ components:
       properties:
         password:
           type: string
-          minLength: 6
+          minLength: 8
+          maxLength: 128
       required: [password]
 
     SessionReplacementResponse:
@@ -3482,6 +3487,8 @@ components:
           type: string
         password:
           type: string
+          minLength: 8
+          maxLength: 128
         role:
           type: string
       required:
