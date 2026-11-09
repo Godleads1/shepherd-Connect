@@ -185,3 +185,17 @@ mtime_ms = 1792861469280
 storage_uri = "gcs://replit-rams-assets-kirk/rams/assets/repl:121eda0a-d7e2-4425-ab2e-aa06a7816154/4bb6d7ed-38fa-473e-a1db-f752aa215755/d9a28124-8970-4e74-ad40-f0566b3c7566"
 storage_version_token = "1792861485393518"
 content_type = "application/pdf"
+
+[[outputs]]
+id = "THo454yrF9KrjREsuTuGN"
+uri = "file://reports/Shepherd_Connect_User_Growth_Report_2026-11-09.docx"
+type = "word_document"
+title = "Shepherd Connect User Growth Report"
+description = "Users by category (Super Admin, Admin, Teachers, Support, Parents, Children) and monthly growth since the pilot began on 1 May 2026."
+logical_id = "33bf6c02-d943-4d51-9c0e-282798f09451"
+content_hash = "sha256:bc81b9e31b7be041d932197041c4a5bc11bcc337b07036f9ef71c73bd10921dc"
+size = 39318
+mtime_ms = 1794223993383
+storage_uri = "gcs://replit-rams-assets-kirk/rams/assets/repl:121eda0a-d7e2-4425-ab2e-aa06a7816154/33bf6c02-d943-4d51-9c0e-282798f09451/6aca587f-d33c-4adc-8e7a-ac0d1e083716"
+storage_version_token = "1794223996770864"
+content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
