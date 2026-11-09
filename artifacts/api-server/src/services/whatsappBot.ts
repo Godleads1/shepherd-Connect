@@ -44,7 +44,7 @@ import { createNotificationDelivery } from "./notificationOutbox";
 import { ObjectStorageService } from "../lib/objectStorage";
 import { createParentPickupRequest, ParentPickupRequestError } from "../routes/pickupRequests";
 import { scopeFamilyEmergencyUpdates } from "../lib/familyEmergencyUpdates";
-import { formatServiceLongDate, serviceDateAt, serviceHourAt } from "../lib/serviceTime";
+import { formatServiceLongDate, serviceDateAt, serviceHourAt, serviceMinutesAt } from "../lib/serviceTime";
 import {
   classifyIntent,
   fuzzyClassify,
@@ -52,6 +52,7 @@ import {
   startBotScheduler,
   type Intent,
 } from "./botAI";
+import { churchProfileSync, serviceStartLabel } from "../lib/churchProfile";
 
 // ── Start proactive scheduler once on module load ─────────────────────────────
 startBotScheduler();
@@ -472,7 +473,12 @@ function generateRef(prefix = "SC-REQ"): string {
 }
 function todayDate() { return serviceDateAt(); }
 function todayLagos() { return serviceDateAt(); }
-function todaySlot() { return serviceHourAt() < 9 ? "7am" : "10:30am"; }
+// The 2nd service "starts counting" 90 minutes before its start time (09:00 for
+// the default 10:30 start, the original boundary).
+function todaySlot() {
+  const [h, m] = churchProfileSync().service2Start.split(":").map(Number) as [number, number];
+  return serviceMinutesAt() < h * 60 + m - 90 ? "7am" : "10:30am";
+}
 function typeLabel(t: string) {
   return t === "checkin" ? "Check-in" : t === "checkout" ? "Check-out" : "Delegate Pickup";
 }
@@ -558,7 +564,7 @@ function attendanceStatusText(
     const name = `${c.firstName} ${c.lastName}`;
     const cls  = c.className ? ` (${c.className})` : "";
     if (!att) return `👦 *${name}*${cls}\n   ⚪ Not checked in today`;
-    const slot = att.serviceSlot === "7am" ? "7:00 AM" : "10:30 AM";
+    const slot = serviceStartLabel(att.serviceSlot);
     return `👦 *${name}*${cls}\n   ${label[att.status] ?? att.status}\n   ⏰ ${slot} service`;
   });
   return `📋 *Today's Attendance*\n\n${lines.join("\n\n")}\n\n_Updates automatically as your child moves through check-in._`;
@@ -1645,7 +1651,7 @@ async function _handleTeacherSchedule(userId: number, reply: (msg: string) => Pr
   if (!teacher) { await reply(`ℹ️ No teacher profile found. Contact admin.`); return; }
   const allocs = await getTodayAllocationsForTeacher(teacher.id);
   if (!allocs.length) { await reply(`ℹ️ No class allocation for today.`); return; }
-  const slotLabel = (s: string) => s === "7am" ? "7:00 AM" : s === "10:30am" ? "10:30 AM" : s;
+  const slotLabel = (s: string) => serviceStartLabel(s);
   const lines = allocs.map(a => `• *${a.className}* — ${slotLabel(a.serviceSlot ?? "")}`);
   await reply(
     `📅 *My Schedule Today*\n` +
@@ -1667,7 +1673,7 @@ async function _startTeacherSubRequest(
   if (!allocs.length) {
     await reply(`ℹ️ You have no class allocation for today — no substitute needed.`); return;
   }
-  const slotLabel = (s: string) => s === "7am" ? "7:00 AM" : s === "10:30am" ? "10:30 AM" : s;
+  const slotLabel = (s: string) => serviceStartLabel(s);
   const summary = allocs.length === 1
     ? `You are scheduled for *${allocs[0]!.className}* at *${slotLabel(allocs[0]!.serviceSlot ?? "")}*.`
     : `You have ${allocs.length} classes today:\n${allocs.map(a => `• ${a.className} (${slotLabel(a.serviceSlot ?? "")})`).join("\n")}`;

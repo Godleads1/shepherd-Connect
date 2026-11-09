@@ -18,6 +18,7 @@ import { watServiceDateAt } from "@/lib/wat-date";
 import { CheckoutRecoveryControls, useCheckoutOperation } from "../checkout/use-checkout-operation";
 import { useCustodyAwareCheckout } from "../checkout/use-custody-aware-checkout";
 import { checkoutErrorMessage, familyQrProof, parseFamilyQr } from "../checkout/checkout-policy";
+import { ChurchLogoImg, churchProfileSnapshot } from "@/contexts/church-profile";
 
 type Tab = "qr" | "face" | "assist";
 type SlotChoice = "7am" | "10:30am" | "both";
@@ -502,7 +503,7 @@ export default function CheckIn() {
 <div class="class">${child.currentClass?.name || "Children's Church"}</div>
 <div class="code">Family: ${familyCode || "—"}</div>
 <div class="date">${new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}</div>
-<div class="logo">RCCG City of David · Shepherd Connect</div>
+<div class="logo">${churchProfileSnapshot().churchName} · Shepherd Connect</div>
 </body></html>`);
     win.document.close();
     setTimeout(() => { win.print(); win.close(); }, 400);
@@ -522,7 +523,7 @@ export default function CheckIn() {
           style={{ backgroundImage: "radial-gradient(circle at 2px 2px, white 1px, transparent 0)", backgroundSize: "32px 32px" }} />
         <div className="relative z-10">
           <div style={{ width: 96, height: 96, margin: "0 auto 16px" }}>
-            <img src="/rccg-logo-new.png" alt="RCCG" style={{ width: "100%", height: "100%", objectFit: "contain" }} />
+            <ChurchLogoImg style={{ width: "100%", height: "100%", objectFit: "contain" }} />
           </div>
           <h1 className="text-3xl sm:text-4xl font-bold mb-1" style={{ fontFamily: "'Playfair Display', serif" }}>Shepherd Connect</h1>
           <p className="text-base text-blue-200 font-medium mb-6">Child Check-In Gateway</p>

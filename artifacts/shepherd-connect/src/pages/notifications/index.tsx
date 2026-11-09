@@ -6,6 +6,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiPost, apiGet } from "@/lib/api-call";
 import { useAuth } from "@/contexts/auth";
 import { format, formatDistanceToNow } from "date-fns";
+import { churchProfileSnapshot } from "@/contexts/church-profile";
 
 type TabKey = "all" | "unread" | "read";
 
@@ -262,7 +263,7 @@ export default function Notifications() {
 
                 {notif.type === "pre_dismissal" && (() => {
                   const meta = (() => { try { return JSON.parse(notif.metadataJson || "{}"); } catch { return {}; } })();
-                  const address = meta.pickupAddress || "RCCG City of David, Victoria Island, Lagos";
+                  const address = meta.pickupAddress || `${churchProfileSnapshot().churchName}, ${churchProfileSnapshot().address}`;
                   const mapsLink = meta.mapsLink || "https://maps.app.goo.gl/uvgtpVETsCeqkzmDA";
                   return (
                     <div className="mt-3 flex items-center justify-between gap-3 px-4 py-3 rounded-xl"

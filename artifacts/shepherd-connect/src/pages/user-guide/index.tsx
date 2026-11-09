@@ -9,6 +9,7 @@ import {
   CalendarClock, QrCode, Phone, KeyRound,
   CheckCircle2, ArrowRight, BadgeCheck, Printer,
 } from "lucide-react";
+import { ChurchText } from "@/contexts/church-profile";
 
 type RoleTab = "admin" | "teacher" | "support" | "parent";
 
@@ -731,7 +732,7 @@ export default function UserGuide() {
           <Info className="w-4 h-4 text-[#1e3a8a]" /> About Shepherd Connect
         </h2>
         <p className="text-sm text-gray-600 leading-relaxed">
-          Shepherd Connect is the children's ministry management platform for RCCG City of David. It handles the full lifecycle of every Sunday service — from family registration and child check-in, through class management and teacher scheduling, to safe checkout and post-service reporting.
+          Shepherd Connect is the children's ministry management platform for <ChurchText field="churchName" />. It handles the full lifecycle of every Sunday service — from family registration and child check-in, through class management and teacher scheduling, to safe checkout and post-service reporting.
         </p>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-1">
           {[

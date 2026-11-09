@@ -31,12 +31,15 @@
       html.dark body { background: #0f172a; }
     </style>
 
-    <!-- Redirect replit.app URL to custom domain -->
+    <!-- Redirect a replit.app URL to this church's own web address (APP_URL on the server) -->
     <script>
       (function () {
-        if (window.location.hostname.indexOf('replit.app') !== -1) {
-          window.location.replace('https://shepherdconnect.intelyticslimited.com' + window.location.pathname + window.location.search + window.location.hash);
-        }
+        if (window.location.hostname.indexOf('replit.app') === -1) return;
+        fetch('/api/church-profile').then(function (r) { return r.ok ? r.json() : null; }).then(function (p) {
+          if (p && p.appUrl && p.appUrl.indexOf('replit.app') === -1) {
+            window.location.replace(p.appUrl + window.location.pathname + window.location.search + window.location.hash);
+          }
+        }).catch(function () {});
       })();
     </script>
 

@@ -1,5 +1,6 @@
 import type { Logger } from "pino";
 import { Resend } from "resend";
+import { churchProfileSync as cp, serviceStartLabel } from "../lib/churchProfile";
 
 export type OutboxProviderOutcome = {
   outcome: "accepted" | "retryable" | "uncertain" | "skipped";
@@ -11,8 +12,9 @@ export type OutboxProviderOutcome = {
 
 const API_KEY  = process.env.TERMII_API_KEY;
 const BASE_URL = "https://v3.api.termii.com";
-const SENDER   = "N-Alert"; // Termii's pre-approved Nigerian system sender
-const APP_URL  = "https://shepherdconnect.intelyticslimited.com";
+// Termii sender ID. "N-Alert" is Termii's pre-approved shared Nigerian sender;
+// a church can register its own and set TERMII_SENDER_ID.
+const SENDER   = process.env.TERMII_SENDER_ID?.trim() || "N-Alert";
 const REGISTRATION_PROVIDER_TIMEOUT_MS = 8_000;
 
 async function boundedRegistrationProvider(operation: Promise<boolean>): Promise<boolean> {
@@ -46,7 +48,7 @@ async function sendViaResend(to: string, subject: string, html: string, logger?:
   if (!resendConfigured()) return false;
   try {
     const { error } = await getResend().emails.send({
-      from: "Shepherd Connect <noreply@shepherdconnect.intelyticslimited.com>",
+      from: cp().emailFrom,
       to,
       subject,
       html,
@@ -94,7 +96,7 @@ export async function deliverOutboxEmail(to: string | null | undefined, subject:
   if (!resendConfigured()) return { outcome: "skipped", failureClassification: "provider_not_configured" };
   try {
     const result = await getResend().emails.send({
-      from: "Shepherd Connect <noreply@shepherdconnect.intelyticslimited.com>",
+      from: cp().emailFrom,
       to, subject, html,
     });
     if (result.error) {
@@ -247,14 +249,14 @@ function emailHtml(title: string, bodyHtml: string): string {
 <tr><td align="center">
 <table width="580" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(30,58,138,0.10)">
   <tr><td style="background:linear-gradient(135deg,#1e3a8a 0%,#1a237e 100%);padding:28px 36px;text-align:center">
-    <p style="margin:0;font-size:13px;color:rgba(255,255,255,0.7);letter-spacing:2px;text-transform:uppercase">RCCG City of David</p>
+    <p style="margin:0;font-size:13px;color:rgba(255,255,255,0.7);letter-spacing:2px;text-transform:uppercase">${cp().churchName}</p>
     <h1 style="margin:6px 0 0;font-size:22px;font-weight:700;color:#f59e0b;letter-spacing:-0.5px">Shepherd Connect</h1>
   </td></tr>
   <tr><td style="padding:32px 36px">
     <h2 style="margin:0 0 16px;font-size:18px;font-weight:700;color:#0f172a">${title}</h2>
     ${bodyHtml}
     <hr style="border:none;border-top:1px solid #e2e8f0;margin:28px 0">
-    <p style="margin:0;font-size:12px;color:#94a3b8;text-align:center">Shepherd Connect &bull; RCCG City of David<br>Safe. Known. Celebrated.</p>
+    <p style="margin:0;font-size:12px;color:#94a3b8;text-align:center">Shepherd Connect &bull; ${cp().churchName}<br>${cp().tagline}</p>
   </td></tr>
 </table>
 </td></tr></table>
@@ -397,9 +399,9 @@ export async function emailWelcome(email: string | null | undefined, firstName: 
   if (!email) return;
   const html = emailHtml("Welcome to Shepherd Connect! 🎉", `
     ${p(`Hi ${strong(firstName)}, welcome to the Shepherd Connect family!`)}
-    ${p("Your account has been created and you're all set to log in. We're thrilled to have you as part of the RCCG City of David children's ministry.")}
+    ${p(`Your account has been created and you're all set to log in. We're thrilled to have you as part of the ${cp().churchName} children's ministry.`)}
     ${infoBox(`${p("Use the button below to sign in to your account:")}
-    ${btn("Sign In to Shepherd Connect", APP_URL)}`)}
+    ${btn("Sign In to Shepherd Connect", cp().appUrl)}`)}
     ${p("If you have any questions, please reach out to the church admin.")}
     ${p("God bless you! 🙏")}
   `);
@@ -422,7 +424,7 @@ export async function emailAccountApproved(email: string | null | undefined, fir
   const html = emailHtml("Your Account Has Been Approved ✅", `
     ${p(`Hi ${strong(firstName)}, great news!`)}
     ${p("Your Shepherd Connect account has been <strong style='color:#059669'>approved</strong> by our admin team. You can now log in and access the platform.")}
-    ${infoBox(`${p("Click below to sign in:")}${btn("Sign In Now", APP_URL)}`)}
+    ${infoBox(`${p("Click below to sign in:")}${btn("Sign In Now", cp().appUrl)}`)}
     ${p("We look forward to serving alongside you. God bless you! 🙏")}
   `);
   await sendEmail(email, "Shepherd Connect — Account Approved!", html, logger);
@@ -451,7 +453,7 @@ export async function emailPasswordResetCode(email: string | null | undefined, f
 }
 
 export async function emailChildCheckedIn(emails: (string | null | undefined)[], childName: string, className: string, serviceSlot: string, logger?: Logger) {
-  const slot = serviceSlot === "7am" ? "7:00 AM" : "10:30 AM";
+  const slot = serviceStartLabel(serviceSlot);
   const html = emailHtml("Child Checked In ✅", `
     ${p(`${strong(childName)} has been successfully checked in for today's ${slot} service.`)}
     ${infoBox(`
@@ -468,7 +470,7 @@ export async function emailChildCheckedIn(emails: (string | null | undefined)[],
 export async function emailChildCheckedOut(emails: (string | null | undefined)[], childName: string, logger?: Logger) {
   const html = emailHtml("Child Picked Up 🎉", `
     ${p(`${strong(childName)} has been checked out and picked up safely.`)}
-    ${p("Thank you for attending RCCG City of David today. We look forward to seeing you next Sunday!")}
+    ${p(`Thank you for attending ${cp().churchName} today. We look forward to seeing you next Sunday!`)}
     ${infoBox(p("🙏 God bless you and your family."))}
   `);
   await sendToEmails(emails, `${childName} picked up — Shepherd Connect`, html, logger);
@@ -512,7 +514,7 @@ export async function emailShepherdsReport(
     `)}
     ${milestoneNote ? infoBox(`<p style="margin:0 0 6px;font-size:13px;font-weight:700;color:#059669;text-transform:uppercase;letter-spacing:1px">🌟 Milestone</p><p style="margin:0;font-size:15px;color:#374151;line-height:1.6">${milestoneNote}</p>`) : ""}
     ${personalNoteToParent ? infoBox(`<p style="margin:0 0 6px;font-size:13px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:1px">Teacher's Note</p><p style="margin:0;font-size:15px;color:#374151;line-height:1.6;font-style:italic">"${personalNoteToParent}"</p>`) : ""}
-    ${btn("View Full Report", `${APP_URL}/appraisals`)}
+    ${btn("View Full Report", `${cp().appUrl}/appraisals`)}
     ${p("Thank you for trusting us with your child. God bless you! 🙏")}
   `);
   await sendToEmails(emails, `Shepherd's Report — ${childName} (${serviceDate})`, html, logger);
@@ -522,22 +524,22 @@ export async function emailShepherdsReport(
 
 export async function smsWelcome(phone: string | null | undefined, firstName: string, logger?: Logger) {
   if (!phone) return;
-  await send(phone, `Hi ${firstName}, welcome to Shepherd Connect! Your account is ready. Log in at ${APP_URL} — RCCG City of David`, "dnd", logger);
+  await send(phone, `Hi ${firstName}, welcome to Shepherd Connect! Your account is ready. Log in at ${cp().appUrl} — ${cp().churchName}`, "dnd", logger);
 }
 
 export async function smsPendingApproval(phone: string | null | undefined, firstName: string, logger?: Logger) {
   if (!phone) return;
-  await send(phone, `Hi ${firstName}, your Shepherd Connect account is pending admin approval. You'll be notified by SMS once approved. — RCCG City of David`, "dnd", logger);
+  await send(phone, `Hi ${firstName}, your Shepherd Connect account is pending admin approval. You'll be notified by SMS once approved. — ${cp().churchName}`, "dnd", logger);
 }
 
 export async function smsAccountApproved(phone: string | null | undefined, firstName: string, logger?: Logger) {
   if (!phone) return;
-  await send(phone, `Hi ${firstName}, your Shepherd Connect account has been approved! Log in at ${APP_URL} — RCCG City of David`, "dnd", logger);
+  await send(phone, `Hi ${firstName}, your Shepherd Connect account has been approved! Log in at ${cp().appUrl} — ${cp().churchName}`, "dnd", logger);
 }
 
 export async function smsAccountRejected(phone: string | null | undefined, firstName: string, logger?: Logger) {
   if (!phone) return;
-  await send(phone, `Hi ${firstName}, your Shepherd Connect account application was not approved. Contact the church admin for more info. — RCCG City of David`, "dnd", logger);
+  await send(phone, `Hi ${firstName}, your Shepherd Connect account application was not approved. Contact the church admin for more info. — ${cp().churchName}`, "dnd", logger);
 }
 
 /** Fallback delivery for the WhatsApp chat-linking code when Baileys cannot send. */
@@ -552,12 +554,12 @@ export async function smsPasswordResetCode(phone: string | null | undefined, cod
 }
 
 export async function smsChildCheckedIn(phones: (string | null | undefined)[], childName: string, className: string, serviceSlot: string, logger?: Logger) {
-  const slot = serviceSlot === "7am" ? "7:00 AM" : "10:30 AM";
+  const slot = serviceStartLabel(serviceSlot);
   await sendToPhones(phones, `✅ ${childName} has been checked in to ${className} for the ${slot} service. See you at pickup! — Shepherd Connect`, logger);
 }
 
 export async function smsChildCheckedOut(phones: (string | null | undefined)[], childName: string, logger?: Logger) {
-  await sendToPhones(phones, `🎉 ${childName} has been picked up and checked out. Thank you! — Shepherd Connect, RCCG City of David`, logger);
+  await sendToPhones(phones, `🎉 ${childName} has been picked up and checked out. Thank you! — Shepherd Connect, ${cp().churchName}`, logger);
 }
 
 export async function smsPreDismissal(phones: (string | null | undefined)[], childName: string, logger?: Logger) {
@@ -590,9 +592,9 @@ export async function emailRegistrationOtp(email: string | null | undefined, otp
   const html = `
     <div style="font-family:Inter,Arial,sans-serif;max-width:480px;margin:0 auto;background:#fff;border-radius:12px;border:1px solid #e2e8f0;padding:32px 28px">
       <div style="text-align:center;margin-bottom:24px">
-        <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/5/5e/RCCG_logo.png/120px-RCCG_logo.png" alt="RCCG" style="height:56px;margin-bottom:8px" />
+        <img src="${cp().emailLogoUrl}" alt="${cp().churchShortName}" style="height:56px;margin-bottom:8px" />
         <h2 style="color:#1e3a8a;margin:0;font-size:20px">Shepherd Connect</h2>
-        <p style="color:#64748b;font-size:13px;margin:4px 0 0">RCCG City of David · Children's Church</p>
+        <p style="color:#64748b;font-size:13px;margin:4px 0 0">${cp().churchName} · Children's Church</p>
       </div>
       <h3 style="color:#0f172a;font-size:17px;margin:0 0 8px">Your verification code</h3>
       <p style="color:#475569;font-size:14px;margin:0 0 20px">Use the code below to verify your email address and complete registration.</p>
@@ -607,13 +609,13 @@ export async function emailRegistrationOtp(email: string | null | undefined, otp
 
 async function emailVerificationEmail_UNUSED(email: string | null | undefined, firstName: string, token: string, logger?: Logger) {
   if (!email) return;
-  const link = `${APP_URL}/api/auth/verify-email?token=${token}`;
+  const link = `${cp().appUrl}/api/auth/verify-email?token=${token}`;
   const html = `
     <div style="font-family:Inter,Arial,sans-serif;max-width:480px;margin:0 auto;background:#fff;border-radius:12px;border:1px solid #e2e8f0;padding:32px 28px">
       <div style="text-align:center;margin-bottom:24px">
-        <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/5/5e/RCCG_logo.png/120px-RCCG_logo.png" alt="RCCG" style="height:56px;margin-bottom:8px" />
+        <img src="${cp().emailLogoUrl}" alt="${cp().churchShortName}" style="height:56px;margin-bottom:8px" />
         <h2 style="color:#1e3a8a;margin:0;font-size:20px">Shepherd Connect</h2>
-        <p style="color:#64748b;font-size:13px;margin:4px 0 0">RCCG City of David · Children's Church</p>
+        <p style="color:#64748b;font-size:13px;margin:4px 0 0">${cp().churchName} · Children's Church</p>
       </div>
       <h3 style="color:#0f172a;font-size:17px;margin:0 0 8px">Hi ${firstName}, please verify your email</h3>
       <p style="color:#475569;font-size:14px;margin:0 0 24px">Click the button below to verify your email address and activate your Shepherd Connect account.</p>
@@ -631,7 +633,7 @@ export async function smsDelegateOtp(phone: string | null | undefined, delegateN
   if (!phone) return;
   await send(
     phone,
-    `Hi ${delegateName}, you have been authorised to pick up ${childName} from Shepherd Connect. Your pickup code is: ${otpCode}. Valid for 24 hours. — RCCG City of David`,
+    `Hi ${delegateName}, you have been authorised to pick up ${childName} from Shepherd Connect. Your pickup code is: ${otpCode}. Valid for 24 hours. — ${cp().churchName}`,
     "dnd",
     logger,
   );

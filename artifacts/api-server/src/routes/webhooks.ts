@@ -3,6 +3,7 @@ import twilio from "twilio";
 import { eq, and, or } from "drizzle-orm";
 import { db, usersTable, childrenTable, attendanceTable, familiesTable } from "@workspace/db";
 import { logger } from "../lib/logger";
+import { churchProfileSync as cp } from "../lib/churchProfile";
 
 const router = Router();
 
@@ -26,7 +27,7 @@ function buildReply(message: string): string {
   return twiml.toString();
 }
 
-const MENU = `*Shepherd Connect* - RCCG City of David
+const menu = () => `*Shepherd Connect* - ${cp().churchName}
 
 Reply with:
 *CHECKIN* - Check-in status
@@ -57,7 +58,7 @@ router.post("/webhooks/whatsapp", async (req, res): Promise<void> => {
 
   try {
     if (msgBody === "HELP" || msgBody === "START" || msgBody === "HI" || msgBody === "HELLO" || msgBody === "") {
-      res.send(buildReply(MENU));
+      res.send(buildReply(menu()));
       return;
     }
 
@@ -154,7 +155,7 @@ router.post("/webhooks/whatsapp", async (req, res): Promise<void> => {
     }
 
     // Default
-    res.send(buildReply(`Hi ${userName}! I didn't understand that.\n\n${MENU}`));
+    res.send(buildReply(`Hi ${userName}! I didn't understand that.\n\n${menu()}`));
   } catch (err) {
     logger.error({ err }, "WhatsApp webhook error");
     res.send(buildReply("Sorry, something went wrong. Please try again or contact the church admin."));

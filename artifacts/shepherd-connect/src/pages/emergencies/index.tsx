@@ -34,6 +34,7 @@ import {
   writePendingEmergencyCreate,
   type PendingEmergencyCreate,
 } from "./emergency-create-operation";
+import { churchProfileSnapshot } from "@/contexts/church-profile";
 
 type EmergencyUpdate = {
   id: number; emergencyId: number; userId: number; message: string;
@@ -105,7 +106,7 @@ async function generateIncidentReport(emergency: Emergency) {
   @media print{@page{margin:1cm}}
   </style></head><body>
   <h1>Post-Incident Report #${emergency.id}</h1>
-  <p class="sub">Shepherd Connect — RCCG City of David &nbsp;·&nbsp; Generated: ${new Date().toLocaleString()}</p>
+  <p class="sub">Shepherd Connect — ${churchProfileSnapshot().churchName} &nbsp;·&nbsp; Generated: ${new Date().toLocaleString()}</p>
   <div class="grid2">
     <div class="box"><div class="box-label">Emergency Type</div><div class="box-val">${typeLabel}</div></div>
     <div class="box"><div class="box-label">Severity Level</div><div class="box-val">${emergency.level}</div></div>

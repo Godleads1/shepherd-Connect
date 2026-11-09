@@ -14,6 +14,7 @@ import {
 import { logger } from "./logger";
 import { sendNotification } from "./notify";
 import { cleanupNotificationDeliveryHistory } from "../services/notificationDeliveryWorker";
+import { churchProfileSync, deploymentProfile } from "./churchProfile";
 
 /**
  * Attempt to acquire a named scheduler lock using an atomic DB upsert.
@@ -40,21 +41,52 @@ async function acquireSchedulerLock(jobName: string, windowMinutes = 5): Promise
   }
 }
 
-// WAT = UTC+1. All cron expressions below are in UTC.
-const SUNDAY_CHECKPOINTS = [
-  { cron: "0 6 * * 0",  label: "7:00 AM",  service: "1st" as const, slot: "7am" },
-  { cron: "30 7 * * 0", label: "8:30 AM",  service: "1st" as const, slot: "7am" },
-  { cron: "30 8 * * 0", label: "9:30 AM",  service: "1st" as const, slot: "7am" },
-  { cron: "0 9 * * 0",  label: "10:00 AM", service: "2nd" as const, slot: "10:30am" },
-  { cron: "0 10 * * 0", label: "11:00 AM", service: "2nd" as const, slot: "10:30am" },
-  { cron: "0 11 * * 0", label: "12:00 PM", service: "2nd" as const, slot: "10:30am" },
-] as const;
+// Service start times come from the church profile (SERVICE_1_START /
+// SERVICE_2_START, church local time = WAT, UTC+1). Checkpoints and clock-out
+// reminders keep their original offsets from each start, so the default
+// 07:00 / 10:30 times reproduce the original schedule exactly.
+const WAT_OFFSET_MINUTES = 60;
 
-// Clock-out reminders (WAT): 9:45 after 1st service, 12:15 after 2nd service
-const CLOCK_OUT_REMINDERS = [
-  { cron: "45 8 * * 0",  service: "1st" as const, label: "1st Service" },
-  { cron: "15 11 * * 0", service: "2nd" as const, label: "2nd Service" },
-] as const;
+function minutesOf(hhmm: string): number {
+  const [h, m] = hhmm.split(":").map(Number) as [number, number];
+  return h * 60 + m;
+}
+
+/** Sunday cron (in UTC) for a church-local time given as minutes after midnight. */
+export function sundayCronAt(localMinutes: number): string {
+  const utc = localMinutes - WAT_OFFSET_MINUTES;
+  if (utc < 0 || utc >= 24 * 60) throw new Error(`Service time ${localMinutes} min is outside Sunday in UTC`);
+  return `${utc % 60} ${Math.floor(utc / 60)} * * 0`;
+}
+
+export function localClockLabel(localMinutes: number): string {
+  const h = Math.floor(localMinutes / 60), m = localMinutes % 60;
+  const hour12 = h % 12 === 0 ? 12 : h % 12;
+  return `${hour12}:${String(m).padStart(2, "0")} ${h >= 12 ? "PM" : "AM"}`;
+}
+
+export function buildSundaySchedule(service1Start: string, service2Start: string) {
+  const s1 = minutesOf(service1Start), s2 = minutesOf(service2Start);
+  const checkpoint = (at: number, service: "1st" | "2nd", slot: "7am" | "10:30am") =>
+    ({ cron: sundayCronAt(at), label: localClockLabel(at), service, slot });
+  return {
+    checkpoints: [
+      checkpoint(s1, "1st", "7am"),
+      checkpoint(s1 + 90, "1st", "7am"),
+      checkpoint(s1 + 150, "1st", "7am"),
+      checkpoint(s2 - 30, "2nd", "10:30am"),
+      checkpoint(s2 + 30, "2nd", "10:30am"),
+      checkpoint(s2 + 90, "2nd", "10:30am"),
+    ],
+    clockOutReminders: [
+      { cron: sundayCronAt(s1 + 165), service: "1st" as const, label: churchProfileSync().service1Label },
+      { cron: sundayCronAt(s2 + 105), service: "2nd" as const, label: churchProfileSync().service2Label },
+    ],
+  };
+}
+
+const { checkpoints: SUNDAY_CHECKPOINTS, clockOutReminders: CLOCK_OUT_REMINDERS } =
+  buildSundaySchedule(deploymentProfile.service1Start, deploymentProfile.service2Start);
 
 /** Get the set of userIds for staff scheduled for a given serviceSlot on today's Sunday */
 async function getScheduledUserIds(today: string, slot: "7am" | "10:30am"): Promise<Set<number>> {

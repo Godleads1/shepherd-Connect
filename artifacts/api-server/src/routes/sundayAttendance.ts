@@ -15,6 +15,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { logger } from "../lib/logger";
 import { sendNotification } from "../lib/notify";
 import { createNotificationDelivery } from "../services/notificationOutbox";
+import { churchProfileSync as cp } from "../lib/churchProfile";
 
 const router = Router();
 
@@ -68,12 +69,14 @@ function todayWAT(): string {
 }
 
 function getAppUrl(): string {
+  // APP_URL is this church's public web address (see lib/churchProfile.ts).
+  if (process.env.APP_URL?.trim()) return cp().appUrl;
   const domains = process.env.REPLIT_DOMAINS;
   if (domains) {
     const first = domains.split(",")[0]?.trim();
     if (first) return `https://${first}`;
   }
-  return "https://shepherdconnect.name.ng";
+  return cp().appUrl;
 }
 
 async function generateQrPng(token: string, date: string): Promise<string> {

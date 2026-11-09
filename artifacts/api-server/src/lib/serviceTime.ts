@@ -62,3 +62,11 @@ export function serviceHourAt(date: Date = new Date()): number {
   }).format(date);
   return Number(hour);
 }
+/** Minutes after midnight in church local time. */
+export function serviceMinutesAt(date: Date = new Date()): number {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: SERVICE_TIME_ZONE, hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+  }).formatToParts(date);
+  const value = (type: Intl.DateTimeFormatPartTypes) => Number(parts.find(p => p.type === type)?.value ?? 0);
+  return value("hour") * 60 + value("minute");
+}

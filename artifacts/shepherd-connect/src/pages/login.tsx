@@ -9,6 +9,7 @@ import { useLogin } from "@workspace/api-client-react";
 import { useLang, LANGUAGES, LangCode } from "@/contexts/language";
 import { Mail, Lock, Loader2, Globe, ChevronDown, Eye, EyeOff, ShieldCheck, ArrowLeft, KeyRound, Copy, Check, RotateCcw } from "lucide-react";
 import { apiPost } from "@/lib/api-call";
+import { ChurchLogoImg, useChurchProfile, useIsDefaultChurch } from "@/contexts/church-profile";
 
 const LOGO_NAVY  = "#1a237e";
 const LOGO_GREEN = "#1b5e20";
@@ -70,6 +71,8 @@ function LanguagePicker() {
 }
 
 export default function Login() {
+  const church = useChurchProfile();
+  const isDefaultChurch = useIsDefaultChurch();
   const [, setLocation] = useLocation();
   const { login: localLogin } = useAuth();
   const loginMutation = useLogin();
@@ -291,10 +294,10 @@ export default function Login() {
 
       <div className="logo-enter flex flex-col items-center mb-2 z-10">
         <div className="rccg-logo-wrap" style={{ width: 140, height: 140, marginBottom: 16 }}>
-          <img src="/rccg-logo-new.png" alt="RCCG Logo" style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }} />
+          <ChurchLogoImg style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }} />
         </div>
         <p className="text-[10px] font-semibold tracking-[0.2em] uppercase text-center max-w-xs" style={{ color: LOGO_GREEN }}>
-          {t.rccgFull}
+          {isDefaultChurch ? t.rccgFull : church.denominationName}
         </p>
       </div>
 
@@ -302,7 +305,7 @@ export default function Login() {
         <h1 style={{ fontFamily: "'Playfair Display', serif", color: "#0a0f1e" }} className="text-4xl font-bold leading-tight">
           Shepherd Connect
         </h1>
-        <p className="mt-1 text-sm tracking-wide font-medium" style={{ color: LOGO_NAVY }}>{t.tagline}</p>
+        <p className="mt-1 text-sm tracking-wide font-medium" style={{ color: LOGO_NAVY }}>{isDefaultChurch ? t.tagline : `${church.churchShortName} — ${church.locality}`}</p>
         <p className="mt-1 text-xs italic" style={{ color: "#64748b" }}>{t.motto}</p>
       </div>
 
@@ -586,7 +589,7 @@ export default function Login() {
         </div>
       )}
 
-      <p className="slide-up-delay-3 mt-8 text-xs z-10 text-center" style={{ color: "#94a3b8" }}>{t.footer}</p>
+      <p className="slide-up-delay-3 mt-8 text-xs z-10 text-center" style={{ color: "#94a3b8" }}>{isDefaultChurch ? t.footer : `© ${new Date().getFullYear()} ${church.ministryName}, ${church.churchShortName} · ${church.locality}`}</p>
     </div>
   );
 }

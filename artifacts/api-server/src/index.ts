@@ -6,6 +6,7 @@ import { initWhatsApp, closeWhatsAppClean } from "./services/whatsapp";
 import { startNotificationDeliveryWorker, stopNotificationDeliveryWorker } from "./services/notificationDeliveryWorker";
 import { migrateLegacyWhatsAppQueue } from "./lib/whatsapp-queue";
 import { backfillLegacyPhoneIdentities } from "./lib/phase6Rollout";
+import { getChurchProfile, invalidateChurchProfile } from "./lib/churchProfile";
 
 const rawPort = process.env["PORT"];
 
@@ -58,6 +59,9 @@ app.listen(port, async (err) => {
   }
 
   logger.info({ port }, "Server listening");
+  // Keep the church profile (name, services) warm for code that reads it synchronously.
+  void getChurchProfile();
+  setInterval(() => { invalidateChurchProfile(); void getChurchProfile(); }, 60_000).unref();
   startScheduler();
   initWhatsApp().catch(() => { /* no session yet — admin will connect via Settings */ });
   // No outbox polling may begin until every legacy pending recipient has an

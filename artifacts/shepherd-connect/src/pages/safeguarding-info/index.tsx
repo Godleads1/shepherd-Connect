@@ -6,6 +6,7 @@ import {
   ShieldCheck, CheckCircle2, AlertTriangle, ChevronDown, ChevronUp,
   Camera, MapPin, Phone, Users, ClipboardList, Heart, Lock,
 } from "lucide-react";
+import { churchProfileSnapshot } from "@/contexts/church-profile";
 
 type AckStatus = { acknowledged: boolean; acknowledgedAt: string | null; policyVersion: string };
 
@@ -25,7 +26,7 @@ Escalation: Church Safeguarding Officer → Senior Pastor → External Authoriti
     icon: ClipboardList,
     title: "Parent Code of Conduct",
     color: "#7c3aed",
-    content: `As a parent or guardian attending RCCG City of David Junior Church, we ask that you:
+    content: `As a parent or guardian attending ${churchProfileSnapshot().churchName} ${churchProfileSnapshot().ministryName}, we ask that you:
 
 • Treat all children, volunteers and staff with respect at all times
 • Ensure your child is dropped off and collected punctually at the designated area
@@ -113,7 +114,7 @@ All concerns are treated with the utmost confidentiality and will be handled by 
     icon: Users,
     title: "Volunteer & Staff Checks",
     color: "#7c3aed",
-    content: `All volunteers and staff working with children at RCCG City of David Junior Church are required to:
+    content: `All volunteers and staff working with children at ${churchProfileSnapshot().churchName} ${churchProfileSnapshot().ministryName} are required to:
 
 • Complete a Disclosure and Barring Service (DBS) check prior to commencing work
 • Attend mandatory safeguarding training (renewed every 2 years)

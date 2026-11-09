@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { PhotoUploader } from "@/components/PhotoUploader";
+import { ChurchLogoImg, ChurchText } from "@/contexts/church-profile";
 
 const LOGO_NAVY  = "#1a237e";
 const LOGO_GREEN = "#1b5e20";
@@ -407,14 +408,14 @@ export default function Register() {
       {/* Logo */}
       <div className="logo-enter flex flex-col items-center z-10">
         <div className="rccg-logo-wrap" style={{ width: 140, height: 140, marginBottom: 16 }}>
-          <img src="/rccg-logo-new.png" alt="RCCG Logo" style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }} />
+          <ChurchLogoImg style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }} />
         </div>
       </div>
 
       {/* Title */}
       <div className="slide-up-delay-1 text-center mb-6 z-10">
         <h1 style={{ fontFamily: "'Playfair Display', serif", color: "#0a0f1e" }} className="text-3xl font-bold leading-tight">Register Family</h1>
-        <p className="mt-1 text-sm font-medium" style={{ color: LOGO_NAVY }}>Shepherd Connect • City of David</p>
+        <p className="mt-1 text-sm font-medium" style={{ color: LOGO_NAVY }}>Shepherd Connect • <ChurchText field="churchShortName" /></p>
       </div>
 
       {/* Card */}
@@ -852,7 +853,7 @@ export default function Register() {
       </div>
 
       <p className="mt-8 text-xs z-10 text-center" style={{ color: "#94a3b8" }}>
-        © 2026 Junior Church, City of David · Victoria Island
+        © {new Date().getFullYear()} <ChurchText field="ministryName" />, <ChurchText field="churchShortName" /> · <ChurchText field="locality" />
       </p>
     </div>
   );

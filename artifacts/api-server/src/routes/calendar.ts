@@ -2,6 +2,7 @@ import { Router } from "express";
 import { db, classesTable } from "@workspace/db";
 import { logger } from "../lib/logger";
 import { sendRouteError } from "../lib/httpErrors";
+import { churchProfileSync as cp } from "../lib/churchProfile";
 
 const router = Router();
 
@@ -26,17 +27,18 @@ router.get("/calendar/classes.ics", async (req, res): Promise<void> => {
     const lines: string[] = [
       "BEGIN:VCALENDAR",
       "VERSION:2.0",
-      "PRODID:-//Shepherd Connect//RCCG City of David//EN",
+      `PRODID:-//Shepherd Connect//${cp().churchName}//EN`,
       "CALSCALE:GREGORIAN",
       "METHOD:PUBLISH",
       "X-WR-CALNAME:Shepherd Connect – Church Classes",
-      "X-WR-CALDESC:RCCG City of David children's ministry class schedule",
+      `X-WR-CALDESC:${cp().churchName} children's ministry class schedule`,
       "X-WR-TIMEZONE:Africa/Lagos",
     ];
 
+    const profile = cp();
     const SERVICE_SLOTS = [
-      { label: "1st Service", hour: 7, durationHours: 3 },
-      { label: "2nd Service", hour: 10, durationHours: 3 },
+      { label: profile.service1Label, hour: Number(profile.service1Start.slice(0, 2)), durationHours: 3 },
+      { label: profile.service2Label, hour: Number(profile.service2Start.slice(0, 2)), durationHours: 3 },
     ];
 
     for (const cls of classes) {
@@ -53,7 +55,7 @@ router.get("/calendar/classes.ics", async (req, res): Promise<void> => {
           `RRULE:FREQ=WEEKLY;BYDAY=SU`,
           `SUMMARY:${cls.name} – ${slot.label}`,
           `DESCRIPTION:Shepherd Connect class: ${cls.name}\\n${slot.label} (${slot.hour}:00 – ${slot.hour + slot.durationHours}:00)`,
-          `LOCATION:RCCG City of David`,
+          `LOCATION:${cp().churchName}`,
           "END:VEVENT",
         );
       }

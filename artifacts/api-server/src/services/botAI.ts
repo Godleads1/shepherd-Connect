@@ -20,6 +20,7 @@ import {
 import { eq, or, and, gte, lt, isNotNull, sql } from "drizzle-orm";
 import { logger } from "../lib/logger";
 import { sendWhatsAppToJid } from "./whatsapp";
+import { churchProfileSync as cp, deploymentProfile, serviceStartLabel } from "../lib/churchProfile";
 
 // ── Intent types ──────────────────────────────────────────────────────────────
 
@@ -52,9 +53,9 @@ export interface ClassifiedIntent {
 
 // ── Church knowledge for the AI ───────────────────────────────────────────────
 
-const CHURCH_SYSTEM_PROMPT = `
+const churchSystemPrompt = () => `
 You are the friendly WhatsApp assistant for Shepherd Connect — the children's ministry
-platform of RCCG City of David.
+platform of ${cp().churchName}.
 
 Your job: understand what parents and teachers want, and either:
   (a) classify it into one of the known intents, OR
@@ -81,9 +82,9 @@ Known intents (return as "intent" field):
   UNKNOWN              — cannot determine intent (politely say so in "answer" field)
 
 Church facts you know:
-  - Church: RCCG City of David
+  - Church: ${cp().churchName}
   - Platform: Shepherd Connect
-  - Children's services: Sundays at 7:00 AM and 10:30 AM
+  - Children's services: Sundays at ${serviceStartLabel("7am")} and ${serviceStartLabel("10:30am")}
   - Ages: Babies (0–2), Toddlers (2–4), Kindergarten (4–6), Primary (6–12)
   - Check-in is at the Children's Ministry desk with a QR code or staff name
   - Parents can add pickup delegates in the app (My Family → Delegates)
@@ -114,7 +115,7 @@ export async function classifyIntent(
       model: "gpt-5-nano",
       max_completion_tokens: 256,
       messages: [
-        { role: "system", content: CHURCH_SYSTEM_PROMPT },
+        { role: "system", content: churchSystemPrompt() },
         {
           role: "user",
           content: `User role: ${role}\n${context}\nMessage: "${message}"`,
@@ -200,7 +201,7 @@ async function sendServiceReminders(slotLabel: string): Promise<void> {
       await sendWhatsAppToJid(
         phoneToWaJid(parent.phone),
         `🌟 *${timeGreeting()}, ${parent.firstName}!*\n\n` +
-        `A reminder that the *${slotLabel} children's service* starts soon at RCCG City of David.\n\n` +
+        `A reminder that the *${slotLabel} children's service* starts soon at ${cp().churchName}.\n\n` +
         `📋 You can check your child's attendance any time by texting *1* here.\n` +
         `🔑 Pickup OTPs: text *2*\n\n` +
         `_Shepherd Connect — Safe. Known. Celebrated._`,
@@ -245,7 +246,7 @@ export async function notifyParentAttendanceChange(
 
     const emoji = action === "checked_in" ? "🟢" : "✅";
     const verb  = action === "checked_in" ? "checked in" : "checked out";
-    const slotText = slot ? ` (${slot === "7am" ? "7:00 AM" : "10:30 AM"} service)` : "";
+    const slotText = slot ? ` (${serviceStartLabel(slot)} service)` : "";
 
     for (const parent of parents) {
       if (!parent.phone) continue;
@@ -328,10 +329,13 @@ async function sendIdleNudges(): Promise<void> {
 export function startBotScheduler(): void {
   // Dynamically import node-cron to avoid build issues if not available
   import("node-cron").then(({ default: cron }) => {
-    // Sunday 6:30 AM — 7am service reminder
-    cron.schedule("30 6 * * 0", () => { void sendServiceReminders("7:00 AM"); }, { timezone: "Africa/Lagos" });
-    // Sunday 10:00 AM — 10:30am service reminder
-    cron.schedule("0 10 * * 0", () => { void sendServiceReminders("10:30 AM"); }, { timezone: "Africa/Lagos" });
+    // Sunday reminders 30 minutes before each service (church local time).
+    for (const slot of ["7am", "10:30am"] as const) {
+      const start = slot === "7am" ? deploymentProfile.service1Start : deploymentProfile.service2Start;
+      const [h, m] = start.split(":").map(Number) as [number, number];
+      const at = Math.max(0, h * 60 + m - 30);
+      cron.schedule(`${at % 60} ${Math.floor(at / 60)} * * 0`, () => { void sendServiceReminders(serviceStartLabel(slot)); }, { timezone: "Africa/Lagos" });
+    }
     // Every 10 minutes — nudge sessions idle for > 20 min
     cron.schedule("*/10 * * * *", () => { void sendIdleNudges(); });
     logger.info("Bot: proactive scheduler started (Sun reminders + 10-min idle nudges)");

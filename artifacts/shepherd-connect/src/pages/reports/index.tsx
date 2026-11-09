@@ -18,6 +18,7 @@ import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend, BarChart, Ba
 import { format } from "date-fns";
 import TeacherAttendanceReport from "./teacher-attendance";
 import { Link } from "wouter";
+import { ChurchText, churchProfileSnapshot } from "@/contexts/church-profile";
 
 const BASE = "/api";
 function token() { return localStorage.getItem("token"); }
@@ -62,7 +63,7 @@ function printReport(title: string, contentId: string) {
     </style></head>
     <body>
       <h1>${title}</h1>
-      <p class="sub">Generated: ${new Date().toLocaleString()} · Shepherd Connect — RCCG City of David</p>
+      <p class="sub">Generated: ${new Date().toLocaleString()} · Shepherd Connect — ${churchProfileSnapshot().churchName}</p>
       ${el.innerHTML}
     </body></html>`);
   win.document.close();
@@ -162,7 +163,7 @@ function exportBuilderPdf(title: string, columns: string[], rows: string[][], me
 <body>
   <div class="header">
     <div class="header-org">THE REDEEMED CHRISTIAN CHURCH OF GOD</div>
-    <div class="header-title">Shepherd Connect — City of David, Victoria Island</div>
+    <div class="header-title">Shepherd Connect — ${churchProfileSnapshot().churchShortName}, ${churchProfileSnapshot().locality}</div>
     <div class="header-tagline">Safe. Known. Celebrated.</div>
   </div>
 
@@ -483,7 +484,7 @@ export default function Reports() {
         <h1 className="text-3xl font-bold text-gray-900" style={{ fontFamily: "'Playfair Display', serif" }}>
           Reports & Export
         </h1>
-        <p className="text-gray-500 text-sm mt-1">Live reports, data exports, analytics, and custom report builder for RCCG City of David</p>
+        <p className="text-gray-500 text-sm mt-1">Live reports, data exports, analytics, and custom report builder for <ChurchText field="churchName" /></p>
       </div>
 
       <div className="flex gap-1 p-1 bg-gray-100 rounded-xl w-fit flex-wrap">

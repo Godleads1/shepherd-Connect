@@ -6,6 +6,7 @@ import router from "./routes";
 import { logger } from "./lib/logger";
 import { errorMonitorMiddleware } from "./middleware/errorMonitor";
 import { defaultEmptyBody, rejectInvalidNumericPathSegments } from "./lib/httpErrors";
+import { deploymentProfile } from "./lib/churchProfile";
 
 const app: Express = express();
 
@@ -15,11 +16,11 @@ const app: Express = express();
 // request that has X-Forwarded-For set, resulting in a 500 response.
 app.set("trust proxy", 1);
 
-// Redirect replit.app URL to custom domain
+// Redirect replit.app URL to this church's custom domain (APP_URL)
 app.use((req, res, next) => {
   const host = req.headers.host ?? "";
-  if (host.includes("replit.app")) {
-    return res.redirect(301, `https://shepherdconnect.intelyticslimited.com${req.originalUrl}`);
+  if (host.includes("replit.app") && !deploymentProfile.appUrl.includes("replit.app")) {
+    return res.redirect(301, `${deploymentProfile.appUrl}${req.originalUrl}`);
   }
   next();
 });

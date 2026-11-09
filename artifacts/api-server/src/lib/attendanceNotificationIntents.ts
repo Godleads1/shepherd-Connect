@@ -1,6 +1,7 @@
 import { and, eq, inArray } from "drizzle-orm";
 import { attendanceTable, childrenTable, classesTable, familiesTable, teacherAllocationsTable, teachersTable } from "@workspace/db";
 import { createNotificationDelivery } from "../services/notificationOutbox";
+import { serviceName as churchServiceName } from "./churchProfile";
 
 export type AttendanceNotificationTransition = "checked_in" | "checked_in_reset" | "in_transit" | "arrived" | "picked_up";
 
@@ -15,11 +16,9 @@ export async function createAttendanceNotificationIntents(
   const [family] = await tx.select().from(familiesTable).where(eq(familiesTable.id, child.familyId));
   const [cls] = await tx.select().from(classesTable).where(eq(classesTable.id, record.classId));
   const className = cls?.name ?? "class";
-  const serviceName = record.serviceSlot === "7am"
-    ? "First Service"
-    : record.serviceSlot === "10:30am"
-      ? "Second Service"
-      : `${record.serviceSlot} service`;
+  const serviceName = record.serviceSlot === "7am" || record.serviceSlot === "10:30am"
+    ? churchServiceName(record.serviceSlot)
+    : `${record.serviceSlot} service`;
   const parents = [...new Set([family?.parent1Id, family?.parent2Id].filter((id): id is number => !!id))];
   let teachers: number[] = [];
   if (transition !== "arrived") {

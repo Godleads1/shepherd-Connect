@@ -113,7 +113,7 @@ function AttendanceHistory({ children }: { children: any[] }) {
                       <p className="text-sm font-semibold text-gray-900">
                         {formatServiceDate(r.serviceDate)}
                       </p>
-                      <p className="text-xs text-gray-400 capitalize">{r.serviceSlot === "7am" ? "7:00 AM" : "10:30 AM"} service</p>
+                      <p className="text-xs text-gray-400 capitalize">{serviceStartLabel(r.serviceSlot, churchProfileSnapshot())} service</p>
                     </div>
                     <span className="px-3 py-1 rounded-full text-xs font-bold" style={{ background: st.color + "20", color: st.color }}>
                       {st.label}
@@ -177,7 +177,7 @@ function FamilyQRModal({ family, open, onClose }: { family: any; open: boolean; 
                 level="H"
                 includeMargin
                 imageSettings={{
-                  src: "/rccg-logo-new.png",
+                  src: churchProfileSnapshot().logoUrl,
                   x: undefined,
                   y: undefined,
                   height: 40,
@@ -456,6 +456,7 @@ function NoFamilySetup({ userId, onCreated }: { userId?: number; onCreated: () =
 }
 
 import { getListMyCustodyRequestsQueryKey } from "@workspace/api-client-react";
+import { churchProfileSnapshot, serviceStartLabel } from "@/contexts/church-profile";
 
 function CustodyCard({ children }: { children: any[] }) {
   const { toast } = useToast();
