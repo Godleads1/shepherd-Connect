@@ -1,0 +1,19 @@
+# Keep the build context small and free of secrets.
+**/node_modules
+**/dist
+**/.env
+**/.env.*
+!**/.env.example
+.git
+.agents
+.local
+.cache
+attached_assets
+reports
+screenshots
+ebook
+deploy/churches
+deploy/backups
+deploy/data
+*.patch
+*.log

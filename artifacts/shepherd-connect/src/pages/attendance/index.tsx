@@ -14,6 +14,7 @@ import { CheckoutRecoveryControls, useCheckoutOperation } from "../checkout/use-
 import { formatServiceDate, formatWatTime, SERVICE_TIME_ZONE, watServiceDateAt } from "@/lib/wat-date";
 import { useCustodyAwareCheckout } from "../checkout/use-custody-aware-checkout";
 import { checkoutErrorMessage } from "../checkout/checkout-policy";
+import { churchProfileSnapshot, serviceStartLabel } from "@/contexts/church-profile";
 
 const STATUS_OPTS = [
   { value: "all", label: "All Statuses" },
@@ -23,11 +24,15 @@ const STATUS_OPTS = [
   { value: "picked_up",   label: "Picked Up"   },
 ];
 
-const SLOT_OPTS = [
-  { value: "all", label: "All Services"     },
-  { value: "7am", label: "7:00 AM Service"  },
-  { value: "10am",label: "10:30 AM Service" },
-];
+// "10:30am" was previously sent as "10am", which matched no records.
+const slotOpts = () => {
+  const church = churchProfileSnapshot();
+  return [
+    { value: "all", label: "All Services" },
+    { value: "7am", label: `${serviceStartLabel("7am", church)} Service` },
+    { value: "10:30am", label: `${serviceStartLabel("10:30am", church)} Service` },
+  ];
+};
 
 const STATUS_STYLE: Record<string, string> = {
   dropped_off: "bg-amber-100 text-amber-800",
@@ -190,7 +195,7 @@ export default function Attendance() {
       r.serviceDate ?? "",
       `${r.child?.firstName ?? ""} ${r.child?.lastName ?? ""}`.trim(),
       r.class?.name ?? "",
-      r.serviceSlot === "7am" ? "7:00 AM" : "10:30 AM",
+      serviceStartLabel(r.serviceSlot, churchProfileSnapshot()),
        r.checkInTime  ? formatWatTime(r.checkInTime) : "",
        r.checkOutTime ? formatWatTime(r.checkOutTime) : "",
       (r.status ?? "").replace(/_/g, " "),
@@ -317,7 +322,7 @@ export default function Attendance() {
             <label className="text-xs font-medium text-gray-500 block mb-1">Service</label>
             <Select value={serviceSlot} onValueChange={setServiceSlot}>
               <SelectTrigger className="text-sm h-9"><SelectValue /></SelectTrigger>
-              <SelectContent>{SLOT_OPTS.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}</SelectContent>
+              <SelectContent>{slotOpts().map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}</SelectContent>
             </Select>
           </div>
           <div>
@@ -388,7 +393,7 @@ export default function Attendance() {
                     </TableCell>
                     <TableCell className="text-sm text-gray-600">{r.class?.name ?? "—"}</TableCell>
                     <TableCell className="text-sm text-gray-600">
-                      {r.serviceSlot === "7am" ? "7:00 AM" : "10:30 AM"}
+                      {serviceStartLabel(r.serviceSlot, churchProfileSnapshot())}
                     </TableCell>
                     <TableCell className="text-sm text-gray-600">
                        {r.checkInTime  ? formatWatTime(r.checkInTime) : "—"}

@@ -4,6 +4,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider, useAuth } from "@/contexts/auth";
 import { LanguageProvider } from "@/contexts/language";
+import { ChurchProfileProvider } from "@/contexts/church-profile";
 import { ProtectedRoute } from "@/components/protected-route";
 import { Layout } from "@/components/layout";
 import "@/lib/api-setup";
@@ -153,6 +154,7 @@ function App() {
       <QueryClientProvider client={queryClient}>
         <ThemeProvider defaultTheme="light" storageKey="shepherd-theme">
           <LanguageProvider>
+            <ChurchProfileProvider>
             <TooltipProvider>
               <AuthProvider>
                 <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
@@ -164,6 +166,7 @@ function App() {
                 <PWABanner />
               </AuthProvider>
             </TooltipProvider>
+            </ChurchProfileProvider>
           </LanguageProvider>
         </ThemeProvider>
       </QueryClientProvider>

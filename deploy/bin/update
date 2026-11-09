@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# Deploy the current git checkout to every church, one church at a time.
+#   cd /opt/shepherd-connect && git pull && deploy/bin/update
+# Roll back with:  deploy/bin/update --release <previous-tag>
+. "$(dirname "$0")/lib.sh"
+
+if [ "${1:-}" = "--release" ]; then
+  release="${2:?usage: update --release <tag>}"
+  skip_build=1
+else
+  release="$(git -C "$REPO_DIR" rev-parse --short HEAD)"
+  [ -z "$(git -C "$REPO_DIR" status --porcelain -- . ':!deploy/churches' ':!deploy/generated' ':!deploy/backups' ':!deploy/.env')" ] \
+    || die "the checkout has uncommitted changes; commit or stash them first"
+  skip_build=0
+fi
+
+if [ "$skip_build" = 0 ]; then
+  info "building release $release"
+  for target in api web tools; do
+    docker build --target "$target" -t "shepherd-connect-$target:$release" "$REPO_DIR"
+  done
+fi
+
+previous="${RELEASE:-latest}"
+export RELEASE="$release"
+
+info "updating database schemas (stops if a change could delete data)"
+compose up -d postgres
+wait_healthy postgres || die "postgres is not healthy"
+for slug in $(church_slugs); do
+  info "  $slug"
+  schema_push "$slug" push || die "schema update for $slug needs attention; nothing has been restarted"
+done
+
+"$DEPLOY_DIR/bin/render"
+sed -i "s/^RELEASE=.*/RELEASE=$release/" "$DEPLOY_DIR/.env"
+
+info "restarting the web server"
+compose up -d web
+for slug in $(church_slugs); do
+  info "restarting $slug"
+  compose up -d --no-deps "api-$slug"
+  if ! wait_healthy "api-$slug"; then
+    echo "error: $slug is not healthy on $release. Roll back with: deploy/bin/update --release $previous" >&2
+    exit 1
+  fi
+done
+info "release $release is live (previous: $previous)"

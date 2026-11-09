@@ -10,6 +10,7 @@ import {
   lockUserById,
 } from "../lib/roleMutations";
 import { sendRouteError } from "../lib/httpErrors";
+import { churchProfileSync as cp } from "../lib/churchProfile";
 
 const UpdateTeacherUserBody = z.object({
   firstName:      z.string().min(1).optional(),
@@ -208,7 +209,7 @@ router.post("/teachers/notify-select-class", authMiddleware, requireRoles("super
 
     // Send WhatsApp/email to each in background
     const { sendWhatsAppWithFallback } = await import("../services/sms");
-    const appUrl = process.env.REPLIT_DEV_DOMAIN ? `https://${process.env.REPLIT_DEV_DOMAIN}/shepherd-connect/my-class` : "https://shepherdconnect.intelyticslimited.com/my-class";
+    const appUrl = `${cp().appUrl}/my-class`;
     const fullMessage = `${message}\n\n👉 ${appUrl}`;
 
     Promise.all(
@@ -218,7 +219,7 @@ router.post("/teachers/notify-select-class", authMiddleware, requireRoles("super
           const { Resend } = await import("resend");
           const resend = new Resend(process.env.RESEND_API_KEY);
           resend.emails.send({
-            from: "Shepherd Connect <no-reply@shepherdconnect.intelyticslimited.com>",
+            from: cp().emailFrom,
             to: u.email,
             subject: title,
             html: `<p>Hi ${u.firstName},</p><p>${message}</p><p><a href="${appUrl}">Log in and pick your class →</a></p>`,

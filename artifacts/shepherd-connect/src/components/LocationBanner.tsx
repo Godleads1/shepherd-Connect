@@ -2,6 +2,7 @@ import { MapPin, ExternalLink } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api-call";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useChurchProfile } from "@/contexts/church-profile";
 
 interface LocationSettings {
   churchName: string;
@@ -9,13 +10,13 @@ interface LocationSettings {
   mapsUrl: string;
 }
 
-const LOCATION_FALLBACK: LocationSettings = {
-  churchName: "RCCG City of David",
-  address: "Victoria Island, Lagos",
-  mapsUrl: "https://maps.app.goo.gl/uvgtpVETsCeqkzmDA",
-};
-
 export default function LocationBanner() {
+  const church = useChurchProfile();
+  const LOCATION_FALLBACK: LocationSettings = {
+    churchName: church.churchName,
+    address: church.address,
+    mapsUrl: church.mapsUrl,
+  };
   const { data: location } = useQuery<LocationSettings>({
     queryKey: ["settings-location"],
     queryFn: () => apiGet<LocationSettings>("/settings/location"),

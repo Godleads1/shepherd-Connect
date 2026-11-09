@@ -17,6 +17,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/auth";
 import { QueryError } from "@/components/QueryError";
 import { sortAllocationsCurrentFirst } from "@/lib/allocation-sort";
+import { churchProfileSnapshot, serviceStartLabel } from "@/contexts/church-profile";
 
 type ServiceHour = {
   teacherId: number; teacherName: string;
@@ -507,8 +508,8 @@ export default function TeacherAllocations() {
               <label className="text-sm font-medium text-gray-700 block mb-2">Service</label>
               <div className="flex gap-2">
                 {([
-                  { value: "7am", label: "7:00 AM — 1st Service" },
-                  { value: "10:30am", label: "10:30 AM — 2nd Service" },
+                  { value: "7am", label: `${serviceStartLabel("7am", churchProfileSnapshot())} — ${churchProfileSnapshot().service1Label}` },
+                  { value: "10:30am", label: `${serviceStartLabel("10:30am", churchProfileSnapshot())} — ${churchProfileSnapshot().service2Label}` },
                   { value: "both", label: "Both Services" },
                 ] as const).map(opt => (
                   <button key={opt.value} type="button"
@@ -617,7 +618,7 @@ export default function TeacherAllocations() {
             <div>
               <label className="text-sm font-medium text-gray-700 block mb-1.5">Service Slots (comma-separated)</label>
               <Input value={autoSlots} onChange={e => setAutoSlots(e.target.value)} placeholder="7am,10:30am" />
-              <p className="text-xs text-gray-500 mt-1">Sunday services only: 7am (1st) and/or 10:30am (2nd)</p>
+              <p className="text-xs text-gray-500 mt-1">Sunday service codes: 7am = {churchProfileSnapshot().service1Label} ({serviceStartLabel("7am", churchProfileSnapshot())}), 10:30am = {churchProfileSnapshot().service2Label} ({serviceStartLabel("10:30am", churchProfileSnapshot())})</p>
             </div>
             <div>
               <label className="text-sm font-medium text-gray-700 block mb-1.5">Teachers per class</label>
@@ -781,8 +782,8 @@ export default function TeacherAllocations() {
               <Select value={addSlot} onValueChange={v => setAddSlot(v as "7am" | "10:30am" | "both")}>
                 <SelectTrigger className="h-10"><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="7am">7:00 AM — 1st Service</SelectItem>
-                  <SelectItem value="10:30am">10:30 AM — 2nd Service</SelectItem>
+                  <SelectItem value="7am">{serviceStartLabel("7am", churchProfileSnapshot())} — {churchProfileSnapshot().service1Label}</SelectItem>
+                  <SelectItem value="10:30am">{serviceStartLabel("10:30am", churchProfileSnapshot())} — {churchProfileSnapshot().service2Label}</SelectItem>
                   <SelectItem value="both">Both Services</SelectItem>
                 </SelectContent>
               </Select>

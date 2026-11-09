@@ -8,15 +8,16 @@ import {
   UpdateNotificationPreferencesResponse,
 } from "@workspace/api-zod";
 import { authMiddleware, requireRoles } from "../middlewares/auth";
+import { deploymentProfile } from "../lib/churchProfile";
 import { pushToUsers, pushToRole } from "../services/push";
 import { pushEventToUsers } from "../lib/sse";
 import { createNotificationDelivery } from "../services/notificationOutbox";
 import { runRateLimitedAudienceOperation } from "../lib/rateLimitedAudienceOperation";
 
 const LOCATION_DEFAULTS = {
-  churchName: "RCCG City of David",
-  address: "Victoria Island, Lagos",
-  mapsUrl: "https://maps.app.goo.gl/uvgtpVETsCeqkzmDA",
+  churchName: deploymentProfile.churchName,
+  address: deploymentProfile.address,
+  mapsUrl: deploymentProfile.mapsUrl,
 };
 
 async function getPickupLocation(): Promise<{ pickupAddress: string; mapsLink: string }> {

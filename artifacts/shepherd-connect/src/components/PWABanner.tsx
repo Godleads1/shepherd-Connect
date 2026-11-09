@@ -1,6 +1,7 @@
 import { usePWA } from "@/hooks/usePWA";
 import { WifiOff, Download, X } from "lucide-react";
 import { useState } from "react";
+import { ChurchLogoImg } from "@/contexts/church-profile";
 
 export function PWABanner() {
   const { installPrompt, isOffline, promptInstall } = usePWA();
@@ -18,7 +19,7 @@ export function PWABanner() {
   if (installPrompt && !dismissed) {
     return (
       <div className="fixed bottom-20 inset-x-3 z-[9999] flex items-center gap-3 bg-[#1e3a8a] text-white px-4 py-3 rounded-2xl shadow-2xl text-sm">
-        <img src="/rccg-logo-new.png" alt="" className="w-9 h-9 rounded-lg shrink-0" />
+        <ChurchLogoImg alt="" className="w-9 h-9 rounded-lg shrink-0" />
         <div className="flex-1 min-w-0">
           <p className="font-semibold">Add to Home Screen</p>
           <p className="text-xs opacity-75">Use Shepherd Connect like a native app</p>

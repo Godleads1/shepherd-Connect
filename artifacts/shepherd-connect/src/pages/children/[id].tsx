@@ -14,6 +14,7 @@ import { apiGet, apiDelete, apiPost } from "@/lib/api-call";
 import { QueryError } from "@/components/QueryError";
 import { useAuth } from "@/contexts/auth";
 import { useToast } from "@/hooks/use-toast";
+import { churchProfileSnapshot } from "@/contexts/church-profile";
 
 const CONSENT_LABELS: Record<string, string> = {
   photo: "Photography & Video",
@@ -312,7 +313,7 @@ export default function ChildProfile() {
             {qrLoading ? <Skeleton className="h-48 w-48" /> : qrData?.qrCode ? (
               <div className="p-3 border-2 border-gray-100 rounded-xl bg-white">
                 <QRCodeSVG value={qrData.qrCode} size={160} level="H" includeMargin
-                  imageSettings={{ src: "/rccg-logo-new.png", x: undefined, y: undefined, height: 28, width: 28, excavate: true }} />
+                  imageSettings={{ src: churchProfileSnapshot().logoUrl, x: undefined, y: undefined, height: 28, width: 28, excavate: true }} />
               </div>
             ) : null}
             <p className="mt-3 text-center text-sm font-medium text-slate-800">

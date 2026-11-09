@@ -1,0 +1,59 @@
+# Shepherd Connect — multi-church server.
+#
+# Shared services live here; each church's API container is generated into
+# docker-compose.churches.yml by bin/render from churches/<slug>/church.env.
+# Always run compose through bin/compose so both files are used.
+
+name: shepherd
+
+services:
+  web:
+    image: shepherd-connect-web:${RELEASE:-latest}
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL in deploy/.env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./generated/sites:/etc/caddy/sites:ro
+      - ./churches:/srv/churches:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks: [edge, internal]
+    logging: &logging
+      driver: json-file
+      options: { max-size: "10m", max-file: "5" }
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/.env}
+      POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256"
+      TZ: UTC
+      PGTZ: UTC
+    command: ["postgres", "-c", "timezone=UTC", "-c", "log_timezone=UTC", "-c", "max_connections=200"]
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    # Not published to the internet: only the church API containers reach it.
+    networks: [internal]
+    logging: *logging
+
+networks:
+  edge: {}
+  internal:
+    internal: true
+
+volumes:
+  postgres_data: {}
+  caddy_data: {}
+  caddy_config: {}

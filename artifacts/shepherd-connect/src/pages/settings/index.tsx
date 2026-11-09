@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useQueryClient } from "@tanstack/react-query";
+import { churchProfileSnapshot } from "@/contexts/church-profile";
 
 type WaStatus = "disconnected" | "connecting" | "pairing_code_ready" | "qr_ready" | "connected";
 
@@ -46,7 +47,7 @@ function LocationSettingsCard() {
   const queryClient = useQueryClient();
 
   const [settings, setSettings] = useState<LocationSettings>({
-    churchName: "RCCG City of David",
+    churchName: churchProfileSnapshot().churchName,
     address: "Victoria Island, Lagos",
     mapsUrl: "https://maps.app.goo.gl/uvgtpVETsCeqkzmDA",
   });
@@ -127,7 +128,7 @@ function LocationSettingsCard() {
               <Input
                 value={settings.churchName}
                 onChange={e => set("churchName", e.target.value)}
-                placeholder="e.g. RCCG City of David"
+                placeholder={`e.g. ${churchProfileSnapshot().churchName}`}
               />
             </div>
 

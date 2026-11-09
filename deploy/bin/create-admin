@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# Create a church's first Super Admin with a one-time password.
+#
+#   deploy/bin/create-admin <slug> <email> <first-name> <last-name>
+. "$(dirname "$0")/lib.sh"
+
+slug="${1:-}"; email="${2:-}"; first="${3:-}"; last="${4:-}"
+valid_slug "$slug" && [ -f "$CHURCHES_DIR/$slug/church.env" ] || die "unknown church: $slug"
+[[ "$email" =~ ^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$ ]] || die "usage: create-admin <slug> <email> <first> <last>"
+[ -n "$first" ] && [ -n "$last" ] || die "first and last name are required"
+
+password="$(openssl rand -base64 18 | tr -d '/+=' | cut -c1-16)"
+hash="$(compose exec -T "api-$slug" node -e \
+  "process.stdout.write(require('bcryptjs').hashSync(process.argv[1], 12))" "$password")"
+
+db="$(db_name "$slug")"
+# Values are passed as psql variables so names and emails are safely quoted.
+compose exec -T postgres psql -v ON_ERROR_STOP=1 -U postgres -d "$db" \
+  -v email="$email" -v first="$first" -v last="$last" -v hash="$hash" -v owner="$db" <<'SQL'
+SET ROLE :"owner";
+INSERT INTO users (email, password_hash, first_name, last_name, role, status, is_active)
+VALUES (lower(:'email'), :'hash', :'first', :'last', 'super_admin', 'active', true);
+SQL
+
+cat <<DONE
+
+Super Admin created for '$slug':
+  email:    $email
+  password: $password   (one-time — ask them to change it and turn on two-step login)
+DONE

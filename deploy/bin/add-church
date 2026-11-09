@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+# Add a church to this server.
+#
+#   deploy/bin/add-church <slug> <domain> [--empty]
+#
+#   slug    short id, e.g. grace  (lowercase letters, digits, dashes)
+#   domain  web address, e.g. grace.shepherdconnect.app
+#   --empty create the database without tables (use when importing a dump,
+#           e.g. moving an existing church off Replit)
+. "$(dirname "$0")/lib.sh"
+
+slug="${1:-}"; domain="${2:-}"; empty="${3:-}"
+valid_slug "$slug" || die "usage: add-church <slug> <domain> [--empty]   (slug: lowercase letters, digits, dashes)"
+[[ "$domain" =~ ^[a-z0-9.-]+\.[a-z]{2,}$ ]] || die "invalid domain: $domain"
+[ ! -e "$CHURCHES_DIR/$slug" ] || die "church '$slug' already exists"
+[ -f "$DEPLOY_DIR/.env" ] || die "create deploy/.env first (copy deploy/.env.example)"
+
+db="$(db_name "$slug")"
+db_password="$(openssl rand -hex 24)"
+session_secret="$(openssl rand -hex 32)"
+
+info "generating web-push keys"
+vapid="$(docker run --rm "shepherd-connect-api:$RELEASE" node -e \
+  "const k=require('web-push').generateVAPIDKeys();console.log(k.publicKey+' '+k.privateKey)")"
+vapid_public="${vapid% *}"; vapid_private="${vapid#* }"
+
+info "creating churches/$slug/church.env"
+mkdir -p "$CHURCHES_DIR/$slug/branding"
+umask 077
+sed \
+  -e "s|^CHURCH_DOMAIN=.*|CHURCH_DOMAIN=$domain|" \
+  -e "s|^APP_URL=.*|APP_URL=https://$domain|" \
+  -e "s|^CHURCH_EMAIL_LOGO_URL=.*|CHURCH_EMAIL_LOGO_URL=https://$domain/branding/logo.png|" \
+  -e "s|^SESSION_SECRET=.*|SESSION_SECRET=$session_secret|" \
+  -e "s|^DATABASE_URL=.*|DATABASE_URL=postgres://$db:$db_password@postgres:5432/$db|" \
+  -e "s|^PRIVATE_OBJECT_DIR=.*|PRIVATE_OBJECT_DIR=/$slug-shepherd/private|" \
+  -e "s|^PUBLIC_OBJECT_SEARCH_PATHS=.*|PUBLIC_OBJECT_SEARCH_PATHS=/$slug-shepherd/public|" \
+  -e "s|^VAPID_PUBLIC_KEY=.*|VAPID_PUBLIC_KEY=$vapid_public|" \
+  -e "s|^VAPID_PRIVATE_KEY=.*|VAPID_PRIVATE_KEY=$vapid_private|" \
+  -e "s|^VAPID_SUBJECT=.*|VAPID_SUBJECT=mailto:admin@$domain|" \
+  -e "s|^EMAIL_FROM=.*|EMAIL_FROM=Shepherd Connect <noreply@$domain>|" \
+  "$DEPLOY_DIR/church.env.example" > "$CHURCHES_DIR/$slug/church.env"
+umask 022
+cp "$REPO_DIR/artifacts/shepherd-connect/public/favicon.svg" "$CHURCHES_DIR/$slug/branding/" 2>/dev/null || true
+
+info "starting the database server"
+compose up -d postgres
+wait_healthy postgres || die "postgres did not become healthy"
+
+info "creating database $db (isolated: only its own user can connect)"
+compose exec -T postgres psql -v ON_ERROR_STOP=1 -U postgres <<SQL
+CREATE ROLE $db LOGIN PASSWORD '$db_password';
+CREATE DATABASE $db OWNER $db;
+REVOKE ALL ON DATABASE $db FROM PUBLIC;
+SQL
+
+if [ "$empty" != "--empty" ]; then
+  info "creating tables"
+  schema_push "$slug" push-force
+fi
+
+"$DEPLOY_DIR/bin/render"
+info "starting $slug"
+compose up -d web "api-$slug"
+compose exec -T web caddy reload --config /etc/caddy/Caddyfile >/dev/null 2>&1 || true
+
+cat <<NEXT
+
+Church '$slug' added.
+
+Next steps:
+  1. Edit deploy/churches/$slug/church.env: church name, services, S3 bucket
+     keys, Termii/Resend/OpenAI keys. Then: deploy/bin/compose up -d api-$slug
+  2. Put the church logo at deploy/churches/$slug/branding/logo.png
+  3. Point DNS for $domain (A record) at this server. HTTPS is automatic.
+  4. Create the first Super Admin:
+       deploy/bin/create-admin $slug admin@example.org First Last
+NEXT

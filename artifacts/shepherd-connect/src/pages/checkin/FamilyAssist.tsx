@@ -9,6 +9,7 @@ import {
   readPendingFamilyAssistDelegateOperation,
   writePendingFamilyAssistDelegateOperation,
 } from "./family-assist-delegate-operation";
+import { churchProfileSnapshot } from "@/contexts/church-profile";
 
 type SlotChoice = "7am" | "10:30am" | "both";
 
@@ -221,7 +222,7 @@ export default function FamilyAssist() {
   <div class="code">${result.guestCode}</div>
   <div class="label">Checkout code — keep this safe</div>
   <div class="date">${dateStr}</div>
-  <div class="logo">RCCG City of David · Shepherd Connect</div>
+  <div class="logo">${churchProfileSnapshot().churchName} · Shepherd Connect</div>
 </div>`).join("");
 
     const win = window.open("", "_blank", "width=400,height=600");

@@ -1,3 +1,4 @@
+import { churchProfileSnapshot, serviceShortLabel } from "@/contexts/church-profile";
 /**
  * Classroom TV alert bar: every alert (pickups and "child is coming" alerts,
  * raised once support accepts the child)
@@ -36,9 +37,11 @@ export function buildTickerAlerts(queue: TickerPickup[], checkIns: TickerCheckIn
     text: `📣  ${r.childName}'s parent is here for pickup`,
   }));
   const arrivals = checkIns.map(a => {
+    const church = churchProfileSnapshot();
+    const first = serviceShortLabel("7am", church), second = serviceShortLabel("10:30am", church);
     const service = a.requestedServices === "both"
-      ? "7am & 10:30am services"
-      : a.requestedServices === "first" ? "7am service" : "10:30am service";
+      ? `${first} & ${second} services`
+      : a.requestedServices === "first" ? `${first} service` : `${second} service`;
     const merged = a.homeClassName ? ` (${a.homeClassName} merged into ${a.className})` : "";
     return {
       key: `checkin:${a.id}`,

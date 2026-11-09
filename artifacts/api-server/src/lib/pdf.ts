@@ -1,6 +1,7 @@
 import PDFDocument from "pdfkit";
 import type { Response } from "express";
 import { SERVICE_TIME_ZONE, formatServiceDateTime } from "./serviceTime";
+import { churchProfileSync as cp } from "../lib/churchProfile";
 
 const BRAND_BLUE = "#1e3a8a";
 const BRAND_GOLD = "#f59e0b";
@@ -114,7 +115,7 @@ export function renderReportPdf(doc: PDFKit.PDFDocument, report: PdfReport): voi
     doc.rect(40, footerY, pageWidth, 1).fill("#e5e7eb");
     doc.fillColor(MID_GRAY).font("Helvetica").fontSize(8)
       .text(
-        `Generated ${formatServiceDateTime(new Date())} (${SERVICE_TIME_ZONE}) · Shepherd Connect — RCCG City of David · Page ${i + 1} of ${pages.count}`,
+        `Generated ${formatServiceDateTime(new Date())} (${SERVICE_TIME_ZONE}) · Shepherd Connect — ${cp().churchName} · Page ${i + 1} of ${pages.count}`,
         40, footerY + 6, { width: pageWidth, align: "center" }
       );
   }

@@ -1,0 +1,11 @@
+# Caddy obtains and renews HTTPS certificates automatically for every
+# church domain. One site file per church is generated in generated/sites/.
+{
+	email {$ACME_EMAIL}
+	servers {
+		# The API trusts exactly one proxy hop (Express "trust proxy" = 1).
+		trusted_proxies static private_ranges
+	}
+}
+
+import /etc/caddy/sites/*.caddy

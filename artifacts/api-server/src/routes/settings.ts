@@ -2,20 +2,22 @@ import { Router } from "express";
 import { db, churchSettingsTable } from "@workspace/db";
 import { authMiddleware, requireRoles } from "../middlewares/auth";
 import { eq } from "drizzle-orm";
+import { deploymentProfile, getChurchProfile, invalidateChurchProfile, publicChurchProfile } from "../lib/churchProfile";
 
 const router = Router();
 
+// Per-church defaults come from the deployment's environment (lib/churchProfile.ts).
 const LOCATION_DEFAULTS = {
-  churchName: "RCCG City of David",
-  address: "Victoria Island, Lagos",
-  mapsUrl: "https://maps.app.goo.gl/uvgtpVETsCeqkzmDA",
+  churchName: deploymentProfile.churchName,
+  address: deploymentProfile.address,
+  mapsUrl: deploymentProfile.mapsUrl,
 };
 
 const GENERAL_DEFAULTS = {
-  serviceSlot1Label: "1st Service",
-  serviceSlot1Time: "7:00 – 10:00 AM",
-  serviceSlot2Label: "2nd Service",
-  serviceSlot2Time: "10:30 AM onwards",
+  serviceSlot1Label: deploymentProfile.service1Label,
+  serviceSlot1Time: deploymentProfile.service1TimeText,
+  serviceSlot2Label: deploymentProfile.service2Label,
+  serviceSlot2Time: deploymentProfile.service2TimeText,
   supportPhone: "",
   announcementBanner: "",
 };
@@ -92,8 +94,19 @@ router.put("/settings/location", authMiddleware, requireRoles("super_admin", "ad
       .where(eq(churchSettingsTable.id, 1));
   }
 
+  invalidateChurchProfile();
   const updated = await db.select().from(churchSettingsTable).where(eq(churchSettingsTable.id, 1));
   res.json(updated[0]);
+});
+
+/**
+ * GET /api/church-profile
+ * Public — the web app loads this before sign-in to brand itself for this
+ * church (name, logo, colours, service names and times).
+ */
+router.get("/church-profile", async (_req, res): Promise<void> => {
+  res.set("Cache-Control", "public, max-age=300");
+  res.json(publicChurchProfile(await getChurchProfile()));
 });
 
 /**
@@ -178,6 +191,7 @@ router.put(
         .where(eq(churchSettingsTable.id, 1));
     }
 
+    invalidateChurchProfile();
     const updated = await db.select().from(churchSettingsTable).where(eq(churchSettingsTable.id, 1));
     res.json({
       serviceSlot1Label: updated[0].serviceSlot1Label,
