@@ -30,6 +30,7 @@ import {
   verifyReleaseProof,
   type VerifiedRelease,
 } from "../services/checkoutReleaseProof";
+import { toSafeChildResponse } from "../lib/childResponse";
 
 export { familyCodeFromQr };
 
@@ -114,7 +115,7 @@ async function getTeacherAllocatedClassIds(userId: number): Promise<number[]> {
 async function formatAttendanceWith(executor: any, a: typeof attendanceTable.$inferSelect) {
   const [child] = await executor.select().from(childrenTable).where(eq(childrenTable.id, a.childId));
   const [cls] = await executor.select().from(classesTable).where(eq(classesTable.id, a.classId));
-  return { ...a, child: child || null, class: cls || null };
+  return { ...a, child: child ? toSafeChildResponse(child) : null, class: cls || null };
 }
 
 async function formatAttendance(a: typeof attendanceTable.$inferSelect) {
@@ -786,7 +787,7 @@ router.post(
       }
     }
     const lastAttendance = recentAttendance.length > 0 ? recentAttendance[recentAttendance.length - 1] : null;
-    return { ...child, age, currentClass, teacher: null, lastAttendance, attendanceHistory: recentAttendance };
+    return { ...toSafeChildResponse(child), age, currentClass, teacher: null, lastAttendance, attendanceHistory: recentAttendance };
   }));
   // Enrich family with parent name for the check-in UI
   let parent1: { firstName: string; lastName: string } | null = null;
@@ -953,7 +954,7 @@ router.post(
       .orderBy(attendanceTable.serviceDate)
       .limit(5);
     const lastAttendance = recentAttendance.length > 0 ? recentAttendance[recentAttendance.length - 1] : null;
-    return { ...child, age, currentClass, teacher: null, lastAttendance, attendanceHistory: recentAttendance };
+    return { ...toSafeChildResponse(child), age, currentClass, teacher: null, lastAttendance, attendanceHistory: recentAttendance };
   }));
 
   const safeChildren = childrenWithDetails.map(child => ({

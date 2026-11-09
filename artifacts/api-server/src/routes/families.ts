@@ -13,6 +13,7 @@ import {
 } from "../lib/routeAuthorization";
 import { toSafeChildResponse } from "../lib/childResponse";
 import { toSafeFamilyResponse } from "../lib/familyResponse";
+import { sendRouteError } from "../lib/httpErrors";
 
 async function teacherFamilyClassIds(userId: number, familyId: number): Promise<number[]> {
   const classIds = await getTeacherClassIds(userId);
@@ -143,7 +144,7 @@ router.get("/families", authMiddleware, async (req, res): Promise<void> => {
     res.json({ data: formatted, total: Number(count), page, limit });
   } catch (err) {
     req.log.error({ err }, "Failed to list families");
-    res.status(500).json({ error: "Failed to list families" });
+    sendRouteError(req, res, err, "Failed to list families");
   }
 });
 
@@ -172,7 +173,7 @@ router.post("/families", authMiddleware, async (req, res): Promise<void> => {
     res.status(201).json(formatted);
   } catch (err) {
     req.log.error({ err }, "Failed to create family");
-    res.status(500).json({ error: "Failed to create family" });
+    sendRouteError(req, res, err, "Failed to create family");
   }
 });
 
@@ -190,7 +191,7 @@ router.get("/families/my", authMiddleware, requireRoles("parent"), async (req, r
     res.json(formatted);
   } catch (err) {
     req.log.error({ err }, "Failed to load my family");
-    res.status(500).json({ error: "Failed to load family" });
+    sendRouteError(req, res, err, "Failed to load family");
   }
 });
 
@@ -206,7 +207,7 @@ router.get("/families/:id", authMiddleware, async (req, res): Promise<void> => {
     res.json(formatted);
   } catch (err) {
     req.log.error({ err }, "Failed to get family");
-    res.status(500).json({ error: "Failed to get family" });
+    sendRouteError(req, res, err, "Failed to get family");
   }
 });
 
@@ -239,7 +240,7 @@ router.put("/families/:id", authMiddleware, async (req, res): Promise<void> => {
     res.json(formatted);
   } catch (err) {
     req.log.error({ err }, "Failed to update family");
-    res.status(500).json({ error: "Failed to update family" });
+    sendRouteError(req, res, err, "Failed to update family");
   }
 });
 
@@ -291,7 +292,7 @@ router.get("/families/:id/tree", authMiddleware, async (req, res): Promise<void>
     res.json({ family: toSafeFamilyResponse(family), parents, children: childrenWithDetails });
   } catch (err) {
     req.log.error({ err }, "Failed to get family tree");
-    res.status(500).json({ error: "Failed to get family tree" });
+    sendRouteError(req, res, err, "Failed to get family tree");
   }
 });
 
@@ -306,7 +307,7 @@ router.delete("/families/:id", authMiddleware, requireRoles("super_admin", "admi
     res.json({ success: true });
   } catch (err) {
     req.log.error({ err }, "Failed to delete family");
-    res.status(500).json({ error: "Failed to delete family" });
+    sendRouteError(req, res, err, "Failed to delete family");
   }
 });
 
@@ -320,7 +321,7 @@ router.patch("/families/:id/notes", authMiddleware, requireRoles("super_admin", 
     res.json({ success: true, notes: family.notes });
   } catch (err) {
     req.log.error({ err }, "Failed to update family notes");
-    res.status(500).json({ error: "Failed to update notes" });
+    sendRouteError(req, res, err, "Failed to update notes");
   }
 });
 
@@ -340,7 +341,7 @@ router.get("/families/:id/qr-code", authMiddleware, async (req, res): Promise<vo
     res.json({ qrCode: `QR:${family.id}`, familyCode: family.familyCode, familyId: family.id });
   } catch (err) {
     req.log.error({ err }, "Failed to get family QR code");
-    res.status(500).json({ error: "Failed to get QR code" });
+    sendRouteError(req, res, err, "Failed to get QR code");
   }
 });
 

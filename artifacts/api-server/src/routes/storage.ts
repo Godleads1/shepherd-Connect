@@ -7,6 +7,7 @@ import {
 import { ObjectStorageService, ObjectNotFoundError } from "../lib/objectStorage";
 import { authMiddleware } from "../middlewares/auth";
 import { canReadPrivateObject, registerPendingObject } from "../lib/privateObjectAccess";
+import { sendRouteError } from "../lib/httpErrors";
 
 const router: IRouter = Router();
 const objectStorageService = new ObjectStorageService();
@@ -50,7 +51,7 @@ router.post("/storage/uploads/request-url", authMiddleware, async (req: Request,
     );
   } catch (error) {
     req.log.error({ err: error }, "Error generating upload URL");
-    res.status(500).json({ error: "Failed to generate upload URL" });
+    sendRouteError(req, res, error, "Failed to generate upload URL");
   }
 });
 
@@ -84,7 +85,7 @@ router.get("/storage/public-objects/*filePath", async (req: Request, res: Respon
     }
   } catch (error) {
     req.log.error({ err: error }, "Error serving public object");
-    res.status(500).json({ error: "Failed to serve public object" });
+    sendRouteError(req, res, error, "Failed to serve public object");
   }
 });
 

@@ -72,6 +72,27 @@ function _normalizePhone(phone: string): string {
   return digits;
 }
 
+// A reconnect that itself fails (network blip while fetching the Baileys
+// version, auth files briefly unreadable) used to be an unhandled rejection
+// that either crashed the API or left the bot silently offline until an admin
+// reconnected it. Retry with capped backoff instead.
+let _reconnectAttempt = 0;
+let _reconnectTimer: NodeJS.Timeout | null = null;
+function _scheduleReconnect(delayMs: number): void {
+  if (_reconnectTimer) return;
+  _reconnectTimer = setTimeout(() => {
+    _reconnectTimer = null;
+    _connect().then(() => { _reconnectAttempt = 0; }).catch(err => {
+      _reconnectAttempt += 1;
+      _status = "disconnected";
+      const next = Math.min(5_000 * 2 ** Math.min(_reconnectAttempt, 6), 5 * 60_000);
+      logger.error({ err: String(err), attempt: _reconnectAttempt, nextInMs: next }, "WhatsApp reconnect failed — retrying");
+      if (_shouldReconnect) _scheduleReconnect(next);
+    });
+  }, delayMs);
+  _reconnectTimer.unref();
+}
+
 async function _connect(): Promise<void> {
   if (!fs.existsSync(AUTH_DIR)) fs.mkdirSync(AUTH_DIR, { recursive: true });
 
@@ -155,7 +176,8 @@ async function _connect(): Promise<void> {
 
       if (!text.trim() && !imageBuffer) continue;
 
-      logger.info({ from: fromJid, text, isImage }, "WhatsApp inbound message");
+      // Message text is not logged: it can contain phone numbers, codes and safeguarding concerns.
+      logger.info({ from: fromJid, length: text.length, isImage }, "WhatsApp inbound message");
 
       const capturedSock = sock;
 
@@ -227,7 +249,7 @@ async function _connect(): Promise<void> {
         _resetState();
       } else if (_shouldReconnect) {
         logger.info({ code }, "WhatsApp reconnecting in 5 s");
-        setTimeout(_connect, 5000);
+        _scheduleReconnect(5000);
       }
 
       if (!_shouldReconnect) sock = null;

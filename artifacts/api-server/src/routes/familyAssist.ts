@@ -15,6 +15,7 @@ import {
   persistCommandOperation,
   replayCommandResult,
 } from "../services/commandOperations";
+import { toSafeChildResponse } from "../lib/childResponse";
 
 const router = Router();
 
@@ -116,7 +117,7 @@ router.get("/family-assist/search", authMiddleware, requireRoles("super_admin", 
         const [cls] = await db.select().from(classesTable).where(eq(classesTable.id, c.currentClassId));
         currentClass = cls ?? null;
       }
-      return { ...c, currentClass };
+      return { ...toSafeChildResponse(c), currentClass };
     }));
     return {
       id: fam.id,
@@ -347,7 +348,7 @@ router.post("/family-assist/guest", authMiddleware, requireRoles("super_admin", 
     }
 
     const assignedClass = assignedClassId ? allClasses.find(cls => cls.id === assignedClassId) ?? null : null;
-    createdChildren.push({ ...child, currentClass: assignedClass });
+    createdChildren.push({ ...toSafeChildResponse(child), currentClass: assignedClass });
   }
 
   res.status(201).json({

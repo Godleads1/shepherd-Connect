@@ -10,7 +10,9 @@ const MessagingResponse = twilio.twiml.MessagingResponse;
 
 function validateTwilioSignature(req: Parameters<typeof twilio.validateRequest>[2] extends infer R ? any : any): boolean {
   const authToken = process.env.TWILIO_AUTH_TOKEN ?? "";
-  if (!authToken) return true;
+  // Fail closed: without a token there is no way to prove the request came
+  // from Twilio, and this endpoint reveals children's names and live status.
+  if (!authToken) return false;
   const signature = (req.headers["x-twilio-signature"] as string) ?? "";
   const proto = (req.headers["x-forwarded-proto"] as string) ?? "https";
   const host = (req.headers["x-forwarded-host"] as string) ?? (req.headers["host"] as string) ?? "";
@@ -32,12 +34,14 @@ Reply with:
 *HELP* - Show this menu`;
 
 router.post("/webhooks/whatsapp", async (req, res): Promise<void> => {
-  if (process.env.NODE_ENV === "production") {
-    if (!validateTwilioSignature(req)) {
-      logger.warn({ path: req.path }, "Invalid Twilio signature rejected");
-      res.status(403).send("Forbidden");
-      return;
-    }
+  if (!process.env.TWILIO_AUTH_TOKEN) {
+    res.status(503).send("WhatsApp webhook is not configured");
+    return;
+  }
+  if (!validateTwilioSignature(req)) {
+    logger.warn({ path: req.path }, "Invalid Twilio signature rejected");
+    res.status(403).send("Forbidden");
+    return;
   }
 
   const body = req.body as Record<string, string>;

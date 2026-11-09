@@ -6,12 +6,13 @@ import { authMiddleware, requireRoles } from "../middlewares/auth";
 import { emailShepherdsReport } from "../services/sms";
 import { pushToUsers } from "../services/push";
 import { getParentChildIds } from "../lib/parentScope";
+import { toSafeChildResponse } from "../lib/childResponse";
 
 const router = Router();
 
 async function formatAppraisalWith(executor: any, a: typeof childAppraisalsTable.$inferSelect) {
   const [child] = await executor.select().from(childrenTable).where(eq(childrenTable.id, a.childId));
-  return { ...a, child: child || null };
+  return { ...a, child: child ? toSafeChildResponse(child) : null };
 }
 
 async function formatAppraisal(a: typeof childAppraisalsTable.$inferSelect) {

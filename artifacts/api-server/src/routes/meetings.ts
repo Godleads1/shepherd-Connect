@@ -9,6 +9,7 @@ import {
 import { streamPdf, renderReportPdf } from "../lib/pdf";
 import { formatServiceDateTime } from "../lib/serviceTime";
 import { teacherReportCsv } from "./teacherAttendanceReports";
+import { sendRouteError } from "../lib/httpErrors";
 
 const router = Router();
 const admin = (req: Request) => ["admin", "super_admin"].includes(req.user!.role);
@@ -25,7 +26,7 @@ function wrap(handler: (req: Request, res: Response) => Promise<void>) {
         res.status(error.status).json({ error: error.message }); return;
       }
       req.log.error({ err: error }, "Meeting attendance request failed");
-      if (!res.headersSent) res.status(500).json({ error: "Meeting attendance is unavailable. Please try again." });
+      sendRouteError(req, res, error, "Meeting attendance is unavailable. Please try again.");
     }
   };
 }

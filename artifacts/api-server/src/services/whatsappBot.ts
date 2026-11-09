@@ -38,6 +38,7 @@ import {
 import { eq, or, desc, and, inArray, lt, sql } from "drizzle-orm";
 import { createHmac, randomBytes, randomInt, timingSafeEqual } from "crypto";
 import { logger } from "../lib/logger";
+import { checkLidChallenge, issueLidChallenge, LID_MAX_SENDS } from "./whatsappLidVerification";
 import { CustodyHandoverError, releasePhysicalCustody, requestCustodyEpisode } from "./custodyHandover";
 import { createNotificationDelivery } from "./notificationOutbox";
 import { ObjectStorageService } from "../lib/objectStorage";
@@ -62,6 +63,7 @@ type UserRole = "parent" | "teacher" | "admin" | "super_admin" | "attendant" | "
 type Step =
   | "idle"
   | "lid_verify_phone"
+  | "lid_verify_code"
   | "role_select"
   | "concern_select_type"
   | "concern_enter_desc"
@@ -483,7 +485,7 @@ function lastActionShortcut(lastAction: string | undefined): string {
   if (!lastAction) return "";
   const map: Record<string, string> = {
     CHECK_STATUS: "📋 _Last: attendance status (type *1* to check again)_",
-    GET_OTP: "🔑 _Last: pickup OTPs (type *2* to view again)_",
+    GET_OTP: "🔑 _Last: pickup delegates (type *2* to view again)_",
     MY_CHILDREN: "👶 _Last: my children (type *3* to view again)_",
     NOTIFICATIONS: "🔔 _Last: notifications (type *4* to view again)_",
     CUSTODY_REQUEST: "🤝 _Last: custody request (type *7* to request again)_",
@@ -575,13 +577,14 @@ function otpText(
     return [
       `👦 *${c.firstName} ${c.lastName}*`,
       ...dels.map(d => {
+        // Pickup codes release a child, so they are never sent over the bot.
         const valid = d.otpCode && d.otpExpiresAt && d.otpExpiresAt > now;
-        return `   👤 ${d.name}: ${valid ? `*${d.otpCode}*` : "_(expired — regenerate in app)_"}`;
+        return `   👤 ${d.name}: ${valid ? "✅ code active" : "_(expired — regenerate in app)_"}`;
       }),
     ];
   });
   return !lines.length ? `ℹ️ No delegates found.`
-    : `🔑 *Pickup Delegate OTPs*\n\n${lines.join("\n")}\n\n_Show OTP to the attendant at pickup. Valid 24 hours._`;
+    : `🔑 *Pickup Delegates*\n\n${lines.join("\n")}\n\n_For safety, pickup codes are only shown in the Shepherd Connect app: My Family → Delegates._`;
 }
 
 function notificationsText(notifs: Awaited<ReturnType<typeof getRecentNotifications>>) {
@@ -844,33 +847,70 @@ async function processInboundMessage(
     } else {
       const session = await getSession(fromJid);
       if (session.step === "lid_verify_phone") {
+        const sends = Number(session.data.lidSends ?? "0");
+        if (sends >= LID_MAX_SENDS) {
+          await reply(`⛔ Too many verification attempts. Please try again in 15 minutes.`); return;
+        }
         const matches = await findUsersByPhone(text.trim());
-        if (!matches.length) {
-          await reply(`❌ I couldn't find that number.\n\nPlease check and try again.\n\n_Type your registered phone (e.g. 08012345678):_`);
-          return;
-        }
         // A LID is opaque and typing a number is not proof of possession.
-        // It may only bind an already WhatsApp-verified account.
-        if (matches.some(match => match.whatsappVerified === false)) {
-          await reply(`⛔ This WhatsApp contact has not been verified in the app.`); return;
+        // Never bind on the typed number alone: send a one-time code to the
+        // account's real WhatsApp number and require it to be echoed here.
+        // The reply is identical whether or not the number exists, so this
+        // step cannot be used to discover who is registered.
+        const genericReply = `📲 If that number is registered, we've sent a 6-digit code to its WhatsApp chat.\n\n_Type the code here to finish verifying (valid 10 minutes). Type *0* to start over._`;
+        let targetJid: string | null = null;
+        try { targetJid = matches[0]?.phone ? phoneToWaJid(matches[0].phone) : null; } catch { targetJid = null; }
+        if (!targetJid || matches.some(match => match.whatsappVerified === false)) {
+          await saveSession(fromJid, { step: "lid_verify_code", data: { lidSends: String(sends + 1) } });
+          await reply(genericReply); return;
         }
-        resolvedUserId = matches[0]!.id;
-        if (matches.length > 1) {
-          const s: Session = { step: "role_select", data: { candidates: matches.map(u => u.id).join(",") } };
-          await saveSession(fromJid, s);
-          const opts = matches.map((u, i) => `*${i + 1}* — ${roleLabel(u.role as UserRole)} (${u.firstName} ${u.lastName})`).join("\n");
-          await reply(`I found multiple accounts. Which one are you using today?\n\n${opts}`);
+        const { code, challenge } = issueLidChallenge(STEP_UP_KEY, fromJid, matches.map(u => u.id));
+        const { sendWhatsAppToJid } = await import("./whatsapp");
+        await sendWhatsAppToJid(targetJid,
+          `🔐 *Shepherd Connect* verification code: *${code}*\n\nSomeone asked to link a WhatsApp chat to your account. If this wasn't you, ignore this message and do not share the code.`);
+        await saveSession(fromJid, { step: "lid_verify_code", data: { ...challenge, lidSends: String(sends + 1) } });
+        await reply(genericReply);
+        return;
+      } else if (session.step === "lid_verify_code") {
+        if (/^(0|cancel|restart)$/i.test(input)) {
+          await saveSession(fromJid, { step: "lid_verify_phone", data: { lidSends: session.data.lidSends } });
+          await reply(`Type your registered phone number (e.g. 08012345678):`); return;
+        }
+        const result = checkLidChallenge(STEP_UP_KEY, fromJid, session.data as Record<string, string | undefined>, text);
+        if (!result.ok) {
+          if (result.reason === "mismatch") {
+            session.data.lidAttempts = String(result.attempts);
+            await saveSession(fromJid, session);
+            await reply(`❌ That code is not correct. Please try again, or type *0* to start over.`); return;
+          }
+          await saveSession(fromJid, { step: "lid_verify_phone", data: { lidSends: session.data.lidSends } });
+          await reply(result.reason === "locked"
+            ? `⛔ Too many wrong codes. Type your registered phone number to get a new code.`
+            : `⌛ That code has expired. Type your registered phone number to get a new code.`);
           return;
         }
-        await setLidUserId(fromJid, matches[0]!.id, matches[0]!.contactVersion);
-        await resetSession(fromJid, matches[0]!.id);
-        const user = await findUserById(matches[0]!.id);
-        if (user) {
-          if (user.role === "teacher") await reply(teacherMenuText(user.firstName));
-          else if (user.role === "support") await reply(supportMenuText(user.firstName));
-          else await reply(parentMenuText(user.firstName));
+        const verified = (await Promise.all(result.candidateIds.map(findUserById)))
+          .filter((u): u is NonNullable<typeof u> => isActiveUser(u) && u.whatsappVerified !== false);
+        if (!verified.length) { await resetSession(fromJid); await reply(`⛔ This account is not active. Please contact the church admin.`); return; }
+        if (verified.length > 1) {
+          // Ownership of the phone is now proven, so choosing between that
+          // phone's own accounts is safe; role_select binds the chosen one.
+          const s: Session = { step: "role_select", data: { candidates: verified.map(u => u.id).join(","), lidVerified: "1" } };
+          await saveSession(fromJid, s);
+          const opts = verified.map((u, i) => `*${i + 1}* — ${roleLabel(u.role as UserRole)} (${u.firstName} ${u.lastName})`).join("\n");
+          await reply(`✅ Verified. I found multiple accounts. Which one are you using today?\n\n${opts}`);
+          return;
         }
+        const user = verified[0]!;
+        await setLidUserId(fromJid, user.id, user.contactVersion);
+        await resetSession(fromJid, user.id);
+        if (user.role === "teacher") await reply(teacherMenuText(user.firstName));
+        else if (user.role === "support") await reply(supportMenuText(user.firstName));
+        else await reply(parentMenuText(user.firstName));
         return;
+      } else if (session.step === "role_select" && session.data.lidVerified === "1" && session.data.candidates) {
+        // Code already proven; let the role_select handler below bind the choice.
+        resolvedUserId = Number(session.data.candidates.split(",")[0]);
       } else {
         const s: Session = { step: "lid_verify_phone", data: {} };
         await saveSession(fromJid, s);

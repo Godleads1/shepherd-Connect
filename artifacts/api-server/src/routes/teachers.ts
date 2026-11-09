@@ -9,6 +9,7 @@ import {
   canonicalSecondaryRoles,
   lockUserById,
 } from "../lib/roleMutations";
+import { sendRouteError } from "../lib/httpErrors";
 
 const UpdateTeacherUserBody = z.object({
   firstName:      z.string().min(1).optional(),
@@ -24,22 +25,27 @@ const SelectClassBody = z.object({
 
 const router = Router();
 
-function sanitizeUser(user: typeof usersTable.$inferSelect) {
+// Teacher contact details are for staff. Parents can see who teaches but not
+// teachers' private email/phone (previously every signed-in user could list
+// all teachers' contact details).
+const TEACHER_CONTACT_VIEWER_ROLES = new Set(["super_admin", "admin", "support", "attendant", "teacher"]);
+
+function sanitizeUser(user: typeof usersTable.$inferSelect, includeContact = true) {
   return {
-    id: user.id, email: user.email, phone: user.phone, role: user.role,
+    id: user.id, email: includeContact ? user.email : null, phone: includeContact ? user.phone : null, role: user.role,
     firstName: user.firstName, lastName: user.lastName, isActive: user.isActive,
     createdAt: user.createdAt, primaryClassId: user.primaryClassId,
   };
 }
 
-async function formatTeacher(t: typeof teachersTable.$inferSelect, query: Pick<typeof db, "select"> = db) {
+async function formatTeacher(t: typeof teachersTable.$inferSelect, query: Pick<typeof db, "select"> = db, includeContact = true) {
   const [user] = await query.select().from(usersTable).where(eq(usersTable.id, t.userId));
   let primaryClass: { id: number; name: string } | null = null;
   if (user?.primaryClassId) {
     const [cls] = await query.select().from(classesTable).where(eq(classesTable.id, user.primaryClassId));
     if (cls) primaryClass = { id: cls.id, name: cls.name };
   }
-  return { ...t, user: user ? sanitizeUser(user) : null, primaryClass };
+  return { ...t, user: user ? sanitizeUser(user, includeContact) : null, primaryClass };
 }
 
 router.get("/teachers", authMiddleware, async (_req, res): Promise<void> => {
@@ -76,7 +82,7 @@ router.get("/teachers", authMiddleware, async (_req, res): Promise<void> => {
 
     const formatted = rows.map(row => ({
       ...row.teachers,
-      user: row.users ? sanitizeUser(row.users) : null,
+      user: row.users ? sanitizeUser(row.users, TEACHER_CONTACT_VIEWER_ROLES.has(_req.user!.role)) : null,
       primaryClass: row.users?.primaryClassId
         ? { id: row.users.primaryClassId, name: classMap[row.users.primaryClassId] ?? "Unknown Class" }
         : null,
@@ -84,7 +90,7 @@ router.get("/teachers", authMiddleware, async (_req, res): Promise<void> => {
     res.json(formatted);
   } catch (err) {
     (_req as any).log?.error({ err }, "Failed to list teachers");
-    res.status(500).json({ error: "Failed to list teachers" });
+    sendRouteError(_req, res, err, "Failed to list teachers");
   }
 });
 
@@ -115,7 +121,7 @@ router.post("/teachers", authMiddleware, requireRoles("super_admin", "admin"), a
     res.status(201).json(response);
   } catch (err) {
     req.log.error({ err }, "Failed to create teacher");
-    res.status(500).json({ error: "Failed to create teacher" });
+    sendRouteError(req, res, err, "Failed to create teacher");
   }
 });
 
@@ -125,10 +131,10 @@ router.get("/teachers/:id", authMiddleware, async (req, res): Promise<void> => {
     if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
     const [teacher] = await db.select().from(teachersTable).where(eq(teachersTable.id, id));
     if (!teacher) { res.status(404).json({ error: "Not found", message: "Teacher not found" }); return; }
-    res.json(await formatTeacher(teacher));
+    res.json(await formatTeacher(teacher, db, TEACHER_CONTACT_VIEWER_ROLES.has(req.user!.role)));
   } catch (err) {
     req.log.error({ err }, "Failed to get teacher");
-    res.status(500).json({ error: "Failed to get teacher" });
+    sendRouteError(req, res, err, "Failed to get teacher");
   }
 });
 
@@ -163,7 +169,7 @@ router.put("/teachers/:id", authMiddleware, requireRoles("super_admin", "admin")
     res.json(result.response);
   } catch (err) {
     req.log.error({ err }, "Failed to update teacher");
-    res.status(500).json({ error: "Failed to update teacher" });
+    sendRouteError(req, res, err, "Failed to update teacher");
   }
 });
 
@@ -224,7 +230,7 @@ router.post("/teachers/notify-select-class", authMiddleware, requireRoles("super
     res.json({ success: true, sent: unassigned.length, message: `Notified ${unassigned.length} teacher(s) to select their class.` });
   } catch (err) {
     req.log.error({ err }, "Failed to notify teachers to select class");
-    res.status(500).json({ error: "Failed to send notifications" });
+    sendRouteError(req, res, err, "Failed to send notifications");
   }
 });
 
@@ -248,7 +254,7 @@ router.post("/teachers/me/select-class", authMiddleware, requireRoles("teacher",
     res.json({ success: true, primaryClass: { id: cls.id, name: cls.name } });
   } catch (err) {
     req.log.error({ err }, "Failed to select class");
-    res.status(500).json({ error: "Failed to select class" });
+    sendRouteError(req, res, err, "Failed to select class");
   }
 });
 

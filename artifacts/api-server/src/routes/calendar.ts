@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { db, classesTable } from "@workspace/db";
 import { logger } from "../lib/logger";
+import { sendRouteError } from "../lib/httpErrors";
 
 const router = Router();
 
@@ -69,7 +70,7 @@ router.get("/calendar/classes.ics", async (req, res): Promise<void> => {
     res.send(lines.join("\r\n"));
   } catch (err) {
     logger.error({ err }, "Failed to generate calendar feed");
-    res.status(500).json({ error: "Failed to generate calendar" });
+    sendRouteError(req, res, err, "Failed to generate calendar");
   }
 });
 

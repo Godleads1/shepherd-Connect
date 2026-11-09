@@ -145,6 +145,11 @@ export async function pollNotificationOutbox(): Promise<void> {
         await finalizeNotification(db, { ...row, outcome: "retryable", failureClassification: "worker_error", failureDetail: error }).catch(() => {});
       }
     }
+  } catch (error) {
+    // This runs from a timer every few seconds. An uncaught rejection here
+    // (e.g. the database briefly unreachable) used to crash the whole API.
+    // Claimed rows keep their lease and are retried on the next poll.
+    logger.warn({ err: error }, "notification outbox poll failed; will retry");
   } finally {
     running = false;
   }

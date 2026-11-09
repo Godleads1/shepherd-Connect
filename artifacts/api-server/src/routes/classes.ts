@@ -1,9 +1,12 @@
 import { Router } from "express";
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and, sql, inArray } from "drizzle-orm";
+import { z } from "zod";
 import { db, classesTable, childrenTable, classWaitlistTable, familiesTable, usersTable, notificationsTable } from "@workspace/db";
 import { CreateClassBody, ListClassesQueryParams } from "@workspace/api-zod";
 import { authMiddleware, requireRoles } from "../middlewares/auth";
 import { sendNotification } from "../lib/notify";
+import { parentOwnsFamily } from "../lib/parentScope";
+import { isFamilyChildOperationalRole } from "../lib/routeAuthorization";
 
 const router = Router();
 
@@ -54,6 +57,10 @@ router.get("/classes/waitlist", authMiddleware, async (req, res): Promise<void> 
   if (!familyIdStr) { res.status(400).json({ error: "Bad request", message: "familyId query param required" }); return; }
   const familyId = parseInt(familyIdStr, 10);
   if (isNaN(familyId)) { res.status(400).json({ error: "Bad request", message: "Invalid familyId" }); return; }
+  if (!isFamilyChildOperationalRole(req.user!.role)
+    && !(req.user!.role === "parent" && await parentOwnsFamily(req.user!.userId, familyId))) {
+    res.status(403).json({ error: "Forbidden", message: "Access denied" }); return;
+  }
   const entries = await db.select().from(classWaitlistTable)
     .where(and(eq(classWaitlistTable.familyId, familyId), eq(classWaitlistTable.status, "waiting")))
     .orderBy(classWaitlistTable.requestedAt);
@@ -96,25 +103,55 @@ router.delete("/classes/:id", authMiddleware, requireRoles("super_admin", "admin
   res.json({ success: true, message: "Class deleted" });
 });
 
-router.get("/classes/:id/waitlist", authMiddleware, async (req, res): Promise<void> => {
+// The class waitlist is an admin tool. It previously returned raw child and
+// family rows (medical notes, face template, the family QR code used to
+// release children, staff notes) to any signed-in user. It now returns only
+// the fields the admin waitlist page displays.
+router.get("/classes/:id/waitlist", authMiddleware, requireRoles("super_admin", "admin"), async (req, res): Promise<void> => {
   const id = parseInt(req.params.id as string, 10);
   if (isNaN(id)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
   const entries = await db.select().from(classWaitlistTable)
-    .where(and(eq(classWaitlistTable.classId, id), eq(classWaitlistTable.status, "waiting")))
+    .where(and(eq(classWaitlistTable.classId, id), inArray(classWaitlistTable.status, ["waiting", "notified"])))
     .orderBy(classWaitlistTable.requestedAt);
   const enriched = await Promise.all(entries.map(async (e) => {
-    const [child] = await db.select().from(childrenTable).where(eq(childrenTable.id, e.childId));
-    const [fam] = await db.select().from(familiesTable).where(eq(familiesTable.id, e.familyId));
-    return { ...e, child: child || null, family: fam || null };
+    const [child] = await db.select({ firstName: childrenTable.firstName, lastName: childrenTable.lastName })
+      .from(childrenTable).where(eq(childrenTable.id, e.childId));
+    const [fam] = await db.select({ familyCode: familiesTable.familyCode, parent1Id: familiesTable.parent1Id })
+      .from(familiesTable).where(eq(familiesTable.id, e.familyId));
+    const [parent] = fam?.parent1Id
+      ? await db.select({ firstName: usersTable.firstName, lastName: usersTable.lastName, phone: usersTable.phone })
+        .from(usersTable).where(eq(usersTable.id, fam.parent1Id))
+      : [];
+    return {
+      ...e,
+      childName: child ? `${child.firstName} ${child.lastName}` : null,
+      familyCode: fam?.familyCode ?? null,
+      parentName: parent ? `${parent.firstName} ${parent.lastName}` : null,
+      parentPhone: parent?.phone ?? null,
+    };
   }));
   res.json(enriched);
 });
 
+const WaitlistBody = z.object({ childId: z.number().int().positive(), familyId: z.number().int().positive() });
+
 router.post("/classes/:id/waitlist", authMiddleware, async (req, res): Promise<void> => {
   const classId = parseInt(req.params.id as string, 10);
   if (isNaN(classId)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
-  const { childId, familyId } = req.body as { childId: number; familyId: number };
-  if (!childId || !familyId) { res.status(400).json({ error: "Bad request", message: "childId and familyId are required" }); return; }
+  const parsed = WaitlistBody.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: "Bad request", message: "childId and familyId are required" }); return; }
+  const { childId, familyId } = parsed.data;
+  const { userId, role } = req.user!;
+  const isStaff = isFamilyChildOperationalRole(role);
+  if (!isStaff && role !== "parent") { res.status(403).json({ error: "Forbidden", message: "Access denied" }); return; }
+
+  const [cls] = await db.select({ id: classesTable.id }).from(classesTable).where(eq(classesTable.id, classId));
+  if (!cls) { res.status(404).json({ error: "Not found", message: "Class not found" }); return; }
+  const [child] = await db.select({ familyId: childrenTable.familyId }).from(childrenTable).where(eq(childrenTable.id, childId));
+  if (!child || child.familyId !== familyId) { res.status(400).json({ error: "Bad request", message: "Child does not belong to that family" }); return; }
+  if (!isStaff && !(await parentOwnsFamily(userId, familyId))) {
+    res.status(403).json({ error: "Forbidden", message: "You can only add your own children to a waitlist" }); return;
+  }
 
   const [existing] = await db.select().from(classWaitlistTable)
     .where(and(eq(classWaitlistTable.classId, classId), eq(classWaitlistTable.childId, childId), eq(classWaitlistTable.status, "waiting")));
@@ -128,8 +165,14 @@ router.delete("/classes/:classId/waitlist/:entryId", authMiddleware, async (req,
   const classId = parseInt(req.params.classId as string, 10);
   const entryId = parseInt(req.params.entryId as string, 10);
   if (isNaN(classId) || isNaN(entryId)) { res.status(400).json({ error: "Bad request", message: "Invalid ID" }); return; }
-  await db.update(classWaitlistTable).set({ status: "cancelled" })
+  const { userId, role } = req.user!;
+  const [entry] = await db.select().from(classWaitlistTable)
     .where(and(eq(classWaitlistTable.id, entryId), eq(classWaitlistTable.classId, classId)));
+  if (!entry) { res.status(404).json({ error: "Not found", message: "Waitlist entry not found" }); return; }
+  if (!isFamilyChildOperationalRole(role) && !(role === "parent" && await parentOwnsFamily(userId, entry.familyId))) {
+    res.status(403).json({ error: "Forbidden", message: "Access denied" }); return;
+  }
+  await db.update(classWaitlistTable).set({ status: "cancelled" }).where(eq(classWaitlistTable.id, entryId));
   res.json({ success: true });
 });
 

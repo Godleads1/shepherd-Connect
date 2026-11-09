@@ -5,6 +5,7 @@ import { authMiddleware, requireRoles } from "../middlewares/auth";
 import { buildTeacherAttendanceReport, teacherReportPeriod } from "../services/teacherAttendanceReport";
 import { streamPdf, renderReportPdf } from "../lib/pdf";
 import { formatServiceTime } from "../lib/serviceTime";
+import { sendRouteError } from "../lib/httpErrors";
 
 const router = Router();
 const MAX_SCANS = 100_000;
@@ -70,7 +71,7 @@ router.get("/reports/teacher-attendance", authMiddleware, requireRoles("super_ad
     }));
   } catch (err) {
     req.log.error({ err }, "Failed to generate teacher attendance report");
-    if (!res.headersSent) res.status(500).json({ error: "Could not generate teacher attendance report." });
+    sendRouteError(req, res, err, "Could not generate teacher attendance report.");
   }
 });
 export default router;
