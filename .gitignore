@@ -47,3 +47,10 @@ Thumbs.db
 # Replit
 .cache/
 .local/
+
+# Self-hosting: per-server secrets, generated config and backups
+deploy/.env
+deploy/.env.bak
+deploy/churches/
+deploy/generated/
+deploy/backups/

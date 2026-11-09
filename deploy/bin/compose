@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# docker compose for this server, with the generated per-church services.
+#   deploy/bin/compose ps | logs -f api-grace | restart api-grace | ...
+. "$(dirname "$0")/lib.sh"
+compose "$@"

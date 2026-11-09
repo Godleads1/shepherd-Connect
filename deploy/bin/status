@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Show containers and whether each church can reach its database.
+. "$(dirname "$0")/lib.sh"
+compose ps
+echo
+for slug in $(church_slugs); do
+  ready="$(compose exec -T "api-$slug" node -e \
+    "fetch('http://127.0.0.1:8080/api/readyz').then(r=>r.text()).then(t=>console.log(t)).catch(e=>console.log('unreachable'))" 2>/dev/null || echo "not running")"
+  printf "%-20s %s  %s\n" "$slug" "$(church_var "$slug" CHURCH_DOMAIN)" "$ready"
+done

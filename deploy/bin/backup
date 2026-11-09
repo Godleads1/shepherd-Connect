@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+# Nightly backup of every church: database dump (and, if offsite backup is
+# configured in deploy/.env, a copy of the dumps and each church's files to a
+# separate bucket). Schedule with cron, e.g.:
+#   15 2 * * * /opt/shepherd-connect/deploy/bin/backup >> /var/log/shepherd-backup.log 2>&1
+. "$(dirname "$0")/lib.sh"
+
+stamp="$(date -u +%Y%m%d-%H%M)"
+keep="${BACKUP_KEEP_DAYS:-30}"
+failed=0
+
+for slug in $(church_slugs); do
+  db="$(db_name "$slug")"
+  mkdir -p "$BACKUP_DIR/$slug"
+  out="$BACKUP_DIR/$slug/$slug-$stamp.dump"
+  if compose exec -T postgres pg_dump -U postgres -Fc "$db" > "$out.partial" && [ -s "$out.partial" ]; then
+    mv "$out.partial" "$out"
+    info "$slug: database saved ($(du -h "$out" | cut -f1))"
+  else
+    rm -f "$out.partial"; echo "error: $slug database backup FAILED" >&2; failed=1
+  fi
+  find "$BACKUP_DIR/$slug" -name "*.dump" -mtime +"$keep" -delete
+done
+
+AWS_IMAGE="${BACKUP_AWS_IMAGE:-amazon/aws-cli:latest}"
+RCLONE_IMAGE="${BACKUP_RCLONE_IMAGE:-rclone/rclone:latest}"
+aws() { docker run --rm -v "$BACKUP_DIR:/backups" -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY -e AWS_DEFAULT_REGION=auto "$AWS_IMAGE" "$@"; }
+
+if [ -n "${BACKUP_S3_BUCKET:-}" ]; then
+  export AWS_ACCESS_KEY_ID="$BACKUP_S3_ACCESS_KEY_ID" AWS_SECRET_ACCESS_KEY="$BACKUP_S3_SECRET_ACCESS_KEY"
+  endpoint=(); [ -n "${BACKUP_S3_ENDPOINT:-}" ] && endpoint=(--endpoint-url "$BACKUP_S3_ENDPOINT")
+  if aws s3 sync /backups "s3://$BACKUP_S3_BUCKET/databases" "${endpoint[@]}" --only-show-errors; then
+    info "database dumps copied offsite"
+  else
+    echo "error: offsite copy of database dumps FAILED" >&2; failed=1
+  fi
+  # Church files (photos, uploads): copy each church bucket into the backup bucket.
+  for slug in $(church_slugs); do
+    src_bucket="$(church_var "$slug" PRIVATE_OBJECT_DIR | cut -d/ -f2)"
+    if [ "$(church_var "$slug" STORAGE_DRIVER)" != "s3" ] || [ -z "$(church_var "$slug" S3_ACCESS_KEY_ID)" ] || [ -z "$src_bucket" ]; then
+      echo "warning: $slug has no S3 file storage configured — files not copied" >&2
+      continue
+    fi
+    if docker run --rm \
+        -e RCLONE_CONFIG_SRC_TYPE=s3 -e RCLONE_CONFIG_SRC_PROVIDER=Other \
+        -e RCLONE_CONFIG_SRC_ENDPOINT="$(church_var "$slug" S3_ENDPOINT)" \
+        -e RCLONE_CONFIG_SRC_ACCESS_KEY_ID="$(church_var "$slug" S3_ACCESS_KEY_ID)" \
+        -e RCLONE_CONFIG_SRC_SECRET_ACCESS_KEY="$(church_var "$slug" S3_SECRET_ACCESS_KEY)" \
+        -e RCLONE_CONFIG_DST_TYPE=s3 -e RCLONE_CONFIG_DST_PROVIDER=Other \
+        -e RCLONE_CONFIG_DST_ENDPOINT="${BACKUP_S3_ENDPOINT:-https://s3.amazonaws.com}" \
+        -e RCLONE_CONFIG_DST_ACCESS_KEY_ID="$BACKUP_S3_ACCESS_KEY_ID" \
+        -e RCLONE_CONFIG_DST_SECRET_ACCESS_KEY="$BACKUP_S3_SECRET_ACCESS_KEY" \
+        "$RCLONE_IMAGE" sync "src:$src_bucket" "dst:$BACKUP_S3_BUCKET/files/$slug" --metadata --quiet; then
+      info "$slug: files copied offsite"
+    else
+      echo "error: $slug files offsite copy FAILED" >&2; failed=1
+    fi
+  done
+else
+  echo "warning: BACKUP_S3_BUCKET is not set — backups are only on this server" >&2
+fi
+
+exit $failed

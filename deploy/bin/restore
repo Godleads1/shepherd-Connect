@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Restore one church's database from a dump made by bin/backup (or from an
+# export of another host). Replaces that church's data; other churches are
+# untouched.
+#   deploy/bin/restore <slug> <file.dump>
+. "$(dirname "$0")/lib.sh"
+
+slug="${1:-}"; dump="${2:-}"
+valid_slug "$slug" && [ -f "$CHURCHES_DIR/$slug/church.env" ] || die "unknown church: $slug"
+[ -f "$dump" ] || die "usage: restore <slug> <file.dump>"
+db="$(db_name "$slug")"
+
+read -r -p "This REPLACES all data for '$slug' with $dump. Type the church slug to continue: " answer
+[ "$answer" = "$slug" ] || die "cancelled"
+
+info "stopping api-$slug"
+compose stop "api-$slug" || true
+info "restoring into $db"
+compose exec -T postgres pg_restore -U postgres -d "$db" --clean --if-exists --no-owner --role="$db" --exit-on-error < "$dump"
+info "starting api-$slug"
+compose up -d "api-$slug"
+wait_healthy "api-$slug" && info "$slug is back up" || die "api-$slug did not become healthy — check: deploy/bin/compose logs api-$slug"
